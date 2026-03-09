@@ -5,8 +5,6 @@ import VellumAssistantShared
 
 struct ChatBubble: View {
     let message: ChatMessage
-    /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
-    let hideToolCalls: Bool
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
     let decidedConfirmation: ToolConfirmationData?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
@@ -104,7 +102,7 @@ struct ChatBubble: View {
                 bubbleBorderOverlay
             }
             // Outer frame: cap the maximum width and position the bubble.
-            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: message.isError ? .infinity : VSpacing.chatBubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {

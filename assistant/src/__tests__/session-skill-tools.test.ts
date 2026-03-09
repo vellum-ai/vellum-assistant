@@ -41,7 +41,7 @@ mock.module("../config/skills.js", () => ({
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
-  // Shared parsing logic for both deriveActiveSkills and deriveActiveSkillIds
+  // Shared parsing logic for deriveActiveSkills
   const parseMarkers = (messages: Message[]) => {
     // Two-pass approach matching real implementation:
     // 1. Collect tool_use IDs where name === 'skill_load'
@@ -81,8 +81,6 @@ mock.module("../skills/active-skill-tools.js", () => {
 
   return {
     deriveActiveSkills: (messages: Message[]) => parseMarkers(messages),
-    deriveActiveSkillIds: (messages: Message[]) =>
-      parseMarkers(messages).map((e) => e.id),
   };
 });
 
@@ -245,6 +243,7 @@ function makeSkill(id: string, dir?: string): SkillSummary {
   return {
     id,
     name: id,
+    displayName: id,
     description: `Skill ${id}`,
     directoryPath: dir ?? `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,

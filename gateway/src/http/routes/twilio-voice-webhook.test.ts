@@ -56,6 +56,7 @@ mock.module("../../logger.js", () => ({
 
 import { createTwilioVoiceWebhookHandler } from "./twilio-voice-webhook.js";
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 
 // ── Test config ────────────────────────────────────────────────────────
 
@@ -75,34 +76,7 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramBotToken: undefined,
-  telegramDeliverAuthBypass: false,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
-  telegramTimeoutMs: 15000,
-  telegramWebhookSecret: undefined,
-  twilioAuthToken: "test-auth-token",
-  twilioAccountSid: "AC_test",
-  twilioPhoneNumber: "+15550001111",
-  assistantPhoneNumbers: {
-    "assistant-abc": "+15550001111",
-    "assistant-xyz": "+15550002222",
-  },
-  smsDeliverAuthBypass: false,
-  ingressPublicBaseUrl: undefined,
   unmappedPolicy: "reject",
-  whatsappPhoneNumberId: undefined,
-  whatsappAccessToken: undefined,
-  whatsappAppSecret: undefined,
-  whatsappWebhookVerifyToken: undefined,
-  whatsappDeliverAuthBypass: false,
-  whatsappTimeoutMs: 15000,
-  whatsappMaxRetries: 3,
-  whatsappInitialBackoffMs: 1000,
-  slackChannelBotToken: undefined,
-  slackChannelAppToken: undefined,
-  slackDeliverAuthBypass: false,
   trustProxy: false,
 };
 
@@ -121,6 +95,24 @@ function makeVoiceRequest(
   );
 }
 
+/** Create a mock ConfigFileCache with phone number mappings. */
+function makeCachesWithPhoneNumbers(mapping?: Record<string, string>) {
+  const phoneNumbers = mapping ?? {
+    "assistant-abc": "+15550001111",
+    "assistant-xyz": "+15550002222",
+  };
+  const configFile = {
+    getString: () => undefined,
+    getRecord: (section: string, key: string) => {
+      if (section === "twilio" && key === "assistantPhoneNumbers")
+        return phoneNumbers;
+      return undefined;
+    },
+    refreshNow: () => {},
+  } as unknown as ConfigFileCache;
+  return { configFile };
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("twilio voice webhook handler", () => {
@@ -131,7 +123,10 @@ describe("twilio voice webhook handler", () => {
   });
 
   test("inbound call resolves assistant by To number and forwards to daemon", async () => {
-    const handler = createTwilioVoiceWebhookHandler(baseConfig);
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_1",
       From: "+14155551234",
@@ -147,7 +142,10 @@ describe("twilio voice webhook handler", () => {
   });
 
   test("inbound call with unknown To number is rejected when unmappedPolicy is reject", async () => {
-    const handler = createTwilioVoiceWebhookHandler(baseConfig);
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_2",
       From: "+14155551234",
@@ -168,7 +166,10 @@ describe("twilio voice webhook handler", () => {
       unmappedPolicy: "default",
       defaultAssistantId: "fallback-assistant",
     };
-    const handler = createTwilioVoiceWebhookHandler(configWithDefault);
+    const handler = createTwilioVoiceWebhookHandler(
+      configWithDefault,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_fallback",
       From: "+14155551234",
@@ -183,7 +184,10 @@ describe("twilio voice webhook handler", () => {
   });
 
   test("outbound call (callSessionId present) does not resolve assistant by phone", async () => {
-    const handler = createTwilioVoiceWebhookHandler(baseConfig);
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest(
       {
         CallSid: "CA_outbound_1",
@@ -200,7 +204,10 @@ describe("twilio voice webhook handler", () => {
   });
 
   test("empty callSessionId is treated as inbound (resolves assistant by To number)", async () => {
-    const handler = createTwilioVoiceWebhookHandler(baseConfig);
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest(
       {
         CallSid: "CA_empty_session",
@@ -218,7 +225,10 @@ describe("twilio voice webhook handler", () => {
   });
 
   test("inbound call resolves second assistant by To number", async () => {
-    const handler = createTwilioVoiceWebhookHandler(baseConfig);
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_3",
       From: "+14155551234",
@@ -232,8 +242,8 @@ describe("twilio voice webhook handler", () => {
   });
 
   test("inbound call without assistantPhoneNumbers config is rejected when unmappedPolicy is reject", async () => {
-    const configNoMapping = { ...baseConfig, assistantPhoneNumbers: undefined };
-    const handler = createTwilioVoiceWebhookHandler(configNoMapping);
+    // No configFile cache means no phone number mapping — falls through to unmapped policy.
+    const handler = createTwilioVoiceWebhookHandler(baseConfig);
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_4",
       From: "+14155551234",
@@ -251,7 +261,6 @@ describe("twilio voice webhook handler", () => {
   test("inbound call without assistantPhoneNumbers uses defaultAssistantId when unmappedPolicy is default", async () => {
     const configNoMappingWithDefault: GatewayConfig = {
       ...baseConfig,
-      assistantPhoneNumbers: undefined,
       unmappedPolicy: "default",
       defaultAssistantId: "fallback-assistant",
     };

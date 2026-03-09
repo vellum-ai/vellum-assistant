@@ -1,6 +1,9 @@
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { getLogger } from "../../logger.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
+import type { WhatsAppApiCaches } from "../../whatsapp/api.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 import {
   sendWhatsAppAttachments,
@@ -20,7 +23,14 @@ export type ApprovalPayload = {
   plainTextFallback: string;
 };
 
-export function createWhatsAppDeliverHandler(config: GatewayConfig) {
+export function createWhatsAppDeliverHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+) {
+  const apiCaches: WhatsAppApiCaches | undefined = caches?.credentials
+    ? { credentials: caches.credentials, configFile: caches.configFile }
+    : undefined;
+
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
@@ -29,21 +39,15 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(
-      req,
-      config,
-      "whatsappDeliverAuthBypass",
-    );
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("whatsapp", "deliverAuthBypass") ??
+        false);
+    const authResponse = checkDeliverAuth(req, isBypassed);
     if (authResponse) return authResponse;
 
-    // Verify WhatsApp sending is configured
-    if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
-      tlog.error("WhatsApp credentials not configured");
-      return Response.json(
-        { error: "WhatsApp integration not configured" },
-        { status: 503 },
-      );
-    }
+    // WhatsApp credential availability is gated by the route precondition
+    // (isWhatsAppConfigured) — no config check needed here.
 
     let body: {
       chatId?: string;
@@ -162,7 +166,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
 
     try {
       if (text) {
-        await sendWhatsAppReply(config, to, text, approval);
+        await sendWhatsAppReply(config, to, text, approval, apiCaches);
         textSent = true;
       }
     } catch (err) {
@@ -171,7 +175,12 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
     }
 
     if (attachments && attachments.length > 0) {
-      const result = await sendWhatsAppAttachments(config, to, attachments);
+      const result = await sendWhatsAppAttachments(
+        config,
+        to,
+        attachments,
+        apiCaches,
+      );
 
       if (result.allFailed && !textSent) {
         // Nothing was delivered at all -- signal failure so the caller can retry

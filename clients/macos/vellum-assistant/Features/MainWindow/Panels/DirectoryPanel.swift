@@ -33,7 +33,7 @@ struct DirectoryPanel: View {
     @State private var isLoadingDocuments = false
 
     var body: some View {
-        VSidePanel(title: "Directory", onClose: onClose) {
+        VSidePanel(title: "Directory", onClose: onClose, pinnedContent: { EmptyView() }) {
             VStack(spacing: 0) {
                 // Tab bar
                 HStack(spacing: VSpacing.xs) {

@@ -15,8 +15,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -533,7 +531,7 @@ describe("applyCanonicalGuardianDecision", () => {
     const req = createCanonicalGuardianRequest({
       kind: "unknown_kind",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-voice-1",
       callSessionId: "call-voice-1",
       toolName: "host_bash",

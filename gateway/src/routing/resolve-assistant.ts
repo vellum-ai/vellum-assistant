@@ -1,3 +1,4 @@
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
 import type { RoutingOutcome } from "./types.js";
@@ -48,12 +49,15 @@ export function resolveAssistant(
  * Resolve the assistant by looking up the inbound "To" phone number in
  * the per-assistant phone number mapping. Returns undefined when no match
  * is found, letting callers fall through to the standard routing chain.
+ *
+ * Reads the mapping from ConfigFileCache when available.
  */
 export function resolveAssistantByPhoneNumber(
-  config: GatewayConfig,
+  _config: GatewayConfig,
   toNumber: string,
+  configFileCache?: ConfigFileCache,
 ): RoutingOutcome | undefined {
-  const mapping = config.assistantPhoneNumbers;
+  const mapping = configFileCache?.getRecord("twilio", "assistantPhoneNumbers");
   if (!mapping) return undefined;
 
   // Reverse lookup: the mapping is assistantId -> phoneNumber, so we need

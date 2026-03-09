@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.4.39",
+  "version": "0.4.42",
   "type": "module",
   "bin": {
     "assistant": "./src/index.ts"
@@ -10,13 +10,8 @@
     "daemon:restart:http": "RUNTIME_HTTP_PORT=7821 bun run src/index.ts daemon restart",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "ipc:inventory": "bun run scripts/ipc/check-contract-inventory.ts",
-    "ipc:inventory:update": "bun run scripts/ipc/check-contract-inventory.ts --update",
-    "generate:ipc": "bun run scripts/ipc/generate-swift.ts",
-    "check:ipc-generated": "bun run scripts/ipc/generate-swift.ts --check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "ipc:check-swift-drift": "bun run scripts/ipc/check-swift-decoder-drift.ts",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
     "test": "bash scripts/test.sh",
@@ -24,12 +19,13 @@
     "test:stable": "EXCLUDE_EXPERIMENTAL=true bash scripts/test.sh",
     "test:bench": "find src/__tests__ -maxdepth 1 -type f -name '*.benchmark.test.ts' -print0 | xargs -0 -P 1 -I {} bun test {}",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh",
-    "postinstall": "cd .. && git config core.hooksPath .githooks 2>/dev/null || true"
+    "postinstall": "cd .. && git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
+    "@hono/node-server": "^1.19.11",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
@@ -40,6 +36,7 @@
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.38.4",
     "esbuild": "^0.24.0",
+    "hono": "^4.12.5",
     "ink": "^6.7.0",
     "jszip": "^3.10.1",
     "minimatch": "^10.2.4",
@@ -47,8 +44,8 @@
     "pino": "^9.6.0",
     "pino-pretty": "^13.1.3",
     "playwright": "^1.58.2",
-    "preact": "^10.25.0",
     "postgres": "^3.4.8",
+    "preact": "^10.25.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "rrule": "^2.8.1",

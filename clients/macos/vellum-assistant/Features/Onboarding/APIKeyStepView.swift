@@ -3,6 +3,7 @@ import SwiftUI
 
 private enum HostingMode: String, CaseIterable {
     case local
+    case docker
     case aws
     case customHardware
     case gcp
@@ -10,6 +11,7 @@ private enum HostingMode: String, CaseIterable {
     var displayName: String {
         switch self {
         case .local: return "Local"
+        case .docker: return "Docker"
         case .aws: return "AWS"
         case .customHardware: return "Custom Hardware"
         case .gcp: return "GCP"
@@ -19,6 +21,7 @@ private enum HostingMode: String, CaseIterable {
     var detail: String {
         switch self {
         case .local: return "Run on your machine"
+        case .docker: return "Run in a Docker container"
         case .aws: return "Host on your AWS account"
         case .customHardware: return "Run on your own hardware"
         case .gcp: return "Host on your GCP account"
@@ -76,7 +79,7 @@ struct APIKeyStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if let existingKey = APIKeyManager.getKey() {
+            if let existingKey = APIKeyManager.getKey(for: "anthropic") {
                 apiKey = existingKey
                 hasExistingKey = true
             }
@@ -196,7 +199,7 @@ struct APIKeyStepView: View {
 
     private var primaryButton: some View {
         OnboardingButton(
-            title: userHostedEnabled && hostingMode != .local ? "Continue" : "Hatch!",
+            title: userHostedEnabled && hostingMode != .local && hostingMode != .docker ? "Continue" : "Hatch!",
             style: .primary,
             disabled: primaryButtonDisabled
         ) {
@@ -257,10 +260,11 @@ struct APIKeyStepView: View {
 
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed)
+        APIKeyManager.setKey(trimmed, for: "anthropic")
+        APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
             saveModelToConfig("claude-opus-4-6")
-            if userHostedEnabled && hostingMode != .local {
+            if userHostedEnabled && hostingMode != .local && hostingMode != .docker {
                 state.advance()
             } else if userHostedEnabled {
                 state.isHatching = true

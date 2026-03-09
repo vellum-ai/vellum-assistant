@@ -28,8 +28,8 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
       !!getSecureKey("credential:integration:slack:access_token"),
   },
   {
-    name: "SMS",
-    category: "messaging",
+    name: "Twilio",
+    category: "telephony",
     isConnected: () => hasTwilioCredentials(),
   },
   {

@@ -30,8 +30,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 const logMessages: { level: string; msg: string; args?: unknown }[] = [];
@@ -76,7 +74,7 @@ mock.module("../config/loader.js", () => ({
     ingress: {
       publicBaseUrl: "https://test.example.com",
     },
-    sms: {
+    twilio: {
       phoneNumber: "+15550001111",
     },
   }),
@@ -90,7 +88,7 @@ mock.module("../config/loader.js", () => ({
     ingress: {
       publicBaseUrl: "https://test.example.com",
     },
-    sms: {
+    twilio: {
       phoneNumber: "+15550001111",
     },
   }),
@@ -118,7 +116,6 @@ mock.module("../calls/twilio-provider.js", () => ({
 const secureKeyStore: Record<string, string | undefined> = {
   "credential:twilio:account_sid": "AC_test",
   "credential:twilio:auth_token": "test_token",
-  "credential:twilio:phone_number": "+15550001111",
 };
 
 mock.module("../security/secure-keys.js", () => ({
@@ -351,67 +348,6 @@ describe("gateway-only ingress enforcement", () => {
           body: makeFormBody({ CallSid: "CA123", CallStatus: "completed" }),
         },
       );
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
-  });
-
-  // ── SMS-specific direct webhook routes blocked ──────────────────────
-
-  describe("SMS webhook routes are blocked at the runtime (gateway-only)", () => {
-    test("POST /webhooks/twilio/sms returns 410 (cannot bypass gateway)", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: makeFormBody({
-          Body: "hello",
-          From: "+15551234567",
-          To: "+15559876543",
-          MessageSid: "SM123",
-        }),
-      });
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-      expect(body.error.message).toContain("Direct webhook access disabled");
-    });
-
-    test("POST /v1/calls/twilio/sms returns 410 (legacy path also blocked)", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/calls/twilio/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: makeFormBody({
-          Body: "hello",
-          From: "+15551234567",
-          MessageSid: "SM456",
-        }),
-      });
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
-
-    test("POST /webhooks/twilio/sms with valid auth still returns 410 (auth does not bypass gateway-only)", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
-        method: "POST",
-        headers: {
-          ...AUTH_HEADERS,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: makeFormBody({
-          Body: "sneaky",
-          From: "+15551234567",
-          MessageSid: "SM789",
-        }),
-      });
-      // The gateway-only guard runs before auth for Twilio webhook paths
       expect(res.status).toBe(410);
       const body = (await res.json()) as {
         error: { code: string; message: string };
@@ -750,7 +686,7 @@ describe("gateway-only ingress enforcement", () => {
       expect(res.status).toBe(401);
     });
 
-    test("POST /v1/channels/inbound with SMS and actor JWT returns 403", async () => {
+    test("POST /v1/channels/inbound with slack and actor JWT returns 403", async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
         method: "POST",
         headers: {
@@ -758,13 +694,13 @@ describe("gateway-only ingress enforcement", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sourceChannel: "sms",
-          externalChatId: "+15551234567",
-          externalMessageId: "SM-test-gw-1",
-          content: "hello via SMS",
+          sourceChannel: "slack",
+          externalChatId: "C0123ABCDEF",
+          externalMessageId: "slack-test-gw-1",
+          content: "hello via Slack",
         }),
       });
-      // SMS messages also require svc_gateway principal type.
+      // Channel inbound messages require svc_gateway principal type.
       expect(res.status).toBe(403);
       const body = (await res.json()) as {
         error: { code: string; message: string };
@@ -772,7 +708,7 @@ describe("gateway-only ingress enforcement", () => {
       expect(body.error.code).toBe("FORBIDDEN");
     });
 
-    test("POST /v1/channels/inbound with SMS and gateway JWT passes", async () => {
+    test("POST /v1/channels/inbound with slack and gateway JWT passes", async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
         method: "POST",
         headers: {
@@ -780,10 +716,10 @@ describe("gateway-only ingress enforcement", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sourceChannel: "sms",
-          externalChatId: "+15551234567",
-          externalMessageId: "SM-test-gw-2",
-          content: "hello via SMS",
+          sourceChannel: "slack",
+          externalChatId: "C0123ABCDEF",
+          externalMessageId: "slack-test-gw-2",
+          content: "hello via Slack",
         }),
       });
       // Should NOT be 403 — the svc_gateway principal type passes.

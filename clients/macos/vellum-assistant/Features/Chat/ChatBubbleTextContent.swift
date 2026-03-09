@@ -29,7 +29,7 @@ extension ChatBubble {
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
                     .textSelection(.enabled)
-                    .frame(maxWidth: 520, alignment: .leading)
+                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                     // lineLimit(nil) wraps text in a single measurement pass,
                     // avoiding the double-measurement that fixedSize causes.
                     .lineLimit(nil)

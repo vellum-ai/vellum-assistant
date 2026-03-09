@@ -53,30 +53,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: undefined,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
-    telegramWebhookSecret: undefined,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
-    ingressPublicBaseUrl: undefined,
     unmappedPolicy: "reject",
-    whatsappPhoneNumberId: "123456789012345",
-    whatsappAccessToken: "test-whatsapp-token",
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: true,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
@@ -84,6 +61,22 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 function makeRequest(body: unknown, headers?: Record<string, string>): Request {
+  return new Request("http://localhost:7830/deliver/whatsapp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${TOKEN}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Make a request without Authorization header (for testing auth rejection). */
+function makeUnauthRequest(
+  body: unknown,
+  headers?: Record<string, string>,
+): Request {
   return new Request("http://localhost:7830/deliver/whatsapp", {
     method: "POST",
     headers: {
@@ -113,10 +106,8 @@ describe("/deliver/whatsapp", () => {
   });
 
   it("rejects request without Authorization header with 401", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappDeliverAuthBypass: false }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeUnauthRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -124,10 +115,8 @@ describe("/deliver/whatsapp", () => {
   });
 
   it("rejects request with wrong bearer token with 401", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappDeliverAuthBypass: false }),
-    );
-    const req = makeRequest(
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeUnauthRequest(
       { to: "+15559876543", text: "hello" },
       {
         authorization: "Bearer wrong-token",
@@ -140,27 +129,7 @@ describe("/deliver/whatsapp", () => {
   });
 
   it("accepts request with correct bearer token", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappDeliverAuthBypass: false }),
-    );
-    const req = makeRequest(
-      { to: "+15559876543", text: "hello" },
-      {
-        authorization: `Bearer ${TOKEN}`,
-      },
-    );
-    const res = await handler(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-  });
-
-  it("allows unauthenticated access when bypass flag is set and no token configured", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({
-        whatsappDeliverAuthBypass: true,
-      }),
-    );
+    const handler = createWhatsAppDeliverHandler(makeConfig());
     const req = makeRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(200);
@@ -168,27 +137,11 @@ describe("/deliver/whatsapp", () => {
     expect(body.ok).toBe(true);
   });
 
-  it("returns 503 when WhatsApp credentials are not configured", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappPhoneNumberId: undefined }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("WhatsApp integration not configured");
-  });
-
-  it("returns 503 when WhatsApp access token is missing", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappAccessToken: undefined }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("WhatsApp integration not configured");
-  });
+  // WhatsApp credential availability is now gated by the route precondition
+  // (isWhatsAppConfigured) rather than checked inside the handler. The 503
+  // tests for missing credentials were removed because the handler no longer
+  // performs those checks -- the router prevents the handler from running at
+  // all when credentials are absent.
 
   it("returns 400 when 'to' is missing", async () => {
     const handler = createWhatsAppDeliverHandler(makeConfig());
@@ -212,7 +165,10 @@ describe("/deliver/whatsapp", () => {
     const handler = createWhatsAppDeliverHandler(makeConfig());
     const req = new Request("http://localhost:7830/deliver/whatsapp", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${TOKEN}`,
+      },
       body: "not-json",
     });
     const res = await handler(req);

@@ -112,7 +112,7 @@ describe("guardian-action-sweep", () => {
     // Create request that has already expired
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -158,7 +158,7 @@ describe("guardian-action-sweep", () => {
 
     createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -190,7 +190,7 @@ describe("guardian-action-sweep", () => {
     // Request that expires in the future
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -219,7 +219,7 @@ describe("guardian-action-sweep", () => {
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -257,7 +257,7 @@ describe("guardian-action-sweep", () => {
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,

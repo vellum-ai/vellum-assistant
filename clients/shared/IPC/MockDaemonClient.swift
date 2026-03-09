@@ -5,7 +5,6 @@ import Foundation
 @MainActor
 public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
     public var isConnected: Bool = false
-    public var isBlobTransportAvailable: Bool = false
 
     /// Messages recorded by `send(_:)` for assertion in tests.
     public private(set) var sentMessages: [Any] = []

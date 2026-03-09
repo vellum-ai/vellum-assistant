@@ -1,6 +1,8 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import { initSigningKey } from "../auth/token-service.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -22,9 +24,6 @@ const { sendTelegramAttachments } = await import("../telegram/send.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "tok",
-    telegramWebhookSecret: "wh-ver",
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -36,36 +35,37 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
   return merged;
 }
+
+/** Mock credential cache that provides a test bot token. */
+const testCreds: CredentialCache = {
+  get: async (key: string) => {
+    if (key === "credential:telegram:bot_token") return "test-bot-token";
+    return undefined;
+  },
+  invalidate: () => {},
+} as unknown as CredentialCache;
+
+const testConfigFile: ConfigFileCache = {
+  getNumber: (_section: string, field: string) => {
+    if (field === "maxRetries") return 0;
+    return undefined;
+  },
+  getString: () => undefined,
+  getBoolean: () => undefined,
+  getRecord: () => undefined,
+} as unknown as ConfigFileCache;
+
+const testOpts = { credentials: testCreds, configFile: testConfigFile };
 
 const telegramOk = { ok: true, result: { message_id: 1 } };
 
@@ -111,7 +111,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     // Should have called: 1) runtime download, 2) telegram sendPhoto
     expect(calls).toHaveLength(2);
@@ -154,7 +154,7 @@ describe("sendTelegramAttachments", () => {
       kind: "filesystem",
     };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-2");
@@ -184,7 +184,7 @@ describe("sendTelegramAttachments", () => {
       kind: "filesystem",
     };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     // Should have sent only the failure notice via sendMessage
     expect(calls).toHaveLength(1);
@@ -226,7 +226,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     expect(calls).toHaveLength(2);
     // Should use /v1/attachments/ path (no assistantId in URL)
@@ -266,7 +266,7 @@ describe("sendTelegramAttachments", () => {
     // Only provide `id` — no filename, mimeType, sizeBytes, or kind
     const meta: RuntimeAttachmentMeta = { id: "att-id-only" };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-id-only");
@@ -299,7 +299,7 @@ describe("sendTelegramAttachments", () => {
     const config = makeConfig();
     const meta: RuntimeAttachmentMeta = { id: "att-bare" };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-bare");
@@ -337,7 +337,7 @@ describe("sendTelegramAttachments", () => {
     // No sizeBytes in meta — will be hydrated from download payload (200 > 50 limit)
     const meta: RuntimeAttachmentMeta = { id: "att-big" };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     // Should download, discover size exceeds limit, skip, then send failure notice
     expect(
@@ -377,7 +377,7 @@ describe("sendTelegramAttachments", () => {
     const config = makeConfig();
     const meta: RuntimeAttachmentMeta = { id: "my-attachment-id" };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     expect(calls).toHaveLength(2);
     // Second call is the Telegram API call with FormData
@@ -420,7 +420,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta], testOpts);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-full");
@@ -476,7 +476,7 @@ describe("sendTelegramAttachments", () => {
       },
     ];
 
-    await sendTelegramAttachments(config, "chat-1", attachments);
+    await sendTelegramAttachments(config, "chat-1", attachments, testOpts);
 
     // Should have: download att-fail (fail), download att-ok, sendPhoto for att-ok, sendMessage for notice
     expect(calls.filter((u) => u.includes("sendPhoto"))).toHaveLength(1);

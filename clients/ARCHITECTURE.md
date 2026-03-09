@@ -12,7 +12,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 
 | Service | Type | Purpose |
 |---------|------|---------|
-| `daemonClient` | `DaemonClient` | Unix socket IPC to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
+| `daemonClient` | `DaemonClient` | HTTP+SSE to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
 | `ambientAgent` | `AmbientAgent` | Coordinates Ride Shotgun trigger, session, and floating windows |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
@@ -93,12 +93,7 @@ graph LR
         WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
     end
 
-    subgraph "~/.vellum/workspace/data/ipc-blobs/"
-        BLOBS["*.blob<br/>───────────────<br/>Ephemeral blob files<br/>UUID filenames<br/>Atomic temp+rename writes<br/>Consumed after daemon hydration<br/>Stale sweep every 5min (30min max age)"]
-    end
-
     subgraph "~/.vellum/ (Root Files)"
-        SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["protected/trust.json<br/>Tool permission rules"]
     end
 
@@ -146,8 +141,8 @@ sequenceDiagram
         Note over CLS: Bypass Haiku API call<br/>Route directly to text_qa
         CLS-->>AD: InteractionType.textQA
         AD->>DC: send(SessionCreate + UserMessage)
-        Note over DC: Unix socket<br/>~/.vellum/vellum.sock
-        DC->>Daemon: IPC
+        Note over DC: HTTP POST
+        DC->>Daemon: HTTP
         Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler
         Daemon-->>DC: task_routed(text_qa)
         DC-->>AD: route to text_qa UI
@@ -165,7 +160,7 @@ sequenceDiagram
 
         AD->>Session: init(task, daemonClient, ...)
         Session->>DC: send(CuSessionCreateMessage)
-        Note over DC: Unix socket<br/>~/.vellum/vellum.sock<br/>newline-delimited JSON
+        Note over DC: HTTP POST
 
         loop PERCEIVE → INFER → VERIFY → EXECUTE → WAIT
             par Parallel Capture
@@ -179,9 +174,9 @@ sequenceDiagram
             end
 
             Session->>DC: send(CuObservationMessage)
-            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error<br/>Optional: axTreeBlob, screenshotBlob<br/>(blob refs when transport available)
+            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
 
-            DC->>Daemon: IPC message
+            DC->>Daemon: HTTP POST
             Daemon->>Claude: API call with observation
             Note over Daemon: Loads conversation from SQLite<br/>Appends observation as user msg<br/>Stores in messages table
             Claude-->>Daemon: tool_use response
@@ -233,7 +228,7 @@ idle → starting → recording → stopping → idle
                                       └→ failed → idle
 ```
 
-A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` IPC message to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon.
+A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
 
 ### Key Files
 
@@ -243,13 +238,13 @@ A recording is initiated when the daemon detects a recording-only intent in the 
 | `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events |
 | `clients/macos/vellum-assistant/ComputerUse/RecordingManager.swift` | macOS-side screen capture using ScreenCaptureKit |
 
-### IPC Messages
+### Messages
 
-| Message | Direction | Purpose |
-|---|---|---|
-| `recording_start` | Server → Client | Instructs the client to begin recording with a `recordingId` and optional `RecordingOptions` |
-| `recording_stop` | Server → Client | Instructs the client to stop the active recording |
-| `recording_status` | Client → Server | Reports lifecycle transitions: `started`, `stopped` (with `filePath`), or `failed` (with `error`) |
+| Message | Direction | Transport | Purpose |
+|---|---|---|---|
+| `recording_start` | Server → Client | SSE | Instructs the client to begin recording with a `recordingId` and optional `RecordingOptions` |
+| `recording_stop` | Server → Client | SSE | Instructs the client to stop the active recording |
+| `recording_status` | Client → Server | HTTP POST | Reports lifecycle transitions: `started`, `stopped` (with `filePath`), or `failed` (with `error`) |
 
 ### Intent Routing
 
@@ -343,7 +338,7 @@ sequenceDiagram
             end
 
             WS-->>Session: observation data
-            Session->>DC: send observation via IPC
+            Session->>DC: send observation via HTTP
             DC->>Daemon: process observation
             Daemon-->>DC: result
             DC-->>Session: observation processed
@@ -351,7 +346,7 @@ sequenceDiagram
         end
 
         Session->>Session: summarizing
-        Session->>DC: request summary via IPC
+        Session->>DC: request summary via HTTP
         Daemon-->>DC: summary text
         DC-->>Session: summary
         Session-->>Agent: state = .complete
@@ -377,7 +372,7 @@ The workspace is a full-window mode that replaces the chat UI with an interactiv
 
 ```mermaid
 sequenceDiagram
-    participant Daemon as Daemon (IPC)
+    participant Daemon as Daemon (HTTP)
     participant DC as DaemonClient
     participant SM as SurfaceManager
     participant AD as AppDelegate
@@ -601,7 +596,7 @@ The route mode and auth mode are carried in `TransportMetadata` (defined in `Dae
 When the current assistant is managed (`isCurrentAssistantManaged == true`), the app skips:
 - **Local daemon hatching** -- the platform hosts the daemon, so `assistantCli.hatch()` is not called.
 - **Actor credential bootstrap** -- identity is derived from the platform session token, not local actor tokens. The `ensureActorCredentials()` flow is skipped entirely.
-- **Socket-missing re-hatch** -- the reconnection loop does not attempt local re-hatch when the socket file is absent.
+- **Server-unavailable re-hatch** -- the reconnection loop does not attempt local re-hatch when the daemon HTTP server is unreachable.
 
 ### Credential and State Storage
 
@@ -633,7 +628,7 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 
 ## iOS Connection Architecture
 
-The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway. There is no direct TCP or Unix socket connection path.
+The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway.
 
 ### Connection Flow
 
@@ -665,7 +660,7 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
 **Flow:**
 1. macOS generates a v4 QR code (no bearer token in QR) and pre-registers the pairing request with the daemon via `POST /v1/pairing/register`.
 2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). Tries `localLanUrl` first (3s timeout), falls back to cloud gateway URL (`g`).
-3. The daemon validates the secret and either auto-approves (if the device is in the allowlist) or sends an IPC message to macOS to show an approval prompt.
+3. The daemon validates the secret and either auto-approves (if the device is in the allowlist) or sends an SSE event to macOS to show an approval prompt.
 4. macOS shows a floating approval window with three options: Deny, Approve Once, Always Allow.
 5. iOS polls `GET /pairing/status?id=<id>&secret=<secret>` every 2.5s until approved, denied, or expired (5-min TTL).
 6. On approval, the response includes the bearer token and gateway URL. iOS saves these and connects.
@@ -695,7 +690,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 | Refresh token expiry | Keychain | Absolute expiry timestamp of the current refresh token |
 | `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of access token TTL) |
 
-**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/integrations/guardian/vellum/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
+**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/guardian/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
 **401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, the `HTTPTransport` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
 
@@ -731,7 +726,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 | `clients/macos/vellum-assistant/Features/Settings/PairingApprovalWindow.swift` | Floating approval prompt window |
 | `assistant/src/daemon/pairing-store.ts` | In-memory pairing request store with TTL |
 | `assistant/src/daemon/approved-devices-store.ts` | Persistent approved devices allowlist |
-| `assistant/src/daemon/handlers/pairing.ts` | IPC handlers for pairing approval |
+| `assistant/src/daemon/handlers/pairing.ts` | Pairing approval handlers |
 | `gateway/src/http/routes/pairing-proxy.ts` | Gateway proxy for pairing endpoints |
 
 ### Offline Message Queue (iOS)
@@ -749,7 +744,7 @@ Storage key: `offline_message_queue_v1` (UserDefaults).
 
 ### Guardian Approval Card UI (macOS/iOS)
 
-Guardian approval prompts are rendered as structured card UIs in the chat timeline using a "buttons first, text fallback" model. The daemon delivers `GuardianDecisionPrompt` objects via IPC or HTTP, and the client renders them as kind-aware cards with tappable action buttons.
+Guardian approval prompts are rendered as structured card UIs in the chat timeline using a "buttons first, text fallback" model. The daemon delivers `GuardianDecisionPrompt` objects via HTTP+SSE, and the client renders them as kind-aware cards with tappable action buttons.
 
 **Kind-aware rendering:** `GuardianDecisionBubble` renders distinct card headers for each canonical request kind:
 

@@ -77,7 +77,7 @@ export function buildInvocableSlashCatalog(
     if (!resolved || resolved.state === "disabled") continue;
     result.set(skill.id.toLowerCase(), {
       canonicalId: skill.id,
-      name: skill.name,
+      name: skill.displayName,
       summary: skill,
     });
   }

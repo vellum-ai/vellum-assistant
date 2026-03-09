@@ -8,6 +8,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
+import { reconcileActiveCallLeases } from "./active-call-lease.js";
 import { isTerminalState } from "./call-state-machine.js";
 import {
   expirePendingQuestions,
@@ -80,6 +81,7 @@ export async function reconcileCallsOnStartup(
   log: Logger = defaultLog,
 ): Promise<void> {
   const recoverableCalls = listRecoverableCalls();
+  reconcileActiveCallLeases(recoverableCalls);
 
   if (recoverableCalls.length === 0) {
     log.info("No recoverable calls found at startup");

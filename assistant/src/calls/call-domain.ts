@@ -14,14 +14,16 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
+import { getConversation } from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
 import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { isGuardian } from "../runtime/channel-guardian-service.js";
+import { isGuardian } from "../runtime/channel-verification-service.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { upsertActiveCallLease } from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
 import { addPointerMessage } from "./call-pointer-messages.js";
 import { getCallController, unregisterCallController } from "./call-state.js";
@@ -40,10 +42,26 @@ import { activeRelayConnections } from "./relay-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
+import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
 const log = getLogger("call-domain");
 
 const E164_REGEX = /^\+\d+$/;
+
+function postFailedCallPointer(
+  conversationId: string,
+  phoneNumber: string,
+  reason: string,
+): void {
+  addPointerMessage(conversationId, "failed", phoneNumber, {
+    reason,
+  }).catch((pointerErr) => {
+    log.warn(
+      { conversationId, err: pointerErr },
+      "Failed to post call-failed pointer message",
+    );
+  });
+}
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -280,7 +298,7 @@ export function createInboundVoiceSession(
 
   upsertBinding({
     conversationId: voiceConversationId,
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     externalChatId: callSid,
   });
 
@@ -294,7 +312,7 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
-  const callerIsGuardian = isGuardian(assistantId, "voice", fromNumber);
+  const callerIsGuardian = isGuardian(assistantId, "phone", fromNumber);
   const metadataHints: string[] = [
     callerIsGuardian
       ? "Caller is the guardian"
@@ -312,7 +330,7 @@ export function createInboundVoiceSession(
     conversationId: voiceConversationId,
     context: {
       origin: "voice_inbound",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       assistantId,
       systemHint: `Inbound call from ${fromNumber}`,
       metadataHints,
@@ -387,18 +405,34 @@ export async function startCall(
   let sessionId: string | null = null;
 
   try {
-    const ingressConfig = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const config = loadConfig();
 
     // Resolve which phone number to use as caller ID
     const identityResult = await resolveCallerIdentity(
-      ingressConfig,
+      config,
       callerIdentityMode,
     );
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }
     const fromNumber = identityResult.fromNumber;
+
+    if (!getConversation(conversationId)) {
+      return {
+        ok: false,
+        error: `Invalid conversationId: no conversation found with ID ${conversationId}`,
+        status: 400,
+      };
+    }
+
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      postFailedCallPointer(conversationId, phoneNumber, preflightResult.error);
+      return preflightResult;
+    }
+
+    const ingressConfig = preflightResult.ingressConfig;
+    const provider = new TwilioConversationRelayProvider();
 
     const session = createCallSession({
       conversationId,
@@ -423,7 +457,7 @@ export async function startCall(
 
     upsertBinding({
       conversationId: voiceConversationId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalChatId: session.id,
     });
 
@@ -438,7 +472,7 @@ export async function startCall(
       conversationId: voiceConversationId,
       context: {
         origin: "voice_outbound",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         assistantId,
         systemHint: `Outbound call to ${phoneNumber}`,
         triggerTextSnippet: task,
@@ -477,6 +511,8 @@ export async function startCall(
       "webhooks/twilio/status",
       "twilio_status",
     );
+
+    upsertActiveCallLease({ callSessionId: session.id });
 
     const { callSid } = await provider.initiateCall({
       from: fromNumber,
@@ -531,15 +567,7 @@ export async function startCall(
       });
     }
 
-    // Post a failure pointer message in the initiating conversation
-    addPointerMessage(conversationId, "failed", phoneNumber, {
-      reason: msg,
-    }).catch((pointerErr) => {
-      log.warn(
-        { conversationId, err: pointerErr },
-        "Failed to post call-failed pointer message",
-      );
-    });
+    postFailedCallPointer(conversationId, phoneNumber, msg);
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }
@@ -857,17 +885,17 @@ export async function relayInstruction(
   return { ok: true };
 }
 
-// ── Guardian verification call ───────────────────────────────────────
+// ── Verification call ─────────────────────────────────────────────────
 
-export type StartGuardianVerificationCallInput = {
+export type StartVerificationCallInput = {
   phoneNumber: string;
-  guardianVerificationSessionId: string;
+  verificationSessionId: string;
   assistantId?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
 };
 
-export type StartGuardianVerificationCallResult =
+export type StartVerificationCallResult =
   | { ok: true; callSessionId: string; callSid: string }
   | CallError;
 
@@ -875,14 +903,13 @@ export type StartGuardianVerificationCallResult =
  * Initiate an outbound call to the guardian's phone for verification.
  *
  * Creates a minimal call session with a voice channel binding and
- * passes `guardianVerificationSessionId` as a custom parameter so the
+ * passes `verificationSessionId` as a custom parameter so the
  * relay server can detect this is a guardian verification call.
  */
-export async function startGuardianVerificationCall(
-  input: StartGuardianVerificationCallInput,
-): Promise<StartGuardianVerificationCallResult> {
-  const { phoneNumber, guardianVerificationSessionId, originConversationId } =
-    input;
+export async function startVerificationCall(
+  input: StartVerificationCallInput,
+): Promise<StartVerificationCallResult> {
+  const { phoneNumber, verificationSessionId, originConversationId } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return {
@@ -904,16 +931,22 @@ export async function startGuardianVerificationCall(
       return { ok: false, error: identityResult.error, status: 400 };
     }
 
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      return preflightResult;
+    }
+    const ingressConfig = preflightResult.ingressConfig;
+
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
     // desktop thread.
-    const convKey = `guardian-verify:${guardianVerificationSessionId}`;
+    const convKey = `guardian-verify:${verificationSessionId}`;
     const { conversationId } = getOrCreateConversation(convKey);
 
     upsertBinding({
       conversationId,
-      sourceChannel: "voice",
-      externalChatId: `guardian-verify:${guardianVerificationSessionId}`,
+      sourceChannel: "phone",
+      externalChatId: `guardian-verify:${verificationSessionId}`,
     });
 
     const session = createCallSession({
@@ -921,23 +954,25 @@ export async function startGuardianVerificationCall(
       provider: "twilio",
       fromNumber: identityResult.fromNumber,
       toNumber: phoneNumber,
-      callMode: "guardian_verification",
-      guardianVerificationSessionId,
+      callMode: "verification",
+      verificationSessionId,
       initiatedFromConversationId: originConversationId,
     });
     sessionId = session.id;
 
     const webhookUrl = await resolveCallbackUrl(
-      () => getTwilioVoiceWebhookUrl(config, session.id),
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       "webhooks/twilio/voice",
       "twilio_voice",
       { callSessionId: session.id },
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      () => getTwilioStatusCallbackUrl(config),
+      () => getTwilioStatusCallbackUrl(ingressConfig),
       "webhooks/twilio/status",
       "twilio_status",
     );
+
+    upsertActiveCallLease({ callSessionId: session.id });
 
     const { callSid } = await provider.initiateCall({
       from: identityResult.fromNumber,
@@ -945,7 +980,7 @@ export async function startGuardianVerificationCall(
       webhookUrl,
       statusCallbackUrl,
       customParams: {
-        guardianVerificationSessionId,
+        verificationSessionId,
       },
     });
 
@@ -955,7 +990,7 @@ export async function startGuardianVerificationCall(
       {
         callSessionId: session.id,
         callSid,
-        guardianVerificationSessionId,
+        verificationSessionId,
         to: phoneNumber,
       },
       "Guardian verification call initiated",
@@ -965,7 +1000,7 @@ export async function startGuardianVerificationCall(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(
-      { err, phoneNumber, guardianVerificationSessionId },
+      { err, phoneNumber, verificationSessionId },
       "Failed to initiate guardian verification call",
     );
 

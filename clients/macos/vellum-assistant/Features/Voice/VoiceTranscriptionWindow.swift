@@ -51,20 +51,14 @@ final class VoiceTranscriptionWindow {
     private let baseHeight: CGFloat = 140
     private let margin: CGFloat = 16
 
-    init(voiceModeManager: VoiceModeManager? = nil) {
+    init(voiceModeManager: VoiceModeManager) {
         self.voiceModeManager = voiceModeManager
     }
 
     func show() {
-        let rootView: AnyView
-        if let manager = voiceModeManager {
-            rootView = AnyView(VoiceTranscriptionView(voiceModeManager: manager))
-        } else {
-            // Fallback: create a dummy manager for backward compatibility
-            let fallback = VoiceModeManager()
-            rootView = AnyView(VoiceTranscriptionView(voiceModeManager: fallback))
-        }
+        guard let manager = voiceModeManager else { return }
 
+        let rootView = VoiceTranscriptionView(voiceModeManager: manager)
         let hostingController = NSHostingController(rootView: rootView)
 
         let panel = NSPanel(

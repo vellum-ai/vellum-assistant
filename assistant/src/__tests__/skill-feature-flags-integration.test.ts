@@ -24,7 +24,6 @@ const TEST_DIR = join(
 
 let currentConfig: Record<string, unknown> = {
   sandbox: { enabled: false, backend: "native" },
-  featureFlags: {},
 };
 
 const DECLARED_SKILL_ID = "hatch-new-assistant";
@@ -48,7 +47,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   getHistoryPath: () => join(TEST_DIR, "history"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -58,10 +57,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => "linux",
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
@@ -93,8 +88,8 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "TestUser",
   resolveUserPronouns: () => null,
@@ -107,7 +102,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
@@ -118,7 +113,6 @@ beforeEach(() => {
   // Reset config to defaults before each test
   currentConfig = {
     sandbox: { enabled: false, backend: "native" },
-    featureFlags: {},
   };
 });
 
@@ -179,7 +173,7 @@ describe("buildSystemPrompt feature flag filtering", () => {
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test("declared skills hidden when featureFlags is empty (registry defaults to false)", () => {
+  test("declared skills hidden when no overrides set (registry defaults to false)", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
       "Hatch New Assistant",

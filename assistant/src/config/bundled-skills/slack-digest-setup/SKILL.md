@@ -1,9 +1,8 @@
 ---
-name: "Slack Digest Setup"
-description: "Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery — codifies best practices for high-quality automated summaries"
-user-invocable: true
-includes: ["slack", "schedule"]
-metadata: { "vellum": { "emoji": "📊" } }
+name: slack-digest-setup
+description: Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery — codifies best practices for high-quality automated summaries
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📊","vellum":{"display-name":"Slack Digest Setup","user-invocable":true,"includes":["slack","schedule"]}}
 ---
 
 You are helping your user set up a recurring Slack digest: automated channel scanning on a schedule that delivers prose-style summaries of what's happening across their workspace. This skill walks through configuration, scheduling, and — critically — the execution protocol that ensures every digest is actually useful.

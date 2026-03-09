@@ -285,7 +285,7 @@ export function redeemInvite(params: {
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
-  sourceChannel: "voice";
+  sourceChannel: "phone";
   code: string;
 }): VoiceRedemptionOutcome {
   const { callerExternalUserId, code } = params;
@@ -325,16 +325,16 @@ export function redeemVoiceInviteCode(params: {
   }
 
   // Channel enforcement: voice invites can only be redeemed on the voice channel
-  if (invite.sourceChannel !== "voice") {
+  if (invite.sourceChannel !== "phone") {
     return { ok: false, reason: "invalid_or_expired" };
   }
 
   // Check for existing membership
   const canonicalCallerId =
-    canonicalizeInboundIdentity("voice" as ChannelId, callerExternalUserId) ??
+    canonicalizeInboundIdentity("phone" as ChannelId, callerExternalUserId) ??
     callerExternalUserId;
   const voiceContactResult = findContactChannel({
-    channelType: "voice",
+    channelType: "phone",
     externalUserId: canonicalCallerId,
   });
   const existingVoiceChannel = voiceContactResult?.channel ?? null;
@@ -367,7 +367,7 @@ export function redeemVoiceInviteCode(params: {
     getSqlite()
       .transaction(() => {
         const writeResult = upsertContactChannel({
-          sourceChannel: "voice",
+          sourceChannel: "phone",
           externalUserId: callerExternalUserId,
           externalChatId: callerExternalUserId,
           displayName: preservedDisplayName,

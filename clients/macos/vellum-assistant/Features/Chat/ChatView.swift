@@ -138,7 +138,8 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError
+                            onDismissError: onDismissError,
+                            threadId: threadId
                         )
                     } else {
                         ChatEmptyStateView(
@@ -159,7 +160,8 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError
+                            onDismissError: onDismissError,
+                            threadId: threadId
                         )
                     }
                 } else {
@@ -251,7 +253,8 @@ struct ChatView: View {
                             idleHint: idleHint,
                             voiceModeManager: voiceModeManager,
                             voiceService: voiceService,
-                            onEndVoiceMode: onEndVoiceMode
+                            onEndVoiceMode: onEndVoiceMode,
+                            threadId: threadId
                         )
                     }
                 }

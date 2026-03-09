@@ -9,9 +9,11 @@ set -euo pipefail
 #   ./build.sh run            Build + launch + watch for changes (auto-rebuild)
 #   ./build.sh release        Build release .app
 #   ./build.sh binaries       Build only Bun binaries (daemon, CLI, gateway)
-#   ./build.sh test           Run tests (no .app needed)
+#   ./build.sh test [args]    Run tests (no .app needed); forwards extra args to `swift test`
 #   ./build.sh clean          Remove build artifacts
 #   ./build.sh lint           Build with strict concurrency (catches CI-only errors locally)
+#   ./build.sh release-application  Build release, package into DMG, install to /Applications
+#                                    (simulates CI distribution pipeline without notarization)
 #
 # Flags:
 #   --universal        Cross-compile Bun binaries for arm64 + x64 (universal binary via lipo)
@@ -79,10 +81,19 @@ BUILD_VERSION="${BUILD_VERSION:-1}"
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
 CMD="build"
+CMD_SET=false
+CMD_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --universal) UNIVERSAL_BUILD=true ;;
-        *) CMD="$arg" ;;
+        *)
+            if [ "$CMD_SET" = false ]; then
+                CMD="$arg"
+                CMD_SET=true
+            else
+                CMD_ARGS+=("$arg")
+            fi
+            ;;
     esac
 done
 
@@ -191,7 +202,7 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
     # Copy non-JS assets not embedded by bun --compile (resolved via resolveBundledDir)
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/prebuilt"
@@ -210,8 +221,13 @@ build_binaries() {
 case "$CMD" in
     test)
         echo "Running tests..."
+        if [ ${#CMD_ARGS[@]} -eq 0 ]; then
+            SWIFT_TEST_ARGS=(--filter vellum_assistantTests)
+        else
+            SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
+        fi
         set +e
-        TEST_OUTPUT=$(swift_with_retry swift test --filter vellum_assistantTests 2>&1)
+        TEST_OUTPUT=$(swift_with_retry swift test "${SWIFT_TEST_ARGS[@]}" 2>&1)
         TEST_EXIT=$?
         set -e
         echo "$TEST_OUTPUT"
@@ -251,17 +267,24 @@ case "$CMD" in
         echo "All binaries built."
         exit 0
         ;;
-    build|run|release)
+    build|run|release|release-application)
         ;;
     *)
-        echo "Usage: $0 [build|run|release|binaries|test|clean|lint]"
+        echo "Usage: $0 [build|run|release|release-application|binaries|test|clean|lint]"
         exit 1
         ;;
 esac
 
+# release-application implies release build
+if [ "$CMD" = "release-application" ]; then
+    RELEASE_APP_MODE=true
+else
+    RELEASE_APP_MODE=false
+fi
+
 CONFIG="debug"
 SWIFT_FLAGS=""
-if [ "$CMD" = "release" ]; then
+if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64}"
     if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -354,9 +377,9 @@ fi
 
 # Always refresh non-JS assets from source (not embedded by bun --compile)
 mkdir -p "$SCRIPT_DIR/daemon-bin"
-if [ -d "$ASSISTANT_SRC_DIR/src/config/templates" ]; then
+if [ -d "$ASSISTANT_SRC_DIR/src/prompts/templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
 fi
 if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
@@ -980,4 +1003,118 @@ if [ "$CMD" = "run" ]; then
             fi
         done
     fi
+fi
+
+# 8. Package and install to /Applications if release-application
+if [ "$RELEASE_APP_MODE" = true ]; then
+    echo ""
+    echo "═══════════════════════════════════════════"
+    echo "  Packaging for local distribution testing"
+    echo "═══════════════════════════════════════════"
+
+    DMG_BUILD_DIR="$SCRIPT_DIR/build"
+    DMG_PATH="$DMG_BUILD_DIR/vellum-assistant.dmg"
+    DMG_STAGING="$DMG_BUILD_DIR/dmg-staging"
+
+    mkdir -p "$DMG_BUILD_DIR"
+    rm -rf "$DMG_STAGING" "$DMG_PATH"
+    mkdir -p "$DMG_STAGING"
+
+    echo "Creating DMG..."
+    cp -R "$APP_DIR" "$DMG_STAGING/"
+    ln -s /Applications "$DMG_STAGING/Applications"
+
+    # Use create-dmg if available for a production-like DMG, otherwise fall
+    # back to hdiutil which is always available on macOS.
+    if command -v create-dmg &>/dev/null; then
+        # Generate DMG background if the script exists
+        DMG_BG_SCRIPT="$SCRIPT_DIR/dmg/generate-background.swift"
+        DMG_BG_ARGS=()
+        if [ -f "$DMG_BG_SCRIPT" ]; then
+            swift "$DMG_BG_SCRIPT" "$DMG_BUILD_DIR/dmg-background@2x.png" 2>/dev/null || true
+            if [ -f "$DMG_BUILD_DIR/dmg-background@2x.png" ]; then
+                DMG_BG_ARGS=(--background "$DMG_BUILD_DIR/dmg-background@2x.png")
+            fi
+        fi
+
+        create-dmg \
+            --volname "Vellum" \
+            "${DMG_BG_ARGS[@]}" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --text-size 10 \
+            --icon "Vellum.app" 175 190 \
+            --icon "Applications" 530 190 \
+            --hide-extension "Vellum.app" \
+            --no-internet-enable \
+            "$DMG_PATH" \
+            "$DMG_STAGING/" \
+        || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
+                echo "create-dmg exited with warning (code 2), but DMG was created successfully"
+            else
+                echo "create-dmg failed with exit code $EXIT_CODE"
+                exit $EXIT_CODE
+            fi
+        }
+    else
+        echo "(create-dmg not found, using hdiutil — install via 'brew install create-dmg' for production-like DMGs)"
+        hdiutil create -volname "Vellum" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_PATH"
+    fi
+
+    echo "DMG created: $DMG_PATH"
+    ls -lh "$DMG_PATH"
+
+    # Sign the DMG with the same identity used for the app
+    if [ "$SIGN_IDENTITY" != "-" ]; then
+        echo "Signing DMG..."
+        codesign --sign "$SIGN_IDENTITY" --timestamp "$DMG_PATH" 2>/dev/null || \
+            codesign --sign "$SIGN_IDENTITY" "$DMG_PATH"
+        codesign --verify --verbose "$DMG_PATH"
+        echo "DMG signature verified"
+    fi
+
+    # Install to /Applications from the DMG (mimics user drag-to-Applications)
+    echo ""
+    echo "Installing to /Applications..."
+
+    # Kill running instance before replacing
+    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null 2>&1; then
+        echo "Stopping running $BUNDLE_DISPLAY_NAME..."
+        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+        for i in {1..10}; do
+            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
+            sleep 0.1
+        done
+    fi
+
+    MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | tail -1 | awk '{print $NF}')
+    if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT/$BUNDLE_DISPLAY_NAME.app" ]; then
+        echo "ERROR: Failed to mount DMG or find app inside"
+        [ -n "$MOUNT_POINT" ] && hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
+        exit 1
+    fi
+
+    rm -rf "/Applications/$BUNDLE_DISPLAY_NAME.app"
+    cp -R "$MOUNT_POINT/$BUNDLE_DISPLAY_NAME.app" "/Applications/$BUNDLE_DISPLAY_NAME.app"
+    hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
+
+    echo "Installed: /Applications/$BUNDLE_DISPLAY_NAME.app"
+    codesign --verify --strict "/Applications/$BUNDLE_DISPLAY_NAME.app" 2>/dev/null && \
+        echo "Code signature verified" || \
+        echo "warning: code signature verification failed (expected for ad-hoc signed builds)"
+
+    echo ""
+    echo "═══════════════════════════════════════════"
+    echo "  Done! Launch with:"
+    echo "    open /Applications/$BUNDLE_DISPLAY_NAME.app"
+    echo ""
+    echo "  To test first-launch (hatch) crash:"
+    echo "    rm -rf ~/.vellum && open /Applications/$BUNDLE_DISPLAY_NAME.app"
+    echo "═══════════════════════════════════════════"
+
+    # Clean up staging
+    rm -rf "$DMG_STAGING"
 fi

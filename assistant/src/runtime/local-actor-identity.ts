@@ -13,15 +13,41 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { buildIpcAuthContext } from "../daemon/ipc-handler.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { CURRENT_POLICY_EPOCH } from "./auth/policy.js";
+import { resolveScopeProfile } from "./auth/scopes.js";
 import type { AuthContext } from "./auth/types.js";
 import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
 import { resolveTrustContext } from "./trust-context-resolver.js";
 
 const log = getLogger("local-actor-identity");
+
+/**
+ * Build a synthetic AuthContext for a local session.
+ *
+ * Local connections are pre-authenticated via the daemon's file-system
+ * permission model. This produces the same AuthContext shape that HTTP
+ * routes receive from JWT verification, keeping downstream code
+ * transport-agnostic.
+ */
+export function buildLocalAuthContext(sessionId: string): AuthContext {
+  return {
+    subject: `ipc:self:${sessionId}`,
+    principalType: "ipc",
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    sessionId,
+    scopeProfile: "ipc_v1",
+    scopes: resolveScopeProfile("ipc_v1"),
+    policyEpoch: CURRENT_POLICY_EPOCH,
+  };
+}
+
+/**
+ * @deprecated Use `buildLocalAuthContext` instead.
+ */
+export const buildIpcAuthContext = buildLocalAuthContext;
 
 /**
  * Resolve the guardian runtime context for a local IPC connection.
@@ -90,7 +116,7 @@ export function resolveLocalIpcTrustContext(
  * `authContext.actorPrincipalId` path as HTTP sessions.
  */
 export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
-  const authContext = buildIpcAuthContext(sessionId);
+  const authContext = buildLocalAuthContext(sessionId);
 
   // Enrich with the guardian principal ID from contacts-first path
   const guardianResult = findGuardianForChannel("vellum");

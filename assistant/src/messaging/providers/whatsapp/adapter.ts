@@ -107,10 +107,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
     // exists for the next inbound WhatsApp message from this number.
     try {
       const sourceChannel = "whatsapp";
-      const conversationKey =
-        assistantId && assistantId !== "self"
-          ? `asst:${assistantId}:${sourceChannel}:${conversationId}`
-          : `${sourceChannel}:${conversationId}`;
+      const conversationKey = `asst:${assistantId ?? "self"}:${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } =
         getOrCreateConversation(conversationKey);
       if (!assistantId || assistantId === "self") {

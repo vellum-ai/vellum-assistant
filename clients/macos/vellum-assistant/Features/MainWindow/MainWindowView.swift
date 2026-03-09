@@ -87,12 +87,6 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     let trafficLightPadding: CGFloat = 78
 
-    /// When a generated surface is expanded into the workspace, hide the
-    /// global sidebar toggle so workspace controls own the top-left slot.
-    private var isGeneratedWorkspaceOpen: Bool {
-        windowState.isDynamicExpanded && windowState.activePanel == .generated
-    }
-
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     /// When true, the client shows a chat-only interface — no Home Base dashboard.
     private var isBootstrapOnboardingActive: Bool {
@@ -466,7 +460,7 @@ struct MainWindowView: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                             .animation(nil, value: sidebarExpanded)
                             .overlay {
-                                if showDaemonLoading {
+                                if showDaemonLoading && !isSettingsOpen {
                                     DaemonLoadingChatSkeleton()
                                         .transition(.opacity)
                                 }
@@ -481,7 +475,7 @@ struct MainWindowView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                withAnimation(VAnimation.snappy) {
                                     sidebar.showPreferencesDrawer = false
                                 }
                             }
@@ -526,8 +520,10 @@ struct MainWindowView: View {
                     // Preferences drawer rendered at top level so it floats above all content
                     if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let sidebarWidth = sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth
-                        let drawerX = 16 + sidebarWidth - VSpacing.xs
+                        let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
+                        // Position above the PreferencesRow: clear the row height + divider + gap
+                        let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
+                        let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
@@ -547,9 +543,9 @@ struct MainWindowView: View {
                             }
                         )
                         .frame(width: drawerWidth)
-                        .offset(x: drawerX, y: -28)
+                        .offset(x: 16 + VSpacing.sm, y: -drawerY)
                         .zIndex(10)
-                        .transition(.opacity)
+                        .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
                     }
                 }
                 .overlay {
@@ -601,7 +597,8 @@ struct MainWindowView: View {
             if zoomManager.showZoomIndicator {
                 ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, VSpacing.xxl + VSpacing.xl)
+                    .padding(.top, 40)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)

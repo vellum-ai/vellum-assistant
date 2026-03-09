@@ -83,11 +83,6 @@ struct SettingsPanel: View {
     @State private var showingHeartbeatRuns = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
-    @State private var integrations: [IPCIntegrationListResponseIntegration] = []
-    @State private var connectingIntegration: String?
-    @State private var integrationError: (id: String, message: String)?
-    /// Tracks integrations that need setup (e.g. missing Google Cloud client ID).
-    @State private var setupRequired: (id: String, skillId: String, hint: String)?
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var microphoneGranted: Bool = false
@@ -156,8 +151,6 @@ struct SettingsPanel: View {
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
-            setupIntegrationCallbacks()
-            try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
                 if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(pending) {
                     selectedTab = pending
@@ -174,8 +167,6 @@ struct SettingsPanel: View {
             }
         }
         .onDisappear {
-            daemonClient?.onIntegrationListResponse = nil
-            daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTask?.cancel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
@@ -587,22 +578,6 @@ struct SettingsPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
-            // INTEGRATIONS section (hidden when empty)
-            if daemonClient != nil && !integrations.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Integrations")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    ForEach(integrations, id: \.id) { integration in
-                        integrationRow(integration)
-                    }
-                }
-                .padding(VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceSubtle)
-            }
-
             // TWITTER / X section
             twitterSection
         }
@@ -884,143 +859,6 @@ struct SettingsPanel: View {
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Integration Row
-
-    private func integrationRow(_ integration: IPCIntegrationListResponseIntegration) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.md) {
-                Text(integrationIcon(integration.id))
-                    .font(.system(size: 14))
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(integrationDisplayName(integration.id))
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    if let account = integration.accountInfo {
-                        Text(account)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    if let error = integrationError, error.id == integration.id, setupRequired?.id != integration.id {
-                        Text(error.message)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
-                    }
-                }
-
-                Spacer()
-
-                if integration.connected {
-                    VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.success)
-                    VButton(label: "Disconnect", style: .danger) {
-                        try? daemonClient?.sendIntegrationDisconnect(integrationId: integration.id)
-                    }
-                } else if connectingIntegration == integration.id {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    VButton(label: "Connect", style: .primary) {
-                        integrationError = nil
-                        setupRequired = nil
-                        connectingIntegration = integration.id
-                        do {
-                            try daemonClient?.sendIntegrationConnect(integrationId: integration.id)
-                        } catch {
-                            connectingIntegration = nil
-                        }
-                    }
-                }
-            }
-
-            // Setup required card — shown when integration needs configuration
-            if let setup = setupRequired, setup.id == integration.id {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text(setup.hint)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    VButton(label: "Set Up \(integrationDisplayName(integration.id))", style: .primary) {
-                        startIntegrationSetup(skillId: setup.skillId, integrationName: integrationDisplayName(integration.id))
-                    }
-                }
-                .padding(.leading, 32) // Align with text after icon
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    private func integrationDisplayName(_ id: String) -> String {
-        switch id {
-        case "gmail": return "Gmail"
-        default: return id.capitalized
-        }
-    }
-
-    private func integrationIcon(_ id: String) -> String {
-        switch id {
-        case "gmail": return "\u{1F4E7}"
-        default: return "\u{1F517}"
-        }
-    }
-
-    private func setupIntegrationCallbacks() {
-        daemonClient?.onIntegrationListResponse = { [self] response in
-            Task { @MainActor in
-                self.integrations = response.integrations
-            }
-        }
-        daemonClient?.onIntegrationConnectResult = { [self] result in
-            Task { @MainActor in
-                self.connectingIntegration = nil
-                if result.setupRequired == true, let skillId = result.setupSkillId {
-                    // Integration needs setup — show the setup card instead of an error
-                    self.integrationError = nil
-                    self.setupRequired = (
-                        id: result.integrationId,
-                        skillId: skillId,
-                        hint: result.setupHint ?? "This integration requires additional setup before it can be connected."
-                    )
-                } else if !result.success {
-                    self.integrationError = (id: result.integrationId, message: result.error ?? "Connection failed")
-                } else {
-                    self.integrationError = nil
-                    self.setupRequired = nil
-                }
-                // Refresh the list after connect/disconnect
-                try? self.daemonClient?.sendIntegrationList()
-            }
-        }
-    }
-
-    /// Creates a new chat session with the setup skill pre-activated and navigates to it.
-    private func startIntegrationSetup(skillId: String, integrationName: String) {
-        guard daemonClient != nil else { return }
-
-        // Create a new thread — its ChatViewModel will claim the session_info
-        // response via correlationId.
-        threadManager.createThread()
-
-        guard let activeVM = threadManager.activeViewModel else { return }
-
-        // Pre-activate the setup skill so the daemon deterministically
-        // activates it instead of relying on model inference.
-        activeVM.preactivatedSkillIds = [skillId]
-
-        // Set the input text and send via ChatViewModel so it properly
-        // bootstraps (claims session_info, sets up message loop, shows the
-        // message in chat, etc.).
-        activeVM.inputText = "Please set up \(integrationName) for me."
-        activeVM.sendMessage()
-
-        // Close the settings panel so the user sees the chat
-        onClose()
     }
 
     // MARK: - Permission Row

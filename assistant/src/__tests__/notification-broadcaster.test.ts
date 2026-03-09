@@ -25,12 +25,12 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mock destination-resolver to return a destination for every requested channel.
-// External channels (sms, telegram, slack) include bindingContext.
+// External channels (telegram, slack) include bindingContext.
 mock.module("../notifications/destination-resolver.js", () => ({
   resolveDestinations: (channels: string[]) => {
     const m = new Map();
     for (const ch of channels) {
-      const isExternal = ch === "sms" || ch === "telegram" || ch === "slack";
+      const isExternal = ch === "telegram" || ch === "slack";
       m.set(ch, {
         channel: ch,
         endpoint: `mock-${ch}`,
@@ -417,26 +417,26 @@ describe("notification broadcaster", () => {
 
   // ── Destination binding context ────────────────────────────────────
 
-  test("SMS delivery carries destination binding context into pairing", async () => {
-    const smsAdapter = new MockAdapter("sms");
-    const broadcaster = new NotificationBroadcaster([smsAdapter]);
+  test("Telegram delivery carries destination binding context into pairing (additional)", async () => {
+    const telegramAdapter2 = new MockAdapter("telegram");
+    const broadcaster = new NotificationBroadcaster([telegramAdapter2]);
 
     const signal = makeSignal();
     const decision = makeDecision({
-      selectedChannels: ["sms"],
+      selectedChannels: ["telegram"],
       renderedCopy: {
-        sms: { title: "SMS Alert", body: "Something happened" },
+        telegram: { title: "Telegram Alert", body: "Something happened" },
       },
     });
 
     await broadcaster.broadcastDecision(signal, decision);
 
-    const smsCall = pairingCalls.find((c) => c.channel === "sms");
-    expect(smsCall).toBeDefined();
-    expect(smsCall!.options?.bindingContext).toEqual({
-      sourceChannel: "sms",
-      externalChatId: "ext-chat-sms",
-      externalUserId: "ext-user-sms",
+    const telegramCall = pairingCalls.find((c) => c.channel === "telegram");
+    expect(telegramCall).toBeDefined();
+    expect(telegramCall!.options?.bindingContext).toEqual({
+      sourceChannel: "telegram",
+      externalChatId: "ext-chat-telegram",
+      externalUserId: "ext-user-telegram",
     });
   });
 
@@ -495,8 +495,8 @@ describe("notification broadcaster", () => {
     // Simulate binding-key continuation: pairing reuses an existing bound
     // conversation (createdNewConversation=false, strategy=continue_existing_conversation)
     nextPairingResult = {
-      conversationId: "conv-bound-sms-001",
-      messageId: "msg-bound-sms-001",
+      conversationId: "conv-bound-voice-001",
+      messageId: "msg-bound-voice-001",
       strategy: "continue_existing_conversation" as const,
       createdNewConversation: false,
       threadDecisionFallbackUsed: false,

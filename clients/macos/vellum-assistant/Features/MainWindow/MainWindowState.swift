@@ -64,38 +64,6 @@ public final class MainWindowState: ObservableObject {
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
 
-    // MARK: - Backward-Compatible Computed Properties
-
-    /// Derived from `selection` for backward compatibility.
-    var activePanel: SidePanelType? {
-        get {
-            switch selection {
-            case .panel(let type): return type
-            case .app, .appEditing: return .generated
-            default: return nil
-            }
-        }
-        set {
-            if let panel = newValue {
-                selection = .panel(panel)
-            } else {
-                // Only clear if currently showing a panel
-                if case .panel = selection {
-                    selection = nil
-                } else if newValue == nil && activePanel != nil {
-                    // Explicit nil set — clear selection
-                    selection = nil
-                }
-            }
-            // Persist the active panel
-            if let newValue {
-                lastActivePanelString = String(describing: newValue)
-            } else if newValue == nil {
-                lastActivePanelString = nil
-            }
-        }
-    }
-
     /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.thread` selection or `nil` which defaults to chat).
     ///

@@ -13,8 +13,6 @@ const MANAGED_CALLBACK_TOKEN_HEADER = "X-Managed-Gateway-Callback-Token";
 const MANAGED_IDEMPOTENCY_HEADER = "X-Idempotency-Key";
 const MANAGED_OUTBOUND_MAX_ATTEMPTS = 3;
 const MANAGED_OUTBOUND_RETRY_BASE_MS = 150;
-const SMS_ATTACHMENTS_FALLBACK_TEXT =
-  "I have a media attachment to share, but SMS currently supports text only.";
 
 export interface ChannelReplyPayload {
   chatId: string;
@@ -33,6 +31,8 @@ export interface ChannelReplyPayload {
   ephemeral?: boolean;
   /** Slack user ID — required when `ephemeral` is true. */
   user?: string;
+  /** Telegram message_id for editing an existing message instead of sending a new one. */
+  messageId?: number;
   /** When provided, instructs the delivery endpoint to update an existing message instead of posting a new one. */
   messageTs?: string;
   /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
@@ -45,13 +45,15 @@ export interface ChannelDeliveryResult {
   ok: boolean;
   /** The message timestamp returned by the delivery endpoint (e.g. Slack message ts). */
   ts?: string;
+  /** The Telegram message_id returned when a new message was sent. */
+  messageId?: number;
 }
 
 interface ManagedOutboundCallbackContext {
   requestUrl: string;
   routeId: string;
   assistantId: string;
-  sourceChannel: "sms" | "voice";
+  sourceChannel: "phone";
   sourceUpdateId?: string;
   callbackToken?: string;
 }
@@ -92,11 +94,14 @@ export async function deliverChannelReply(
     );
   }
 
-  let result: ChannelDeliveryResult = { ok: true };
+  const result: ChannelDeliveryResult = { ok: true };
   try {
     const responseBody = (await response.json()) as Record<string, unknown>;
     if (typeof responseBody.ts === "string") {
-      result = { ok: true, ts: responseBody.ts };
+      result.ts = responseBody.ts;
+    }
+    if (typeof responseBody.messageId === "number") {
+      result.messageId = responseBody.messageId;
     }
   } catch {
     // Response may not be JSON for non-Slack channels; that's fine.
@@ -138,11 +143,7 @@ function parseManagedOutboundCallback(
   const assistantId = parsed.searchParams.get("assistant_id")?.trim();
   const sourceChannel = parsed.searchParams.get("source_channel")?.trim();
 
-  if (
-    !routeId ||
-    !assistantId ||
-    (sourceChannel !== "sms" && sourceChannel !== "voice")
-  ) {
+  if (!routeId || !assistantId || sourceChannel !== "phone") {
     throw new Error(
       "Managed outbound callback URL is missing required route_id, assistant_id, or source_channel.",
     );
@@ -185,11 +186,7 @@ async function deliverManagedOutboundReply(
     Array.isArray(payload.attachments) && payload.attachments.length > 0;
   const text = payload.approval?.plainTextFallback ?? payload.text;
   const normalizedText =
-    typeof text === "string" && text.trim().length > 0
-      ? text
-      : hasAttachments
-        ? SMS_ATTACHMENTS_FALLBACK_TEXT
-        : "";
+    typeof text === "string" && text.trim().length > 0 ? text : "";
   if (!normalizedText) {
     throw new Error(
       "Managed outbound delivery requires text or plainTextFallback.",

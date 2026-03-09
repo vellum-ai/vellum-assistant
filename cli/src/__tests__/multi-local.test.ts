@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Create a temp directory that acts as a fake home, so allocateLocalResources()
-// and defaultLocalResources() never touch the real ~/.vellum directory.
+// never touches the real ~/.vellum directory.
 const testDir = mkdtempSync(join(tmpdir(), "cli-multi-local-test-"));
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // Mock homedir() to return testDir — this isolates allocateLocalResources()
 // which uses homedir() directly for instance directory creation.
@@ -31,7 +31,6 @@ mock.module("../lib/port-probe.js", () => ({
 
 import {
   allocateLocalResources,
-  defaultLocalResources,
   resolveTargetAssistant,
   setActiveAssistant,
   getActiveAssistant,
@@ -39,11 +38,15 @@ import {
   saveAssistantEntry,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
-import { DEFAULT_DAEMON_PORT } from "../lib/constants.js";
+import {
+  DEFAULT_DAEMON_PORT,
+  DEFAULT_GATEWAY_PORT,
+  DEFAULT_QDRANT_PORT,
+} from "../lib/constants.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
-  delete process.env.BASE_DATA_DIR;
+  delete process.env.VELLUM_LOCKFILE_DIR;
 });
 
 function writeLockfile(data: unknown): void {
@@ -91,40 +94,54 @@ describe("multi-local", () => {
   });
 
   describe("allocateLocalResources() produces non-conflicting ports", () => {
-    test("two instances get distinct ports and dirs when first instance ports are occupied", async () => {
-      // After the first allocation grabs its ports, simulate those ports
-      // being in-use so the second allocation must pick different ones.
-      const a = await allocateLocalResources("instance-a");
+    test("first instance gets XDG path and default ports", async () => {
+      // GIVEN no local assistants exist in the lockfile
+
+      // WHEN we allocate resources for the first instance
+      const res = await allocateLocalResources("instance-a");
+
+      // THEN it gets an XDG instance directory under the home dir
+      expect(res.instanceDir).toBe(
+        join(testDir, ".local", "share", "vellum", "assistants", "instance-a"),
+      );
+
+      // AND it gets the default ports since no other instances exist
+      expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
+      expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
+      expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
+    });
+
+    test("second instance gets distinct ports and dir when first instance is saved", async () => {
+      // GIVEN a first local assistant already exists in the lockfile
+      saveAssistantEntry(makeEntry("instance-a"));
+
+      // AND the default ports are occupied
       const occupiedPorts = new Set([
-        a.daemonPort,
-        a.gatewayPort,
-        a.qdrantPort,
+        DEFAULT_DAEMON_PORT,
+        DEFAULT_GATEWAY_PORT,
+        DEFAULT_QDRANT_PORT,
       ]);
       probePortMock.mockImplementation((port: number) =>
         Promise.resolve(occupiedPorts.has(port)),
       );
 
+      // WHEN we allocate resources for a second instance
       const b = await allocateLocalResources("instance-b");
 
-      // All six ports must be unique across both instances
-      const allPorts = [
-        a.daemonPort,
-        a.gatewayPort,
-        a.qdrantPort,
-        b.daemonPort,
-        b.gatewayPort,
-        b.qdrantPort,
-      ];
-      expect(new Set(allPorts).size).toBe(6);
+      // THEN the second instance gets non-default ports
+      expect(occupiedPorts.has(b.daemonPort)).toBe(false);
+      expect(occupiedPorts.has(b.gatewayPort)).toBe(false);
+      expect(occupiedPorts.has(b.qdrantPort)).toBe(false);
 
-      // Instance dirs must be distinct
-      expect(a.instanceDir).not.toBe(b.instanceDir);
-      expect(a.instanceDir).toContain("instance-a");
+      // AND it gets its own dedicated instance directory
       expect(b.instanceDir).toContain("instance-b");
     });
 
     test("skips ports that probePort reports as in-use", async () => {
-      // Simulate the default ports being occupied
+      // GIVEN a first local assistant already exists in the lockfile
+      saveAssistantEntry(makeEntry("existing"));
+
+      // AND the default daemon ports are occupied
       const portsInUse = new Set([
         DEFAULT_DAEMON_PORT,
         DEFAULT_DAEMON_PORT + 1,
@@ -133,21 +150,12 @@ describe("multi-local", () => {
         Promise.resolve(portsInUse.has(port)),
       );
 
+      // WHEN we allocate resources for a new instance
       const res = await allocateLocalResources("probe-test");
+
+      // THEN the daemon port skips all occupied ports
       expect(res.daemonPort).toBeGreaterThan(DEFAULT_DAEMON_PORT + 1);
       expect(portsInUse.has(res.daemonPort)).toBe(false);
-    });
-  });
-
-  describe("defaultLocalResources() returns legacy paths", () => {
-    test("instanceDir is homedir", () => {
-      const res = defaultLocalResources();
-      expect(res.instanceDir).toBe(testDir);
-    });
-
-    test("daemonPort is DEFAULT_DAEMON_PORT", () => {
-      const res = defaultLocalResources();
-      expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
     });
   });
 

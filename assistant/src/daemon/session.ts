@@ -22,7 +22,6 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../config/system-prompt.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -39,6 +38,7 @@ import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -47,16 +47,16 @@ import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type {
-  AssistantActivityState,
-  ConfirmationStateChanged,
-} from "./ipc-contract/messages.js";
-import type {
   ServerMessage,
   SurfaceData,
   SurfaceType,
   UsageStats,
   UserMessageAttachment,
-} from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import type {
+  AssistantActivityState,
+  ConfirmationStateChanged,
+} from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
 import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";
@@ -352,11 +352,11 @@ export class Session {
       resolveTools,
       resolveSystemPromptCallback,
     );
-    this.contextWindowManager = new ContextWindowManager(
+    this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt,
-      config.contextWindow,
-    );
+      config: config.contextWindow,
+    });
 
     void getHookManager().trigger("session-start", {
       sessionId: this.conversationId,
@@ -401,6 +401,10 @@ export class Session {
    */
   setStateSignalListener(listener: (msg: ServerMessage) => void): void {
     this.onStateSignal = listener;
+  }
+
+  get hasStateSignalListener(): boolean {
+    return this.onStateSignal !== undefined;
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {

@@ -26,7 +26,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { ComputerUseSession } from "../daemon/computer-use-session.js";
-import type { CuObservation } from "../daemon/ipc-protocol.js";
+import type { CuObservation } from "../daemon/message-protocol.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import {
   __resetRegistryForTesting,

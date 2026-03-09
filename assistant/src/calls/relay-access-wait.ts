@@ -251,7 +251,7 @@ export function emitAccessRequestCallbackHandoff(
   if (fromNumber) {
     try {
       const contactResult = findContactChannel({
-        channelType: "voice",
+        channelType: "phone",
         externalUserId: fromNumber,
         externalChatId: fromNumber,
       });
@@ -277,7 +277,7 @@ export function emitAccessRequestCallbackHandoff(
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request.callback_handoff",
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceSessionId,
     attentionHints: {
       requiresAction: false,
@@ -289,7 +289,7 @@ export function emitAccessRequestCallbackHandoff(
       requestId: params.accessRequestId,
       requestCode: canonicalRequest?.requestCode ?? null,
       callSessionId: params.callSessionId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       reason: params.reason,
       callbackOptIn: true,
       callerPhoneNumber: fromNumber,
@@ -297,7 +297,7 @@ export function emitAccessRequestCallbackHandoff(
       requesterExternalUserId: fromNumber,
       requesterChatId: fromNumber,
       requesterMemberId,
-      requesterMemberSourceChannel: requesterMemberId ? "voice" : null,
+      requesterMemberSourceChannel: requesterMemberId ? "phone" : null,
     },
     dedupeKey,
   })

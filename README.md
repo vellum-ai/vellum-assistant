@@ -219,7 +219,6 @@ The assistant uses a permission system to control which tool actions the agent c
 |---|---|---|
 | `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
 | `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
-| `legacy` (deprecated) | No | Low-risk tools auto-allowed, medium/high prompted. **Deprecated — will be removed in a future release.** |
 
 To switch modes:
 
@@ -229,14 +228,9 @@ assistant config set permissions.mode '"workspace"'
 
 # Strict — ALL tools require an explicit trust rule, no implicit auto-allow
 assistant config set permissions.mode '"strict"'
-
-# Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
-assistant config set permissions.mode '"legacy"'
 ```
 
-> **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
-
-Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"` explicitly in their config will continue to use those modes unchanged.
+Existing users with `permissions.mode: "strict"` explicitly in their config will continue to use that mode unchanged.
 
 ### Trust rules
 
@@ -290,7 +284,7 @@ Vellum integrates with third-party services via OAuth2. Each integration is expo
 
 The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. SMS is supported via Twilio as a send-only provider — it can send outbound SMS messages but does not support listing conversations, reading history, or searching (SMS is stateless). **Note:** SMS only — MMS (media messages) is not currently supported. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
 
-Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions. SMS uses Twilio credentials (Account SID + Auth Token) — see the `twilio-setup` skill for setup instructions.
+Connect Gmail and Slack via the Settings UI or the `integration_connect` HTTP endpoint. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions. SMS uses Twilio credentials (Account SID + Auth Token) — see the `twilio-setup` skill for setup instructions.
 
 #### Per-assistant phone number mapping (SMS)
 
@@ -321,11 +315,11 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 
 - **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitter.operationStrategy`.
 
-**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The assistant runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
+**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The assistant runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or the `twitter_auth_start` HTTP endpoint.
 
 **Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
 
-**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
+**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
 
 </details>
 
@@ -408,7 +402,7 @@ Once loaded, the following tools become available for the remainder of the sessi
 
 ### Permissions
 
-All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
+All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in all permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
 
 </details>
 
@@ -417,9 +411,9 @@ All `browser_*` tools are declared as low-risk. The system seeds default trust r
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
 
-### Desktop (IPC)
+### Desktop (HTTP+SSE)
 
-Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` IPC messages. The macOS app renders thumbnails for images and displays file metadata for documents.
+Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` SSE events. The macOS app renders thumbnails for images and displays file metadata for documents.
 
 ### Runtime HTTP API
 
@@ -492,7 +486,7 @@ Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/wor
 <details>
 <summary><b>Assistant Events SSE Stream</b></summary>
 
-The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation. This provides a transport-agnostic alternative to the Unix socket IPC for HTTP clients (web apps, remote integrations, etc.).
+The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation.
 
 ### Endpoint
 
@@ -542,7 +536,7 @@ Each `data` field is a JSON-serialized `AssistantEvent`:
 }
 ```
 
-The `message` field is the unchanged IPC `ServerMessage` payload — the same types sent over the Unix socket to native clients. All delta semantics are preserved:
+The `message` field is the `ServerMessage` payload. All delta semantics are preserved:
 
 | Message type | Description |
 |---|---|
@@ -603,42 +597,36 @@ while (true) {
 
 Access a remote assistant from your local machine via SSH.
 
-### CLI (socket forwarding)
+### CLI (SSH port forwarding)
 
-The CLI connects via Unix socket. Forward the socket with SSH:
-
-```bash
-ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N &
-VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock vellum
-```
-
-When `VELLUM_DAEMON_SOCKET` is set, autostart is disabled by default. Set `VELLUM_DAEMON_AUTOSTART=1` to override.
-
-### macOS app (socket forwarding)
-
-The macOS app also supports `VELLUM_DAEMON_SOCKET`. Launch it from the terminal:
+The CLI connects via HTTP. Forward the assistant's HTTP port with SSH:
 
 ```bash
-ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N &
-VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
+ssh -L 8741:localhost:8741 user@remote-host -N &
+VELLUM_DAEMON_URL=http://localhost:8741 vellum
 ```
 
-### Blob Transport Behavior
+When connecting to a remote assistant, autostart is disabled by default. Set `VELLUM_DAEMON_AUTOSTART=1` to override.
 
-When the macOS client connects to a local assistant, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and assistant share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
+### macOS app (SSH port forwarding)
 
-Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't overlap), so the client falls back to inline base64/text payloads transparently. On iOS (TCP connections), the probe is skipped entirely and inline payloads are always used. No configuration is needed.
+The macOS app also supports remote connections. Launch it from the terminal:
+
+```bash
+ssh -L 8741:localhost:8741 user@remote-host -N &
+VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
+```
 
 ### Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| CLI: "could not connect to assistant socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
-| CLI: assistant starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
-| macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
+| CLI: "could not connect to assistant" | Is the SSH port tunnel active? Check `VELLUM_DAEMON_URL` |
+| CLI: assistant starts locally despite remote override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
+| macOS: not connecting | Verify the assistant URL is reachable |
 | Any: "connection refused" | Is the remote assistant running? (`vellum ps` on remote) |
 
-Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
+Run `vellum doctor` for a full diagnostic check.
 
 </details>
 

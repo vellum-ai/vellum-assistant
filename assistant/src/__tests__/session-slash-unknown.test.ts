@@ -5,7 +5,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 
@@ -88,7 +88,7 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -109,13 +109,16 @@ mock.module("../memory/conversation-store.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: (convId: string, role: string, content: string) => {
     addMessageCalls.push({ convId, role, content });
     return { id: `msg-${Date.now()}` };
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 mock.module("../memory/retriever.js", () => ({
@@ -148,6 +151,9 @@ mock.module("../memory/admin.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    shouldCompact() {
+      return { needed: false, estimatedTokens: 0 };
+    }
     async maybeCompact() {
       return { compacted: false };
     }
@@ -165,6 +171,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "start-the-day",
       name: "Start the Day",
+      displayName: "Start the Day",
       description: "Morning routine skill",
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",
@@ -175,6 +182,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "browser",
       name: "Browser",
+      displayName: "Browser",
       description:
         "Navigate and interact with web pages using a headless browser",
       directoryPath: "/skills/browser",

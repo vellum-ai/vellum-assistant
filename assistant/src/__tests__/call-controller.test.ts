@@ -82,9 +82,6 @@ mock.module("../calls/call-constants.js", () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
-  SILENCE_TIMEOUT_MS: 30_000,
-  MAX_CALL_DURATION_MS: 3600 * 1000,
-  USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
 }));
 
 // ── Voice session bridge mock ────────────────────────────────────────
@@ -166,7 +163,7 @@ import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
-import { getMessages } from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
@@ -871,7 +868,7 @@ describe("call-controller", () => {
 
   test("handleCallerUtterance: passes guardian context to startVoiceTurn", async () => {
     const trustCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "trusted_contact" as const,
       guardianExternalUserId: "+15550009999",
       guardianChatId: "+15550009999",
@@ -931,13 +928,12 @@ describe("call-controller", () => {
 
   test("setTrustContext: subsequent turns use updated guardian context", async () => {
     const initialCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "unknown" as const,
-      denialReason: "no_binding" as const,
     };
 
     const upgradedCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "guardian" as const,
       guardianExternalUserId: "+15550003333",
       guardianChatId: "+15550003333",

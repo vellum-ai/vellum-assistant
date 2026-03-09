@@ -35,7 +35,8 @@ export type ApprovalMessageScenario =
   | "guardian_deny_no_identity"
   | "guardian_deny_no_binding"
   | "requester_cancel"
-  | "approval_already_resolved";
+  | "approval_already_resolved"
+  | "guardian_text_unavailable";
 
 export interface ApprovalMessageContext {
   scenario: ApprovalMessageScenario;
@@ -257,7 +258,7 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       // Detect whether the code is a short numeric (identity-bound outbound)
       // or a high-entropy hex (inbound challenge/bootstrap) and adjust wording.
       const isNumeric = /^\d{4,8}$/.test(code);
-      if (context.channel === "voice") {
+      if (context.channel === "phone") {
         if (isNumeric) {
           return `To complete guardian verification, speak or enter the ${code.length}-digit code: ${code}.`;
         }
@@ -288,6 +289,9 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
 
     case "approval_already_resolved":
       return "This approval request has already been resolved.";
+
+    case "guardian_text_unavailable":
+      return "I can't process text replies for approvals right now. Please use the approve/deny buttons above to respond.";
 
     default: {
       // Exhaustive check — TypeScript will flag if a scenario is missing.

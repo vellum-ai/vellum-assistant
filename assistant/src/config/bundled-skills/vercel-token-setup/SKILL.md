@@ -1,9 +1,8 @@
 ---
-name: "Vercel Token Setup"
-description: "Set up a Vercel API token for publishing apps using browser automation"
-includes: ["browser"]
-credential-setup-for: "vercel:api_token"
-metadata: {"vellum": {"emoji": "▲"}}
+name: vercel-token-setup
+description: Set up a Vercel API token for publishing apps using browser automation
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"▲","vellum":{"display-name":"Vercel Token Setup","includes":["browser"],"credential-setup-for":"vercel:api_token"}}
 ---
 
 You are helping your user set up a Vercel API token so they can publish apps to the web.

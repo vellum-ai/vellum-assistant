@@ -129,14 +129,6 @@ export function getOAuthCallbackUrl(config: IngressConfig): string {
 }
 
 /**
- * Build the Twilio SMS webhook URL.
- */
-export function getTwilioSmsWebhookUrl(config: IngressConfig): string {
-  const base = getPublicBaseUrl(config);
-  return `${base}/webhooks/twilio/sms`;
-}
-
-/**
  * Build the Telegram webhook URL.
  */
 export function getTelegramWebhookUrl(config: IngressConfig): string {

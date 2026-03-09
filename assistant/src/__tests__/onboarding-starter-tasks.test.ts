@@ -28,7 +28,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   getHistoryPath: () => join(TEST_DIR, "history"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -38,10 +38,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   readLockfile: () => null,
   writeLockfile: () => {},
 }));
@@ -63,7 +59,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { buildStarterTaskPlaybookSection, buildSystemPrompt } =
-  await import("../config/system-prompt.js");
+  await import("../prompts/system-prompt.js");
 
 describe("buildStarterTaskPlaybookSection", () => {
   test("returns a string with the section heading", () => {

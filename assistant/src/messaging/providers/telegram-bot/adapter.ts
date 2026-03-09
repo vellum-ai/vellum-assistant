@@ -128,7 +128,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     // conversation key mapping and binding exist for the next inbound.
     try {
       const sourceChannel = "telegram";
-      const conversationKey = `${sourceChannel}:${conversationId}`;
+      const conversationKey = `asst:self:${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } =
         getOrCreateConversation(conversationKey);
       externalConversationStore.upsertOutboundBinding({

@@ -80,7 +80,7 @@ const HOST_TOOLS = new Set([
 const ALWAYS_SCOPED_TOOLS = new Set([
   "skill_load",
   "view_image",
-  "memory_search",
+  "memory_recall",
   "ui_update",
   "ui_dismiss",
 ]);

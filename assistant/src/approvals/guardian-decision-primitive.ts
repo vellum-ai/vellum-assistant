@@ -35,7 +35,7 @@ import {
 import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
-} from "../memory/channel-guardian-store.js";
+} from "../memory/guardian-approvals.js";
 import type {
   ApprovalAction,
   ApprovalDecisionResult,

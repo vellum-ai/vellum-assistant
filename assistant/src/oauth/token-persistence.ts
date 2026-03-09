@@ -119,7 +119,6 @@ export async function storeOAuth2Tokens(
     allowedTools: allowedTools ?? [],
     expiresAt,
     grantedScopes,
-    accountInfo: accountInfo ?? params.identityAccountInfo ?? null,
     oauth2TokenUrl: tokenUrl,
     oauth2ClientId: clientId,
     oauth2ClientSecret: clientSecret ?? null,
@@ -130,6 +129,31 @@ export async function storeOAuth2Tokens(
       ? { injectionTemplates: wellKnownInjectionTemplates }
       : {}),
   });
+
+  // Write accountInfo to config using a namespaced key (dynamic import to
+  // avoid circular dependencies — the config loader may transitively depend
+  // on credential modules).
+  const resolvedAccountInfo = accountInfo ?? params.identityAccountInfo;
+  if (resolvedAccountInfo) {
+    try {
+      const {
+        invalidateConfigCache,
+        loadRawConfig,
+        saveRawConfig,
+        setNestedValue,
+      } = await import("../config/loader.js");
+      const raw = loadRawConfig();
+      setNestedValue(
+        raw,
+        `integrations.accountInfo.${service}`,
+        resolvedAccountInfo,
+      );
+      saveRawConfig(raw);
+      invalidateConfigCache();
+    } catch {
+      // Non-fatal — tokens stored even if config write fails
+    }
+  }
 
   if (tokens.refreshToken) {
     const refreshStored = await setSecureKeyAsync(

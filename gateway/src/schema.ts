@@ -7,7 +7,7 @@ export function buildSchema(): Record<string, unknown> {
       title: "Vellum Gateway",
       version: packageJson.version,
       description:
-        "HTTP gateway that bridges external channels (Telegram, SMS, etc.) to the Vellum assistant runtime and provides an authenticated reverse proxy.",
+        "HTTP gateway that bridges external channels (Telegram, WhatsApp, etc.) to the Vellum assistant runtime and provides an authenticated reverse proxy.",
     },
     paths: {
       "/healthz": {
@@ -296,7 +296,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio voice webhook",
           description:
-            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/voice-webhook for backward compatibility.",
+            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioVoiceWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -354,7 +354,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio status webhook",
           description:
-            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/status for backward compatibility.",
+            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioStatusWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -411,7 +411,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio connect-action webhook",
           description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/connect-action for backward compatibility.",
+            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioConnectActionWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -455,143 +455,6 @@ export function buildSchema(): Record<string, unknown> {
             },
             "502": {
               description: "Failed to forward to runtime",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/webhooks/twilio/sms": {
-        post: {
-          summary: "Twilio SMS webhook",
-          description:
-            "Receives inbound Twilio SMS webhooks, validates the X-Twilio-Signature, normalizes the payload into a gateway inbound event with sourceChannel 'sms', and forwards to the assistant runtime.",
-          operationId: "twilioSmsWebhook",
-          security: [{ TwilioSignature: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/x-www-form-urlencoded": {
-                schema: {
-                  type: "object",
-                  additionalProperties: { type: "string" },
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "SMS accepted",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/SmsOk" },
-                },
-              },
-            },
-            "400": {
-              description: "Missing MessageSid or invalid body",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "403": {
-              description:
-                "Twilio signature validation failed or auth token not configured",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed (only POST accepted)",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "413": {
-              description: "Webhook payload too large",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "500": {
-              description: "Internal error processing inbound SMS",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/deliver/sms": {
-        post: {
-          summary: "SMS delivery (internal)",
-          description:
-            "Internal endpoint called by the assistant runtime to deliver outbound SMS messages via Twilio. Not intended for external use.",
-          operationId: "smsDeliver",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/SmsDeliverRequest" },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "SMS delivered",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/SmsOk" },
-                },
-              },
-            },
-            "400": {
-              description: "Invalid JSON or missing required fields",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed (only POST accepted)",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to deliver message via Twilio Messages API",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "503": {
-              description: "SMS integration not configured",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -797,7 +660,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Twilio ConversationRelay WebSocket",
           description:
-            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter. Also available at /v1/calls/relay for backward compatibility.",
+            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter.",
           operationId: "twilioRelayWebsocket",
           parameters: [
             {
@@ -1234,44 +1097,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/contact-channels/{contactChannelId}/verify": {
-        post: {
-          summary: "Verify a contact channel",
-          description:
-            "Authenticated gateway endpoint that initiates or completes verification of a contact's communication channel via the assistant runtime.",
-          operationId: "contactsChannelVerify",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "contactChannelId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Channel verification initiated or completed",
-            },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Contact or channel not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
       "/v1/contacts/invites": {
         get: {
           summary: "List contacts invites",
@@ -1370,12 +1195,54 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/challenge": {
+      "/v1/channel-verification-sessions": {
         post: {
-          summary: "Create guardian verification challenge",
+          summary: "Create channel verification session",
           description:
-            "Authenticated gateway endpoint that forwards guardian challenge creation to the assistant runtime.",
-          operationId: "guardianChallenge",
+            "Create a channel verification session (inbound challenge or outbound verification).",
+          operationId: "verificationSessionCreate",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "purpose",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Optional verification purpose (e.g. guardian, trusted-contact).",
+            },
+            {
+              name: "contactChannelId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Optional contact channel ID to verify.",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Session created" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "429": { description: "Rate limited by verification policy" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "503": { description: "Bearer token not configured" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Cancel channel verification session",
+          description: "Cancel the active channel verification session.",
+          operationId: "verificationSessionCancel",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1386,35 +1253,62 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Challenge created" },
+            "200": { description: "Session cancelled" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
-            "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
+            "503": { description: "Bearer token not configured" },
             "504": { description: "Assistant runtime request timed out" },
           },
         },
       },
-      "/v1/integrations/guardian/status": {
+      "/v1/channel-verification-sessions/resend": {
+        post: {
+          summary: "Resend verification code",
+          description: "Resend the outbound verification code.",
+          operationId: "verificationSessionResend",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Verification code resent" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "429": { description: "Rate limited by verification policy" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "503": { description: "Bearer token not configured" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/channel-verification-sessions/status": {
         get: {
-          summary: "Get guardian binding status",
+          summary: "Get verification binding status",
           description:
-            "Authenticated gateway endpoint that forwards guardian status checks to the assistant runtime.",
-          operationId: "guardianStatus",
+            "Authenticated gateway endpoint that forwards verification status checks to the assistant runtime.",
+          operationId: "verificationStatus",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
               name: "channel",
               in: "query",
               required: false,
-              schema: { type: "string", enum: ["sms", "voice", "telegram"] },
-              description: "Optional guardian channel filter.",
+              schema: { type: "string", enum: ["phone", "telegram"] },
+              description: "Optional channel filter.",
             },
           ],
           responses: {
-            "200": { description: "Guardian status returned" },
+            "200": { description: "Verification status returned" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -1424,12 +1318,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/outbound/start": {
+      "/v1/guardian/init": {
         post: {
-          summary: "Start outbound guardian verification",
+          summary: "Initialize guardian",
           description:
-            "Authenticated gateway endpoint that starts outbound guardian verification (sms, voice, or telegram).",
-          operationId: "guardianOutboundStart",
+            "Authenticated gateway endpoint that initializes the guardian identity and binds it to the assistant runtime.",
+          operationId: "guardianInit",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1440,24 +1334,23 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Outbound verification started" },
+            "200": { description: "Guardian initialized" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
-            "429": { description: "Rate limited by verification policy" },
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
           },
         },
       },
-      "/v1/integrations/guardian/outbound/resend": {
+      "/v1/channel-verification-sessions/revoke": {
         post: {
-          summary: "Resend outbound guardian verification",
+          summary: "Revoke verification binding",
           description:
-            "Authenticated gateway endpoint that resends the current outbound guardian verification code.",
-          operationId: "guardianOutboundResend",
+            "Authenticated gateway endpoint that revokes an existing verification binding via the assistant runtime.",
+          operationId: "verificationRevoke",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1468,35 +1361,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Verification resent" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "429": { description: "Rate limited by verification policy" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/integrations/guardian/outbound/cancel": {
-        post: {
-          summary: "Cancel outbound guardian verification",
-          description:
-            "Authenticated gateway endpoint that cancels an active outbound guardian verification session.",
-          operationId: "guardianOutboundCancel",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Verification cancelled" },
+            "200": { description: "Verification binding revoked" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -1507,66 +1372,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/vellum/bootstrap": {
-        post: {
-          summary: "Bootstrap Vellum guardian",
-          description:
-            "Authenticated gateway endpoint that bootstraps the Vellum guardian identity and binds it to the assistant runtime.",
-          operationId: "guardianVellumBootstrap",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Guardian bootstrapped" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/integrations/guardian/revoke": {
-        post: {
-          summary: "Revoke guardian binding",
-          description:
-            "Authenticated gateway endpoint that revokes an existing guardian binding via the assistant runtime.",
-          operationId: "guardianRevoke",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Guardian binding revoked" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/integrations/guardian/vellum/refresh": {
+      "/v1/guardian/refresh": {
         post: {
           summary: "Refresh guardian access token",
           description:
             "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed).",
-          operationId: "guardianVellumRefresh",
+          operationId: "guardianRefresh",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1743,15 +1554,15 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/twilio/sms/compliance": {
+      "/v1/slack/channels": {
         get: {
-          summary: "Get SMS compliance status",
+          summary: "List Slack channels",
           description:
-            "Authenticated gateway endpoint that returns SMS compliance/registration status from the assistant runtime.",
-          operationId: "twilioSmsComplianceGet",
+            "Authenticated gateway endpoint that lists available Slack channels by proxying to the assistant runtime. Returns all channels in a single response.",
+          operationId: "slackChannelsGet",
           security: [{ BearerAuth: [] }],
           responses: {
-            "200": { description: "SMS compliance status returned" },
+            "200": { description: "Slack channels returned" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -1761,12 +1572,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/twilio/sms/compliance/tollfree": {
+      "/v1/slack/share": {
         post: {
-          summary: "Submit toll-free verification",
+          summary: "Share to Slack",
           description:
-            "Authenticated gateway endpoint that submits a toll-free number verification request via the assistant runtime.",
-          operationId: "twilioSmsTollfreePost",
+            "Authenticated gateway endpoint that shares content to a Slack channel by proxying to the assistant runtime.",
+          operationId: "slackSharePost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1777,121 +1588,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Toll-free verification submitted" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/integrations/twilio/sms/compliance/tollfree/{verificationSid}": {
-        patch: {
-          summary: "Update toll-free verification",
-          description:
-            "Authenticated gateway endpoint that updates an existing toll-free verification via the assistant runtime.",
-          operationId: "twilioSmsTollfreePatch",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "verificationSid",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Toll-free verification updated" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-        delete: {
-          summary: "Delete toll-free verification",
-          description:
-            "Authenticated gateway endpoint that deletes a toll-free verification via the assistant runtime.",
-          operationId: "twilioSmsTollfreeDelete",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "verificationSid",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            "200": { description: "Toll-free verification deleted" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Verification not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/integrations/twilio/sms/test": {
-        post: {
-          summary: "Send a test SMS",
-          description:
-            "Authenticated gateway endpoint that sends a test SMS message via the assistant runtime.",
-          operationId: "twilioSmsTestPost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Test SMS sent" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/integrations/twilio/sms/doctor": {
-        post: {
-          summary: "Run SMS doctor diagnostics",
-          description:
-            "Authenticated gateway endpoint that runs SMS integration diagnostics via the assistant runtime.",
-          operationId: "twilioSmsDoctorPost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "SMS doctor diagnostics returned" },
+            "200": { description: "Content shared to Slack" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -2312,50 +2009,6 @@ export function buildSchema(): Record<string, unknown> {
           properties: {
             ok: { type: "boolean" },
           },
-        },
-        SmsOk: {
-          type: "object",
-          required: ["ok"],
-          properties: {
-            ok: { type: "boolean" },
-          },
-        },
-        SmsDeliverRequest: {
-          type: "object",
-          description:
-            "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number. `text` is optional when `attachments` are present — a fallback text message is sent instead.",
-          properties: {
-            to: {
-              type: "string",
-              description: "Recipient phone number in E.164 format",
-            },
-            chatId: {
-              type: "string",
-              description:
-                "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload.",
-            },
-            text: {
-              type: "string",
-              description: "Text content to send",
-              minLength: 1,
-            },
-            assistantId: {
-              type: "string",
-              description:
-                "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups",
-            },
-            attachments: {
-              type: "array",
-              items: { type: "object" },
-              minItems: 1,
-              description:
-                "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead.",
-            },
-          },
-          allOf: [
-            { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
-            { anyOf: [{ required: ["text"] }, { required: ["attachments"] }] },
-          ],
         },
         TelegramUpdate: {
           type: "object",

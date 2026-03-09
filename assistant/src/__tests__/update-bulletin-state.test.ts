@@ -17,7 +17,7 @@ const {
   isReleaseCompleted,
   markReleasesCompleted,
   addActiveRelease,
-} = await import("../config/update-bulletin-state.js");
+} = await import("../prompts/update-bulletin-state.js");
 
 describe("update-bulletin-state", () => {
   beforeEach(() => {

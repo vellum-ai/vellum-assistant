@@ -8,7 +8,7 @@ import VellumAssistantShared
 /// unified Text views so that text selection can span across paragraphs.
 struct MarkdownSegmentView: View {
     let segments: [MarkdownSegment]
-    var maxContentWidth: CGFloat? = 520
+    var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
     var textColor: Color = VColor.textPrimary
     var secondaryTextColor: Color = VColor.textSecondary
     var mutedTextColor: Color = VColor.textMuted

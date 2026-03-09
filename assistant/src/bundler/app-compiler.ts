@@ -1,19 +1,21 @@
 /**
- * esbuild wrapper for compiling multi-file TSX apps.
+ * Compiler for multi-file TSX apps.
  *
- * Compiles src/main.tsx → dist/main.js, copies index.html with
- * script/style tag injection, and returns structured diagnostics.
+ * Shells out to the esbuild CLI binary (JIT-downloaded on first use) to
+ * compile src/main.tsx -> dist/main.js, then copies index.html with
+ * script/style tag injection.
+ *
+ * This avoids importing esbuild's JS API (which caches its native binary
+ * path at module load time and breaks inside bun --compile's /$bunfs/).
  */
 
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-
-import { build, type Message, type Plugin } from "esbuild";
+import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
+import { ensureCompilerTools } from "./compiler-tools.js";
 import {
-  ALLOWED_PACKAGES,
   getCacheDir,
   isBareImport,
   packageName,
@@ -34,19 +36,70 @@ export interface CompileResult {
   durationMs: number;
 }
 
-function mapDiagnostics(messages: Message[]): CompileDiagnostic[] {
-  return messages.map((msg) => ({
-    text: msg.text,
-    ...(msg.location
-      ? {
-          location: {
-            file: msg.location.file,
-            line: msg.location.line,
-            column: msg.location.column,
-          },
+/**
+ * Parse esbuild CLI stderr into structured diagnostics.
+ * esbuild outputs errors like:
+ *   ✘ [ERROR] Could not resolve "foo"
+ *       src/main.tsx:3:7:
+ */
+function parseEsbuildStderr(stderr: string): {
+  errors: CompileDiagnostic[];
+  warnings: CompileDiagnostic[];
+} {
+  const errors: CompileDiagnostic[] = [];
+  const warnings: CompileDiagnostic[] = [];
+  const lines = stderr.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const errorMatch = lines[i].match(/✘ \[ERROR\] (.+)/);
+    const warnMatch = lines[i].match(/▲ \[WARNING\] (.+)/);
+
+    if (errorMatch || warnMatch) {
+      const text = (errorMatch ?? warnMatch)![1];
+      const diag: CompileDiagnostic = { text };
+
+      // Next non-empty line may have location: "    file:line:col:"
+      const locLine = lines[i + 1]?.trim();
+      if (locLine) {
+        const locMatch = locLine.match(/^(.+):(\d+):(\d+):?$/);
+        if (locMatch) {
+          diag.location = {
+            file: locMatch[1],
+            line: parseInt(locMatch[2], 10),
+            column: parseInt(locMatch[3], 10),
+          };
         }
-      : {}),
-  }));
+      }
+
+      if (errorMatch) errors.push(diag);
+      else warnings.push(diag);
+    }
+  }
+
+  return { errors, warnings };
+}
+
+/**
+ * Scan source files for bare import specifiers and pre-install any
+ * allowlisted packages into the shared cache so esbuild can resolve them.
+ */
+async function resolveAppImports(srcDir: string): Promise<void> {
+  const importRe = /(?:import|from)\s+["']([^"'.][^"']*)["']/g;
+  const seen = new Set<string>();
+
+  const files = await readdir(srcDir, { recursive: true });
+  for (const file of files) {
+    if (!/\.[jt]sx?$/.test(String(file))) continue;
+    const content = await readFile(join(srcDir, String(file)), "utf-8");
+    for (const match of content.matchAll(importRe)) {
+      const specifier = match[1];
+      if (!isBareImport(specifier)) continue;
+      const pkg = packageName(specifier);
+      if (seen.has(pkg)) continue;
+      seen.add(pkg);
+      await resolvePackage(pkg);
+    }
+  }
 }
 
 /**
@@ -68,95 +121,70 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
   }
   await mkdir(distDir, { recursive: true });
 
-  // Resolve preact from the assistant's own node_modules so per-app
-  // directories don't need their own copy.
-  const preactDir = resolve(
-    import.meta.dirname ?? __dirname,
-    "../../node_modules/preact",
-  );
-
-  // Plugin that resolves bare third-party imports against the allowlist
-  const resolvePlugin: Plugin = {
-    name: "vellum-package-resolver",
-    setup(pluginBuild) {
-      pluginBuild.onResolve({ filter: /.*/ }, async (args) => {
-        // Only intercept bare specifiers (not relative, not preact/react aliases)
-        if (
-          args.kind !== "import-statement" &&
-          args.kind !== "dynamic-import"
-        ) {
-          return undefined;
-        }
-        if (!isBareImport(args.path)) return undefined;
-
-        const pkg = packageName(args.path);
-        const nodeModulesDir = await resolvePackage(pkg);
-
-        if (nodeModulesDir) {
-          // Let esbuild resolve normally — nodePaths will pick it up
-          return undefined;
-        }
-
-        // Not allowed — produce a clear error
-        return {
-          errors: [
-            {
-              text: `Package '${pkg}' is not in the allowed list. Allowed: ${ALLOWED_PACKAGES.join(", ")}`,
-            },
-          ],
-        };
-      });
-    },
-  };
-
-  const cacheNodeModules = join(getCacheDir(), "node_modules");
-
-  let result;
+  // JIT download esbuild binary + preact on first use
+  let tools;
   try {
-    result = await build({
-      entryPoints: [entryPoint],
-      bundle: true,
-      minify: true,
-      sourcemap: false,
-      outdir: distDir,
-      format: "esm",
-      target: ["es2022"],
-      jsx: "automatic",
-      jsxImportSource: "preact",
-      loader: {
-        ".tsx": "tsx",
-        ".ts": "ts",
-        ".jsx": "jsx",
-        ".js": "js",
-        ".css": "css",
-      },
-      alias: {
-        react: "preact/compat",
-        "react-dom": "preact/compat",
-      },
-      plugins: [resolvePlugin],
-      // Point esbuild at assistant's preact and at the shared package cache
-      nodePaths: [resolve(preactDir, ".."), cacheNodeModules],
-      logLevel: "silent",
-    });
-  } catch (err: unknown) {
-    // esbuild throws on hard failures (e.g. syntax errors) with .errors/.warnings
-    const esbuildErr = err as {
-      errors?: Message[];
-      warnings?: Message[];
-    };
+    tools = await ensureCompilerTools();
+  } catch (err) {
     const durationMs = Math.round(performance.now() - start);
-    const errors = mapDiagnostics(esbuildErr.errors ?? []);
-    const warnings = mapDiagnostics(esbuildErr.warnings ?? []);
-    log.info({ durationMs, errorCount: errors.length }, "Build failed");
-    return { ok: false, errors, warnings, durationMs };
+    const text = err instanceof Error ? err.message : String(err);
+    log.error({ err, durationMs }, "Failed to ensure compiler tools");
+    return {
+      ok: false,
+      errors: [{ text: `Compiler setup failed: ${text}` }],
+      warnings: [],
+      durationMs,
+    };
   }
 
-  const errors = mapDiagnostics(result.errors);
-  const warnings = mapDiagnostics(result.warnings);
+  // Scan source files for bare imports and JIT-install allowed packages
+  await resolveAppImports(srcDir);
 
-  if (errors.length > 0) {
+  // Build NODE_PATH: preact parent dir + shared package cache
+  const preactParent = dirname(tools.preactDir);
+  const cacheNodeModules = join(getCacheDir(), "node_modules");
+  const nodePath = [preactParent, cacheNodeModules]
+    .filter((p) => existsSync(p))
+    .join(":");
+
+  // Shell out to esbuild CLI
+  const args = [
+    entryPoint,
+    "--bundle",
+    "--minify",
+    `--outdir=${distDir}`,
+    "--format=esm",
+    "--target=es2022",
+    "--jsx=automatic",
+    "--jsx-import-source=preact",
+    "--alias:react=preact/compat",
+    "--alias:react-dom=preact/compat",
+    "--loader:.tsx=tsx",
+    "--loader:.ts=ts",
+    "--loader:.jsx=jsx",
+    "--loader:.js=js",
+    "--loader:.css=css",
+    "--log-level=warning",
+  ];
+
+  const proc = Bun.spawn({
+    cmd: [tools.esbuildBin, ...args],
+    cwd: appDir,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, NODE_PATH: nodePath },
+  });
+
+  await proc.exited;
+  const stderr = await new Response(proc.stderr).text();
+
+  if (proc.exitCode !== 0) {
     const durationMs = Math.round(performance.now() - start);
+    const { errors, warnings } = parseEsbuildStderr(stderr);
+    // If parsing found nothing, use raw stderr as the error
+    if (errors.length === 0 && stderr.trim()) {
+      errors.push({ text: stderr.trim() });
+    }
     log.info({ durationMs, errorCount: errors.length }, "Build failed");
     return { ok: false, errors, warnings, durationMs };
   }
@@ -191,5 +219,5 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
 
   const durationMs = Math.round(performance.now() - start);
   log.info({ durationMs }, "Build succeeded");
-  return { ok: true, errors, warnings, durationMs };
+  return { ok: true, errors: [], warnings: [], durationMs };
 }

@@ -57,12 +57,12 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createApprovalRequest,
   getApprovalRequestById,
-} from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { findActiveSession } from "../runtime/channel-guardian-service.js";
+} from "../memory/guardian-approvals.js";
+import { findActiveSession } from "../runtime/channel-verification-service.js";
 import {
   deliverVerificationCodeToGuardian,
   handleAccessRequestDecision,
@@ -91,7 +91,7 @@ const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 function resetState(): void {
   const db = getDb();
   db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_verification_challenges");
+  db.run("DELETE FROM channel_verification_sessions");
   deliverReplyCalls.length = 0;
 }
 

@@ -73,7 +73,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 mock.module("../config/skills.js", () => ({
@@ -99,7 +99,7 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   provenanceFromTrustContext: () => ({
@@ -124,6 +124,9 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationContextWindow: () => {},
   deleteMessageById: () => ({ segmentIds: [], orphanedItemIds: [] }),
   deleteLastExchange: () => 0,
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
@@ -167,6 +170,9 @@ mock.module("../memory/retrieval-budget.js", () => ({
 }));
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
+    shouldCompact() {
+      return { needed: false, estimatedTokens: 0 };
+    }
     async maybeCompact() {
       return { compacted: false };
     }

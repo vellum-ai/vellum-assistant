@@ -25,8 +25,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -74,7 +72,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
     if (assistantId === "self" && channel === "telegram") {
       return {
@@ -253,9 +251,9 @@ describe("bridgeConfirmationRequestToGuardian", () => {
   });
 
   test("skips when no guardian binding exists for channel", () => {
-    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "sms" });
+    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "phone" });
     const trustContext = makeTrustedContactContext({
-      sourceChannel: "sms",
+      sourceChannel: "phone",
     });
 
     const result = bridgeConfirmationRequestToGuardian({

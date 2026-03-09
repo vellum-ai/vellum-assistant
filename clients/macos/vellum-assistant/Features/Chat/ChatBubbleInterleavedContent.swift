@@ -7,7 +7,7 @@ extension ChatBubble {
     /// Whether tool progress should be rendered inline at tool-call block positions
     /// instead of in the trailing status area.
     var shouldRenderToolProgressInline: Bool {
-        guard !hideToolCalls else { return false }
+        // Tool calls are never hidden; always consider inline rendering.
         guard hasInterleavedContent else { return false }
         return message.contentOrder.contains(where: {
             if case .toolCall = $0 { return true }
@@ -39,6 +39,18 @@ extension ChatBubble {
         case texts([Int])
         case toolCalls([Int])
         case surface(Int)
+
+        /// Stable identity based on the first index in the group.
+        /// Using \.self as ForEach identity causes SwiftUI to destroy and recreate
+        /// views when new items are appended (e.g. a new tool call), which resets
+        /// @State like isExpanded. This ID stays constant as the group grows.
+        var stableId: String {
+            switch self {
+            case .texts(let indices): return "t\(indices.first ?? 0)"
+            case .toolCalls(let indices): return "tc\(indices.first ?? 0)"
+            case .surface(let i): return "s\(i)"
+            }
+        }
     }
 
     func groupContentBlocks() -> [ContentGroup] {
@@ -181,7 +193,7 @@ extension ChatBubble {
                 decidedConfirmations: groupConfirmations,
                 onRehydrate: onRehydrate
             )
-            .frame(maxWidth: 520, alignment: .leading)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         }
     }
 
@@ -194,11 +206,10 @@ extension ChatBubble {
         }.first
 
         // Render all content groups in order: text, tool calls, and surfaces.
-        // Uses \.self identity (backed by Hashable conformance) instead of
-        // \.offset so SwiftUI can skip re-evaluating children whose content
-        // hasn't changed — prevents a view-update death spiral on long
-        // conversations with many interleaved blocks.
-        ForEach(groups, id: \.self) { group in
+        // Uses \.stableId (based on the first index in each group) so SwiftUI
+        // preserves @State (like isExpanded) when new items are appended to a
+        // group, and skips re-evaluating children whose identity hasn't changed.
+        ForEach(groups, id: \.stableId) { group in
             switch group {
             case .texts(let indices):
                 let joined = indices

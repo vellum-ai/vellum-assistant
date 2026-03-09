@@ -26,7 +26,10 @@ export default defineConfig({
   fullyParallel: true,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    video: "on",
+    // Disable Playwright's built-in browser video — it records the Chromium tab,
+    // which is blank because agent tests interact with native macOS UI via
+    // AppleScript. Desktop recording is handled by ffmpeg in cases.spec.ts.
+    video: "off",
     trace: "retain-on-failure",
     // Agent tests need Chromium for the AI agent to browse
     browserName: "chromium",

@@ -17,23 +17,29 @@ interface SurfaceActionTarget {
     actionId: string,
     data?: Record<string, unknown>,
   ): void;
+  handleSurfaceUndo?(surfaceId: string): void;
 }
 
 export type SessionLookup = (
   sessionId: string,
 ) => SurfaceActionTarget | undefined;
 
+export type SessionLookupBySurfaceId = (
+  surfaceId: string,
+) => SurfaceActionTarget | undefined;
+
 /**
  * POST /v1/surface-actions — handle a UI surface action.
  *
- * Body: { sessionId, surfaceId, actionId, data? }
+ * Body: { sessionId?, surfaceId, actionId, data? }
  */
 export async function handleSurfaceAction(
   req: Request,
   findSession: SessionLookup,
+  findSessionBySurfaceId?: SessionLookupBySurfaceId,
 ): Promise<Response> {
   const body = (await req.json()) as {
-    sessionId?: string;
+    sessionId?: string | null;
     surfaceId?: string;
     actionId?: string;
     data?: Record<string, unknown>;
@@ -41,21 +47,24 @@ export async function handleSurfaceAction(
 
   const { sessionId, surfaceId, actionId, data } = body;
 
-  if (!sessionId || typeof sessionId !== "string") {
-    return httpError("BAD_REQUEST", "sessionId is required", 400);
-  }
   if (!surfaceId || typeof surfaceId !== "string") {
     return httpError("BAD_REQUEST", "surfaceId is required", 400);
   }
   if (!actionId || typeof actionId !== "string") {
     return httpError("BAD_REQUEST", "actionId is required", 400);
   }
+  if (sessionId != null && typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId must be a string", 400);
+  }
 
-  const session = findSession(sessionId);
+  const session = sessionId
+    ? findSession(sessionId)
+    : findSessionBySurfaceId?.(surfaceId);
+
   if (!session) {
     return httpError(
       "NOT_FOUND",
-      "No active session found for this sessionId",
+      "No active session found",
       404,
     );
   }
@@ -63,13 +72,13 @@ export async function handleSurfaceAction(
   try {
     session.handleSurfaceAction(surfaceId, actionId, data);
     log.info(
-      { sessionId, surfaceId, actionId },
+      { sessionId: sessionId ?? undefined, surfaceId, actionId },
       "Surface action handled via HTTP",
     );
     return Response.json({ ok: true });
   } catch (err) {
     log.error(
-      { err, sessionId, surfaceId, actionId },
+      { err, sessionId: sessionId ?? undefined, surfaceId, actionId },
       "Failed to handle surface action via HTTP",
     );
     return httpError("INTERNAL_ERROR", "Failed to handle surface action", 500);
@@ -80,8 +89,66 @@ export async function handleSurfaceAction(
 // Route definitions
 // ---------------------------------------------------------------------------
 
+/**
+ * POST /v1/surfaces/:id/undo — undo the last surface action.
+ *
+ * Body: { sessionId }
+ */
+export async function handleSurfaceUndo(
+  req: Request,
+  surfaceId: string,
+  findSession: SessionLookup,
+  findSessionBySurfaceId?: SessionLookupBySurfaceId,
+): Promise<Response> {
+  const body = (await req.json()) as {
+    sessionId?: string | null;
+  };
+
+  const { sessionId } = body;
+
+  if (sessionId != null && typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId must be a string", 400);
+  }
+
+  const session = sessionId
+    ? findSession(sessionId)
+    : findSessionBySurfaceId?.(surfaceId);
+
+  if (!session) {
+    return httpError(
+      "NOT_FOUND",
+      "No active session found",
+      404,
+    );
+  }
+
+  if (!session.handleSurfaceUndo) {
+    return httpError(
+      "NOT_IMPLEMENTED",
+      "Surface undo not supported for this session type",
+      501,
+    );
+  }
+
+  try {
+    session.handleSurfaceUndo(surfaceId);
+    log.info(
+      { sessionId, surfaceId },
+      "Surface undo handled via HTTP",
+    );
+    return Response.json({ ok: true });
+  } catch (err) {
+    log.error(
+      { err, sessionId, surfaceId },
+      "Failed to handle surface undo via HTTP",
+    );
+    return httpError("INTERNAL_ERROR", "Failed to handle surface undo", 500);
+  }
+}
+
 export function surfaceActionRouteDefinitions(deps: {
   findSession?: SessionLookup;
+  findSessionBySurfaceId?: SessionLookupBySurfaceId;
 }): RouteDefinition[] {
   return [
     {
@@ -95,7 +162,30 @@ export function surfaceActionRouteDefinitions(deps: {
             501,
           );
         }
-        return handleSurfaceAction(req, deps.findSession);
+        return handleSurfaceAction(
+          req,
+          deps.findSession,
+          deps.findSessionBySurfaceId,
+        );
+      },
+    },
+    {
+      endpoint: "surfaces/:id/undo",
+      method: "POST",
+      handler: async ({ req, params }) => {
+        if (!deps.findSession) {
+          return httpError(
+            "NOT_IMPLEMENTED",
+            "Surface undo not available",
+            501,
+          );
+        }
+        return handleSurfaceUndo(
+          req,
+          params.id,
+          deps.findSession,
+          deps.findSessionBySurfaceId,
+        );
       },
     },
   ];

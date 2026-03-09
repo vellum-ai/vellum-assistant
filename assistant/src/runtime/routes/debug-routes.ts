@@ -5,7 +5,7 @@
 import { statSync } from "node:fs";
 
 import { getConfig } from "../../config/loader.js";
-import { countConversations } from "../../memory/conversation-store.js";
+import { countConversations } from "../../memory/conversation-queries.js";
 import { rawAll } from "../../memory/db.js";
 import { getMemoryJobCounts } from "../../memory/jobs-store.js";
 import { getProviderDebugStatus } from "../../providers/registry.js";

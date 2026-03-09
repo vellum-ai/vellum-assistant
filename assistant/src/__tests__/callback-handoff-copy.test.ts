@@ -16,14 +16,14 @@ function buildSignal(
   return {
     signalId: "test-signal-1",
     createdAt: Date.now(),
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceSessionId: "test-session-1",
     sourceEventName: "ingress.access_request.callback_handoff",
     contextPayload: {
       requestId: "req-123",
       requestCode: null,
       callSessionId: "call-456",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       reason: "timeout",
       callbackOptIn: true,
       callerPhoneNumber: "+15551234567",
@@ -155,13 +155,13 @@ describe("callback handoff copy template", () => {
     expect(copy.deliveryText).toContain("Frank");
   });
 
-  test("sms channel gets deliveryText fallback", () => {
+  test("telegram channel gets deliveryText fallback", () => {
     const signal = buildSignal({
       callerName: "Grace",
       callerPhoneNumber: "+15555555555",
     });
-    const result = composeFallbackCopy(signal, ["sms"]);
-    const copy = result.sms!;
+    const result = composeFallbackCopy(signal, ["telegram"]);
+    const copy = result.telegram!;
 
     expect(copy.deliveryText).toBeDefined();
     expect(copy.deliveryText!.length).toBeGreaterThan(0);

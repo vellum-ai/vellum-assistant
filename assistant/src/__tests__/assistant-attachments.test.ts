@@ -278,6 +278,29 @@ describe("drainDirectiveDisplayBuffer", () => {
     expect(result.bufferedRemainder).toBe("");
   });
 
+  test("inserts space when inline directive is stripped with no surrounding whitespace", () => {
+    const input = 'sentence.<vellum-attachment path="out.png" />Next sentence.';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe("sentence. Next sentence.");
+    expect(result.bufferedRemainder).toBe("");
+  });
+
+  test("does not insert space when stripped directive already has trailing whitespace", () => {
+    const input =
+      'sentence. <vellum-attachment path="out.png" />Next sentence.';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe("sentence. Next sentence.");
+    expect(result.bufferedRemainder).toBe("");
+  });
+
+  test("does not insert space when stripped directive already has leading whitespace on next char", () => {
+    const input =
+      'sentence.<vellum-attachment path="out.png" /> Next sentence.';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe("sentence. Next sentence.");
+    expect(result.bufferedRemainder).toBe("");
+  });
+
   test("preserves invalid directives as plain text", () => {
     const input = 'Bad <vellum-attachment source="bad" path="x.txt" /> tag';
     const result = drainDirectiveDisplayBuffer(input);

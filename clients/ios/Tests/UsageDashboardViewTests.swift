@@ -3,6 +3,7 @@ import XCTest
 
 #if canImport(UIKit)
 import SwiftUI
+import UIKit
 @testable import vellum_assistant_ios
 #endif
 
@@ -79,6 +80,8 @@ final class UsageDashboardViewTests: XCTestCase {
         if case .loaded(let totals) = populatedStore.totalsState {
             XCTAssertEqual(totals.totalInputTokens, 1000)
             XCTAssertEqual(totals.totalOutputTokens, 500)
+            XCTAssertEqual(totals.totalCacheCreationTokens, 450)
+            XCTAssertEqual(totals.totalCacheReadTokens, 12_300)
             XCTAssertEqual(totals.totalEstimatedCostUsd, 0.0042, accuracy: 0.0001)
             XCTAssertEqual(totals.eventCount, 3)
         } else {
@@ -96,6 +99,11 @@ final class UsageDashboardViewTests: XCTestCase {
         if case .loaded(let breakdown) = populatedStore.breakdownState {
             XCTAssertEqual(breakdown.breakdown.count, 2)
             XCTAssertEqual(breakdown.breakdown[0].group, "claude-sonnet-4-20250514")
+            XCTAssertEqual(breakdown.breakdown[0].totalCacheCreationTokens, 120)
+            XCTAssertEqual(breakdown.breakdown[0].totalCacheReadTokens, 9_876)
+            let entry = breakdown.breakdown[0]
+            let expectedSummary = "\(UsageFormatting.formatCount(700)) direct / \(UsageFormatting.formatCount(120)) cache created / \(UsageFormatting.formatCount(9_876)) cache read / \(UsageFormatting.formatCount(350)) out"
+            XCTAssertEqual(UsageFormatting.formatBreakdownSummary(entry), expectedSummary)
         } else {
             XCTFail("Expected breakdownState to be .loaded, got \(populatedStore.breakdownState)")
         }
@@ -130,14 +138,12 @@ final class UsageDashboardViewTests: XCTestCase {
     func testViewRendersInIdleState() {
         let store = UsageDashboardStore(client: MockDaemonClient())
         let view = UsageDashboardView(store: store)
-        // Force body evaluation — confirms the view hierarchy builds without crashing.
         let _ = view.body
     }
 
     func testViewRendersInFailedState() async {
         let client = MockDaemonClient()
         let store = UsageDashboardStore(client: client)
-        // MockDaemonClient returns nil for usage fetches, triggering .failed states.
         await store.refresh()
 
         XCTAssertNotNil(store.totalsState)
@@ -158,6 +164,10 @@ final class UsageDashboardViewTests: XCTestCase {
             XCTFail("Expected totalsState to be .loaded")
         }
 
+        // Data correctness is verified by testRefreshPopulatesLoadedStateWithStubClient.
+        // Here we only confirm the view hierarchy builds without crashing in the
+        // loaded state — extracting rendered text from SwiftUI's UIKit backing
+        // views is unreliable in CI (10+ prior fix attempts).
         let view = UsageDashboardView(store: store)
         let _ = view.body
     }
@@ -197,7 +207,6 @@ final class UsageDashboardViewTests: XCTestCase {
 @MainActor
 private final class StubUsageDaemonClient: DaemonClientProtocol {
     var isConnected: Bool = false
-    var isBlobTransportAvailable: Bool = false
 
     func subscribe() -> AsyncStream<ServerMessage> {
         AsyncStream { $0.finish() }
@@ -213,8 +222,8 @@ private final class StubUsageDaemonClient: DaemonClientProtocol {
         UsageTotalsResponse(
             totalInputTokens: 1000,
             totalOutputTokens: 500,
-            totalCacheCreationTokens: 200,
-            totalCacheReadTokens: 100,
+            totalCacheCreationTokens: 450,
+            totalCacheReadTokens: 12_300,
             totalEstimatedCostUsd: 0.0042,
             eventCount: 3,
             pricedEventCount: 2,
@@ -231,8 +240,24 @@ private final class StubUsageDaemonClient: DaemonClientProtocol {
 
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
         UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "claude-sonnet-4-20250514", totalInputTokens: 700, totalOutputTokens: 350, totalEstimatedCostUsd: 0.003, eventCount: 2),
-            UsageGroupBreakdownEntry(group: "claude-haiku-3-20240307", totalInputTokens: 300, totalOutputTokens: 150, totalEstimatedCostUsd: 0.0012, eventCount: 1),
+            UsageGroupBreakdownEntry(
+                group: "claude-sonnet-4-20250514",
+                totalInputTokens: 700,
+                totalOutputTokens: 350,
+                totalCacheCreationTokens: 120,
+                totalCacheReadTokens: 9_876,
+                totalEstimatedCostUsd: 0.003,
+                eventCount: 2
+            ),
+            UsageGroupBreakdownEntry(
+                group: "claude-haiku-3-20240307",
+                totalInputTokens: 300,
+                totalOutputTokens: 150,
+                totalCacheCreationTokens: 330,
+                totalCacheReadTokens: 2_424,
+                totalEstimatedCostUsd: 0.0012,
+                eventCount: 1
+            ),
         ])
     }
 }

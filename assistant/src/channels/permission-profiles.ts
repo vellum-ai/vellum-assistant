@@ -1,0 +1,155 @@
+/**
+ * Channel-scoped permission profiles.
+ *
+ * Maps Slack channel IDs to permission/trust overrides. When processing
+ * an inbound message from a channel, the permission profile is looked up
+ * to determine which tools are available, what trust level applies, etc.
+ *
+ * Permission profiles are stored in the Slack skill config section:
+ *   skills.entries.slack.config.channelPermissions
+ *
+ * Each entry maps a channel ID to a ChannelPermissionProfile.
+ */
+
+import { getConfig, saveConfig } from "../config/loader.js";
+
+// ── Types ───────────────────────────────────────────────────────────
+
+export interface ChannelPermissionProfile {
+  /** Human-readable label for this channel's permission set. */
+  label?: string;
+  /** Tool categories allowed in this channel. When set, only tools in these
+   *  categories can be invoked. Empty array means no tool restrictions. */
+  allowedToolCategories?: string[];
+  /** Specific tool names blocked in this channel, regardless of category. */
+  blockedTools?: string[];
+  /** Trust level override for messages from this channel.
+   *  "restricted" limits tool access; "standard" uses defaults. */
+  trustLevel?: "restricted" | "standard";
+}
+
+export type ChannelPermissionMap = Record<string, ChannelPermissionProfile>;
+
+// ── Config accessors ────────────────────────────────────────────────
+
+/**
+ * Get all channel permission mappings from config.
+ */
+export function getChannelPermissions(): ChannelPermissionMap {
+  const config = getConfig();
+  const perms = config.skills?.entries?.slack?.config?.channelPermissions;
+  if (perms && typeof perms === "object" && !Array.isArray(perms)) {
+    return perms as ChannelPermissionMap;
+  }
+  return {};
+}
+
+/**
+ * Get the permission profile for a specific channel.
+ * Returns null if no profile is configured for the channel.
+ */
+export function getChannelPermissionProfile(
+  channelId: string,
+): ChannelPermissionProfile | null {
+  const perms = getChannelPermissions();
+  return perms[channelId] ?? null;
+}
+
+/**
+ * Set the permission profile for a specific channel.
+ */
+export function setChannelPermissionProfile(
+  channelId: string,
+  profile: ChannelPermissionProfile,
+): void {
+  const config = getConfig();
+  if (!config.skills) config.skills = {} as typeof config.skills;
+  if (!config.skills.entries) config.skills.entries = {};
+  if (!config.skills.entries.slack)
+    config.skills.entries.slack = { enabled: true };
+  if (!config.skills.entries.slack.config)
+    config.skills.entries.slack.config = {};
+
+  const existing =
+    (config.skills.entries.slack.config.channelPermissions as
+      | ChannelPermissionMap
+      | undefined) ?? {};
+  existing[channelId] = profile;
+  config.skills.entries.slack.config.channelPermissions = existing;
+  saveConfig(config);
+}
+
+/**
+ * Remove the permission profile for a specific channel.
+ * Returns true if a profile was removed, false if none existed.
+ */
+export function removeChannelPermissionProfile(channelId: string): boolean {
+  const config = getConfig();
+  const perms = config.skills?.entries?.slack?.config?.channelPermissions as
+    | ChannelPermissionMap
+    | undefined;
+  if (!perms || !(channelId in perms)) return false;
+
+  delete perms[channelId];
+  config.skills!.entries!.slack!.config!.channelPermissions = perms;
+  saveConfig(config);
+  return true;
+}
+
+/**
+ * Replace all channel permission profiles at once.
+ */
+export function setAllChannelPermissions(
+  permissions: ChannelPermissionMap,
+): void {
+  const config = getConfig();
+  if (!config.skills) config.skills = {} as typeof config.skills;
+  if (!config.skills.entries) config.skills.entries = {};
+  if (!config.skills.entries.slack)
+    config.skills.entries.slack = { enabled: true };
+  if (!config.skills.entries.slack.config)
+    config.skills.entries.slack.config = {};
+
+  config.skills.entries.slack.config.channelPermissions = permissions;
+  saveConfig(config);
+}
+
+// ── Permission resolution ───────────────────────────────────────────
+
+/**
+ * Check whether a specific tool is allowed in a channel.
+ * If no permission profile exists for the channel, all tools are allowed.
+ */
+export function isToolAllowedInChannel(
+  channelId: string,
+  toolName: string,
+  toolCategory?: string,
+): boolean {
+  const profile = getChannelPermissionProfile(channelId);
+  if (!profile) return true;
+
+  // Check explicit block list first
+  if (profile.blockedTools?.includes(toolName)) return false;
+
+  // Check allowed categories (if specified)
+  if (
+    profile.allowedToolCategories &&
+    profile.allowedToolCategories.length > 0
+  ) {
+    if (!toolCategory) return false;
+    return profile.allowedToolCategories.includes(toolCategory);
+  }
+
+  return true;
+}
+
+/**
+ * Get the effective trust level for a channel.
+ * Returns "standard" if no profile or no override is configured.
+ */
+export function getChannelTrustLevel(
+  channelId: string,
+): "restricted" | "standard" {
+  const profile = getChannelPermissionProfile(channelId);
+  return profile?.trustLevel ?? "standard";
+}

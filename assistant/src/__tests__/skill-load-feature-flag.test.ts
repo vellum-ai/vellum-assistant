@@ -12,9 +12,7 @@ const TEST_DIR = join(
   `vellum-skill-load-flag-test-${crypto.randomUUID()}`,
 );
 
-let currentConfig: Record<string, unknown> = {
-  featureFlags: {},
-};
+let currentConfig: Record<string, unknown> = {};
 
 const DECLARED_SKILL_ID = "hatch-new-assistant";
 const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
@@ -35,7 +33,7 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
     join(TEST_DIR, "workspace", String(f)),
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => join(TEST_DIR, "sandbox", "work"),
   getHistoryPath: () => join(TEST_DIR, "history"),
@@ -46,10 +44,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
-  removeSocketFile: () => {},
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realPlatform = require("../util/platform.js");
@@ -121,7 +115,7 @@ async function executeSkillLoad(
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-    currentConfig = { featureFlags: {} };
+    currentConfig = {};
   });
 
   afterEach(() => {

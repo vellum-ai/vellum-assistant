@@ -71,11 +71,3 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
 
   return entries;
 }
-
-/**
- * Convenience wrapper that returns only the skill IDs (no version info).
- * Kept for backward compatibility with callers that only need IDs.
- */
-export function deriveActiveSkillIds(messages: Message[]): string[] {
-  return deriveActiveSkills(messages).map((e) => e.id);
-}

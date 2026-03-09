@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
-import type { UserMessageAttachment } from "../daemon/ipc-protocol.js";
+import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 
@@ -127,7 +127,7 @@ mock.module("../daemon/context-overflow-approval.js", () => ({
   CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 
@@ -151,7 +151,7 @@ mock.module("../memory/admin.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   deleteMessageById: () => {},
@@ -165,7 +165,6 @@ mock.module("../memory/conversation-store.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: () => ({ id: "new-msg" }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
@@ -173,6 +172,10 @@ mock.module("../memory/conversation-store.js", () => ({
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
   provenanceFromTrustContext: () => ({}),
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 mock.module("../memory/retriever.js", () => ({
@@ -196,6 +199,9 @@ let forceCompactionEnabled = false;
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    shouldCompact() {
+      return { needed: false, estimatedTokens: 0 };
+    }
     async maybeCompact(
       messages: Message[],
       _signal?: AbortSignal,

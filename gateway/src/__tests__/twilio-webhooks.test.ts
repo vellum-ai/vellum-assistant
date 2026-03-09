@@ -1,6 +1,8 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import { initSigningKey } from "../auth/token-service.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -13,9 +15,33 @@ type FetchFn = (
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
   async () => new Response(),
 );
+const logCalls: { args: unknown[]; method: string }[] = [];
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+function createMockLogger(): Record<string, unknown> {
+  const target = {} as Record<string, unknown>;
+  const proxy = new Proxy(target, {
+    get: (_innerTarget, prop) => {
+      if (prop === "child") {
+        return () => proxy;
+      }
+
+      if (typeof prop !== "string") return undefined;
+
+      return (...args: unknown[]) => {
+        logCalls.push({ method: prop, args });
+      };
+    },
+  });
+
+  return proxy;
+}
+
+mock.module("../logger.js", () => ({
+  getLogger: () => createMockLogger(),
 }));
 
 const { createTwilioVoiceWebhookHandler } =
@@ -27,11 +53,68 @@ const { createTwilioConnectActionWebhookHandler } =
 
 const AUTH_TOKEN = "test-twilio-auth-token";
 
+afterEach(() => {
+  fetchMock = mock(async () => new Response());
+  logCalls.length = 0;
+});
+
+function findLogCall(message: string): {
+  args: unknown[];
+  data: Record<string, unknown> | undefined;
+  message: string | undefined;
+  method: string;
+} {
+  for (const call of logCalls) {
+    const [firstArg, secondArg] = call.args;
+    const data =
+      firstArg && typeof firstArg === "object" && !Array.isArray(firstArg)
+        ? (firstArg as Record<string, unknown>)
+        : undefined;
+    const loggedMessage =
+      typeof firstArg === "string"
+        ? firstArg
+        : typeof secondArg === "string"
+          ? secondArg
+          : undefined;
+
+    if (loggedMessage === message) {
+      return {
+        method: call.method,
+        args: call.args,
+        data,
+        message: loggedMessage,
+      };
+    }
+  }
+
+  throw new Error(`Missing log call for message: ${message}`);
+}
+
+function expectFailureDiagnosticLog(params: {
+  candidateCount: number;
+  candidateSources: string[];
+  candidateUrls: string[];
+  invalidSignature: string;
+  webhookKind: string;
+}): void {
+  const failureLog = findLogCall("Twilio webhook signature validation failed");
+
+  expect(failureLog.method).toBe("warn");
+  expect(failureLog.data).toMatchObject({
+    webhookKind: params.webhookKind,
+    authTokenConfigured: true,
+    candidateCount: params.candidateCount,
+    candidateSources: params.candidateSources,
+    candidateUrls: params.candidateUrls,
+  });
+
+  const serializedLogs = JSON.stringify(logCalls);
+  expect(serializedLogs).not.toContain(params.invalidSignature);
+  expect(serializedLogs).not.toContain(AUTH_TOKEN);
+}
+
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "tok",
-    telegramWebhookSecret: "wh-ver",
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -43,35 +126,41 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: AUTH_TOKEN,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
   return merged;
+}
+
+/** Create mock caches for Twilio webhook tests. */
+function makeCaches(
+  opts: {
+    authToken?: string;
+    ingressUrl?: string;
+  } = {},
+) {
+  const { authToken = AUTH_TOKEN, ingressUrl } = opts;
+  const credentials = {
+    get: async (key: string, _opts?: { force?: boolean }) => {
+      if (key === "credential:twilio:auth_token") return authToken;
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  const configFile = {
+    getString: (section: string, key: string) => {
+      if (section === "ingress" && key === "publicBaseUrl") return ingressUrl;
+      return undefined;
+    },
+    getRecord: () => undefined,
+    refreshNow: () => {},
+  } as unknown as ConfigFileCache;
+  return { credentials, configFile };
 }
 
 /**
@@ -113,12 +202,8 @@ function buildSignedRequest(
 }
 
 describe("Twilio voice webhook", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-  });
-
   test("rejects GET requests with 405", async () => {
-    const handler = createTwilioVoiceWebhookHandler(makeConfig());
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
       method: "GET",
     });
@@ -127,7 +212,7 @@ describe("Twilio voice webhook", () => {
   });
 
   test("rejects missing signature with 403", async () => {
-    const handler = createTwilioVoiceWebhookHandler(makeConfig());
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -138,7 +223,7 @@ describe("Twilio voice webhook", () => {
   });
 
   test("rejects invalid signature with 403", async () => {
-    const handler = createTwilioVoiceWebhookHandler(makeConfig());
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
       method: "POST",
       headers: {
@@ -153,7 +238,8 @@ describe("Twilio voice webhook", () => {
 
   test("rejects when twilioAuthToken is not configured (fail-closed)", async () => {
     const handler = createTwilioVoiceWebhookHandler(
-      makeConfig({ twilioAuthToken: undefined }),
+      makeConfig(),
+      makeCaches({ authToken: undefined }),
     );
     const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
       method: "POST",
@@ -174,7 +260,7 @@ describe("Twilio voice webhook", () => {
         }),
     );
 
-    const handler = createTwilioVoiceWebhookHandler(makeConfig());
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const url =
       "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-1";
     const params = { CallSid: "CA123", AccountSid: "AC456" };
@@ -192,7 +278,7 @@ describe("Twilio voice webhook", () => {
   });
 
   test("rejects unmapped inbound call with TwiML Reject when unmappedPolicy is reject", async () => {
-    const handler = createTwilioVoiceWebhookHandler(makeConfig());
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const url = "http://localhost:7830/webhooks/twilio/voice";
     const params = { CallSid: "CA123" };
     const req = buildSignedRequest(url, params, AUTH_TOKEN);
@@ -208,7 +294,7 @@ describe("Twilio voice webhook", () => {
       throw new Error("Connection refused");
     });
 
-    const handler = createTwilioVoiceWebhookHandler(makeConfig());
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     // Use callSessionId to simulate an outbound call that bypasses routing
     const url =
       "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-1";
@@ -222,6 +308,7 @@ describe("Twilio voice webhook", () => {
   test("rejects oversized payload via Content-Length header", async () => {
     const handler = createTwilioVoiceWebhookHandler(
       makeConfig({ maxWebhookPayloadBytes: 100 }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
       method: "POST",
@@ -239,6 +326,7 @@ describe("Twilio voice webhook", () => {
   test("rejects oversized payload via actual body size", async () => {
     const handler = createTwilioVoiceWebhookHandler(
       makeConfig({ maxWebhookPayloadBytes: 50 }),
+      makeCaches(),
     );
     const largeBody = "CallSid=" + "A".repeat(100);
     const url = "http://localhost:7830/webhooks/twilio/voice";
@@ -261,28 +349,38 @@ describe("Twilio voice webhook", () => {
 });
 
 describe("Twilio status webhook", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-  });
-
   test("rejects invalid signature with 403", async () => {
-    const handler = createTwilioStatusWebhookHandler(makeConfig());
+    const handler = createTwilioStatusWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
+    const invalidSignature = "bad";
     const req = new Request("http://localhost:7830/webhooks/twilio/status", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "X-Twilio-Signature": "bad",
+        "X-Twilio-Signature": invalidSignature,
       },
       body: "CallSid=CA123&CallStatus=completed",
     });
     const res = await handler(req);
     expect(res.status).toBe(403);
+    expectFailureDiagnosticLog({
+      webhookKind: "status",
+      invalidSignature,
+      candidateCount: 1,
+      candidateSources: ["raw_request"],
+      candidateUrls: ["http://localhost:7830/webhooks/twilio/status"],
+    });
   });
 
   test("forwards valid signed request to runtime", async () => {
     fetchMock = mock(async () => new Response(null, { status: 200 }));
 
-    const handler = createTwilioStatusWebhookHandler(makeConfig());
+    const handler = createTwilioStatusWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
     const url = "http://localhost:7830/webhooks/twilio/status";
     const params = { CallSid: "CA123", CallStatus: "completed" };
     const req = buildSignedRequest(url, params, AUTH_TOKEN);
@@ -299,7 +397,10 @@ describe("Twilio status webhook", () => {
       throw new Error("Runtime down");
     });
 
-    const handler = createTwilioStatusWebhookHandler(makeConfig());
+    const handler = createTwilioStatusWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
     const url = "http://localhost:7830/webhooks/twilio/status";
     const params = { CallSid: "CA123", CallStatus: "completed" };
     const req = buildSignedRequest(url, params, AUTH_TOKEN);
@@ -310,25 +411,32 @@ describe("Twilio status webhook", () => {
 });
 
 describe("Twilio connect-action webhook", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-  });
-
   test("rejects invalid signature with 403", async () => {
-    const handler = createTwilioConnectActionWebhookHandler(makeConfig());
+    const handler = createTwilioConnectActionWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
+    const invalidSignature = "wrong";
     const req = new Request(
       "http://localhost:7830/webhooks/twilio/connect-action",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "X-Twilio-Signature": "wrong",
+          "X-Twilio-Signature": invalidSignature,
         },
         body: "CallSid=CA123",
       },
     );
     const res = await handler(req);
     expect(res.status).toBe(403);
+    expectFailureDiagnosticLog({
+      webhookKind: "connect-action",
+      invalidSignature,
+      candidateCount: 1,
+      candidateSources: ["raw_request"],
+      candidateUrls: ["http://localhost:7830/webhooks/twilio/connect-action"],
+    });
   });
 
   test("forwards valid signed request to runtime", async () => {
@@ -341,7 +449,10 @@ describe("Twilio connect-action webhook", () => {
         }),
     );
 
-    const handler = createTwilioConnectActionWebhookHandler(makeConfig());
+    const handler = createTwilioConnectActionWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
     const url = "http://localhost:7830/webhooks/twilio/connect-action";
     const params = { CallSid: "CA123" };
     const req = buildSignedRequest(url, params, AUTH_TOKEN);
@@ -358,10 +469,6 @@ describe("Twilio connect-action webhook", () => {
 });
 
 describe("Twilio webhook signature with canonical ingress base URL", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-  });
-
   test("validates signature against ingressPublicBaseUrl when configured", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
     fetchMock = mock(
@@ -373,8 +480,11 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     );
 
     const publicBaseUrl = "https://public.example.com";
-    const config = makeConfig({ ingressPublicBaseUrl: publicBaseUrl });
-    const handler = createTwilioVoiceWebhookHandler(config);
+    const config = makeConfig();
+    const handler = createTwilioVoiceWebhookHandler(
+      config,
+      makeCaches({ ingressUrl: publicBaseUrl }),
+    );
 
     // Use callSessionId to bypass inbound routing — this test is about signature validation
     const localUrl =
@@ -382,6 +492,28 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     const publicUrl =
       publicBaseUrl + "/webhooks/twilio/voice?callSessionId=sig-test";
     const params = { CallSid: "CA123" };
+    const invalidSignature = "invalid-canonical-signature";
+
+    const invalidReq = new Request(localUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Twilio-Signature": invalidSignature,
+      },
+      body: new URLSearchParams(params).toString(),
+    });
+
+    const invalidRes = await handler(invalidReq);
+    expect(invalidRes.status).toBe(403);
+    expectFailureDiagnosticLog({
+      webhookKind: "voice",
+      invalidSignature,
+      candidateCount: 2,
+      candidateSources: ["configured_ingress", "raw_request"],
+      candidateUrls: [publicUrl, localUrl],
+    });
+
+    logCalls.length = 0;
 
     // Sign against the PUBLIC URL (as Twilio would)
     const signature = computeSignature(publicUrl, params, AUTH_TOKEN);
@@ -397,6 +529,17 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 
     const res = await handler(req);
     expect(res.status).toBe(200);
+
+    const successLog = findLogCall("Twilio webhook signature validated");
+    expect(successLog.method).toBe("info");
+    expect(successLog.data).toMatchObject({
+      webhookKind: "voice",
+      validatedCandidateSource: "configured_ingress",
+      validatedCandidateUrl: publicUrl,
+      candidateCount: 2,
+      candidateSources: ["configured_ingress", "raw_request"],
+      candidateUrls: [publicUrl, localUrl],
+    });
   });
 
   test("accepts when signature matches raw request URL even with public URL configured", async () => {
@@ -409,13 +552,40 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     );
 
     const publicBaseUrl = "https://public.example.com";
-    const config = makeConfig({ ingressPublicBaseUrl: publicBaseUrl });
-    const handler = createTwilioVoiceWebhookHandler(config);
+    const config = makeConfig();
+    const handler = createTwilioVoiceWebhookHandler(
+      config,
+      makeCaches({ ingressUrl: publicBaseUrl }),
+    );
 
     // Use callSessionId to bypass inbound routing — this test is about signature validation
     const localUrl =
       "http://localhost:7830/webhooks/twilio/voice?callSessionId=sig-test";
+    const publicUrl =
+      publicBaseUrl + "/webhooks/twilio/voice?callSessionId=sig-test";
     const params = { CallSid: "CA123" };
+    const invalidSignature = "invalid-raw-fallback-signature";
+
+    const invalidReq = new Request(localUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Twilio-Signature": invalidSignature,
+      },
+      body: new URLSearchParams(params).toString(),
+    });
+
+    const invalidRes = await handler(invalidReq);
+    expect(invalidRes.status).toBe(403);
+    expectFailureDiagnosticLog({
+      webhookKind: "voice",
+      invalidSignature,
+      candidateCount: 2,
+      candidateSources: ["configured_ingress", "raw_request"],
+      candidateUrls: [publicUrl, localUrl],
+    });
+
+    logCalls.length = 0;
 
     // Sign against the raw request URL — the raw URL is always included as
     // a final fallback candidate to prevent false 403s in mixed setups.
@@ -432,6 +602,20 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 
     const res = await handler(req);
     expect(res.status).toBe(200);
+
+    const successLog = findLogCall(
+      "Twilio signature validated against raw request URL fallback — " +
+        "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",
+    );
+    expect(successLog.method).toBe("warn");
+    expect(successLog.data).toMatchObject({
+      webhookKind: "voice",
+      validatedCandidateSource: "raw_request",
+      validatedCandidateUrl: localUrl,
+      candidateCount: 2,
+      candidateSources: ["configured_ingress", "raw_request"],
+      candidateUrls: [publicUrl, localUrl],
+    });
   });
 
   test("accepts signature from forwarded public URL headers when configured URL is stale", async () => {
@@ -444,8 +628,11 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     );
 
     const staleConfiguredBase = "https://stale.example.com";
-    const config = makeConfig({ ingressPublicBaseUrl: staleConfiguredBase });
-    const handler = createTwilioVoiceWebhookHandler(config);
+    const config = makeConfig();
+    const handler = createTwilioVoiceWebhookHandler(
+      config,
+      makeCaches({ ingressUrl: staleConfiguredBase }),
+    );
 
     // Use callSessionId to bypass inbound routing — this test is about signature validation
     const localUrl =
@@ -453,6 +640,38 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     const forwardedBase = "https://fresh-tunnel.example.com";
     const signedPublicUrl = `${forwardedBase}/webhooks/twilio/voice?callSessionId=sig-test`;
     const params = { CallSid: "CA123" };
+    const invalidSignature = "invalid-forwarded-signature";
+    const invalidReq = new Request(localUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Twilio-Signature": invalidSignature,
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "fresh-tunnel.example.com",
+      },
+      body: new URLSearchParams(params).toString(),
+    });
+
+    const invalidRes = await handler(invalidReq);
+    expect(invalidRes.status).toBe(403);
+    expectFailureDiagnosticLog({
+      webhookKind: "voice",
+      invalidSignature,
+      candidateCount: 3,
+      candidateSources: [
+        "configured_ingress",
+        "forwarded_headers",
+        "raw_request",
+      ],
+      candidateUrls: [
+        staleConfiguredBase + "/webhooks/twilio/voice?callSessionId=sig-test",
+        signedPublicUrl,
+        localUrl,
+      ],
+    });
+
+    logCalls.length = 0;
+
     const req = buildSignedRequest(signedPublicUrl, params, AUTH_TOKEN, {
       "X-Forwarded-Proto": "https",
       "X-Forwarded-Host": "fresh-tunnel.example.com",
@@ -468,5 +687,101 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 
     const res = await handler(tunneledReq);
     expect(res.status).toBe(200);
+
+    const successLog = findLogCall("Twilio webhook signature validated");
+    expect(successLog.method).toBe("info");
+    expect(successLog.data).toMatchObject({
+      webhookKind: "voice",
+      validatedCandidateSource: "forwarded_headers",
+      validatedCandidateUrl: signedPublicUrl,
+      candidateCount: 3,
+      candidateSources: [
+        "configured_ingress",
+        "forwarded_headers",
+        "raw_request",
+      ],
+      candidateUrls: [
+        staleConfiguredBase + "/webhooks/twilio/voice?callSessionId=sig-test",
+        signedPublicUrl,
+        localUrl,
+      ],
+    });
+  });
+});
+
+describe("Twilio webhook force retry on credential-missing", () => {
+  test("succeeds after force-refreshing a missing auth token", async () => {
+    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+    );
+
+    // First get() returns undefined; second get({ force: true }) returns the token
+    let callCount = 0;
+    const credentials = {
+      get: async (_key: string, opts?: { force?: boolean }) => {
+        callCount++;
+        if (callCount === 1 && !opts?.force) return undefined;
+        return AUTH_TOKEN;
+      },
+      invalidate: () => {},
+    } as unknown as CredentialCache;
+
+    const configFile = {
+      getString: (section: string, key: string) => {
+        if (section === "ingress" && key === "publicBaseUrl") return undefined;
+        return undefined;
+      },
+      getRecord: () => undefined,
+      refreshNow: () => {},
+    } as unknown as ConfigFileCache;
+
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), {
+      credentials,
+      configFile,
+    });
+
+    const url =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-force";
+    const params = { CallSid: "CA123" };
+    const req = buildSignedRequest(url, params, AUTH_TOKEN);
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    // The credential cache should have been called at least twice (initial + force)
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  test("returns 403 when force refresh also returns undefined", async () => {
+    // Both get() and get({ force: true }) return undefined
+    const credentials = {
+      get: async () => undefined,
+      invalidate: () => {},
+    } as unknown as CredentialCache;
+
+    const configFile = {
+      getString: () => undefined,
+      getRecord: () => undefined,
+      refreshNow: () => {},
+    } as unknown as ConfigFileCache;
+
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), {
+      credentials,
+      configFile,
+    });
+
+    const url = "http://localhost:7830/webhooks/twilio/voice";
+    const req = new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "CallSid=CA123",
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(403);
   });
 });

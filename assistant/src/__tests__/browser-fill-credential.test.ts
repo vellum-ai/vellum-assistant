@@ -76,7 +76,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
-import { executeBrowserFillCredential } from "../tools/browser/headless-browser.js";
+import { executeBrowserFillCredential } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {

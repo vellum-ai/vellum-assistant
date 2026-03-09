@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, lt, or, sql } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
 import type { ConversationRow, MessageRow } from "./conversation-crud.js";
@@ -53,34 +53,6 @@ export function getLatestConversation(): ConversationRow | null {
     .limit(1)
     .get();
   return row ? parseConversation(row) : null;
-}
-
-/**
- * Get the next message in a conversation after a given message.
- * Uses gte + ne(id) instead of gt on timestamp so that messages sharing the
- * same millisecond (common in legacy conversations where an assistant turn and
- * the following user tool_result are saved in the same tick) are not skipped.
- */
-export function getNextMessage(
-  conversationId: string,
-  afterTimestamp: number,
-  excludeMessageId: string,
-): MessageRow | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        gte(messages.createdAt, afterTimestamp),
-        ne(messages.id, excludeMessageId),
-      ),
-    )
-    .orderBy(asc(messages.createdAt), asc(messages.id))
-    .limit(1)
-    .get();
-  return row ? parseMessage(row) : null;
 }
 
 export interface PaginatedMessagesResult {

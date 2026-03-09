@@ -90,6 +90,7 @@ export interface UsageTimeRange {
 
 /** Aggregate totals across a time range. */
 export interface UsageTotals {
+  /** Direct input tokens only; cache traffic is reported separately below. */
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCacheCreationTokens: number;
@@ -104,6 +105,7 @@ export interface UsageTotals {
 export interface UsageDayBucket {
   /** ISO date string (YYYY-MM-DD) in UTC. */
   date: string;
+  /** Direct input tokens only; cache traffic is tracked separately in totals. */
   totalInputTokens: number;
   totalOutputTokens: number;
   totalEstimatedCostUsd: number;
@@ -113,8 +115,11 @@ export interface UsageDayBucket {
 /** A grouped breakdown row (by actor, provider, or model). */
 export interface UsageGroupBreakdown {
   group: string;
+  /** Direct input tokens only; cache traffic is reported separately below. */
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
   totalEstimatedCostUsd: number;
   eventCount: number;
 }
@@ -144,6 +149,8 @@ interface GroupRow {
   group_key: string;
   total_input_tokens: number;
   total_output_tokens: number;
+  total_cache_creation_tokens: number;
+  total_cache_read_tokens: number;
   total_estimated_cost_usd: number | null;
   event_count: number;
 }
@@ -236,6 +243,8 @@ export function getUsageGroupBreakdown(
       ${column}                                      AS group_key,
       COALESCE(SUM(input_tokens), 0)                 AS total_input_tokens,
       COALESCE(SUM(output_tokens), 0)                AS total_output_tokens,
+      COALESCE(SUM(cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
+      COALESCE(SUM(cache_read_input_tokens), 0)      AS total_cache_read_tokens,
       COALESCE(SUM(estimated_cost_usd), 0)           AS total_estimated_cost_usd,
       COUNT(*)                                        AS event_count
     FROM llm_usage_events
@@ -250,6 +259,8 @@ export function getUsageGroupBreakdown(
     group: r.group_key,
     totalInputTokens: r.total_input_tokens,
     totalOutputTokens: r.total_output_tokens,
+    totalCacheCreationTokens: r.total_cache_creation_tokens,
+    totalCacheReadTokens: r.total_cache_read_tokens,
     totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
     eventCount: r.event_count,
   }));

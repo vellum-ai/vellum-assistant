@@ -1,9 +1,8 @@
 ---
-name: "OAuth Setup"
-description: "Connect any OAuth service — create app credentials and authorize via browser automation"
-user-invocable: true
-includes: ["browser"]
-metadata: {"vellum": {"emoji": "🔑"}}
+name: oauth-setup
+description: Connect any OAuth service — create app credentials and authorize via browser automation
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🔑","vellum":{"display-name":"OAuth Setup","user-invocable":true,"includes":["browser"]}}
 ---
 
 You are helping the user connect an OAuth-based service to Vellum. This is a generic setup flow that works for any provider with a well-known OAuth config.

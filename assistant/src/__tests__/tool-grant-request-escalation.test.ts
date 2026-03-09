@@ -25,8 +25,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -39,8 +37,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mock guardian control-plane policy — not targeting control-plane by default
-mock.module("../tools/guardian-control-plane-policy.js", () => ({
-  enforceGuardianOnlyPolicy: () => ({ denied: false }),
+mock.module("../tools/verification-control-plane-policy.js", () => ({
+  enforceVerificationControlPlanePolicy: () => ({ denied: false }),
 }));
 
 // Mock task run rules — no task run rules by default
@@ -84,7 +82,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
     if (assistantId === "self" && channel === "telegram") {
       return {

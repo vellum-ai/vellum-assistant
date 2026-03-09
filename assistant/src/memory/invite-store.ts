@@ -331,7 +331,7 @@ export function findActiveVoiceInvites(params: {
     .from(assistantIngressInvites)
     .where(
       and(
-        eq(assistantIngressInvites.sourceChannel, "voice"),
+        eq(assistantIngressInvites.sourceChannel, "phone"),
         eq(assistantIngressInvites.status, "active"),
         eq(
           assistantIngressInvites.expectedExternalUserId,

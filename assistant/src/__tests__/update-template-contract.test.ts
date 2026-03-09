@@ -12,7 +12,7 @@ import { describe, expect, test } from "bun:test";
 const TEMPLATE_PATH = join(
   import.meta.dirname,
   "..",
-  "config",
+  "prompts",
   "templates",
   "UPDATES.md",
 );

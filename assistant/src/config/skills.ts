@@ -15,6 +15,9 @@ import {
   resolve,
 } from "node:path";
 
+import { z } from "zod";
+
+import { stripCommentLines } from "../prompts/system-prompt.js";
 import {
   extractAllText,
   getConfiguredProvider,
@@ -25,9 +28,56 @@ import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
-import { stripCommentLines } from "./system-prompt.js";
+import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import { getConfig } from "./loader.js";
 
 const log = getLogger("skills");
+
+// ─── Zod schemas for frontmatter metadata validation ─────────────────────────
+
+const VellumMetadataSchema = z
+  .object({
+    emoji: z.string().optional(),
+    os: z.array(z.string()).optional(),
+    requires: z
+      .object({
+        bins: z.array(z.string()).optional(),
+        anyBins: z.array(z.string()).optional(),
+        env: z.array(z.string()).optional(),
+        config: z.array(z.string()).optional(),
+      })
+      .optional(),
+    primaryEnv: z.string().optional(),
+    install: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            kind: z.enum(["brew", "node", "go", "uv", "download"]),
+          })
+          .passthrough(),
+      )
+      .optional(),
+    cli: z
+      .object({
+        command: z.string(),
+        entry: z.string(),
+      })
+      .optional(),
+    "display-name": z.string().optional(),
+    "user-invocable": z.union([z.boolean(), z.string()]).optional(),
+    "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
+    includes: z.array(z.string()).optional(),
+    "credential-setup-for": z.string().optional(),
+  })
+  .passthrough();
+
+const SkillMetadataSchema = z
+  .object({
+    emoji: z.string().optional(),
+    vellum: VellumMetadataSchema.optional(),
+  })
+  .passthrough();
 
 // ─── New interfaces for extended skill metadata ──────────────────────────────
 
@@ -68,6 +118,7 @@ export type SkillSource = "bundled" | "managed" | "workspace" | "extra";
 export interface SkillSummary {
   id: string;
   name: string;
+  displayName: string;
   description: string;
   directoryPath: string;
   skillFilePath: string;
@@ -270,55 +321,14 @@ function getSkillsIndexPath(skillsDir: string): string {
 
 interface ParsedFrontmatter {
   name: string;
+  displayName: string;
   description: string;
   body: string;
-  homepage?: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   metadata?: VellumMetadata;
   includes?: string[];
   credentialSetupFor?: string;
-}
-
-function parseIncludes(
-  raw: string | undefined,
-  skillFilePath: string,
-): string[] | undefined {
-  if (!raw) return undefined;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    log.warn(
-      { err, skillFilePath },
-      "Failed to parse includes JSON in frontmatter",
-    );
-    return undefined;
-  }
-
-  if (!Array.isArray(parsed)) {
-    log.warn({ skillFilePath }, "includes must be a JSON array");
-    return undefined;
-  }
-
-  if (!parsed.every((item: unknown) => typeof item === "string")) {
-    log.warn({ skillFilePath }, "includes must be an array of strings");
-    return undefined;
-  }
-
-  // Normalize: trim, remove empty strings, deduplicate preserving first-seen order
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of parsed as string[]) {
-    const trimmed = item.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    result.push(trimmed);
-  }
-
-  return result.length > 0 ? result : undefined;
 }
 
 function parseFrontmatter(
@@ -343,25 +353,64 @@ function parseFrontmatter(
     return null;
   }
 
-  // Parse new optional fields
-  const homepage = fields.homepage?.trim() || undefined;
-
-  const userInvocableRaw = fields["user-invocable"]?.trim().toLowerCase();
-  const userInvocable = userInvocableRaw !== "false";
-
-  const disableModelInvocationRaw = fields["disable-model-invocation"]
-    ?.trim()
-    .toLowerCase();
-  const disableModelInvocation = disableModelInvocationRaw === "true";
-
-  // Parse metadata as single-line JSON string, extract .vellum namespace
+  // Parse metadata as single-line JSON string, validate with Zod schema
   let metadata: VellumMetadata | undefined;
+  let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
+  let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
+
   const metadataRaw = fields.metadata?.trim();
   if (metadataRaw) {
     try {
-      const parsed = JSON.parse(metadataRaw);
-      if (parsed && typeof parsed === "object" && parsed.vellum) {
-        metadata = parsed.vellum as VellumMetadata;
+      const json = JSON.parse(metadataRaw);
+      const result = SkillMetadataSchema.safeParse(json);
+      if (result.success) {
+        parsedMeta = result.data;
+        vellum = parsedMeta.vellum;
+        if (parsedMeta.vellum) {
+          metadata = parsedMeta.vellum as VellumMetadata;
+        }
+        // Inject top-level emoji into metadata when metadata.vellum doesn't
+        // carry its own emoji. The Agent Skills spec places emoji at the
+        // top level of the metadata JSON, so bundled skills that follow
+        // this convention would otherwise lose their emoji value.
+        if (parsedMeta.emoji) {
+          if (metadata && !metadata.emoji) {
+            metadata.emoji = parsedMeta.emoji;
+          } else if (!metadata) {
+            metadata = { emoji: parsedMeta.emoji };
+          }
+        }
+      } else {
+        // Zod validation failed — fall back to raw JSON so we don't lose
+        // all metadata because of a single bad field value.  We coerce
+        // critical array fields so downstream code that iterates them
+        // (e.g. `.join()`, `for...of`, `.some()`) won't crash.
+        log.warn(
+          { err: result.error, skillFilePath },
+          "Metadata failed schema validation; falling back to raw JSON",
+        );
+        parsedMeta = json;
+        vellum = json?.vellum;
+        if (json?.vellum && typeof json.vellum === "object") {
+          const raw = json.vellum as Record<string, unknown>;
+
+          // Coerce `os` to string[] — a bare string is wrapped in an array.
+          if (raw.os !== undefined) {
+            raw.os = Array.isArray(raw.os) ? raw.os : [raw.os];
+          }
+
+          // Coerce `requires` sub-fields to arrays.
+          if (raw.requires && typeof raw.requires === "object") {
+            const req = raw.requires as Record<string, unknown>;
+            for (const key of ["bins", "anyBins", "env", "config"] as const) {
+              if (req[key] !== undefined && !Array.isArray(req[key])) {
+                req[key] = typeof req[key] === "string" ? [req[key]] : [];
+              }
+            }
+          }
+
+          metadata = raw as unknown as VellumMetadata;
+        }
       }
     } catch (err) {
       log.warn(
@@ -371,25 +420,55 @@ function parseFrontmatter(
     }
   }
 
-  // Read standalone emoji frontmatter field (written by buildSkillMarkdown)
-  const emojiField = fields.emoji?.trim() || undefined;
-
-  // If metadata doesn't already have an emoji, inject the standalone field value
-  if (emojiField && metadata && !metadata.emoji) {
-    metadata.emoji = emojiField;
-  } else if (emojiField && !metadata) {
-    metadata = { emoji: emojiField };
+  // Read vellum-specific fields exclusively from metadata.vellum
+  const vellumUserInvocable = vellum?.["user-invocable"];
+  let userInvocable: boolean;
+  if (typeof vellumUserInvocable === "boolean") {
+    userInvocable = vellumUserInvocable;
+  } else if (typeof vellumUserInvocable === "string") {
+    userInvocable = vellumUserInvocable !== "false";
+  } else {
+    userInvocable = true;
   }
 
-  const includes = parseIncludes(fields.includes, skillFilePath);
+  const vellumDisableModelInvocation = vellum?.["disable-model-invocation"];
+  let disableModelInvocation: boolean;
+  if (typeof vellumDisableModelInvocation === "boolean") {
+    disableModelInvocation = vellumDisableModelInvocation;
+  } else if (typeof vellumDisableModelInvocation === "string") {
+    disableModelInvocation = vellumDisableModelInvocation === "true";
+  } else {
+    disableModelInvocation = false;
+  }
+
+  let includes: string[] | undefined;
+  if (Array.isArray(vellum?.includes)) {
+    const normalized = [
+      ...new Set(
+        vellum.includes
+          .filter((item: unknown): item is string => typeof item === "string")
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0),
+      ),
+    ];
+    includes = normalized.length > 0 ? normalized : undefined;
+  }
+
   const credentialSetupFor =
-    fields["credential-setup-for"]?.trim() || undefined;
+    typeof vellum?.["credential-setup-for"] === "string"
+      ? vellum["credential-setup-for"]
+      : undefined;
+
+  const displayName =
+    (typeof vellum?.["display-name"] === "string"
+      ? vellum["display-name"]
+      : undefined) ?? name;
 
   return {
     name,
+    displayName,
     description,
     body: stripCommentLines(body),
-    homepage,
     userInvocable,
     disableModelInvocation,
     metadata,
@@ -536,12 +615,12 @@ function readSkillFromDirectory(
     return {
       id: basename(directoryPath),
       name: parsed.name,
+      displayName: parsed.displayName,
       description: parsed.description,
       directoryPath,
       skillFilePath,
       body: parsed.body,
       emoji: parsed.metadata?.emoji,
-      homepage: parsed.homepage,
       userInvocable: parsed.userInvocable,
       disableModelInvocation: parsed.disableModelInvocation,
       source,
@@ -585,13 +664,13 @@ function readBundledSkillFromDirectory(
     return {
       id: basename(directoryPath),
       name: parsed.name,
+      displayName: parsed.displayName,
       description: parsed.description,
       directoryPath,
       skillFilePath,
       body: parsed.body,
       bundled: true,
       emoji: parsed.metadata?.emoji,
-      homepage: parsed.homepage,
       userInvocable: parsed.userInvocable,
       disableModelInvocation: parsed.disableModelInvocation,
       source: "bundled",
@@ -644,12 +723,12 @@ function loadBundledSkills(): SkillSummary[] {
     skills.push({
       id: skill.id,
       name: skill.name,
+      displayName: skill.displayName,
       description: skill.description,
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
       bundled: true,
       emoji: skill.emoji,
-      homepage: skill.homepage,
       userInvocable: skill.userInvocable,
       disableModelInvocation: skill.disableModelInvocation,
       source: "bundled",
@@ -781,12 +860,12 @@ function skillSummaryFromDefinition(
   return {
     id: skill.id,
     name: skill.name,
+    displayName: skill.displayName,
     description: skill.description,
     directoryPath: skill.directoryPath,
     skillFilePath: skill.skillFilePath,
     bundled: skill.bundled,
     emoji: skill.emoji,
-    homepage: skill.homepage,
     userInvocable: skill.userInvocable,
     disableModelInvocation: skill.disableModelInvocation,
     source,
@@ -834,11 +913,11 @@ export function loadSkillCatalog(
           catalog.push({
             id,
             name: parsed.name,
+            displayName: parsed.displayName ?? parsed.name,
             description: parsed.description,
             directoryPath: directory,
             skillFilePath,
             emoji: parsed.metadata?.emoji,
-            homepage: parsed.homepage,
             userInvocable: parsed.userInvocable,
             disableModelInvocation: parsed.disableModelInvocation,
             source: "extra",
@@ -930,11 +1009,11 @@ export function loadSkillCatalog(
         const workspaceSkill: SkillSummary = {
           id,
           name: parsed.name,
+          displayName: parsed.displayName ?? parsed.name,
           description: parsed.description,
           directoryPath: directory,
           skillFilePath,
           emoji: parsed.metadata?.emoji,
-          homepage: parsed.homepage,
           userInvocable: parsed.userInvocable,
           disableModelInvocation: parsed.disableModelInvocation,
           source: "workspace",
@@ -968,6 +1047,79 @@ export function loadSkillCatalog(
   return catalog;
 }
 
+/**
+ * Process feature-gated sections in skill body markdown.
+ *
+ * Markers:
+ *   <!-- feature:<flag-id>:start --> ... <!-- feature:<flag-id>:end -->
+ *     Content included only when the flag is enabled.
+ *   <!-- feature:<flag-id>:alt --> ... <!-- feature:<flag-id>:alt:end -->
+ *     Fallback content included only when the flag is disabled.
+ */
+function applyFeatureGatedSections(body: string): string {
+  const config = getConfig();
+  // Match feature:*:start/end blocks
+  const mainRe =
+    /<!-- feature:([^:]+):start -->\n?([\s\S]*?)<!-- feature:\1:end -->\n?/g;
+  // Match feature:*:alt/alt:end blocks
+  const altRe =
+    /<!-- feature:([^:]+):alt -->\n?([\s\S]*?)<!-- feature:\1:alt:end -->\n?/g;
+
+  let result = body;
+
+  result = result.replace(mainRe, (_match, flagId: string, content: string) => {
+    const key = `feature_flags.${flagId}.enabled`;
+    return isAssistantFeatureFlagEnabled(key, config) ? content : "";
+  });
+
+  result = result.replace(altRe, (_match, flagId: string, content: string) => {
+    const key = `feature_flags.${flagId}.enabled`;
+    return isAssistantFeatureFlagEnabled(key, config) ? "" : content;
+  });
+
+  return result;
+}
+
+/**
+ * Scan for a `references/` subdirectory within a skill directory and append
+ * the contents of any `.md` files found there to the skill body. Each
+ * reference file is labeled with a `--- Reference: <Name> ---` header.
+ * Files are appended in alphabetical order for deterministic output.
+ * Non-`.md` files are ignored. Errors are logged as warnings and the
+ * original body is returned unchanged.
+ */
+function appendReferenceFiles(body: string, directoryPath: string): string {
+  try {
+    const refsDir = join(directoryPath, "references");
+    if (!existsSync(refsDir) || !statSync(refsDir).isDirectory()) {
+      return body;
+    }
+
+    const entries = readdirSync(refsDir);
+    const mdFiles = entries
+      .filter((f) => f.toLowerCase().endsWith(".md"))
+      .sort((a, b) => a.localeCompare(b));
+
+    if (mdFiles.length === 0) return body;
+
+    let result = body;
+    for (const filename of mdFiles) {
+      const fileContents = readFileSync(join(refsDir, filename), "utf-8");
+      const displayName = filename
+        .replace(/\.md$/i, "")
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .replace(/\B\w+/g, (w) => w.toLowerCase());
+      result += `\n\n--- Reference: ${displayName} ---\n${fileContents}`;
+    }
+
+    return result;
+  } catch (err) {
+    log.warn({ err, directoryPath }, "Failed to read reference files");
+    return body;
+  }
+}
+
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
@@ -992,6 +1144,10 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   }
   // Replace {baseDir} placeholders with the actual skill directory path
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
+  // Strip feature-gated sections based on assistant feature flags
+  loaded.body = applyFeatureGatedSections(loaded.body);
+  // Auto-load reference files from references/ subdirectory
+  loaded.body = appendReferenceFiles(loaded.body, loaded.directoryPath);
   return { skill: loaded };
 }
 
@@ -1020,7 +1176,9 @@ export function resolveSkillSelector(
   }
 
   const exactNameMatches = catalog.filter(
-    (skill) => skill.name.toLowerCase() === needle.toLowerCase(),
+    (skill) =>
+      skill.name.toLowerCase() === needle.toLowerCase() ||
+      skill.displayName.toLowerCase() === needle.toLowerCase(),
   );
   if (exactNameMatches.length === 1) {
     return { skill: exactNameMatches[0] };

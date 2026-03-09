@@ -62,7 +62,7 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceConfigPath: () => "",
   getWorkspaceSkillsDir: () => "",
   getWorkspaceHooksDir: () => "",
-  getIpcBlobDir: () => "",
+
   getSandboxRootDir: () => "",
   getSandboxWorkingDir: () => "",
   getInterfacesDir: () => "",
@@ -71,19 +71,15 @@ mock.module("../util/platform.js", () => ({
   writeLockfile: () => {},
   readPlatformToken: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   getTCPPort: () => 8765,
   isTCPEnabled: () => false,
   getTCPHost: () => "127.0.0.1",
   isIOSPairingEnabled: () => false,
-  migrateToDataLayout: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 // Mock system-prompt to provide only stripCommentLines without pulling in
 // the rest of the system-prompt transitive dependency tree.
-mock.module("../config/system-prompt.js", () => {
+mock.module("../prompts/system-prompt.js", () => {
   // Inline a minimal implementation of stripCommentLines matching production behavior.
   function stripCommentLines(content: string): string {
     const normalized = content.replace(/\r\n/g, "\n");
@@ -115,12 +111,12 @@ mock.module("../version.js", () => ({
 
 // Mock the template path module so tests read from a temp directory instead
 // of the real source-controlled template file.
-mock.module("../config/update-bulletin-template-path.js", () => ({
+mock.module("../prompts/update-bulletin-template-path.js", () => ({
   getTemplatePath: () => join(tempTemplateDir, "UPDATES.md"),
 }));
 
 const { syncUpdateBulletinOnStartup } =
-  await import("../config/update-bulletin.js");
+  await import("../prompts/update-bulletin.js");
 
 const TEST_TEMPLATE = "## What's New\n\nTest release notes.\n";
 const COMMENT_ONLY_TEMPLATE =

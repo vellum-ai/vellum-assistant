@@ -5,6 +5,7 @@ import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
+  isLoopbackPeer,
 } from "../http/routes/browser-relay-websocket.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -27,9 +28,6 @@ const WS_CLOSED = WebSocket.CLOSED; // 3
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "tok",
-    telegramWebhookSecret: "wh-ver",
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -41,31 +39,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
@@ -291,5 +269,39 @@ describe("getBrowserRelayWebsocketHandlers", () => {
 
     fakeUpstream.emit("message", { data: "runtime-message" });
     expect(ws.sent).toEqual(["runtime-message"]);
+  });
+});
+
+describe("isLoopbackPeer", () => {
+  test("uses x-forwarded-for first hop when trustProxy is enabled", () => {
+    const req = new Request("http://localhost:7830/v1/browser-relay/token", {
+      headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" },
+    });
+
+    const fakeServer = {
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
+    } as unknown as import("bun").Server<any>;
+
+    expect(isLoopbackPeer(fakeServer, req, { trustProxy: true })).toBe(false);
+  });
+
+  test("falls back to peer IP when trustProxy is disabled", () => {
+    const req = new Request("http://localhost:7830/v1/browser-relay/token", {
+      headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" },
+    });
+
+    const fakeServer = {
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
+    } as unknown as import("bun").Server<any>;
+
+    expect(isLoopbackPeer(fakeServer, req, { trustProxy: false })).toBe(true);
   });
 });

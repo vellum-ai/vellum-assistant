@@ -40,10 +40,7 @@ export {
   handleChannelInbound,
   handleDeleteConversation,
 } from "./channel-inbound-routes.js";
-export {
-  _setTestPollMaxWait,
-  type DenialReason,
-} from "./channel-route-shared.js";
+export { _setTestPollMaxWait } from "./channel-route-shared.js";
 
 // ---------------------------------------------------------------------------
 // Route definitions

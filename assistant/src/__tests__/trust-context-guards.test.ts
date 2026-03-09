@@ -168,7 +168,7 @@ describe("trust-context guards", () => {
 
   it("guardianPrincipalId is typed as string (non-null) in GuardianBinding", () => {
     const source = readFileSync(
-      join(srcDir, "memory", "channel-guardian-store.ts"),
+      join(srcDir, "memory", "channel-verification-sessions.ts"),
       "utf-8",
     );
 

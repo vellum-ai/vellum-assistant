@@ -65,18 +65,28 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   const lines: string[] = ["---"];
   lines.push(`name: "${esc(input.name)}"`);
   lines.push(`description: "${esc(input.description)}"`);
+
+  // Build metadata object matching the format parseFrontmatter expects:
+  // metadata: {"vellum":{"emoji":"...","user-invocable":false,...}}
+  const vellum: Record<string, unknown> = {};
   if (input.emoji) {
-    lines.push(`emoji: "${esc(input.emoji)}"`);
+    vellum.emoji = input.emoji;
   }
   if (input.userInvocable === false) {
-    lines.push("user-invocable: false");
+    vellum["user-invocable"] = false;
   }
   if (input.disableModelInvocation === true) {
-    lines.push("disable-model-invocation: true");
+    vellum["disable-model-invocation"] = true;
   }
   if (input.includes && input.includes.length > 0) {
-    lines.push(`includes: ${JSON.stringify(input.includes)}`);
+    vellum.includes = input.includes;
   }
+
+  if (Object.keys(vellum).length > 0) {
+    const metadata = { vellum };
+    lines.push(`metadata: ${JSON.stringify(metadata)}`);
+  }
+
   lines.push("---");
   lines.push("");
   lines.push(input.bodyMarkdown);

@@ -30,8 +30,13 @@ const ALLOWLIST = new Set([
   // --- Test fixtures that poll the daemon directly (gateway may require auth) ---
   "playwright/agent/fixtures.ts", // daemon health-check during test setup
 
+  // --- Chrome extension (local relay communication, not gateway API consumption) ---
+  "clients/chrome-extension/background/worker.ts",
+  "clients/chrome-extension/popup/popup.ts",
+
   // --- Documentation and comments that mention the port for explanatory purposes ---
   "AGENTS.md", // documents the gateway-only rule itself
+  "ARCHITECTURE.md", // architecture overview with port references
   "assistant/docs/runbook-trusted-contacts.md", // operator runbook targeting runtime-only /v1/contacts endpoints
   "assistant/src/runtime/middleware/twilio-validation.ts", // comment explaining proxy URL rewriting
 ]);

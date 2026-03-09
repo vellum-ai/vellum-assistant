@@ -98,6 +98,26 @@ struct UsageDashboardPanelPopulatedTests {
     @Test @MainActor
     func populatedStoreHasCorrectTotals() async {
         let client = MockPanelClient()
+        let breakdownEntries = [
+            UsageGroupBreakdownEntry(
+                group: "claude-sonnet-4-20250514",
+                totalInputTokens: 30_000,
+                totalOutputTokens: 15_000,
+                totalCacheCreationTokens: 1_200,
+                totalCacheReadTokens: 8_000,
+                totalEstimatedCostUsd: 0.80,
+                eventCount: 25
+            ),
+            UsageGroupBreakdownEntry(
+                group: "claude-haiku-3",
+                totalInputTokens: 20_000,
+                totalOutputTokens: 10_000,
+                totalCacheCreationTokens: 450,
+                totalCacheReadTokens: 3_200,
+                totalEstimatedCostUsd: 0.43,
+                eventCount: 17
+            )
+        ]
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 50_000, totalOutputTokens: 25_000,
             totalCacheCreationTokens: 5_000, totalCacheReadTokens: 2_000,
@@ -108,10 +128,7 @@ struct UsageDashboardPanelPopulatedTests {
             UsageDayBucket(date: "2026-03-04", totalInputTokens: 20_000, totalOutputTokens: 10_000, totalEstimatedCostUsd: 0.50, eventCount: 15),
             UsageDayBucket(date: "2026-03-05", totalInputTokens: 30_000, totalOutputTokens: 15_000, totalEstimatedCostUsd: 0.73, eventCount: 27)
         ])
-        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "claude-sonnet-4-20250514", totalInputTokens: 30_000, totalOutputTokens: 15_000, totalEstimatedCostUsd: 0.80, eventCount: 25),
-            UsageGroupBreakdownEntry(group: "claude-haiku-3", totalInputTokens: 20_000, totalOutputTokens: 10_000, totalEstimatedCostUsd: 0.43, eventCount: 17)
-        ])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: breakdownEntries)
 
         let store = UsageDashboardStore(client: client)
         await store.refresh()
@@ -136,7 +153,11 @@ struct UsageDashboardPanelPopulatedTests {
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown.count == 2)
             #expect(breakdown.breakdown[0].group == "claude-sonnet-4-20250514")
+            #expect(breakdown.breakdown[0].totalCacheCreationTokens == 1_200)
+            #expect(breakdown.breakdown[0].totalCacheReadTokens == 8_000)
             #expect(breakdown.breakdown[1].group == "claude-haiku-3")
+            #expect(breakdown.breakdown[1].totalCacheCreationTokens == 450)
+            #expect(breakdown.breakdown[1].totalCacheReadTokens == 3_200)
         } else {
             Issue.record("Expected .loaded for breakdown")
         }
@@ -146,7 +167,15 @@ struct UsageDashboardPanelPopulatedTests {
     func groupByDimensionAffectsBreakdownHeadings() async {
         let client = MockPanelClient()
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "anthropic", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 1)
+            UsageGroupBreakdownEntry(
+                group: "anthropic",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalCacheCreationTokens: 0,
+                totalCacheReadTokens: 0,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1
+            )
         ])
 
         let store = UsageDashboardStore(client: client)
@@ -198,6 +227,15 @@ private func collectPanelContent(store: UsageDashboardStore) -> String {
     return output
 }
 
+@MainActor
+private func collectBreakdownRow(entry: UsageGroupBreakdownEntry) -> String {
+    let panel = UsageDashboardPanel(store: UsageDashboardStore(client: MockPanelClient()), onClose: {})
+    let row = panel.breakdownRow(entry)
+    var output = ""
+    dump(row, to: &output)
+    return output
+}
+
 // MARK: - View Instantiation Tests
 
 /// These tests instantiate the actual UsageDashboardPanel view with stores in
@@ -242,6 +280,9 @@ struct UsageDashboardPanelViewEmptyTests {
         #expect(joined.contains("Totals"))
         #expect(joined.contains("Daily Trend"))
         #expect(joined.contains("Breakdown"))
+        #expect(joined.contains(UsageFormatting.directInputTokensLabel))
+        #expect(joined.contains("Cache Created"))
+        #expect(joined.contains("Cache Read"))
 
         // Zero cost formatting: verify the formatted zero cost appears
         let zeroCost = UsageFormatting.formatCost(0)
@@ -259,6 +300,26 @@ struct UsageDashboardPanelViewPopulatedTests {
     @Test @MainActor
     func panelRendersWithPopulatedData() async {
         let client = MockPanelClient()
+        let breakdownEntries = [
+            UsageGroupBreakdownEntry(
+                group: "claude-sonnet-4-20250514",
+                totalInputTokens: 30_000,
+                totalOutputTokens: 15_000,
+                totalCacheCreationTokens: 1_200,
+                totalCacheReadTokens: 8_000,
+                totalEstimatedCostUsd: 0.80,
+                eventCount: 25
+            ),
+            UsageGroupBreakdownEntry(
+                group: "claude-haiku-3",
+                totalInputTokens: 20_000,
+                totalOutputTokens: 10_000,
+                totalCacheCreationTokens: 450,
+                totalCacheReadTokens: 3_200,
+                totalEstimatedCostUsd: 0.43,
+                eventCount: 17
+            )
+        ]
         client.stubbedTotals = UsageTotalsResponse(
             totalInputTokens: 50_000, totalOutputTokens: 25_000,
             totalCacheCreationTokens: 5_000, totalCacheReadTokens: 2_000,
@@ -269,10 +330,7 @@ struct UsageDashboardPanelViewPopulatedTests {
             UsageDayBucket(date: "2026-03-04", totalInputTokens: 20_000, totalOutputTokens: 10_000, totalEstimatedCostUsd: 0.50, eventCount: 15),
             UsageDayBucket(date: "2026-03-05", totalInputTokens: 30_000, totalOutputTokens: 15_000, totalEstimatedCostUsd: 0.73, eventCount: 27)
         ])
-        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "claude-sonnet-4-20250514", totalInputTokens: 30_000, totalOutputTokens: 15_000, totalEstimatedCostUsd: 0.80, eventCount: 25),
-            UsageGroupBreakdownEntry(group: "claude-haiku-3", totalInputTokens: 20_000, totalOutputTokens: 10_000, totalEstimatedCostUsd: 0.43, eventCount: 17)
-        ])
+        client.stubbedBreakdown = UsageBreakdownResponse(breakdown: breakdownEntries)
 
         let store = UsageDashboardStore(client: client)
         await store.refresh()
@@ -292,6 +350,11 @@ struct UsageDashboardPanelViewPopulatedTests {
         #expect(joined.contains("2026-03-04"))
         #expect(joined.contains("2026-03-05"))
 
+        // Totals wording clarifies direct input vs cache activity
+        #expect(joined.contains(UsageFormatting.directInputTokensLabel))
+        #expect(joined.contains("Cache Created"))
+        #expect(joined.contains("Cache Read"))
+
         // Breakdown model names
         #expect(joined.contains("claude-sonnet-4-20250514"))
         #expect(joined.contains("claude-haiku-3"))
@@ -300,6 +363,11 @@ struct UsageDashboardPanelViewPopulatedTests {
         #expect(joined.contains("Group"))
         #expect(joined.contains("Tokens"))
         #expect(joined.contains("Cost"))
+
+        let firstBreakdownRow = collectBreakdownRow(entry: breakdownEntries[0])
+        let secondBreakdownRow = collectBreakdownRow(entry: breakdownEntries[1])
+        #expect(firstBreakdownRow.contains(UsageFormatting.formatBreakdownSummary(breakdownEntries[0])))
+        #expect(secondBreakdownRow.contains(UsageFormatting.formatBreakdownSummary(breakdownEntries[1])))
     }
 
     @Test @MainActor
@@ -313,7 +381,15 @@ struct UsageDashboardPanelViewPopulatedTests {
         )
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "anthropic", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 1)
+            UsageGroupBreakdownEntry(
+                group: "anthropic",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalCacheCreationTokens: 0,
+                totalCacheReadTokens: 0,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1
+            )
         ])
 
         let store = UsageDashboardStore(client: client)
@@ -373,7 +449,6 @@ struct UsageDashboardPanelViewCloseTests {
 @MainActor
 private final class MockPanelClient: DaemonClientProtocol {
     var isConnected: Bool = true
-    var isBlobTransportAvailable: Bool = false
 
     func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
     func send<T: Encodable>(_ message: T) throws {}

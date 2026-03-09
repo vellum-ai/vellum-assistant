@@ -32,6 +32,7 @@ struct ComposerView: View {
     var onEndVoiceMode: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 34
+    var threadId: UUID?
 
     @Environment(\.conversationZoomScale) private var zoomScale
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
@@ -120,13 +121,17 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        .frame(maxWidth: 700)
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
             composerFocus = true
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
+        }
+        .onChange(of: threadId) {
+            guard !hasPendingConfirmation else { return }
+            composerFocus = true
         }
     }
 
@@ -180,21 +185,7 @@ struct ComposerView: View {
         .tint(VColor.accent)
         .focused($composerFocus)
         .disabled(!hasAPIKey)
-        .onSubmit {
-            #if os(macOS)
-            // In Cmd+Enter mode, plain Return should insert a newline.
-            // `.onSubmit` fires on all Return variants and consumes the
-            // event, so we insert the newline manually via the field editor.
-            // Cmd+Return → send is handled by the bridge before `.onSubmit`.
-            if cmdEnterToSend {
-                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
-                    textView.insertText("\n", replacementRange: textView.selectedRange())
-                }
-                return
-            }
-            #endif
-            performSendAction()
-        }
+        .onSubmit { handleComposerSubmit() }
         .onKeyPress(.tab, phases: .down) { press in
             if !press.modifiers.contains(.shift), showSlashMenu {
                 handleSlashNavigation(.tab)
@@ -378,6 +369,21 @@ struct ComposerView: View {
         }
     }
 
+    private func handleComposerSubmit() {
+        #if os(macOS)
+        // `.onSubmit` fires on all Return variants, so keep the actual
+        // send-vs-newline behavior in the shared return-key contract.
+        ComposerReturnKeyRouting.handleSubmit(
+            cmdEnterToSend: cmdEnterToSend,
+            textView: NSApp.keyWindow?.firstResponder as? NSTextView
+        ) {
+            performSendAction()
+        }
+        #else
+        performSendAction()
+        #endif
+    }
+
     @ViewBuilder
     private var composerActionButtons: some View {
         HStack(spacing: 2) {
@@ -528,4 +534,3 @@ struct ComposerView: View {
     }
 
 }
-

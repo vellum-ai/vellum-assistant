@@ -18,8 +18,10 @@ import {
   unregisterCallTranscriptNotifier,
 } from "../calls/call-state.js";
 import { getCallSession } from "../calls/call-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  provenanceFromTrustContext,
+} from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
@@ -31,7 +33,7 @@ import {
   unregisterWatchCompletionNotifier,
   unregisterWatchStartNotifier,
 } from "../tools/watch/watch-state.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
 import {
   lastCommentaryBySession,
@@ -106,16 +108,16 @@ export function registerSessionNotifiers(
       const callee = callSession?.toNumber ?? "the caller";
       const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
 
-      await conversationStore.addMessage(
+      await addMessage(
         conversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: questionText }]),
         {
           ...provenanceFromTrustContext(ctx.trustContext),
-          userMessageChannel: "voice",
-          assistantMessageChannel: "voice",
-          userMessageInterface: "voice",
-          assistantMessageInterface: "voice",
+          userMessageChannel: "phone",
+          assistantMessageChannel: "phone",
+          userMessageInterface: "phone",
+          assistantMessageInterface: "phone",
         },
       );
 

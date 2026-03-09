@@ -163,6 +163,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             navLocalMonitor = nil
         }
+        if let monitor = zoomLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            zoomLocalMonitor = nil
+        }
     }
 
     /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
@@ -242,6 +246,34 @@ extension AppDelegate {
         navLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
+    /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.
+    /// Uses event monitoring instead of NSMenu key equivalents because
+    /// SwiftUI manages the menu bar and strips programmatic items.
+    func registerZoomMonitor() {
+        guard zoomLocalMonitor == nil else { return }
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard let chars = event.charactersIgnoringModifiers else { return event }
+            // Cmd+= (same physical key as Cmd++, shift ignored)
+            if chars == "=" && mods.contains(.command) && !mods.contains(.control) {
+                Task { @MainActor in self?.zoomManager.zoomIn() }
+                return nil
+            }
+            // Cmd+-
+            if chars == "-" && mods == [.command] {
+                Task { @MainActor in self?.zoomManager.zoomOut() }
+                return nil
+            }
+            // Cmd+0
+            if chars == "0" && mods == [.command] {
+                Task { @MainActor in self?.zoomManager.resetZoom() }
+                return nil
+            }
+            return event
+        }
+        zoomLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
     func toggleCommandPalette() {
         if let window = commandPaletteWindow, window.isVisible {
             window.dismiss()
@@ -270,6 +302,15 @@ extension AppDelegate {
             },
             CommandPaletteAction(id: "navigate-forward", icon: "chevron.right", label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
                 self?.mainWindow?.windowState.navigateForward()
+            },
+            CommandPaletteAction(id: "zoom-in", icon: "plus.magnifyingglass", label: "Zoom In", shortcutHint: "\u{2318}+") { [weak self] in
+                self?.zoomManager.zoomIn()
+            },
+            CommandPaletteAction(id: "zoom-out", icon: "minus.magnifyingglass", label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
+                self?.zoomManager.zoomOut()
+            },
+            CommandPaletteAction(id: "zoom-reset", icon: "magnifyingglass", label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
+                self?.zoomManager.resetZoom()
             },
         ]
 

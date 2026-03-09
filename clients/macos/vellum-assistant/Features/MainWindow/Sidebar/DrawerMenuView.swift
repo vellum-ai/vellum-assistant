@@ -21,6 +21,7 @@ struct DrawerMenuView: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .padding(.horizontal, VSpacing.lg)
+                .padding(.top, VSpacing.xs)
                 .padding(.bottom, VSpacing.xs)
 
             VColor.surfaceBorder.frame(height: 1)

@@ -125,11 +125,11 @@ describe("slack skill SKILL.md", () => {
   );
 
   test("has correct frontmatter name", () => {
-    expect(skillMd).toContain('name: "Slack"');
+    expect(skillMd).toContain("name: slack");
   });
 
   test("is user-invocable", () => {
-    expect(skillMd).toContain("user-invocable: true");
+    expect(skillMd).toContain('"user-invocable":true');
   });
 
   test("mentions privacy rules", () => {

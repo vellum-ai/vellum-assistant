@@ -317,7 +317,7 @@ struct HatchingStepView: View {
     }
 
     private func startRemoteHatch() {
-        let apiKey = APIKeyManager.getKey() ?? ""
+        let apiKey = APIKeyManager.getKey(for: "anthropic") ?? ""
 
         let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,

@@ -269,17 +269,6 @@ export function getApp(id: string): AppDefinition | null {
     ? readFileSync(indexPath, "utf-8")
     : (app.htmlDefinition ?? "");
 
-  // Migrate inline preview to companion file if present
-  if (app.preview) {
-    const previewPath = join(dir, `${id}.preview`);
-    if (!existsSync(previewPath)) {
-      writeFileSync(previewPath, app.preview, "utf-8");
-    }
-    // Rewrite JSON without preview
-    const { preview: _p, ...clean } = JSON.parse(raw);
-    writeFileSync(filePath, JSON.stringify(clean, null, 2));
-  }
-
   // Load preview from companion file
   const previewPath = join(dir, `${id}.preview`);
   if (existsSync(previewPath)) {
@@ -306,16 +295,7 @@ export function getAppPreview(id: string): string | null {
   if (existsSync(previewPath)) {
     return readFileSync(previewPath, "utf-8");
   }
-  // Fallback: check if preview is still inline in JSON (pre-migration)
-  const jsonPath = join(dir, `${id}.json`);
-  if (!existsSync(jsonPath)) return null;
-  try {
-    const raw = readFileSync(jsonPath, "utf-8");
-    const app = JSON.parse(raw);
-    return app.preview ?? null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export function listApps(): AppDefinition[] {
@@ -328,19 +308,6 @@ export function listApps(): AppDefinition[] {
     try {
       const raw = readFileSync(filePath, "utf-8");
       const app = JSON.parse(raw) as AppDefinition;
-
-      // Lazy migration: extract inline preview to companion file
-      if (app.preview) {
-        const id = entry.replace(".json", "");
-        const previewPath = join(dir, `${id}.preview`);
-        if (!existsSync(previewPath)) {
-          writeFileSync(previewPath, app.preview, "utf-8");
-        }
-        // Rewrite JSON without preview so future reads are fast
-        const { preview: _p, ...clean } = app;
-        writeFileSync(filePath, JSON.stringify(clean, null, 2));
-        delete app.preview;
-      }
 
       apps.push(app);
     } catch {
@@ -406,14 +373,6 @@ export function updateApp(
     updated.htmlDefinition = htmlUpdate;
     mkdirSync(appDir, { recursive: true });
     writeFileSync(join(appDir, "index.html"), htmlUpdate, "utf-8");
-  } else if (
-    !existsSync(join(appDir, "index.html")) &&
-    updated.htmlDefinition
-  ) {
-    // Backfill: migrate existing htmlDefinition to index.html before stripping from JSON
-    // to prevent data loss on metadata-only updates of pre-migration apps.
-    mkdirSync(appDir, { recursive: true });
-    writeFileSync(join(appDir, "index.html"), updated.htmlDefinition, "utf-8");
   }
 
   // Write preview to companion file

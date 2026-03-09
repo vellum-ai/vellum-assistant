@@ -1,6 +1,6 @@
-import { renderHistoryContent } from "../daemon/handlers.js";
+import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
@@ -169,7 +169,7 @@ export async function deliverReplyViaCallback(
   assistantId?: string,
   options?: DeliverReplyOptions,
 ): Promise<void> {
-  const msgs = conversationStore.getMessages(conversationId);
+  const msgs = getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== "assistant") continue;
 
@@ -205,6 +205,46 @@ export async function deliverReplyViaCallback(
       messageTs: options?.messageTs,
       onMessageTs: options?.onMessageTs,
     });
+    break;
+  }
+}
+
+/**
+ * Deliver only the attachments from the last assistant message, skipping text.
+ * Used when streaming already delivered the text content and only file
+ * attachments remain to be sent via the normal delivery path.
+ */
+export async function deliverAttachmentsOnly(
+  conversationId: string,
+  externalChatId: string,
+  callbackUrl: string,
+  bearerToken?: string,
+  assistantId?: string,
+): Promise<void> {
+  const msgs = getMessages(conversationId);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role !== "assistant") continue;
+
+    const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+    if (linked.length === 0) return;
+
+    const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+      id: a.id,
+      filename: a.originalFilename,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+      kind: a.kind,
+    }));
+
+    await deliverChannelReply(
+      callbackUrl,
+      {
+        chatId: externalChatId,
+        attachments: replyAttachments,
+        assistantId,
+      },
+      bearerToken,
+    );
     break;
   }
 }

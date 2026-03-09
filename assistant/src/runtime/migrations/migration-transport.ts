@@ -279,14 +279,29 @@ function buildHeaders(
   contentType?: string,
 ): Record<string, string> {
   const headers: Record<string, string> = {};
+  const headerKeysByLowerName = new Map<string, string>();
+
+  const setHeader = (headerName: string, headerValue: string): void => {
+    const lowerName = headerName.toLowerCase();
+    const existingHeaderName = headerKeysByLowerName.get(lowerName);
+    if (existingHeaderName && existingHeaderName !== headerName) {
+      delete headers[existingHeaderName];
+    }
+    headerKeysByLowerName.set(lowerName, headerName);
+    headers[headerName] = headerValue;
+  };
 
   if (contentType) {
-    headers["Content-Type"] = contentType;
+    setHeader("Content-Type", contentType);
   }
 
   // Merge defaultHeaders after Content-Type but before auth injection
   if (config.defaultHeaders) {
-    Object.assign(headers, config.defaultHeaders);
+    for (const [headerName, headerValue] of Object.entries(
+      config.defaultHeaders,
+    )) {
+      setHeader(headerName, headerValue);
+    }
   }
 
   // Auth header is applied last so it always wins over defaultHeaders
@@ -294,7 +309,7 @@ function buildHeaders(
     const headerName =
       config.authHeaderName ??
       (config.target === "managed" ? "X-Session-Token" : "Authorization");
-    headers[headerName] = config.authHeader;
+    setHeader(headerName, config.authHeader);
   }
 
   return headers;

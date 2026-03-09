@@ -193,7 +193,7 @@ export function deriveShellActionKeys(
  * Build an ordered list of command candidates for trust-rule matching.
  *
  * Candidate ordering:
- *   1. Raw command (backward compatibility — existing rules match as before)
+ *   1. Raw command (most specific match — the full command as written)
  *   2. Canonical primary command (if simple action) — the full primary segment text
  *   3. Action keys from narrowest to broadest (if simple action)
  *

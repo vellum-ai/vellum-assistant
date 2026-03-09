@@ -14,6 +14,10 @@ import type { Page } from "playwright";
 
 import type { ToolContext, ToolHandlerResult } from "./types";
 
+function e2eStatusFilePath(testName: string): string {
+  return `/tmp/vellum-e2e-status-${testName}.json`;
+}
+
 export const definition: Anthropic.Tool = {
   name: "launch_app",
   description:
@@ -28,16 +32,18 @@ export const definition: Anthropic.Tool = {
 export async function execute(
   _page: Page,
   _input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolHandlerResult> {
   const appDir = path.resolve(__dirname, "../../../clients/macos/dist");
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
   const appPath = path.join(appDir, `${appDisplayName}.app`);
+  const statusFile = e2eStatusFilePath(context.testName ?? "unknown");
 
   try {
-    execSync(`open -a "${appPath}"`, {
+    execSync(`open -a "${appPath}" --args --skip-onboarding`, {
       encoding: "utf-8",
       timeout: 10_000,
+      env: { ...process.env, E2E_STATUS_FILE: statusFile },
     });
     return {
       result: { success: true, data: `Launched ${appDisplayName} from ${appPath}` },

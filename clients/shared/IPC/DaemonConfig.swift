@@ -80,14 +80,9 @@ public struct TransportMetadata {
 
 public struct DaemonConfig {
     /// Transport mode for communicating with the assistant daemon.
+    /// All platforms use HTTP + SSE exclusively.
     public enum Transport {
-        /// Local Unix domain socket (macOS only).
-        #if os(macOS)
-        case socket(path: String)
-        /// TCP connection to a daemon (macOS only — iOS uses HTTP+SSE exclusively).
-        case tcp(hostname: String, port: UInt16, tlsEnabled: Bool, authToken: String?)
-        #endif
-        /// HTTP + SSE via a remote gateway URL (for cloud/custom assistants).
+        /// HTTP + SSE transport (used for both local and remote assistants).
         case http(baseURL: String, bearerToken: String?, conversationKey: String)
     }
 
@@ -107,27 +102,15 @@ public struct DaemonConfig {
     public let featureFlagToken: String?
 
     #if os(macOS)
-    /// Socket path, for backwards compatibility.
-    /// Returns the socket path if using socket transport, otherwise the default path.
-    public var socketPath: String {
-        switch transport {
-        case .socket(let path):
-            return path
-        case .http, .tcp:
-            return resolveSocketPath()
-        }
-    }
-
-    /// Convenience initializer for socket transport (backwards compatible).
-    public init(socketPath: String, instanceDir: String? = nil) {
-        self.transport = .socket(path: socketPath)
-        self.transportMetadata = .defaultLocal
-        self.instanceDir = instanceDir
-        self.featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
-    }
-
     public static var `default`: DaemonConfig {
-        return DaemonConfig(transport: .socket(path: resolveSocketPath()))
+        let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
+        let port = Int(portString) ?? 7821
+        let baseURL = "http://localhost:\(port)"
+        return DaemonConfig(transport: .http(
+            baseURL: baseURL,
+            bearerToken: nil,
+            conversationKey: UUID().uuidString
+        ))
     }
     #endif
 
@@ -143,7 +126,7 @@ public struct DaemonConfig {
     }
 
     #if os(iOS)
-    // MARK: - iOS defaults (HTTP+SSE only — no TCP)
+    // MARK: - iOS defaults (HTTP+SSE only)
 
     /// iOS uses HTTP+SSE exclusively. Default returns an HTTP config if a gateway/runtime
     /// URL is configured, otherwise a non-connecting placeholder.
@@ -152,7 +135,6 @@ public struct DaemonConfig {
     }
 
     /// Create a `DaemonConfig` populated from UserDefaults / Keychain.
-    /// iOS only supports HTTP+SSE transport via the gateway — no TCP fallback.
     public static func fromUserDefaults() -> DaemonConfig {
         // gateway_base_url is set by QR pairing (v4).
         let httpBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url").flatMap { $0.isEmpty ? nil : $0 }

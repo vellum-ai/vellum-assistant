@@ -2,14 +2,6 @@
   "version": 1,
   "flags": [
     {
-      "id": "sms",
-      "scope": "assistant",
-      "key": "feature_flags.sms.enabled",
-      "label": "SMS",
-      "description": "Show SMS setup in Settings > Connect and enable the SMS setup skill",
-      "defaultEnabled": false
-    },
-    {
       "id": "hatch-new-assistant",
       "scope": "assistant",
       "key": "feature_flags.hatch-new-assistant.enabled",
@@ -82,14 +74,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "local-http-enabled",
-      "scope": "macos",
-      "key": "local_http_enabled",
-      "label": "Local HTTP Enabled",
-      "description": "Enable local HTTP transport mode in macOS app",
-      "defaultEnabled": false
-    },
-    {
       "id": "command-palette",
       "scope": "assistant",
       "key": "feature_flags.command-palette.enabled",
@@ -111,6 +95,14 @@
       "key": "feature_flags.outbound-proxy-sidecar.enabled",
       "label": "Outbound Proxy Sidecar",
       "description": "Route proxy session management through the sidecar process instead of running in-process",
+      "defaultEnabled": false
+    },
+    {
+      "id": "app-builder-multifile",
+      "scope": "assistant",
+      "key": "feature_flags.app-builder-multifile.enabled",
+      "label": "App Builder Multi-file",
+      "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
       "defaultEnabled": false
     }
   ]

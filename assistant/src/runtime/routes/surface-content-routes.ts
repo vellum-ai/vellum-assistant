@@ -5,7 +5,7 @@
  * session's in-memory surface state. Used by clients to re-hydrate surfaces
  * whose data was stripped during memory compaction.
  */
-import type { SurfaceData, SurfaceType } from "../../daemon/ipc-contract/surfaces.js";
+import type { SurfaceData, SurfaceType } from "../../daemon/message-types/surfaces.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";

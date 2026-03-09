@@ -18,7 +18,7 @@ mock.module("../util/platform.js", () => ({
   ...realPlatform,
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -39,11 +39,7 @@ mock.module("../util/platform.js", () => ({
   getHooksDir: () => join(TEST_DIR, "hooks"),
   getWorkspaceDir: () => TEST_DIR,
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migratePath: () => {},
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   normalizeAssistantId: (id: string) => id,
   readLockfile: () => null,
   writeLockfile: () => {},
@@ -471,9 +467,13 @@ describe("includes frontmatter parsing", () => {
   function writeSkillWithIncludes(skillId: string, includes: string): void {
     const skillDir = join(TEST_DIR, "skills", skillId);
     mkdirSync(skillDir, { recursive: true });
+    // includes lives inside metadata.vellum, matching buildSkillMarkdown output.
+    // The raw includes string is interpolated directly so tests can pass both
+    // valid and intentionally malformed values.
+    const metadata = `{"vellum":{"includes":${includes}}}`;
     writeFileSync(
       join(skillDir, "SKILL.md"),
-      `---\nname: "${skillId}"\ndescription: "test"\nincludes: ${includes}\n---\n\nBody.\n`,
+      `---\nname: "${skillId}"\ndescription: "test"\nmetadata: ${metadata}\n---\n\nBody.\n`,
     );
   }
 
@@ -566,7 +566,8 @@ describe("bundled browser skill", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.name).toBe("Browser");
+    expect(browserSkill!.name).toBe("browser");
+    expect(browserSkill!.displayName).toBe("Browser");
     expect(browserSkill!.bundled).toBe(true);
   });
 
@@ -635,7 +636,8 @@ describe("bundled public-ingress skill", () => {
     const catalog = loadSkillCatalog();
     const skill = catalog.find((s) => s.id === "public-ingress");
     expect(skill).toBeDefined();
-    expect(skill!.name).toBe("Public Ingress");
+    expect(skill!.name).toBe("public-ingress");
+    expect(skill!.displayName).toBe("Public Ingress");
     expect(skill!.bundled).toBe(true);
   });
 
@@ -682,13 +684,26 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
       const sep = line.indexOf(":");
       if (sep === -1) continue;
       const key = line.slice(0, sep).trim();
-      if (key !== "includes") continue;
-      const val = line.slice(sep + 1).trim();
-      try {
-        const parsed = JSON.parse(val);
-        if (Array.isArray(parsed)) return parsed as string[];
-      } catch {
-        /* ignore */
+      // Check top-level includes (legacy format)
+      if (key === "includes") {
+        const val = line.slice(sep + 1).trim();
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed as string[];
+        } catch {
+          /* ignore */
+        }
+      }
+      // Check metadata.vellum.includes (spec-compliant format)
+      if (key === "metadata") {
+        const val = line.slice(sep + 1).trim();
+        try {
+          const parsed = JSON.parse(val);
+          const includes = parsed?.vellum?.includes;
+          if (Array.isArray(includes)) return includes as string[];
+        } catch {
+          /* ignore */
+        }
       }
     }
     return undefined;
@@ -731,7 +746,8 @@ describe("bundled computer-use skill", () => {
     const catalog = loadSkillCatalog();
     const cuSkill = catalog.find((s) => s.id === "computer-use");
     expect(cuSkill).toBeDefined();
-    expect(cuSkill!.name).toBe("Computer Use");
+    expect(cuSkill!.name).toBe("computer-use");
+    expect(cuSkill!.displayName).toBe("Computer Use");
     expect(cuSkill!.bundled).toBe(true);
   });
 

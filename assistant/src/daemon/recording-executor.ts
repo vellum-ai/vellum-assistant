@@ -3,8 +3,6 @@
 // handlers/recording.ts (side effects), so both sessions.ts and misc.ts
 // can share the same execution logic without duplicating switch/case blocks.
 
-import type * as net from "node:net";
-
 import {
   handleRecordingPause,
   handleRecordingRestart,
@@ -18,7 +16,6 @@ import type { RecordingIntentResult } from "./recording-intent.js";
 
 export interface RecordingExecutionContext {
   conversationId: string;
-  socket: net.Socket;
   ctx: HandlerContext;
 }
 
@@ -51,7 +48,6 @@ export function executeRecordingIntent(
       const recordingId = handleRecordingStart(
         context.conversationId,
         { promptForSource: true },
-        context.socket,
         context.ctx,
       );
       return {
@@ -94,7 +90,6 @@ export function executeRecordingIntent(
       // blocking the new recording.
       const restartResult = handleRecordingRestart(
         context.conversationId,
-        context.socket,
         context.ctx,
       );
 
@@ -110,7 +105,6 @@ export function executeRecordingIntent(
         const recordingId = handleRecordingStart(
           context.conversationId,
           { promptForSource: true },
-          context.socket,
           context.ctx,
         );
         return {
@@ -145,7 +139,6 @@ export function executeRecordingIntent(
     case "restart_only": {
       const restartResult = handleRecordingRestart(
         context.conversationId,
-        context.socket,
         context.ctx,
       );
       return {

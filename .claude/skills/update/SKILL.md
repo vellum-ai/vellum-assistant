@@ -77,7 +77,8 @@ The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-
 
    Then launch with file-watching in the background (the build is cached, so this just launches + watches):
    ```bash
-   VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
+   REPO_ROOT="$(pwd)"
+   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
    ```
 
 9. Verify fresh state — run `vellum ps` to confirm processes are running:

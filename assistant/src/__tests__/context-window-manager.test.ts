@@ -56,11 +56,11 @@ describe("ContextWindowManager", () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");
     });
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig(),
-    );
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
     const history = [message("user", "hello"), message("assistant", "hi")];
 
     const result = await manager.maybeCompact(history);
@@ -82,11 +82,11 @@ describe("ContextWindowManager", () => {
         stopReason: "end_turn",
       };
     });
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig(),
-    );
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
     const long = "x".repeat(240);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -117,6 +117,71 @@ describe("ContextWindowManager", () => {
     expect(userTexts.some((text) => text.startsWith("u3 "))).toBe(true);
   });
 
+  test("aggregates cache-aware summary usage across compaction chunks", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [
+          { type: "text", text: `## Goals\n- summary chunk ${summaryCalls}` },
+        ],
+        model: "claude-opus-4-6",
+        usage: {
+          inputTokens: 1_000 + summaryCalls,
+          outputTokens: 20 + summaryCalls,
+          cacheCreationInputTokens: 10 * summaryCalls,
+          cacheReadInputTokens: 100 * summaryCalls,
+        },
+        rawResponse: {
+          usage: {
+            cache_creation: {
+              ephemeral_5m_input_tokens: 10 * summaryCalls,
+              ephemeral_1h_input_tokens: 0,
+            },
+            cache_read_input_tokens: 100 * summaryCalls,
+          },
+        },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 7_000,
+        targetInputTokens: 2_500,
+        preserveRecentUserTurns: 1,
+      }),
+    });
+    const long = "q".repeat(6_000);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    expect(result.summaryCalls).toBe(summaryCalls);
+    expect(result.summaryCalls).toBeGreaterThan(1);
+    expect(result.summaryCacheCreationInputTokens).toBe(
+      summaryCalls * (summaryCalls + 1) * 5,
+    );
+    expect(result.summaryCacheReadInputTokens).toBe(
+      summaryCalls * (summaryCalls + 1) * 50,
+    );
+    expect(result.summaryRawResponses).toHaveLength(summaryCalls);
+    expect(result.summaryRawResponses?.[0]).toMatchObject({
+      usage: {
+        cache_creation: { ephemeral_5m_input_tokens: 10 },
+        cache_read_input_tokens: 100,
+      },
+    });
+  });
+
   test("updates an existing summary message instead of nesting summaries", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- updated summary" }],
@@ -124,15 +189,15 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 50, outputTokens: 10 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 300,
         targetInputTokens: 160,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "y".repeat(220);
     const history: Message[] = [
       createContextSummaryMessage("## Goals\n- old summary"),
@@ -164,15 +229,15 @@ describe("ContextWindowManager", () => {
     const provider = createProvider(async () => {
       throw new Error("provider unavailable");
     });
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 260,
         targetInputTokens: 140,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "z".repeat(220);
     const history = [
       message("user", `task ${long}`),
@@ -203,15 +268,15 @@ describe("ContextWindowManager", () => {
         stopReason: "end_turn",
       };
     });
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 280,
         targetInputTokens: 150,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "f".repeat(220);
     const history: Message[] = [
       {
@@ -252,15 +317,15 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 75, outputTokens: 20 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 320,
         targetInputTokens: 170,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "k".repeat(220);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -300,15 +365,15 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 75, outputTokens: 20 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 320,
         targetInputTokens: 170,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "k".repeat(220);
     // Simulates a merged user message (repairHistory merges consecutive same-role
     // messages), resulting in a user turn with both tool_result and text blocks.
@@ -342,14 +407,49 @@ describe("ContextWindowManager", () => {
     expect(result.compactedPersistedMessages).toBe(4);
   });
 
-  test("parses legacy assistant-role context summary messages", () => {
-    const legacySummary: Message = {
-      role: "assistant",
-      content: [
-        { type: "text", text: `${CONTEXT_SUMMARY_MARKER}\n## Goals\n- legacy` },
-      ],
+  test("returns cache-aware usage metadata for compaction summaries", async () => {
+    const rawResponse = {
+      usage: {
+        cache_creation: { ephemeral_5m_input_tokens: 120 },
+        cache_read_input_tokens: 340,
+      },
     };
-    expect(getSummaryFromContextMessage(legacySummary)).toContain("legacy");
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- cache-aware summary" }],
+      model: "claude-opus-4-6",
+      usage: {
+        inputTokens: 500,
+        outputTokens: 22,
+        cacheCreationInputTokens: 120,
+        cacheReadInputTokens: 340,
+      },
+      rawResponse,
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 2600,
+        targetInputTokens: 1500,
+        preserveRecentUserTurns: 1,
+      }),
+    });
+    const long = "c".repeat(5000);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    expect(result.summaryCalls).toBe(2);
+    expect(result.summaryInputTokens).toBe(1000);
+    expect(result.summaryCacheCreationInputTokens).toBe(240);
+    expect(result.summaryCacheReadInputTokens).toBe(680);
+    expect(result.summaryRawResponses).toEqual([rawResponse, rawResponse]);
   });
 
   test("does not parse user-authored summary marker text as internal summary", () => {
@@ -371,15 +471,15 @@ describe("ContextWindowManager", () => {
         "summarizer should not be called while cooldown skip is active",
       );
     });
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 260,
         targetInputTokens: 180,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "c".repeat(220);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -401,15 +501,15 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 60, outputTokens: 12 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 320,
         targetInputTokens: 180,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "p".repeat(340);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -433,15 +533,15 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 60, outputTokens: 12 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 260,
         targetInputTokens: 180,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
     const long = "c".repeat(220);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -467,16 +567,16 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 75, outputTokens: 20 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 7000,
         targetInputTokens: 5000,
         compactThreshold: 0.8,
         preserveRecentUserTurns: 1,
       }),
-    );
+    });
 
     const images = Array.from({ length: 5 }, (_, i) => ({
       type: "image" as const,
@@ -519,15 +619,15 @@ describe("ContextWindowManager", () => {
       usage: { inputTokens: 60, outputTokens: 12 },
       stopReason: "end_turn",
     }));
-    const manager = new ContextWindowManager(
+    const manager = new ContextWindowManager({
       provider,
-      "system prompt",
-      makeConfig({
+      systemPrompt: "system prompt",
+      config: makeConfig({
         maxInputTokens: 260,
         targetInputTokens: 60,
         preserveRecentUserTurns: 2,
       }),
-    );
+    });
     const long = "e".repeat(220);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -548,6 +648,65 @@ describe("ContextWindowManager", () => {
     expect(getSummaryFromContextMessage(result.messages[0])).toContain(
       "emergency summary",
     );
+  });
+
+  test("shouldCompact returns needed=false with estimatedTokens when below threshold", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
+    const history = [message("user", "hello"), message("assistant", "hi")];
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(false);
+    expect(result.estimatedTokens).toBeGreaterThan(0);
+  });
+
+  test("shouldCompact returns needed=true with estimatedTokens when above threshold", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(true);
+    expect(result.estimatedTokens).toBeGreaterThan(0);
+  });
+
+  test("shouldCompact returns needed=false with zero estimatedTokens when disabled", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const long = "x".repeat(240);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ enabled: false }),
+    });
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+    ];
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(false);
+    expect(result.estimatedTokens).toBe(0);
   });
 
   test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {
@@ -575,21 +734,21 @@ describe("ContextWindowManager", () => {
     ];
 
     // Without override: normal compaction keeps more turns.
-    const normalManager = new ContextWindowManager(
+    const normalManager = new ContextWindowManager({
       provider,
-      "system prompt",
+      systemPrompt: "system prompt",
       config,
-    );
+    });
     const normalResult = await normalManager.maybeCompact(history, undefined, {
       force: true,
     });
 
     // With a very tight override target: should keep fewer turns.
-    const tightManager = new ContextWindowManager(
+    const tightManager = new ContextWindowManager({
       provider,
-      "system prompt",
+      systemPrompt: "system prompt",
       config,
-    );
+    });
     const tightResult = await tightManager.maybeCompact(history, undefined, {
       force: true,
       targetInputTokensOverride: 80,

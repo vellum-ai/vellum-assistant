@@ -1,5 +1,3 @@
-import type * as net from "node:net";
-
 import {
   extractText,
   getConfiguredProvider,
@@ -16,8 +14,8 @@ import {
   watchSessions,
 } from "../tools/watch/watch-state.js";
 import { getLogger } from "../util/logger.js";
-import type { HandlerContext } from "./handlers.js";
-import type { WatchObservation } from "./ipc-protocol.js";
+import type { HandlerContext } from "./handlers/shared.js";
+import type { WatchObservation } from "./message-protocol.js";
 
 const log = getLogger("watch-handler");
 
@@ -30,7 +28,6 @@ export const lastSummaryBySession = new Map<string, string>();
 
 export async function handleWatchObservation(
   msg: WatchObservation,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): Promise<void> {
   try {

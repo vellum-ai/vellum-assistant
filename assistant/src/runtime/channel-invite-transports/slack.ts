@@ -8,7 +8,7 @@
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { getConfig } from "../../config/loader.js";
 import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
@@ -21,26 +21,12 @@ interface SlackBotInfo {
 }
 
 /**
- * Resolve the Slack bot username and team name from credential metadata.
- * Mirrors the metadata parsing pattern in `config-slack-channel.ts`.
+ * Resolve the Slack bot username and team name from config.
  */
 function resolveSlackBotInfo(): SlackBotInfo | undefined {
-  const meta = getCredentialMetadata("slack_channel", "bot_token");
-  if (!meta?.accountInfo) return undefined;
-
-  try {
-    const parsed = JSON.parse(meta.accountInfo) as {
-      botUsername?: string;
-      teamName?: string;
-    };
-    if (!parsed.botUsername) return undefined;
-    return {
-      botUsername: parsed.botUsername,
-      teamName: parsed.teamName,
-    };
-  } catch {
-    return undefined;
-  }
+  const { botUsername, teamName } = getConfig().slack;
+  if (!botUsername) return undefined;
+  return { botUsername, teamName: teamName || undefined };
 }
 
 // ---------------------------------------------------------------------------

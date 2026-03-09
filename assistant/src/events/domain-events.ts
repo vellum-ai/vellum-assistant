@@ -70,7 +70,6 @@ export interface ToolDomainEvents {
 export interface DaemonDomainEvents {
   "daemon.lifecycle.started": {
     pid: number;
-    socketPath: string;
     startedAtMs: number;
   };
   "daemon.lifecycle.stopped": {

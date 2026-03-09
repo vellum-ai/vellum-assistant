@@ -31,6 +31,7 @@ export type ParseSubResult =
  * Supported patterns:
  *   actor:<assistantId>:<actorPrincipalId>
  *   svc:gateway:<assistantId>
+ *   svc:daemon:<identifier>
  *   ipc:<assistantId>:<sessionId>
  */
 export function parseSub(sub: string): ParseSubResult {
@@ -57,6 +58,14 @@ export function parseSub(sub: string): ParseSubResult {
       return { ok: false, reason: "svc:gateway sub has empty assistantId" };
     }
     return { ok: true, principalType: "svc_gateway", assistantId };
+  }
+
+  if (parts[0] === "svc" && parts[1] === "daemon" && parts.length === 3) {
+    const identifier = parts[2];
+    if (!identifier) {
+      return { ok: false, reason: "svc:daemon sub has empty identifier" };
+    }
+    return { ok: true, principalType: "svc_daemon", assistantId: identifier };
   }
 
   if (parts[0] === "ipc" && parts.length === 3) {

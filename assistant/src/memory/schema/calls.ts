@@ -22,7 +22,7 @@ export const callSessions = sqliteTable(
     task: text("task"),
     status: text("status").notNull().default("initiated"),
     callMode: text("call_mode"),
-    guardianVerificationSessionId: text("guardian_verification_session_id"),
+    verificationSessionId: text("verification_session_id"),
     callerIdentityMode: text("caller_identity_mode"),
     callerIdentitySource: text("caller_identity_source"),
     initiatedFromConversationId: text("initiated_from_conversation_id"),
@@ -85,8 +85,8 @@ export const externalConversationBindings = sqliteTable(
   },
 );
 
-export const channelGuardianVerificationChallenges = sqliteTable(
-  "channel_guardian_verification_challenges",
+export const channelVerificationSessions = sqliteTable(
+  "channel_verification_sessions",
   {
     id: text("id").primaryKey(),
     channel: text("channel").notNull(),
@@ -148,10 +148,6 @@ export const channelGuardianRateLimits = sqliteTable(
     channel: text("channel").notNull(),
     actorExternalUserId: text("actor_external_user_id").notNull(),
     actorChatId: text("actor_chat_id").notNull(),
-    // Legacy columns kept with defaults for backward compatibility with upgraded databases
-    // that still have the old NOT NULL columns without DEFAULT. Not read by app logic.
-    invalidAttempts: integer("invalid_attempts").notNull().default(0),
-    windowStartedAt: integer("window_started_at").notNull().default(0),
     attemptTimestampsJson: text("attempt_timestamps_json")
       .notNull()
       .default("[]"),

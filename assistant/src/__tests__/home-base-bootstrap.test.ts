@@ -13,8 +13,6 @@ mock.module("../util/platform.js", () => ({
   ensureDataDir: () => {
     mkdirSync(dataDir, { recursive: true });
   },
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",

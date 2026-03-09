@@ -16,7 +16,7 @@ const log = getLogger("twilio-provider");
  * Twilio ConversationRelay voice provider.
  *
  * Uses the Twilio REST API directly via fetch() — no twilio npm package.
- * Credentials are resolved lazily from the secure key store on each call.
+ * Credentials are resolved lazily from config on each call.
  */
 export class TwilioConversationRelayProvider implements VoiceProvider {
   readonly name = "twilio";
@@ -275,12 +275,12 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   // ── Webhook signature verification ──────────────────────────────────
 
   /**
-   * Returns the Twilio auth token from the secure key store, or null if
-   * not configured. Exposed as a static method so callers (e.g. the
-   * HTTP server webhook middleware) can check availability independently.
+   * Returns the Twilio auth token from the credential store, or null if not configured.
+   * Exposed as a static method so callers (e.g. the HTTP server webhook
+   * middleware) can check availability independently.
    */
   static getAuthToken(): string | null {
-    return getSecureKey("credential:twilio:auth_token") ?? null;
+    return getSecureKey("credential:twilio:auth_token") || null;
   }
 
   /**

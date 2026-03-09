@@ -217,47 +217,6 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   return changed;
 }
 
-/**
- * Update persisted starter-bundle rules whose pattern matches a known legacy
- * format (e.g. the old "tool:**" prefix was changed to standalone "**").
- * Returns true when at least one rule was updated.
- *
- * Only rules with a recognised legacy pattern are migrated. If a user has
- * intentionally customised a starter rule's pattern (e.g. narrowed it), it is
- * left untouched.
- */
-function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
-  const templatesByID = new Map(getStarterBundleRules().map((t) => [t.id, t]));
-  let changed = false;
-  for (const rule of rules) {
-    const template = templatesByID.get(rule.id);
-    if (!template || rule.pattern === template.pattern) continue;
-    // Only migrate patterns that match a known legacy format.
-    // The "tool:**" prefix (e.g. "file_read:**") was the original pattern
-    // before it was changed to standalone "**".
-    if (!isLegacyStarterPattern(rule.pattern, rule.tool)) continue;
-    log.info(
-      {
-        ruleId: rule.id,
-        oldPattern: rule.pattern,
-        newPattern: template.pattern,
-      },
-      "Migrated starter rule pattern to current template",
-    );
-    rule.pattern = template.pattern;
-    changed = true;
-  }
-  return changed;
-}
-
-/** Recognises legacy starter-rule patterns that should be auto-migrated. */
-function isLegacyStarterPattern(pattern: string, tool: string): boolean {
-  // Legacy format used "tool:**" prefixes, e.g. "file_read:**", "glob:**".
-  // Only match the exact legacy pattern for this specific tool to avoid
-  // silently resetting user-customised patterns.
-  return pattern === `${tool}:**`;
-}
-
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
   let rules: TrustRule[] = [];
@@ -274,33 +233,19 @@ function loadFromDisk(): TrustRule[] {
       // Restore persisted starter bundle flag
       cachedStarterBundleAccepted = data.starterBundleAccepted === true;
 
-      if (data.version === 1) {
-        // Migration: v1 → v2. All existing rules are user-created → priority 100.
-        rules = rawRules.map((r) => ({
-          ...r,
-          priority: 100,
-        }));
-        needsSave = true;
-        log.info(
-          { ruleCount: rules.length },
-          "Migrated v1 trust rules to v2 (priority=100)",
-        );
-        // Fall through to v2 → v3 migration below
-      }
-
-      if (data.version === 2 || (data.version === 1 && needsSave)) {
-        // Migration: v2 → v3. Existing rules have no principal fields,
-        // which is correct — missing principal fields act as wildcards.
-        if (data.version === 2) {
-          rules = rawRules;
-        }
-        needsSave = true;
-        log.info(
-          { ruleCount: rules.length },
-          "Migrated v2 trust rules to v3 (principal fields)",
-        );
-      } else if (data.version === TRUST_FILE_VERSION) {
+      if (
+        data.version === TRUST_FILE_VERSION ||
+        data.version === 1 ||
+        data.version === 2
+      ) {
         rules = rawRules;
+        if (data.version !== TRUST_FILE_VERSION) {
+          needsSave = true;
+          log.info(
+            { version: data.version, targetVersion: TRUST_FILE_VERSION },
+            "Migrating legacy trust file version",
+          );
+        }
 
         // Strip legacy principal-scoped fields from persisted v3 rules.
         // Before the principal concept was removed, rules could carry
@@ -323,7 +268,7 @@ function loadFromDisk(): TrustRule[] {
             needsSave = true;
           }
         }
-      } else if (data.version !== 1) {
+      } else {
         log.warn(
           { version: data.version },
           "Unknown trust file version, applying defaults in-memory only",
@@ -344,12 +289,6 @@ function loadFromDisk(): TrustRule[] {
 
   // Backfill default rules at their declared priority
   if (backfillDefaults(rules)) {
-    needsSave = true;
-  }
-
-  // Migrate persisted starter rules whose pattern has drifted from the
-  // current template (e.g. old "tool:**" → "**").
-  if (migrateStarterRulePatterns(rules)) {
     needsSave = true;
   }
 
@@ -711,8 +650,6 @@ export interface AcceptStarterBundleResult {
  */
 export function acceptStarterBundle(): AcceptStarterBundleResult {
   // Re-read from disk to avoid lost updates.
-  // loadFromDisk() also runs migrateStarterRulePatterns() to fix any
-  // stale patterns (e.g. old "tool:**" → "**") before we get here.
   cachedRules = null;
   cachedStarterBundleAccepted = null;
   const rules = [...getRules()];

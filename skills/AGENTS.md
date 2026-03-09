@@ -7,6 +7,12 @@
   - Do not create new assistant tools and reference them from SKILL.md — this couples skills to Vellum internals and breaks compatibility with other agent systems
   - Do not include a TOOLS.json file in skill directories — skills should rely on CLI tools in `scripts/`, not custom tool definitions
 
+- **Follow the [Agent Skills specification](https://agentskills.io/specification)**
+  - All skills must conform to the spec's SKILL.md format: required YAML frontmatter (`name`, `description`), optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`), and Markdown body
+  - The `name` field must match the parent directory name, use only lowercase alphanumeric characters and hyphens (1-64 chars), and must not start/end with a hyphen or contain consecutive hyphens
+  - Use the spec's directory structure: `SKILL.md` at root, `scripts/` for executable code, `references/` for supplementary docs, `assets/` for static resources
+  - Follow progressive disclosure: keep `description` keyword-rich for discovery (~100 tokens), keep `SKILL.md` body under 500 lines (< 5000 tokens recommended), and move detailed reference material to `references/`
+
 - **API interactions use Vellum's outbound proxy**
   - Outbound network traffic from the bash tool is automatically intercepted by an outbound proxy in a manner that's transparent to the assistant
   - Update proxy settings so the bash tool can inject correct auth headers for approved domains
@@ -15,7 +21,7 @@
 - **Write portable instructions**
   - Avoid referring to tools by specific names (prefer "Take a browser screenshot" over "Use browser_screen_grab")
   - It is fine to refer to tools/utils/etc. directly by name if it is bundled with the skill (likely in `scripts/`)
-  - Use standard frontmatter according to the [Agent Skills specification](https://agentskills.io/home) — linters validate this
+  - Use standard frontmatter according to the [Agent Skills specification](https://agentskills.io/specification) — linters validate this
 
 - **Vellum-specific extensions**
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way

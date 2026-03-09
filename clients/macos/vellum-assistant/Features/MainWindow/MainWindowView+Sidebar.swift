@@ -139,7 +139,7 @@ extension MainWindowView {
     @ViewBuilder
     func sidebarPinnedAppRow(_ app: AppListManager.AppItem, isExpanded: Bool = true) -> some View {
         SidebarPrimaryRow(
-            icon: app.sfSymbol ?? "square.grid.2x2",
+            icon: app.lucideIcon ?? VIcon.layoutGrid.rawValue,
             label: app.name,
             isActive: isAppSurfaceActive(appId: app.id),
             isExpanded: isExpanded
@@ -183,10 +183,10 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.activePanel == .apps) {
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps)) {
                 windowState.showAppsPanel()
             }
 
@@ -337,7 +337,7 @@ extension MainWindowView {
                                     }
                                 } label: {
                                     HStack(spacing: VSpacing.xs) {
-                                        ZStack {
+                                        HStack(spacing: 2) {
                                             VIconView(.chevronRight, size: 10)
                                                 .foregroundColor(VColor.textMuted)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
@@ -346,11 +346,10 @@ extension MainWindowView {
                                                 Circle()
                                                     .fill(Color(hex: 0xE86B40))
                                                     .frame(width: 6, height: 6)
-                                                    .offset(x: 7, y: -5)
                                                     .transition(.opacity)
                                             }
                                         }
-                                        .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
+                                        .frame(height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
                                             .foregroundColor(VColor.textPrimary)
@@ -447,7 +446,7 @@ extension MainWindowView {
                 isActive: sidebar.showPreferencesDrawer,
                 isExpanded: true,
                 onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    withAnimation(VAnimation.snappy) {
                         sidebar.showPreferencesDrawer.toggle()
                     }
                 }
@@ -472,10 +471,10 @@ extension MainWindowView {
                 sidebarSectionDivider(isExpanded: false)
             }
 
-            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
                 windowState.showAppsPanel()
             }
 
@@ -543,7 +542,7 @@ extension MainWindowView {
                 isActive: sidebar.showPreferencesDrawer,
                 isExpanded: false,
                 onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    withAnimation(VAnimation.snappy) {
                         sidebar.showPreferencesDrawer.toggle()
                     }
                 }

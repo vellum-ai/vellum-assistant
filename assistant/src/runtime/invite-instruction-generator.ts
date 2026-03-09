@@ -32,13 +32,11 @@ export function channelDisplayLabel(type: string): string {
   switch (type) {
     case "telegram":
       return "Telegram";
-    case "sms":
-      return "SMS";
     case "email":
       return "Email";
     case "slack":
       return "Slack";
-    case "voice":
+    case "phone":
       return "Voice";
     default:
       return type.charAt(0).toUpperCase() + type.slice(1);

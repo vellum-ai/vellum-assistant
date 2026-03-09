@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Cache staged file lists once (avoids repeated git diff --cached calls).
-# Two variants: ACM-filtered (most checks) and unfiltered (IPC contract check).
+# Two variants: ACM-filtered (most checks) and unfiltered (typecheck, system-prompt warning).
 STAGED_ACM_FILE=$(mktemp)
 STAGED_ALL_FILE=$(mktemp)
 trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE"' EXIT
@@ -97,7 +97,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
     # TS/JS: secret/key variable assigned from a function call.
     # E.g. `const clientSecret = getSecureKey(keyVault)` or
-    # `getSecureKey('credential:integration:twitter:oauth_client_secret')`.
+    # `getSecureKey('credential:integration:twitter:client_secret')`.
     # Allows either no quoted args, or quoted args containing `:` (key paths).
     # Raw alphanumeric strings like `"sk_live_..."` are still rejected.
     "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$)"
@@ -243,9 +243,9 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKey(keyVault)'
     SAFE_CREATE_PRIVATE_KEY='const key = createPrivateKey(keyPem)'
     # Function-call with quoted key path (colon-separated identifier) — must be whitelisted
-    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || undefined;"
+    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || undefined;"
     # Function-call with key path followed by a hardcoded secret fallback — must NOT be whitelisted
-    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || \"sk_live_12345678901234567890\""
+    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
     # Function-call with literal secret in args — must NOT be whitelisted
     UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKey("sk_live_12345678901234567890")'
     UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"
@@ -793,106 +793,11 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
     fi
 fi
 
-# --- IPC contract generation check ---
-# When contract source files are staged, verify generated output is up to date.
-
-IPC_CONTRACT_FILES=(
-    "assistant/src/daemon/ipc-contract.ts"
-    "assistant/src/daemon/ipc-contract-inventory.ts"
-    "assistant/scripts/ipc/generate-swift.ts"
-    "assistant/scripts/ipc/check-contract-inventory.ts"
-    "assistant/scripts/ipc/check-swift-decoder-drift.ts"
-    "assistant/src/daemon/ipc-contract-inventory.json"
-    "clients/shared/IPC/Generated/IPCContractGenerated.swift"
-    "clients/shared/IPC/IPCMessages.swift"
-)
-
-IPC_CHANGED=0
-while IFS= read -r -d '' FILE; do
-    for CONTRACT_FILE in "${IPC_CONTRACT_FILES[@]}"; do
-        if [ "$FILE" = "$CONTRACT_FILE" ]; then
-            IPC_CHANGED=1
-            break 2
-        fi
-    done
-done < "$STAGED_ALL_FILE"
-
-if [ $IPC_CHANGED -eq 1 ]; then
-    echo "🔍 IPC contract files changed — checking generated code is up to date..."
-
-    if [ ! -x "$BUN" ]; then
-        echo -e "${YELLOW}⚠️  bun not found — skipping IPC generation check${NC}"
-        echo "  Install bun or run 'cd assistant && bun run generate:ipc' manually."
-    else
-        # Invoke script files directly instead of `bun run <script-name>` to
-        # skip package.json resolution and shell indirection (3 processes vs 9).
-        if ! (cd assistant && "$BUN" scripts/ipc/generate-swift.ts --check) 2>/dev/null; then
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}Generated IPC Swift models are out of date!${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "Run: cd assistant && bun run generate:ipc"
-            echo "Then stage the updated file and commit again."
-            exit 1
-        fi
-        echo "✅ Generated IPC Swift models are up to date"
-
-        if ! (cd assistant && "$BUN" scripts/ipc/check-contract-inventory.ts) 2>/dev/null; then
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}IPC contract inventory snapshot is out of date!${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "Run: cd assistant && bun run ipc:inventory:update"
-            echo "Then stage the updated file and commit again."
-            exit 1
-        fi
-        echo "✅ IPC contract inventory is up to date"
-
-        if ! (cd assistant && "$BUN" scripts/ipc/check-swift-decoder-drift.ts) 2>/dev/null; then
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}Swift decoder is out of sync with the IPC contract!${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "Update IPCMessages.swift decode cases or the drift checker allowlist."
-            exit 1
-        fi
-        echo "✅ Swift decoder is in sync with the contract"
-
-        # Verify generated output files are staged (not just regenerated on disk).
-        # The checks above compare against the working tree, so if a developer
-        # regenerates but forgets to `git add`, the hook would pass while the
-        # commit still contains stale content.
-        IPC_OUTPUT_FILES=(
-            "clients/shared/IPC/Generated/IPCContractGenerated.swift"
-            "assistant/src/daemon/ipc-contract-inventory.json"
-        )
-        UNSTAGED=0
-        for OUTPUT_FILE in "${IPC_OUTPUT_FILES[@]}"; do
-            if git diff --name-only -- "$OUTPUT_FILE" | grep -q .; then
-                if [ $UNSTAGED -eq 0 ]; then
-                    echo ""
-                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                    echo -e "${RED}Generated IPC files have unstaged changes!${NC}"
-                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                fi
-                echo -e "  ${YELLOW}$OUTPUT_FILE${NC} differs between index and working tree"
-                UNSTAGED=1
-            fi
-        done
-        if [ $UNSTAGED -eq 1 ]; then
-            echo ""
-            echo "Stage the updated files with: git add ${IPC_OUTPUT_FILES[*]}"
-            echo "Then commit again."
-            exit 1
-        fi
-    fi
-fi
-
 # --- system-prompt.ts modification warning ---
 # Non-blocking reminder to consider whether changes belong in a skill or
 # one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
 
-if tr '\0' '\n' < "$STAGED_ALL_FILE" | grep -q 'assistant/src/config/system-prompt.ts'; then
+if tr '\0' '\n' < "$STAGED_ALL_FILE" | grep -q 'assistant/src/prompts/system-prompt.ts'; then
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"

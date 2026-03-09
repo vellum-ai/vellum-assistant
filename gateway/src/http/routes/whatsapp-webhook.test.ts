@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
 
 const handleInboundMock = mock(() =>
   Promise.resolve({ forwarded: true, rejected: false }),
@@ -90,32 +91,26 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramBotToken: undefined,
-  telegramDeliverAuthBypass: false,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
-  telegramTimeoutMs: 15000,
-  telegramWebhookSecret: undefined,
-  twilioAuthToken: undefined,
-  twilioAccountSid: undefined,
-  twilioPhoneNumber: undefined,
-  smsDeliverAuthBypass: false,
-  ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
-  whatsappPhoneNumberId: "phone-id",
-  whatsappAccessToken: "access-token",
-  whatsappAppSecret: "whatsapp-secret",
-  whatsappWebhookVerifyToken: "verify-token",
-  whatsappDeliverAuthBypass: false,
-  whatsappTimeoutMs: 15000,
-  whatsappMaxRetries: 3,
-  whatsappInitialBackoffMs: 1000,
-  slackChannelBotToken: undefined,
-  slackChannelAppToken: undefined,
-  slackDeliverAuthBypass: false,
   trustProxy: false,
 };
+
+/** Create mock caches for the WhatsApp webhook handler. */
+function makeCaches() {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:whatsapp:app_secret") return "test-app-secret";
+      if (key === "credential:whatsapp:webhook_verify_token")
+        return "verify-token";
+      if (key === "credential:whatsapp:phone_number_id") return "test-phone-id";
+      if (key === "credential:whatsapp:access_token")
+        return "test-access-token";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
+}
 
 function buildPostReq(body: Record<string, unknown>): Request {
   return new Request("http://localhost:7830/webhooks/whatsapp", {
@@ -155,7 +150,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("validates GET verify-token handshake", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
     const req = new Request(
       "http://localhost:7830/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=verify-token&hub.challenge=12345",
       { method: "GET" },
@@ -167,7 +162,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("rejects GET verify-token handshake when token mismatches", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
     const req = new Request(
       "http://localhost:7830/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=12345",
       { method: "GET" },
@@ -178,10 +173,8 @@ describe("whatsapp-webhook", () => {
   });
 
   it("fails closed when whatsappAppSecret is not configured", async () => {
-    const { handler } = createWhatsAppWebhookHandler({
-      ...baseConfig,
-      whatsappAppSecret: undefined,
-    });
+    // No caches provided — app secret lookup returns undefined
+    const { handler } = createWhatsAppWebhookHandler(baseConfig);
 
     const res = await handler(
       buildPostReq({ object: "whatsapp_business_account", entry: [] }),
@@ -191,20 +184,87 @@ describe("whatsapp-webhook", () => {
     expect(body.error).toBe("Webhook signature validation not configured");
   });
 
+  it("force-refreshes app secret when initial cache read returns undefined, then proceeds normally", async () => {
+    let callCount = 0;
+    const caches = {
+      credentials: {
+        get: async (key: string, opts?: { force?: boolean }) => {
+          if (key === "credential:whatsapp:app_secret") {
+            callCount++;
+            // First call (non-forced) returns undefined; second call (forced) returns a valid secret
+            if (callCount === 1 && !opts?.force) return undefined;
+            return "refreshed-app-secret";
+          }
+          if (key === "credential:whatsapp:webhook_verify_token")
+            return "verify-token";
+          if (key === "credential:whatsapp:phone_number_id")
+            return "test-phone-id";
+          if (key === "credential:whatsapp:access_token")
+            return "test-access-token";
+          return undefined;
+        },
+        invalidate: () => {},
+      } as unknown as CredentialCache,
+    };
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => []);
+
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, caches);
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    // Should succeed (200) because the forced refresh returned a valid secret
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    // The credential cache should have been called at least twice for app_secret
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("returns 500 when force-refresh also returns undefined for app secret", async () => {
+    const caches = {
+      credentials: {
+        get: async (key: string) => {
+          // Always return undefined for app_secret — both normal and forced reads
+          if (key === "credential:whatsapp:app_secret") return undefined;
+          if (key === "credential:whatsapp:webhook_verify_token")
+            return "verify-token";
+          if (key === "credential:whatsapp:phone_number_id")
+            return "test-phone-id";
+          if (key === "credential:whatsapp:access_token")
+            return "test-access-token";
+          return undefined;
+        },
+        invalidate: () => {},
+      } as unknown as CredentialCache,
+    };
+
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, caches);
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe("Webhook signature validation not configured");
+  });
+
   it("rejects POST when signature verification fails", async () => {
     verifyWhatsAppWebhookSignatureMock.mockImplementation(() => false);
 
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
     const res = await handler(
       buildPostReq({ object: "whatsapp_business_account", entry: [] }),
     );
 
     expect(res.status).toBe(403);
-    expect(verifyWhatsAppWebhookSignatureMock).toHaveBeenCalledTimes(1);
+    // Called twice: once with cached app_secret, then once more after force-refresh
+    expect(verifyWhatsAppWebhookSignatureMock).toHaveBeenCalledTimes(2);
   });
 
   it("acknowledges non-message payloads without forwarding", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
     normalizeWhatsAppWebhookMock.mockImplementation(() => []);
 
     const res = await handler(
@@ -218,7 +278,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("forwards normalized inbound WhatsApp messages to runtime with channel metadata", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     normalizeWhatsAppWebhookMock.mockImplementation(() => [
       {
@@ -269,13 +329,13 @@ describe("whatsapp-webhook", () => {
       "whatsapp-formatting",
     );
     expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
-      baseConfig,
       "wamid-1",
+      expect.objectContaining({ credentials: expect.anything() }),
     );
   });
 
   it("returns 500 when runtime forwarding fails for a normalized message", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
     normalizeWhatsAppWebhookMock.mockImplementation(() => [
       {
         whatsappMessageId: "wamid-fail",
@@ -315,7 +375,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("downloads and uploads media attachments, passing attachmentIds to handleInbound", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     uploadAttachmentMock.mockImplementation(() =>
       Promise.resolve({ id: "att-img-1" }),
@@ -366,6 +426,7 @@ describe("whatsapp-webhook", () => {
       baseConfig,
       "media-id-123",
       expect.objectContaining({ mimeType: "image/jpeg" }),
+      expect.objectContaining({ credentials: expect.anything() }),
     );
     expect(uploadAttachmentMock).toHaveBeenCalledTimes(1);
 
@@ -379,7 +440,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("forwards media-only messages (no caption) when attachment upload succeeds", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     uploadAttachmentMock.mockImplementation(() =>
       Promise.resolve({ id: "att-img-2" }),
@@ -435,7 +496,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("skips validation errors for one attachment without dropping the message", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     let callCount = 0;
     uploadAttachmentMock.mockImplementation(() => {
@@ -502,7 +563,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("returns 500 on transient download failure so Meta retries", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     downloadWhatsAppFileMock.mockImplementation(() => {
       throw new Error("Network timeout");
@@ -552,7 +613,10 @@ describe("whatsapp-webhook", () => {
   });
 
   it("skips non-retryable 4xx download errors and forwards message with empty attachments", async () => {
-    const { handler, dedupCache } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler, dedupCache } = createWhatsAppWebhookHandler(
+      baseConfig,
+      makeCaches(),
+    );
 
     downloadWhatsAppFileMock.mockImplementation(() => {
       throw new MockWhatsAppNonRetryableError(
@@ -613,7 +677,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("deduplicates messages with the same WhatsApp message ID", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     normalizeWhatsAppWebhookMock.mockImplementation(() => [
       {
@@ -657,7 +721,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("marks each message as read even for media-only messages", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     uploadAttachmentMock.mockImplementation(() =>
       Promise.resolve({ id: "att-read-1" }),
@@ -704,13 +768,13 @@ describe("whatsapp-webhook", () => {
 
     expect(res.status).toBe(200);
     expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
-      baseConfig,
       "wamid-read-media",
+      expect.objectContaining({ credentials: expect.anything() }),
     );
   });
 
   it("handles multiple attachments in a single message", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     let uploadCount = 0;
     uploadAttachmentMock.mockImplementation(() => {
@@ -776,7 +840,10 @@ describe("whatsapp-webhook", () => {
   });
 
   it("unreserves dedup cache on transient failure so retries can succeed", async () => {
-    const { handler, dedupCache } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler, dedupCache } = createWhatsAppWebhookHandler(
+      baseConfig,
+      makeCaches(),
+    );
 
     downloadWhatsAppFileMock.mockImplementation(() => {
       throw new Error("Transient network error");
@@ -828,7 +895,7 @@ describe("whatsapp-webhook", () => {
   });
 
   it("skips oversized attachments without failing the message", async () => {
-    const { handler } = createWhatsAppWebhookHandler(baseConfig);
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, makeCaches());
 
     normalizeWhatsAppWebhookMock.mockImplementation(() => [
       {

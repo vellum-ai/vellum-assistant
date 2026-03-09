@@ -39,7 +39,7 @@ export function handleListInvites(url: URL): Response {
 /**
  * POST /v1/contacts/invites
  *
- * For voice invites, pass `sourceChannel: "voice"` with required
+ * For voice invites, pass `sourceChannel: "phone"` with required
  * `expectedExternalUserId` (E.164 phone). Voice codes are always 6 digits.
  * The response will include a one-time `voiceCode` field that must be
  * communicated to the invited user out-of-band.
@@ -108,7 +108,7 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
     const result = redeemVoiceInviteCode({
       assistantId: body.assistantId as string | undefined,
       callerExternalUserId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 

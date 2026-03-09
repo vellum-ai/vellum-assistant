@@ -14,9 +14,9 @@ import type {
   ChannelStatus,
   ContactChannel,
   ContactWithChannels,
-  MemberStatus,
 } from "../../../contacts/types.js";
-import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import * as deliveryCrud from "../../../memory/delivery-crud.js";
+import * as deliveryStatus from "../../../memory/delivery-status.js";
 import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
@@ -24,13 +24,13 @@ import {
 import { getLogger } from "../../../util/logger.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
+import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import {
   createOutboundSession,
   findActiveSession,
-  getPendingChallenge,
+  getPendingSession,
   resolveBootstrapToken,
-} from "../../channel-guardian-service.js";
-import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
+} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
   redeemInvite,
@@ -92,10 +92,10 @@ function parseGuardianVerifyCode(content: string): string | undefined {
   return undefined;
 }
 
-/** Map ChannelStatus to the legacy MemberStatus for API consumers. */
+/** Map ChannelStatus to the API-facing member status (excludes "unverified"). */
 export function channelStatusToMemberStatus(
   status: ChannelStatus,
-): MemberStatus {
+): Exclude<ChannelStatus, "unverified"> {
   if (status === "unverified") return "pending";
   return status;
 }
@@ -190,8 +190,8 @@ export async function enforceIngressAcl(
         // outbound session.  The !hasActiveBinding guard is intentionally
         // omitted: rebind sessions create a consumable challenge while a
         // binding already exists, and the identity check inside
-        // validateAndConsumeChallenge prevents unauthorized takeovers.
-        const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+        // validateAndConsumeVerification prevents unauthorized takeovers.
+        const hasPendingChallenge = !!getPendingSession(sourceChannel);
         const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
         if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
@@ -408,7 +408,7 @@ export async function enforceIngressAcl(
         // revoked/blocked — otherwise the user can never re-verify.
         let denyInactiveMember = true;
         if (isGuardianVerifyCode) {
-          const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+          const hasPendingChallenge = !!getPendingSession(sourceChannel);
           const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
             denyInactiveMember = false;
@@ -723,7 +723,7 @@ async function handleInviteTokenIntercept(params: {
   // not be tracked: the first delivery redeems the invite and returns early,
   // then the retry finds an active member, passes ACL, and the raw
   // /start iv_<token> message leaks into the agent pipeline.
-  const dedupResult = channelDeliveryStore.recordInbound(
+  const dedupResult = deliveryCrud.recordInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
@@ -783,7 +783,7 @@ async function handleInviteTokenIntercept(params: {
         );
       }
     }
-    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    deliveryStatus.markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -813,7 +813,7 @@ async function handleInviteTokenIntercept(params: {
   }
 
   if (outcome.ok && outcome.type === "redeemed") {
-    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    deliveryStatus.markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -823,7 +823,7 @@ async function handleInviteTokenIntercept(params: {
   }
 
   // Failed redemption — inform the user and deny
-  channelDeliveryStore.markProcessed(dedupResult.eventId);
+  deliveryStatus.markProcessed(dedupResult.eventId);
   return Response.json({
     accepted: true,
     eventId: dedupResult.eventId,
@@ -889,7 +889,7 @@ async function handleInviteCodeIntercept(params: {
     if (crossChannelInvite) {
       // Record inbound for dedup tracking — without this, duplicate webhook
       // deliveries would re-enter ACL and send the mismatch reply again.
-      const dedupResult = channelDeliveryStore.recordInbound(
+      const dedupResult = deliveryCrud.recordInbound(
         sourceChannel,
         externalChatId,
         externalMessageId,
@@ -923,7 +923,7 @@ async function handleInviteCodeIntercept(params: {
           );
         }
       }
-      channelDeliveryStore.markProcessed(dedupResult.eventId);
+      deliveryStatus.markProcessed(dedupResult.eventId);
       return Response.json({
         accepted: true,
         eventId: dedupResult.eventId,
@@ -939,7 +939,7 @@ async function handleInviteCodeIntercept(params: {
   // deliveries could slip through: the first delivery redeems the invite and
   // activates membership, then a retry finds an active member, passes ACL,
   // and the raw 6-digit message leaks into the agent pipeline.
-  const dedupResult = channelDeliveryStore.recordInbound(
+  const dedupResult = deliveryCrud.recordInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
@@ -972,7 +972,7 @@ async function handleInviteCodeIntercept(params: {
       { err, sourceChannel, externalChatId },
       "Invite code intercept: redemption threw, rolling back dedup record",
     );
-    channelDeliveryStore.deleteInbound(dedupResult.eventId);
+    deliveryCrud.deleteInbound(dedupResult.eventId);
     throw err;
   }
 
@@ -1008,7 +1008,7 @@ async function handleInviteCodeIntercept(params: {
         );
       }
     }
-    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    deliveryStatus.markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -1038,7 +1038,7 @@ async function handleInviteCodeIntercept(params: {
   }
 
   if (outcome.ok && outcome.type === "redeemed") {
-    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    deliveryStatus.markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -1048,7 +1048,7 @@ async function handleInviteCodeIntercept(params: {
   }
 
   // Failed redemption (expired, revoked, etc.) — inform and deny
-  channelDeliveryStore.markProcessed(dedupResult.eventId);
+  deliveryStatus.markProcessed(dedupResult.eventId);
   return Response.json({
     accepted: true,
     eventId: dedupResult.eventId,
@@ -1083,7 +1083,7 @@ function initiateSlackVerificationChallenge(params: {
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
-  const existingChallenge = getPendingChallenge(sourceChannel);
+  const existingChallenge = getPendingSession(sourceChannel);
   const existingSession = findActiveSession(sourceChannel);
   const senderHasPending =
     (existingChallenge &&

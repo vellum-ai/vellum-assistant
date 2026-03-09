@@ -9,7 +9,12 @@
  * written directly to the conversation store.
  */
 
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  addMessage,
+  getConversationOriginChannel,
+  getConversationRecentProvenanceTrustClass,
+  getConversationThreadType,
+} from "../memory/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildPointerInstruction,
@@ -23,8 +28,8 @@ export type PointerEvent =
   | "started"
   | "completed"
   | "failed"
-  | "guardian_verification_succeeded"
-  | "guardian_verification_failed";
+  | "verification_succeeded"
+  | "verification_failed";
 
 export type PointerAudienceMode = "auto" | "trusted" | "untrusted";
 
@@ -86,18 +91,14 @@ function resolvePointerAudienceTrust(conversationId: string): boolean {
     // trusted contacts who initiate calls from gateway channels (e.g. WhatsApp)
     // where the conversation itself isn't a desktop-origin private thread.
     const provenance =
-      conversationStore.getConversationRecentProvenanceTrustClass(
-        conversationId,
-      );
+      getConversationRecentProvenanceTrustClass(conversationId);
     if (provenance === "guardian" || provenance === "trusted_contact")
       return true;
 
-    const threadType =
-      conversationStore.getConversationThreadType(conversationId);
+    const threadType = getConversationThreadType(conversationId);
     if (threadType === "private") return true;
 
-    const originChannel =
-      conversationStore.getConversationOriginChannel(conversationId);
+    const originChannel = getConversationOriginChannel(conversationId);
     if (originChannel === "vellum") return true;
   } catch {
     // Conversation may not exist or DB may be unavailable — default untrusted.
@@ -145,8 +146,8 @@ export async function addPointerMessage(
     started: "started",
     completed: "completed",
     failed: "failed",
-    guardian_verification_succeeded: "succeeded",
-    guardian_verification_failed: "failed",
+    verification_succeeded: "succeeded",
+    verification_failed: "failed",
   };
   const outcomeKeyword = eventOutcomeKeywords[event];
   if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
@@ -185,7 +186,7 @@ export async function addPointerMessage(
   // desktop thread. Do not set userMessageChannel — doing so would mark the
   // conversation's origin channel as voice, causing it to leak into the
   // desktop thread list as a channel-bound session.
-  await conversationStore.addMessage(
+  await addMessage(
     conversationId,
     "assistant",
     JSON.stringify([{ type: "text", text }]),

@@ -39,8 +39,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -71,8 +69,8 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock guardian control-plane policy — not targeting control-plane by default
-mock.module("../tools/guardian-control-plane-policy.js", () => ({
-  enforceGuardianOnlyPolicy: () => ({ denied: false }),
+mock.module("../tools/verification-control-plane-policy.js", () => ({
+  enforceVerificationControlPlanePolicy: () => ({ denied: false }),
 }));
 
 // Mock task run rules
@@ -109,7 +107,7 @@ let mockGuardianBinding: Record<string, unknown> | null = {
   status: "active",
 };
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
     if (
       assistantId === "self" &&
@@ -126,12 +124,12 @@ mock.module("../runtime/channel-guardian-service.js", () => ({
   }),
   bindSessionIdentity: () => {},
   findActiveSession: () => null,
-  getPendingChallenge: () => null,
+  getPendingSession: () => null,
   isGuardian: () => false,
   resolveBootstrapToken: () => null,
   updateSessionDelivery: () => {},
   updateSessionStatus: () => {},
-  validateAndConsumeChallenge: () => ({
+  validateAndConsumeVerification: () => ({
     success: false,
     reason: "no_challenge",
   }),
