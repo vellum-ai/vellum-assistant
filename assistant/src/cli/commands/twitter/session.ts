@@ -5,12 +5,10 @@
  */
 
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-
-import type { CookieSession } from "../../../util/cookie-session.js";
-import { importFromRecordingBase } from "../../../util/cookie-session.js";
 
 class ConfigError extends Error {
   constructor(message: string) {
@@ -19,7 +17,13 @@ class ConfigError extends Error {
   }
 }
 
-export type TwitterSession = CookieSession;
+export interface TwitterSession {
+  cookies: ExtractedCredential[];
+}
+
+interface SessionRecording {
+  cookies?: ExtractedCredential[];
+}
 
 interface ExtractedCredential {
   name: string;
@@ -79,16 +83,26 @@ export async function importFromRecording(
   recordingPath: string,
 ): Promise<TwitterSession> {
   try {
-    const session = importFromRecordingBase(recordingPath, (cookieNames) => {
-      // Require the two cookies that prove a logged-in Twitter session:
-      // the auth session cookie and the ct0 CSRF cookie.
-      if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
-        throw new ConfigError(
-          "Recording is missing required Twitter session cookies. " +
-            "Make sure you are logged in to x.com before recording.",
-        );
-      }
-    });
+    if (!existsSync(recordingPath)) {
+      throw new ConfigError(`Recording not found: ${recordingPath}`);
+    }
+    const recording = JSON.parse(
+      readFileSync(recordingPath, "utf-8"),
+    ) as SessionRecording;
+    if (!recording.cookies?.length) {
+      throw new ConfigError("Recording contains no cookies");
+    }
+
+    const cookieNames = new Set(recording.cookies.map((c) => c.name));
+
+    if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
+      throw new ConfigError(
+        "Recording is missing required Twitter session cookies. " +
+          "Make sure you are logged in to x.com before recording.",
+      );
+    }
+
+    const session: TwitterSession = { cookies: recording.cookies };
     await saveSession(session);
     return session;
   } catch (error) {
