@@ -392,9 +392,16 @@ extension AppDelegate {
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 
-            // If we have no actor token at all, we need initial bootstrap
+            // If we have no actor token at all, check the lockfile for a
+            // bearer token before falling back to the full bootstrap flow.
             if !ActorTokenManager.hasToken {
-                await self.performInitialBootstrap()
+                if let lockfileToken = LockfileAssistant.loadLatest()?.bearerToken,
+                   !lockfileToken.isEmpty {
+                    ActorTokenManager.setToken(lockfileToken)
+                    log.info("Seeded actor token from lockfile bearer token")
+                } else {
+                    await self.performInitialBootstrap()
+                }
             }
 
             // Run proactive refresh loop
