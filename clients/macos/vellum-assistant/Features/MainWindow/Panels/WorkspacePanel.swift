@@ -285,22 +285,34 @@ private struct WorkspaceTreeSidebar: View {
 private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient) {
     for provider in providers {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+            guard let url = fileURLFromDropItem(item) else { return }
             let fileName = url.lastPathComponent
             let targetPath = targetDir.isEmpty ? fileName : "\(targetDir)/\(fileName)"
-            Task { @MainActor in
-                state.uploadingCount += 1
+            Task {
+                await MainActor.run { state.uploadingCount += 1 }
                 if let fileData = try? Data(contentsOf: url) {
                     let success = await daemonClient.writeWorkspaceFile(path: targetPath, content: fileData)
                     if success {
                         await state.refreshDirectory(targetDir, using: daemonClient)
                     }
                 }
-                state.uploadingCount -= 1
+                await MainActor.run { state.uploadingCount -= 1 }
             }
         }
     }
+}
+
+private func fileURLFromDropItem(_ item: NSSecureCoding?) -> URL? {
+    if let data = item as? Data {
+        return URL(dataRepresentation: data, relativeTo: nil)
+    }
+    if let url = item as? URL {
+        return url
+    }
+    if let str = item as? String, let url = URL(string: str), url.isFileURL {
+        return url
+    }
+    return nil
 }
 
 // MARK: - Tree Row
