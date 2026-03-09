@@ -34,7 +34,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {

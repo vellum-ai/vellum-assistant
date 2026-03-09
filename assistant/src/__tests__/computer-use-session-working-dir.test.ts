@@ -46,7 +46,6 @@ mock.module("../util/platform.js", () => ({
   getHistoryPath: () => "/tmp/data/history",
   getHooksDir: () => "/tmp/hooks",
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   ensureDataDir: () => {},
   isMacOS: () => false,
   isLinux: () => true,

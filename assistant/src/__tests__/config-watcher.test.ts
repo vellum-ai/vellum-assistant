@@ -48,7 +48,6 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
-  removeSocketFile: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
