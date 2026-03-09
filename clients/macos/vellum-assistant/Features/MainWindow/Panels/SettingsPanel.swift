@@ -97,7 +97,7 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
     @State private var isContactsEnabled: Bool = false
-    @State private var isSentryTestingEnabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("sentry_testing_enabled")
+    @AppStorage("MacOSFeatureFlag.sentrytestingenabled") private var isSentryTestingEnabled: Bool = false
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
 
     var body: some View {
@@ -190,6 +190,11 @@ struct SettingsPanel: View {
                 if !enabled && selectedTab == .contacts {
                     selectedTab = .account
                 }
+            }
+        }
+        .onChange(of: isSentryTestingEnabled) { _, enabled in
+            if !enabled && selectedTab == .sentryTesting {
+                selectedTab = .account
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
