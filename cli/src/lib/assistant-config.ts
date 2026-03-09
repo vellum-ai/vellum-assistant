@@ -26,8 +26,6 @@ export interface LocalInstanceResources {
   gatewayPort: number;
   /** HTTP port for the Qdrant vector store */
   qdrantPort: number;
-  /** Absolute path to the Unix domain socket for IPC */
-  socketPath: string;
   /** Absolute path to the daemon PID file */
   pidFile: string;
 }
@@ -278,7 +276,6 @@ export async function allocateLocalResources(
     daemonPort,
     gatewayPort,
     qdrantPort,
-    socketPath: join(instanceDir, ".vellum", "vellum.sock"),
     pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
