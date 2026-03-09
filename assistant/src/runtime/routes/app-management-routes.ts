@@ -557,7 +557,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
               };
               contentHashes = parsed.content_hashes ?? {};
             } catch {
-              // If payload isn't valid JSON, proceed with empty hashes.
+              return httpError("BAD_REQUEST", "payload is not valid JSON", 400);
             }
 
             const signatureJson: import("../../bundler/bundle-signer.js").SignatureJson = {
