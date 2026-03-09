@@ -15,7 +15,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getPlatformBaseUrl } from "../../config/env.js";
+import {
+  getPlatformAssistantId,
+  getPlatformBaseUrl,
+} from "../../config/env.js";
 import {
   getNestedValue,
   invalidateConfigCache,
@@ -448,7 +451,8 @@ function handleTwitterAuthStatus(): Response {
       raw?.platform as Record<string, unknown> | undefined
     )?.baseUrl as string | undefined;
     const platformAssistantIdResolvable = !!(
-      platformBaseUrlFromEnv || platformBaseUrlFromConfig
+      (platformBaseUrlFromEnv || platformBaseUrlFromConfig) &&
+      getPlatformAssistantId()
     );
 
     const managedPrerequisites = {
