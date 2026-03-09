@@ -32,7 +32,7 @@ Commands:
   oauth [options]                          Manage OAuth tokens for connected integrations
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
-  x|twitter [options]                      Post on X and manage connections. Supports OAuth (official API) and browser session paths.
+  x|twitter [options]                      Post on X and manage connections. Supports managed (platform proxy), OAuth (official API), and browser session paths.
   map [options] <domain>                   Auto-navigate a domain and produce a deduplicated API map. Launches Chrome with CDP, starts a Ride Shotgun learn session, then analyzes captured network traffic.
   sequence [options]                       Manage email sequences
 `;

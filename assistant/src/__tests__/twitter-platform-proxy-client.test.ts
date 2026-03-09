@@ -78,7 +78,11 @@ beforeEach(() => {
   fetchResponse = {
     ok: true,
     status: 200,
-    json: async () => ({ data: { id: "12345", text: "Hello world" } }),
+    json: async () => ({
+      status: 200,
+      headers: {},
+      body: { data: { id: "12345", text: "Hello world" } },
+    }),
   };
 });
 
@@ -205,9 +209,9 @@ describe("proxyTwitterCall", () => {
     });
 
     const parsed = JSON.parse(lastFetchArgs![1].body as string);
-    expect(parsed.method).toBe("POST");
-    expect(parsed.path).toBe("/2/tweets");
-    expect(parsed.body).toEqual({ text: "Hello world" });
+    expect(parsed.request.method).toBe("POST");
+    expect(parsed.request.path).toBe("/2/tweets");
+    expect(parsed.request.body).toEqual({ text: "Hello world" });
   });
 
   test("GET-style request includes query parameters", async () => {
@@ -218,16 +222,20 @@ describe("proxyTwitterCall", () => {
     });
 
     const parsed = JSON.parse(lastFetchArgs![1].body as string);
-    expect(parsed.method).toBe("GET");
-    expect(parsed.path).toBe("/2/users/me");
-    expect(parsed.query).toEqual({ "user.fields": "name,username" });
+    expect(parsed.request.method).toBe("GET");
+    expect(parsed.request.path).toBe("/2/users/me");
+    expect(parsed.request.query).toEqual({ "user.fields": "name,username" });
   });
 
   test("returns parsed response data on success", async () => {
     fetchResponse = {
       ok: true,
       status: 200,
-      json: async () => ({ data: { id: "99", text: "ok" } }),
+      json: async () => ({
+        status: 200,
+        headers: {},
+        body: { data: { id: "99", text: "ok" } },
+      }),
     };
 
     const result = await proxyTwitterCall({
@@ -412,16 +420,16 @@ describe("postTweet", () => {
     await postTweet("Hello from proxy");
 
     const parsed = JSON.parse(lastFetchArgs![1].body as string);
-    expect(parsed.method).toBe("POST");
-    expect(parsed.path).toBe("/2/tweets");
-    expect(parsed.body.text).toBe("Hello from proxy");
+    expect(parsed.request.method).toBe("POST");
+    expect(parsed.request.path).toBe("/2/tweets");
+    expect(parsed.request.body.text).toBe("Hello from proxy");
   });
 
   test("includes reply metadata when replyToId is provided", async () => {
     await postTweet("This is a reply", { replyToId: "tweet_789" });
 
     const parsed = JSON.parse(lastFetchArgs![1].body as string);
-    expect(parsed.body.reply).toEqual({
+    expect(parsed.request.body.reply).toEqual({
       in_reply_to_tweet_id: "tweet_789",
     });
   });
@@ -432,9 +440,9 @@ describe("getMe", () => {
     await getMe({ "user.fields": "name,username,profile_image_url" });
 
     const parsed = JSON.parse(lastFetchArgs![1].body as string);
-    expect(parsed.method).toBe("GET");
-    expect(parsed.path).toBe("/2/users/me");
-    expect(parsed.query).toEqual({
+    expect(parsed.request.method).toBe("GET");
+    expect(parsed.request.path).toBe("/2/users/me");
+    expect(parsed.request.query).toEqual({
       "user.fields": "name,username,profile_image_url",
     });
   });
@@ -443,8 +451,8 @@ describe("getMe", () => {
     await getMe();
 
     const parsed = JSON.parse(lastFetchArgs![1].body as string);
-    expect(parsed.method).toBe("GET");
-    expect(parsed.path).toBe("/2/users/me");
-    expect(parsed.query).toBeUndefined();
+    expect(parsed.request.method).toBe("GET");
+    expect(parsed.request.path).toBe("/2/users/me");
+    expect(parsed.request.query).toBeUndefined();
   });
 });

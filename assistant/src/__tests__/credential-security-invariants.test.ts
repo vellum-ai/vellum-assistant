@@ -231,6 +231,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/session-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
       "util/cookie-session.ts", // shared cookie-session persistence (session CRUD via credential store)
+      "twitter/platform-proxy-client.ts", // managed Twitter proxy auth token lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
