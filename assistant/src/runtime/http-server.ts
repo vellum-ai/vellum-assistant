@@ -140,6 +140,9 @@ import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
+import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
+import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
+import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -690,6 +693,11 @@ export class RuntimeHttpServer {
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
+      ...settingsRouteDefinitions(),
+      ...scheduleRouteDefinitions({
+        sendMessageDeps: this.sendMessageDeps,
+      }),
+      ...diagnosticsRouteDefinitions(),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer

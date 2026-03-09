@@ -287,6 +287,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Surface actions
   { endpoint: "surface-actions", scopes: ["chat.write"] },
+  { endpoint: "surfaces/undo", scopes: ["chat.write"] },
 
   // Conversation deletion (channel-facing)
   { endpoint: "channels/conversation:DELETE", scopes: ["chat.write"] },
@@ -299,6 +300,40 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
+
+  // Settings (voice, avatar, client settings)
+  { endpoint: "settings/voice", scopes: ["settings.write"] },
+  { endpoint: "settings/avatar/generate", scopes: ["settings.write"] },
+  { endpoint: "settings/client", scopes: ["settings.write"] },
+
+  // Schedules
+  { endpoint: "schedules", scopes: ["settings.read"] },
+  { endpoint: "schedules:DELETE", scopes: ["settings.write"] },
+  { endpoint: "schedules/toggle", scopes: ["settings.write"] },
+  { endpoint: "schedules/run", scopes: ["settings.write"] },
+
+  // Diagnostics
+  { endpoint: "diagnostics/export", scopes: ["settings.read"] },
+  { endpoint: "diagnostics/env-vars", scopes: ["settings.read"] },
+
+  // Dictation
+  { endpoint: "dictation", scopes: ["chat.write"] },
+
+  // OAuth / integrations
+  { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
+  { endpoint: "integrations/twitter/auth/start", scopes: ["settings.write"] },
+  { endpoint: "integrations/twitter/auth/status", scopes: ["settings.read"] },
+
+  // Home base
+  { endpoint: "home-base", scopes: ["settings.read"] },
+
+  // Workspace files (IPC-migrated)
+  { endpoint: "workspace-files", scopes: ["settings.read"] },
+  { endpoint: "workspace-files/read", scopes: ["settings.read"] },
+
+  // Tools
+  { endpoint: "tools", scopes: ["settings.read"] },
+  { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

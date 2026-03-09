@@ -17,6 +17,7 @@ interface SurfaceActionTarget {
     actionId: string,
     data?: Record<string, unknown>,
   ): void;
+  handleSurfaceUndo?(surfaceId: string): void;
 }
 
 export type SessionLookup = (
@@ -80,6 +81,59 @@ export async function handleSurfaceAction(
 // Route definitions
 // ---------------------------------------------------------------------------
 
+/**
+ * POST /v1/surfaces/:id/undo — undo the last surface action.
+ *
+ * Body: { sessionId }
+ */
+export async function handleSurfaceUndo(
+  req: Request,
+  surfaceId: string,
+  findSession: SessionLookup,
+): Promise<Response> {
+  const body = (await req.json()) as {
+    sessionId?: string;
+  };
+
+  const { sessionId } = body;
+
+  if (!sessionId || typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId is required", 400);
+  }
+
+  const session = findSession(sessionId);
+  if (!session) {
+    return httpError(
+      "NOT_FOUND",
+      "No active session found for this sessionId",
+      404,
+    );
+  }
+
+  if (!session.handleSurfaceUndo) {
+    return httpError(
+      "NOT_IMPLEMENTED",
+      "Surface undo not supported for this session type",
+      501,
+    );
+  }
+
+  try {
+    session.handleSurfaceUndo(surfaceId);
+    log.info(
+      { sessionId, surfaceId },
+      "Surface undo handled via HTTP",
+    );
+    return Response.json({ ok: true });
+  } catch (err) {
+    log.error(
+      { err, sessionId, surfaceId },
+      "Failed to handle surface undo via HTTP",
+    );
+    return httpError("INTERNAL_ERROR", "Failed to handle surface undo", 500);
+  }
+}
+
 export function surfaceActionRouteDefinitions(deps: {
   findSession?: SessionLookup;
 }): RouteDefinition[] {
@@ -96,6 +150,20 @@ export function surfaceActionRouteDefinitions(deps: {
           );
         }
         return handleSurfaceAction(req, deps.findSession);
+      },
+    },
+    {
+      endpoint: "surfaces/:id/undo",
+      method: "POST",
+      handler: async ({ req, params }) => {
+        if (!deps.findSession) {
+          return httpError(
+            "NOT_IMPLEMENTED",
+            "Surface undo not available",
+            501,
+          );
+        }
+        return handleSurfaceUndo(req, params.id, deps.findSession);
       },
     },
   ];
