@@ -908,10 +908,9 @@ if [ "$CONFIG" = "release" ]; then
     dsymutil "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" -o "$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app.dSYM"
     echo "Generated dSYM: dist/$BUNDLE_DISPLAY_NAME.app.dSYM"
 
-    if [ -f "$FRAMEWORKS_DIR/Sentry.framework/Versions/A/Sentry" ]; then
-        dsymutil "$FRAMEWORKS_DIR/Sentry.framework/Versions/A/Sentry" -o "$SCRIPT_DIR/dist/Sentry.framework.dSYM"
-        echo "Generated dSYM: dist/Sentry.framework.dSYM"
-    fi
+    # Note: Sentry.framework is a pre-built binary from SPM and does not contain
+    # the .o object files needed by dsymutil. Sentry distributes their own dSYMs
+    # separately via their SDK integration — no need to run dsymutil on it.
 fi
 
 # 7. Run if requested
