@@ -721,24 +721,19 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var categorySidebar: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            // "All" row
-            categoryRow(
-                icon: .layoutGrid,
-                iconColor: VColor.textMuted,
+            SidebarPrimaryRow(
+                icon: VIcon.layoutGrid.rawValue,
                 label: "All",
-                count: filteredUserSkills.count,
-                isSelected: selectedCategory == nil
+                isActive: selectedCategory == nil
             ) {
                 withAnimation(VAnimation.fast) { selectedCategory = nil }
             }
 
             ForEach(SkillCategory.allCases, id: \.rawValue) { category in
-                categoryRow(
-                    icon: category.icon,
-                    iconColor: category.color,
+                SidebarPrimaryRow(
+                    icon: category.icon.rawValue,
                     label: category.displayName,
-                    count: skillCount(for: category),
-                    isSelected: selectedCategory == category
+                    isActive: selectedCategory == category
                 ) {
                     withAnimation(VAnimation.fast) { selectedCategory = category }
                 }
@@ -747,40 +742,6 @@ struct AgentPanelContent: View {
             Spacer()
         }
         .frame(width: 180)
-    }
-
-    @ViewBuilder
-    private func categoryRow(icon: VIcon, iconColor: Color, label: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.xs) {
-                VIconView(icon, size: 12)
-                    .foregroundColor(iconColor)
-                    .frame(width: 20)
-
-                Text(label)
-                    .font(.system(size: 13))
-                    .foregroundColor(isSelected ? VColor.textPrimary : VColor.textMuted)
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text("\(count)")
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                isSelected
-                    ? adaptiveColor(light: Moss._100, dark: Moss._700)
-                    : Color.clear
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Installed Skills Content

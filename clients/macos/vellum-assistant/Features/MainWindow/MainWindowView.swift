@@ -361,18 +361,9 @@ struct MainWindowView: View {
                     }
                 }
 
-                Button {
+                VIconButton(label: "Search", icon: VIcon.search.rawValue, iconOnly: true, tooltip: "Search (\u{2318}K)") {
                     AppDelegate.shared?.toggleCommandPalette()
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.search, size: 13)
-                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                        VShortcutTag("\u{2318}K")
-                    }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .help("Search (\u{2318}K)")
             }
             Spacer()
             if windowState.isConversationVisible {
