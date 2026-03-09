@@ -482,12 +482,12 @@ export async function switchSession(
     return null;
   }
 
-  if (socket) {
-    // If the target session is headless-locked (actively executing a task run),
-    // skip rebinding the socket so tool confirmations stay suppressed.
-    const existingSession = ctx.sessions.get(sessionId);
-    const isHeadlessLocked = existingSession?.headlessLock;
+  // If the target session is headless-locked (actively executing a task run),
+  // skip rebinding the socket so tool confirmations stay suppressed.
+  const existingSession = ctx.sessions.get(sessionId);
+  const isHeadlessLocked = existingSession?.headlessLock;
 
+  if (socket) {
     ctx.socketToSession.set(socket, sessionId);
 
     if (isHeadlessLocked) {
@@ -501,6 +501,12 @@ export async function switchSession(
       if (!session.hasEscalationHandler()) {
         wireEscalationHandler(session, socket, ctx);
       }
+    }
+  } else {
+    // Socketless callers (HTTP) still need the session hydrated in memory so
+    // follow-up operations (undo, regenerate, cancel) find an active session.
+    if (!existingSession) {
+      await ctx.getOrCreateSession(sessionId);
     }
   }
 

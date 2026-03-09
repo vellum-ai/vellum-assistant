@@ -40,6 +40,7 @@ import {
 } from "../notifications/emit-signal.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
@@ -429,12 +430,32 @@ export async function runDaemon(): Promise<void> {
           cancelGeneration(sessionId, server.getHandlerContext()),
         undoLastMessage: (sessionId) =>
           undoLastMessage(sessionId, server.getHandlerContext()),
-        regenerateResponse: (sessionId) =>
-          regenerateResponse(
+        regenerateResponse: (sessionId) => {
+          let hubChain: Promise<void> = Promise.resolve();
+          const sendEvent = (event: ServerMessage) => {
+            const ae = buildAssistantEvent(
+              "self",
+              event,
+              sessionId,
+            );
+            hubChain = (async () => {
+              await hubChain;
+              try {
+                await assistantEventHub.publish(ae);
+              } catch (err) {
+                log.warn(
+                  { err },
+                  "assistant-events hub subscriber threw during regenerate",
+                );
+              }
+            })();
+          };
+          return regenerateResponse(
             sessionId,
             server.getHandlerContext(),
-            () => {},
-          ),
+            sendEvent,
+          );
+        },
       },
     });
 
