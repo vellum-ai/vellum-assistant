@@ -340,6 +340,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// The daemon version string, populated via `daemon_status` on connect.
     @Published public internal(set) var daemonVersion: String?
 
+    /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
+    /// Used to detect instance switches — if this changes, the stored actor token is stale.
+    @Published public internal(set) var keyFingerprint: String?
+
     /// Latest memory health payload from daemon `memory_status` events.
     @Published public var latestMemoryStatus: MemoryStatusMessage?
 
@@ -774,6 +778,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         isBlobTransportAvailable = false
         httpPort = nil
         daemonVersion = nil
+        keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
         cuObservationSequenceBySession.removeAll()

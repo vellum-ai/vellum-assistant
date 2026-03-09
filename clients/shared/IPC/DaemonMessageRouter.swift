@@ -21,6 +21,7 @@ extension DaemonClient {
             if let version = status.version {
                 daemonVersion = version
             }
+            keyFingerprint = status.keyFingerprint
         }
 
         // Handle blob probe result internally.
