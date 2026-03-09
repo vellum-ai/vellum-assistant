@@ -4,7 +4,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import type { Command } from "commander";
 
 import { loadRawConfig } from "../../config/loader.js";
-import { getRuntimeHttpPort } from "../../config/env.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import {
   getDataDir,
@@ -60,7 +59,6 @@ Examples:
 
       // 0. Connection policy info
       const httpUrl = getHttpBaseUrl();
-      const httpPort = getRuntimeHttpPort();
       const autostart = shouldAutoStartDaemon();
       log.info(`  HTTP:      ${httpUrl}`);
       log.info(`  Autostart: ${autostart ? "enabled" : "disabled"}\n`);
