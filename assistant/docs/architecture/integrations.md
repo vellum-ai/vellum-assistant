@@ -9,7 +9,7 @@ The integration framework lets Vellum connect to third-party services via OAuth2
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
 - **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh. Twitter uses PKCE with an optional client secret in `local_byo` mode.
 - **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
-- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow and HTTP handlers (`twitter_auth_start`, `twitter_auth_status`) separate from the unified messaging layer.
+- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow via the shared connect orchestrator, plus a managed mode that routes through the platform proxy. It sits outside the unified messaging layer.
 - **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
 
 ### Unified Messaging Architecture
@@ -139,7 +139,7 @@ sequenceDiagram
 
 ### Twitter Integration Architecture
 
-Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports a dual-path operation architecture: an **OAuth path** that calls X API v2 directly for posting and replying, and a **Browser path** that uses Chrome DevTools Protocol (CDP) for all operations including read-only ones. A strategy router (`router.ts`) selects the appropriate path based on user preference and capability.
+Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports a two-mode operation architecture determined by the `twitter.integrationMode` config field: **managed** mode routes all API calls through the Vellum platform proxy (which holds the OAuth credentials), while **OAuth** mode uses locally-stored OAuth2 tokens to call X API v2 directly. A mode router (`router.ts`) selects the appropriate path based on the caller-provided mode.
 
 #### Twitter OAuth2 Flow
 
@@ -184,46 +184,36 @@ sequenceDiagram
     IPC->>UI: show connected state
 ```
 
-#### Dual-Path Operation Architecture
+#### Two-Mode Operation Architecture
 
-The strategy router (`router.ts`) determines whether to use the OAuth or browser path for each operation. The preferred strategy is read from the `twitter.operationStrategy` config field (default: `auto`).
+The mode router (`router.ts`) determines whether to use the managed or OAuth path for each operation. The mode is determined by the `twitter.integrationMode` config field: `"managed"` routes through the platform proxy, everything else uses OAuth directly.
 
 ```mermaid
 flowchart TD
-    CLI["vellum x post / reply"] --> Router["Strategy Router (router.ts)"]
-    Router --> StratCheck{Preferred strategy?}
+    CLI["assistant x post / reply / timeline / search"] --> Router["Mode Router (router.ts)"]
+    Router --> ModeCheck{Integration mode?}
 
-    StratCheck -->|oauth| OAuthOnly["OAuth Client (oauth-client.ts)"]
-    OAuthOnly --> XAPI["X API v2 POST /tweets"]
+    ModeCheck -->|managed| ManagedPath["Platform Proxy Client (platform-proxy-client.ts)"]
+    ManagedPath --> PlatformAPI["Platform → X API v2"]
 
-    StratCheck -->|browser| BrowserOnly["Browser Client (client.ts)"]
-    BrowserOnly --> CDP["Chrome CDP GraphQL mutation"]
-
-    StratCheck -->|auto| AutoCheck{"OAuth available &\noperation supported?"}
-    AutoCheck -->|yes| TryOAuth["Try OAuth Client"]
-    TryOAuth -->|success| XAPI
-    TryOAuth -->|failure| Fallback["Fallback to Browser Client"]
-    Fallback --> CDP
-    AutoCheck -->|no| BrowserOnly
+    ModeCheck -->|oauth| OAuthPath["OAuth Client (oauth-client.ts)"]
+    OAuthPath --> XAPI["X API v2 POST /tweets"]
 ```
 
-- **`auto`** (default): Checks `oauthIsAvailable()` (access token stored) and `oauthSupportsOperation()` (currently `post` and `reply`). If both pass, tries OAuth first. On OAuth failure, falls back to browser. If OAuth is not available or the operation is unsupported, uses browser directly.
-- **`oauth`**: Uses OAuth exclusively. Fails with an actionable error if credentials are not configured.
-- **`browser`**: Uses CDP exclusively. Fails with an actionable error if the browser session has expired.
-
-The strategy is persisted in the Vellum config file as `twitter.operationStrategy` and can be changed via `vellum x strategy set <oauth|browser|auto>`.
+- **`managed`**: Routes all API calls through the Vellum platform proxy. The platform holds the OAuth credentials and forwards requests on behalf of the assistant. Supports both write operations (post, reply) and read operations (timeline, tweet detail, search, user lookup). This is the default when the user has a managed assistant.
+- **`oauth`**: Uses locally-stored OAuth2 Bearer tokens to call X API v2 directly. Supports only write operations (post, reply). Read operations throw an error directing the user to use managed mode.
 
 #### Twitter OAuth2 Specifics
 
-| Aspect                | Detail                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Auth URL              | `https://twitter.com/i/oauth2/authorize` (from provider profile)                                                   |
-| Token URL             | `https://api.x.com/2/oauth2/token` (from provider profile)                                                         |
-| Flow                  | PKCE (S256), optional client secret, via connect orchestrator                                                      |
-| Default scopes        | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile)                                |
-| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token                         |
-| Credential names      | `client_id`, `client_secret`                                                                                       |
-| HTTP endpoints        | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
+| Aspect                | Detail                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| Auth URL              | `https://twitter.com/i/oauth2/authorize` (from provider profile)                           |
+| Token URL             | `https://api.x.com/2/oauth2/token` (from provider profile)                                 |
+| Flow                  | PKCE (S256), optional client secret, via connect orchestrator                              |
+| Default scopes        | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile)        |
+| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token |
+| Credential names      | `client_id`, `client_secret`                                                               |
+| HTTP endpoints        | `oauth_connect_start` / `oauth_connect_result` (generic)                                   |
 
 #### Twitter Credential Metadata Structure
 
@@ -244,78 +234,70 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
 
 #### Twitter Operation Paths
 
-**OAuth path** (`oauth-client.ts`): The `oauthPostTweet` function calls X API v2 (`POST https://api.x.com/2/tweets`) with a Bearer token obtained via `withValidToken('integration:twitter', ...)`. The token manager handles automatic refresh if the stored token is expired. Supports `post` and `reply` (by including `reply.in_reply_to_tweet_id` in the request body). All other operations (timeline, search, etc.) throw `UnsupportedOAuthOperationError` and are not available via this path.
+**Managed path** (`platform-proxy-client.ts`): Routes API calls through the Vellum platform proxy at `${platformBaseUrl}/api/v1/assistants/${assistantId}/integrations/twitter/proxy/*`. The platform holds the OAuth credentials and forwards requests to X API v2 on behalf of the assistant. Supports all operations: post, reply, user lookup, user tweets, tweet detail, and search. Errors from the proxy surface as `TwitterProxyError` with structured error codes and retryability hints.
 
-**Browser path** (`client.ts`): Connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes GraphQL mutations/queries through the browser's session cookies. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
+**OAuth path** (`oauth-client.ts`): The `oauthPostTweet` function calls X API v2 (`POST https://api.x.com/2/tweets`) with a Bearer token provided by the caller. Supports `post` and `reply` (by including `reply.in_reply_to_tweet_id` in the request body). Read operations are not supported via this path and will throw an error directing the user to use managed mode.
 
 #### Available Twitter Tools
 
-| Tool / Command           | Mechanism                      | Description                                                         |
-| ------------------------ | ------------------------------ | ------------------------------------------------------------------- |
-| `vellum x post`          | Strategy router (OAuth or CDP) | Post a tweet. Uses the configured strategy (`auto` by default).     |
-| `vellum x reply`         | Strategy router (OAuth or CDP) | Reply to a tweet. Uses the configured strategy (`auto` by default). |
-| `vellum x timeline`      | CDP                            | Fetch a user's recent tweets. Browser path only.                    |
-| `vellum x search`        | CDP                            | Search tweets. Browser path only.                                   |
-| `vellum x home`          | CDP                            | Fetch home timeline. Browser path only.                             |
-| `vellum x notifications` | CDP                            | Fetch notifications. Browser path only.                             |
-| `vellum x bookmarks`     | CDP                            | Fetch bookmarks. Browser path only.                                 |
-| `vellum x likes`         | CDP                            | Fetch a user's liked tweets. Browser path only.                     |
-| `vellum x followers`     | CDP                            | Fetch a user's followers. Browser path only.                        |
-| `vellum x following`     | CDP                            | Fetch who a user follows. Browser path only.                        |
-| `vellum x media`         | CDP                            | Fetch a user's media tweets. Browser path only.                     |
-| `vellum x strategy`      | Config                         | Get or set the operation strategy (`oauth`, `browser`, `auto`).     |
-| `vellum x status`        | IPC + local                    | Check browser session, OAuth connection, and strategy status.       |
+| Tool / Command         | Mechanism                      | Description                                                                                |
+| ---------------------- | ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `assistant x post`     | Mode router (OAuth or managed) | Post a tweet. Defaults to OAuth; pass `--managed` to route through the platform proxy.     |
+| `assistant x reply`    | Mode router (OAuth or managed) | Reply to a tweet. Defaults to OAuth; pass `--managed` to route through the platform proxy. |
+| `assistant x timeline` | Managed only                   | Fetch a user's recent tweets. Resolves screen name to user ID, then fetches timeline.      |
+| `assistant x tweet`    | Managed only                   | Fetch a single tweet and its reply thread via conversation ID search.                      |
+| `assistant x search`   | Managed only                   | Search tweets. Supports `Top`, `Latest`, `People`, and `Media` product types.              |
+| `assistant x status`   | HTTP (daemon)                  | Check OAuth connection and managed mode availability.                                      |
 
-Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow. The `post` and `reply` operations use these tokens when the OAuth path is selected. Read operations require the browser path.
+Note: Write operations (post, reply) support both OAuth and managed modes. Read operations (timeline, tweet, search) require managed mode because the OAuth path only supports `post` and `reply`.
 
 ### Key Design Decisions
 
-| Decision                                           | Rationale                                                                                                                                                                                                                                                               |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PKCE by default, optional client_secret            | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                                        |
-| Shared connect orchestrator                        | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                        |
-| Canonical credential naming                        | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                                           |
-| Gateway callback transport                         | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                                       |
-| Unified `MessagingProvider` interface              | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                                             |
-| Twitter outside unified messaging                  | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract                                                                                                                                                     |
-| Dual-path Twitter strategy                         | OAuth is more reliable for posting (no browser session dependency) but only supports post/reply. Browser path supports all operations. `auto` strategy gives the best of both: OAuth when possible, browser as fallback. User can override via `vellum x strategy set`. |
-| Provider auto-selection                            | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX                                                                                                                                                                    |
-| Token expiry in credential metadata                | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer                                                                                                                                                                |
-| Confidence scores on medium-risk tools             | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution                                                                                                                                                                          |
-| Platform-specific extension tools                  | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface                                                                                                                                        |
-| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials                                                                                                                                     |
+| Decision                                           | Rationale                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PKCE by default, optional client_secret            | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                                                       |
+| Shared connect orchestrator                        | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                                       |
+| Canonical credential naming                        | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                                                          |
+| Gateway callback transport                         | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                                                      |
+| Unified `MessagingProvider` interface              | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                                                            |
+| Twitter outside unified messaging                  | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract                                                                                                                                                                    |
+| Two-mode Twitter architecture (managed + OAuth)    | Managed mode delegates to the platform proxy which holds credentials — no local browser or session management needed. OAuth mode provides direct API access for users with their own developer credentials. Read operations require managed mode since OAuth only supports post/reply. |
+| Provider auto-selection                            | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX                                                                                                                                                                                   |
+| Token expiry in credential metadata                | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer                                                                                                                                                                               |
+| Confidence scores on medium-risk tools             | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution                                                                                                                                                                                         |
+| Platform-specific extension tools                  | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface                                                                                                                                                       |
+| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials                                                                                                                                                    |
 
 ### Source Files
 
-| File                                                   | Role                                                                                                      |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/oauth2.ts`                     | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                                    |
-| `assistant/src/security/token-manager.ts`              | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                               |
-| `assistant/src/messaging/provider.ts`                  | `MessagingProvider` interface                                                                             |
-| `assistant/src/messaging/provider-types.ts`            | Platform-agnostic types (Conversation, Message, SearchResult)                                             |
-| `assistant/src/messaging/registry.ts`                  | Provider registry: register, lookup, list connected                                                       |
-| `assistant/src/messaging/activity-analyzer.ts`         | Activity classification for conversations                                                                 |
-| `assistant/src/messaging/style-analyzer.ts`            | Writing style extraction from message corpus                                                              |
-| `assistant/src/messaging/draft-store.ts`               | Local draft storage (platform/id JSON files)                                                              |
-| `assistant/src/messaging/providers/slack/`             | Slack adapter, client, types                                                                              |
-| `assistant/src/messaging/providers/gmail/`             | Gmail adapter, client, types                                                                              |
-| `assistant/src/config/bundled-skills/messaging/`       | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                                    |
-| `assistant/src/watcher/providers/gmail.ts`             | Gmail watcher using History API                                                                           |
-| `assistant/src/watcher/providers/github.ts`            | GitHub watcher for PRs, issues, review requests, and mentions                                             |
-| `assistant/src/watcher/providers/linear.ts`            | Linear watcher for assigned issues, status changes, and @mentions                                         |
-| `assistant/src/oauth/provider-profiles.ts`             | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers                    |
-| `assistant/src/oauth/connect-orchestrator.ts`          | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage        |
-| `assistant/src/oauth/scope-policy.ts`                  | Deterministic scope resolution and policy enforcement                                                     |
-| `assistant/src/oauth/connect-types.ts`                 | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                            |
-| `assistant/src/oauth/token-persistence.ts`             | Token storage helper: persists tokens, metadata, and runs post-connect hooks                              |
-| `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                            |
-| `assistant/src/daemon/handlers/twitter-auth.ts`        | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`)                         |
-| `assistant/src/cli/commands/twitter/client.ts`         | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol                                |
-| `assistant/src/cli/commands/twitter/oauth-client.ts`   | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()`               |
-| `assistant/src/cli/commands/twitter/router.ts`         | Strategy router: selects OAuth or browser path based on `twitter.operationStrategy` config                |
-| `assistant/src/cli/commands/twitter/session.ts`        | Twitter browser session persistence (cookie import/export)                                                |
-| `assistant/src/cli/commands/twitter/index.ts`          | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
-| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions                                                                    |
+| File                                                   | Role                                                                                               |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/oauth2.ts`                     | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                             |
+| `assistant/src/security/token-manager.ts`              | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                        |
+| `assistant/src/messaging/provider.ts`                  | `MessagingProvider` interface                                                                      |
+| `assistant/src/messaging/provider-types.ts`            | Platform-agnostic types (Conversation, Message, SearchResult)                                      |
+| `assistant/src/messaging/registry.ts`                  | Provider registry: register, lookup, list connected                                                |
+| `assistant/src/messaging/activity-analyzer.ts`         | Activity classification for conversations                                                          |
+| `assistant/src/messaging/style-analyzer.ts`            | Writing style extraction from message corpus                                                       |
+| `assistant/src/messaging/draft-store.ts`               | Local draft storage (platform/id JSON files)                                                       |
+| `assistant/src/messaging/providers/slack/`             | Slack adapter, client, types                                                                       |
+| `assistant/src/messaging/providers/gmail/`             | Gmail adapter, client, types                                                                       |
+| `assistant/src/config/bundled-skills/messaging/`       | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                             |
+| `assistant/src/watcher/providers/gmail.ts`             | Gmail watcher using History API                                                                    |
+| `assistant/src/watcher/providers/github.ts`            | GitHub watcher for PRs, issues, review requests, and mentions                                      |
+| `assistant/src/watcher/providers/linear.ts`            | Linear watcher for assigned issues, status changes, and @mentions                                  |
+| `assistant/src/oauth/provider-profiles.ts`             | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers             |
+| `assistant/src/oauth/connect-orchestrator.ts`          | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
+| `assistant/src/oauth/scope-policy.ts`                  | Deterministic scope resolution and policy enforcement                                              |
+| `assistant/src/oauth/connect-types.ts`                 | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                     |
+| `assistant/src/oauth/token-persistence.ts`             | Token storage helper: persists tokens, metadata, and runs post-connect hooks                       |
+| `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                     |
+| `assistant/src/cli/commands/twitter/oauth-client.ts`   | OAuth-backed Twitter client: X API v2 post/reply via Bearer token                                  |
+| `assistant/src/cli/commands/twitter/router.ts`         | Mode router: selects managed or OAuth path based on caller-provided `TwitterMode`                  |
+| `assistant/src/cli/commands/twitter/types.ts`          | Shared types: `PostTweetResult`, `UserInfo`, `TweetEntry`, `NotificationEntry`                     |
+| `assistant/src/cli/commands/twitter/index.ts`          | `assistant x` CLI command group (post, reply, timeline, tweet, search, status)                     |
+| `assistant/src/twitter/platform-proxy-client.ts`       | Platform-managed Twitter proxy client: routes API calls through the Vellum platform                |
+| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions                                                             |
 
 ---
 
