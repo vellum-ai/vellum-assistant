@@ -16,7 +16,7 @@ public enum SessionTokenManager {
 
     /// Path to the platform token file the daemon reads.
     private static var platformTokenPath: String {
-        resolveVellumDir() + "/platform-token"
+        platformTokenPath(environment: connectedAssistantEnvironment())
     }
 
     public static func getToken() -> String? {
@@ -36,6 +36,26 @@ public enum SessionTokenManager {
     }
 
     // MARK: - Platform token file bridge
+
+    private static func platformTokenPath(environment: [String: String]?) -> String {
+        resolveVellumDir(environment: environment) + "/platform-token"
+    }
+
+    /// Scope platform-token writes to the active assistant instance when the
+    /// current lockfile entry exposes an instanceDir.
+    private static func connectedAssistantEnvironment() -> [String: String]? {
+        guard let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let json = LockfilePaths.read(),
+              let assistants = json["assistants"] as? [[String: Any]],
+              let assistant = assistants.first(where: { ($0["assistantId"] as? String) == connectedAssistantId }),
+              let resources = assistant["resources"] as? [String: Any],
+              let instanceDir = resources["instanceDir"] as? String,
+              !instanceDir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        return ["BASE_DATA_DIR": instanceDir]
+    }
 
     private static func writePlatformTokenFile(_ token: String) {
         let path = platformTokenPath

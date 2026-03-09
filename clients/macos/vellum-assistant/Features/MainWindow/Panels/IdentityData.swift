@@ -293,9 +293,14 @@ struct LockfileAssistant {
             return daemonPort
         }
 
-        let env = environment ?? ProcessInfo.processInfo.environment
-        let rawPort = env["RUNTIME_HTTP_PORT"]
-            ?? getenv("RUNTIME_HTTP_PORT").map { String(cString: $0) }
+        let rawPort: String?
+        if let environment {
+            rawPort = environment["RUNTIME_HTTP_PORT"]
+        } else {
+            let env = ProcessInfo.processInfo.environment
+            rawPort = env["RUNTIME_HTTP_PORT"]
+                ?? getenv("RUNTIME_HTTP_PORT").map { String(cString: $0) }
+        }
         return rawPort.flatMap(Int.init) ?? 7821
     }
 
