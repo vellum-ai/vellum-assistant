@@ -199,16 +199,11 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
-      "security/secure-keys.ts", // self (re-export infrastructure)
-      "index.ts", // daemon startup / API key config
       "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
-      "daemon/handlers.ts", // Vercel API token + integration OAuth
-      "daemon/handlers/config-integrations.ts", // Vercel API token + Twitter integration OAuth
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
-      "daemon/handlers/config-ingress.ts", // Ingress config (reads Twilio credentials for webhook sync)
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
       "security/token-manager.ts", // OAuth token refresh flow
       "email/providers/index.ts", // email provider API key lookup
@@ -221,14 +216,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
       "cli/commands/keys.ts", // CLI credential management commands
       "cli/commands/credentials.ts", // CLI credential management commands
-      "runtime/http-server.ts", // HTTP server credential lookup
-      "daemon/handlers/twitter-auth.ts", // Twitter OAuth token storage
-      "cli/commands/twitter/oauth-client.ts", // Twitter OAuth API client (reads access token for API calls)
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "schedule/integration-status.ts", // integration status checks for scheduled reports
-      "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "media/managed-avatar-client.ts", // managed avatar API key lookup for platform authentication
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
