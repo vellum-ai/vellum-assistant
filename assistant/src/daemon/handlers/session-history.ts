@@ -290,35 +290,45 @@ export function handleHistoryRequest(
   // so we no longer emit separate ui_surface_show messages during history loading.
 }
 
-export function handleConversationSearch(
-  msg: ConversationSearchRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const results = searchConversations(msg.query, {
-    limit: msg.limit,
-    maxMessagesPerConversation: msg.maxMessagesPerConversation,
-  });
-  ctx.send(socket, {
-    type: "conversation_search_response",
-    query: msg.query,
-    results,
+// ---------------------------------------------------------------------------
+// Shared business logic (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+export interface ConversationSearchParams {
+  query: string;
+  limit?: number;
+  maxMessagesPerConversation?: number;
+}
+
+/** Search conversations and return results (no transport dependency). */
+export function performConversationSearch(params: ConversationSearchParams) {
+  return searchConversations(params.query, {
+    limit: params.limit,
+    maxMessagesPerConversation: params.maxMessagesPerConversation,
   });
 }
 
-export function handleMessageContentRequest(
-  msg: MessageContentRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const dbMessage = getMessageById(msg.messageId, msg.sessionId);
-  if (!dbMessage) {
-    ctx.send(socket, {
-      type: "error",
-      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
-    });
-    return;
-  }
+export interface MessageContentResult {
+  sessionId?: string;
+  messageId: string;
+  text?: string;
+  toolCalls?: Array<{
+    name: string;
+    result?: string;
+    input?: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * Get the full content of a single message by ID.
+ * Returns null if the message is not found.
+ */
+export function getMessageContent(
+  messageId: string,
+  sessionId?: string,
+): MessageContentResult | null {
+  const dbMessage = getMessageById(messageId, sessionId);
+  if (!dbMessage) return null;
 
   let text: string | undefined;
   let toolCalls:
@@ -343,11 +353,54 @@ export function handleMessageContentRequest(
     text = dbMessage.content || undefined;
   }
 
+  return {
+    sessionId,
+    messageId,
+    ...(text !== undefined ? { text } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// IPC handlers (delegate to shared logic)
+// ---------------------------------------------------------------------------
+
+export function handleConversationSearch(
+  msg: ConversationSearchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const results = performConversationSearch({
+    query: msg.query,
+    limit: msg.limit,
+    maxMessagesPerConversation: msg.maxMessagesPerConversation,
+  });
+  ctx.send(socket, {
+    type: "conversation_search_response",
+    query: msg.query,
+    results,
+  });
+}
+
+export function handleMessageContentRequest(
+  msg: MessageContentRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const result = getMessageContent(msg.messageId, msg.sessionId);
+  if (!result) {
+    ctx.send(socket, {
+      type: "error",
+      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
+    });
+    return;
+  }
+
   ctx.send(socket, {
     type: "message_content_response",
     sessionId: msg.sessionId,
     messageId: msg.messageId,
-    ...(text !== undefined ? { text } : {}),
-    ...(toolCalls ? { toolCalls } : {}),
+    ...(result.text !== undefined ? { text: result.text } : {}),
+    ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
   });
 }

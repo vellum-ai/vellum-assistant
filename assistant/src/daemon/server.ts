@@ -1354,4 +1354,12 @@ export class DaemonServer {
   findSession(sessionId: string): Session | ComputerUseSession | undefined {
     return this.cuSessions.get(sessionId) ?? this.sessions.get(sessionId);
   }
+
+  /**
+   * Expose the handler context for use by session management HTTP routes.
+   * The context is built on-the-fly so it always reflects the current server state.
+   */
+  getHandlerContext(): HandlerContext {
+    return this.handlerContext();
+  }
 }

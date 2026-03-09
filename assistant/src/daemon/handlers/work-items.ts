@@ -1,16 +1,17 @@
 import * as net from "node:net";
 
-import { getMessages } from "../../memory/conversation-crud.js";
-import { check, classifyRisk } from "../../permissions/checker.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { runTask } from "../../tasks/task-runner.js";
-import { getTask, getTaskRun } from "../../tasks/task-store.js";
+import { getTask } from "../../tasks/task-store.js";
 import {
   getRegisteredToolNames,
-  getToolDescription,
   sanitizeToolList,
 } from "../../tasks/tool-sanitizer.js";
-import { truncate } from "../../util/truncate.js";
+import {
+  approveWorkItemPermissions,
+  getWorkItemOutput,
+  preflightWorkItem,
+} from "../../runtime/routes/work-items-routes.js";
 import {
   deleteWorkItem,
   getWorkItem,
@@ -171,246 +172,17 @@ function broadcastWorkItemStatus(ctx: HandlerContext, id: string): void {
   }
 }
 
-/**
- * Extract only the latest assistant text block from stored content.
- * Consolidation merges multiple assistant messages into one DB row; scanning
- * from the end keeps task output focused on the final assistant response.
- */
-function extractLatestTextFromContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) {
-      for (let i = parsed.length - 1; i >= 0; i--) {
-        const block = parsed[i] as { type?: unknown; text?: unknown };
-        if (block.type !== "text") continue;
-        if (typeof block.text !== "string") continue;
-        if (!block.text.trim()) continue;
-        return block.text;
-      }
-      return "";
-    }
-  } catch {
-    // Plain text content — use as-is
-  }
-  return content;
-}
-
-/** Extract tool_result blocks from a user message's content. */
-function extractToolResults(
-  content: string,
-): Array<{ tool_use_id: string; content: string; is_error?: boolean }> {
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((b: { type: string }) => b.type === "tool_result")
-        .map(
-          (b: {
-            tool_use_id: string;
-            content?: string | Array<{ type: string; text?: string }>;
-            is_error?: boolean;
-          }) => {
-            let text = "";
-            if (typeof b.content === "string") {
-              text = b.content;
-            } else if (Array.isArray(b.content)) {
-              text = b.content
-                .filter((c) => c.type === "text" && c.text)
-                .map((c) => c.text!)
-                .join("\n");
-            }
-            return {
-              tool_use_id: b.tool_use_id,
-              content: text,
-              is_error: b.is_error,
-            };
-          },
-        );
-    }
-  } catch {
-    // Not JSON — no tool_result blocks
-  }
-  return [];
-}
-
-/**
- * Build highlights from tool outcomes in the conversation. Scans for
- * tool_use (assistant) and tool_result (user) pairs, extracting concrete
- * outcomes like errors, file paths, and URLs.
- */
-function extractToolHighlights(
-  msgs: Array<{ role: string; content: string }>,
-  maxHighlights: number,
-): string[] {
-  const highlights: string[] = [];
-
-  // Build a map of tool_use_id -> tool name from assistant messages
-  const toolNameById = new Map<string, string>();
-  for (const m of msgs) {
-    if (m.role !== "assistant") continue;
-    try {
-      const parsed = JSON.parse(m.content);
-      if (Array.isArray(parsed)) {
-        for (const block of parsed) {
-          if (block.type === "tool_use" && block.id && block.name) {
-            toolNameById.set(block.id, block.name);
-          }
-        }
-      }
-    } catch {
-      /* skip */
-    }
-  }
-
-  // Scan tool_result messages in reverse order (most recent first)
-  for (
-    let i = msgs.length - 1;
-    i >= 0 && highlights.length < maxHighlights;
-    i--
-  ) {
-    const m = msgs[i];
-    if (m.role !== "user") continue;
-
-    const results = extractToolResults(m.content);
-    for (const result of results) {
-      if (highlights.length >= maxHighlights) break;
-
-      const toolName = toolNameById.get(result.tool_use_id) ?? "tool";
-      const resultText = result.content.trim();
-
-      if (result.is_error) {
-        // Always surface errors
-        const errorSnippet = truncate(resultText, 200, "...");
-        highlights.push(`- ${toolName}: Error — ${errorSnippet}`);
-      } else if (resultText) {
-        // Extract notable signal from successful results: file paths, URLs, or
-        // a short summary of what happened
-        const firstLine = resultText.split("\n")[0].trim();
-        if (firstLine.length > 0 && firstLine.length <= 200) {
-          highlights.push(`- ${toolName}: ${firstLine}`);
-        } else if (firstLine.length > 200) {
-          highlights.push(`- ${toolName}: ${truncate(firstLine, 200, "...")}`);
-        }
-      }
-    }
-  }
-
-  return highlights;
-}
-
 export function handleWorkItemOutput(
   msg: WorkItemOutputRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   try {
-    const workItem = getWorkItem(msg.id);
-    if (!workItem) {
-      ctx.send(socket, {
-        type: "work_item_output_response",
-        id: msg.id,
-        success: false,
-        error: "Work item not found",
-      });
-      return;
-    }
-
-    // Use the task run's conversationId as the authoritative source. This
-    // ensures we read from the actual run's conversation, not stale references
-    // on the work item.
-    let conversationId: string | null = null;
-    let completedAt: number | null = null;
-
-    if (workItem.lastRunId) {
-      const run = getTaskRun(workItem.lastRunId);
-      if (run) {
-        conversationId = run.conversationId;
-        completedAt =
-          run.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
-      }
-    }
-
-    // Fall back to the work item's stored conversationId if the run lookup
-    // didn't yield one (e.g. run record was deleted but work item still has
-    // the reference).
-    if (!conversationId) {
-      conversationId = workItem.lastRunConversationId;
-    }
-
-    if (!conversationId) {
-      ctx.send(socket, {
-        type: "work_item_output_response",
-        id: msg.id,
-        success: false,
-        error: "This task has not been run yet. No output is available.",
-      });
-      return;
-    }
-
-    let summary = "";
-    let highlights: string[] = [];
-
-    const msgs = getMessages(conversationId);
-
-    // Find the last assistant message with text content (not tool calls).
-    // Skip messages that are purely about task management rather than
-    // reporting what the run actually did.
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i];
-      if (m.role !== "assistant") continue;
-
-      const text = extractLatestTextFromContent(m.content);
-      if (!text.trim()) continue;
-
-      summary = truncate(text, 2000, "");
-
-      // Extract bullet points from the assistant's prose
-      const lines = text.split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (
-          (trimmed.startsWith("-") || trimmed.startsWith("*")) &&
-          trimmed.length > 2
-        ) {
-          highlights.push(trimmed);
-          if (highlights.length >= 5) break;
-        }
-      }
-      break;
-    }
-
-    // If we didn't get enough highlights from the assistant prose, supplement
-    // with concrete tool outcomes from the conversation.
-    if (highlights.length < 5) {
-      const toolHighlights = extractToolHighlights(msgs, 5 - highlights.length);
-      highlights = [...highlights, ...toolHighlights];
-    }
-
-    // If there's no assistant summary at all, synthesize one from tool results
-    // so the user still sees what happened.
-    if (!summary && msgs.length > 0) {
-      const toolHighlights = extractToolHighlights(msgs, 10);
-      if (toolHighlights.length > 0) {
-        summary =
-          "Task completed. Tool outcomes:\n" + toolHighlights.join("\n");
-        // Use the tool highlights as the main highlights too
-        highlights = toolHighlights.slice(0, 5);
-      }
-    }
-
+    const result = getWorkItemOutput(msg.id);
     ctx.send(socket, {
       type: "work_item_output_response",
       id: msg.id,
-      success: true,
-      output: {
-        title: workItem.title,
-        status: workItem.lastRunStatus ?? workItem.status,
-        runId: workItem.lastRunId,
-        conversationId,
-        completedAt,
-        summary,
-        highlights,
-      },
+      ...result,
     });
   } catch (err) {
     log.error({ err, workItemId: msg.id }, "handleWorkItemOutput failed");
@@ -611,85 +383,11 @@ export async function handleWorkItemPreflight(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const workItem = getWorkItem(msg.id);
-  if (!workItem) {
-    ctx.send(socket, {
-      type: "work_item_preflight_response",
-      id: msg.id,
-      success: false,
-      error: "Work item not found",
-    });
-    return;
-  }
-
-  // Compute required tools from the work-item snapshot first; only fall
-  // back to the task template (or all registered tools) when the
-  // snapshot is null.
-  let requiredTools: string[];
-  if (workItem.requiredTools != null) {
-    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-  } else {
-    const task = getTask(workItem.taskId);
-    if (!task) {
-      ctx.send(socket, {
-        type: "work_item_preflight_response",
-        id: msg.id,
-        success: false,
-        error: `Associated task not found: ${workItem.taskId}`,
-      });
-      return;
-    }
-    requiredTools = task.requiredTools
-      ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : getRegisteredToolNames();
-  }
-
-  // If the work item explicitly requires no tools, skip the dialog.
-  if (requiredTools.length === 0) {
-    ctx.send(socket, {
-      type: "work_item_preflight_response",
-      id: msg.id,
-      success: true,
-      permissions: [],
-    });
-    return;
-  }
-
-  // If some tools are already approved, only prompt for the missing ones.
-  // When all required tools are covered, skip the dialog entirely.
-  if (workItem.approvedTools) {
-    const approvedSet = new Set<string>(JSON.parse(workItem.approvedTools));
-    requiredTools = requiredTools.filter((t) => !approvedSet.has(t));
-    if (requiredTools.length === 0) {
-      ctx.send(socket, {
-        type: "work_item_preflight_response",
-        id: msg.id,
-        success: true,
-        permissions: [],
-      });
-      return;
-    }
-  }
-
-  const workingDir = process.cwd();
-  const permissions = await Promise.all(
-    requiredTools.map(async (tool) => {
-      const risk = await classifyRisk(tool, {}, workingDir);
-      const result = await check(tool, {}, workingDir);
-      return {
-        tool,
-        description: getToolDescription(tool),
-        riskLevel: risk.toLowerCase() as "low" | "medium" | "high",
-        currentDecision: result.decision as "allow" | "deny" | "prompt",
-      };
-    }),
-  );
-
+  const result = await preflightWorkItem(msg.id);
   ctx.send(socket, {
     type: "work_item_preflight_response",
     id: msg.id,
-    success: true,
-    permissions,
+    ...result,
   });
 }
 
@@ -698,35 +396,11 @@ export function handleWorkItemApprovePermissions(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const workItem = getWorkItem(msg.id);
-  if (!workItem) {
-    ctx.send(socket, {
-      type: "work_item_approve_permissions_response",
-      id: msg.id,
-      success: false,
-      error: "Work item not found",
-    });
-    return;
-  }
-
-  // Merge newly approved tools with any previously approved ones so reruns
-  // that only need a subset of previously-approved tools don't require
-  // re-approval.
-  const existingApproved: string[] = workItem.approvedTools
-    ? JSON.parse(workItem.approvedTools)
-    : [];
-  const newApproved = sanitizeToolList(msg.approvedTools);
-  const merged = [...new Set([...existingApproved, ...newApproved])];
-
-  updateWorkItem(msg.id, {
-    approvedTools: JSON.stringify(sanitizeToolList(merged)),
-    approvalStatus: "approved",
-  });
-
+  const result = approveWorkItemPermissions(msg.id, msg.approvedTools);
   ctx.send(socket, {
     type: "work_item_approve_permissions_response",
     id: msg.id,
-    success: true,
+    ...result,
   });
 }
 
