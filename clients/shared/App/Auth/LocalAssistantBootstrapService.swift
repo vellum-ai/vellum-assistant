@@ -151,6 +151,7 @@ public final class LocalAssistantBootstrapService {
             do {
                 try await injectKeyIntoDaemon(key: existingKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
                 log.info("Re-synced existing API key to daemon")
+                try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
                 return .registeredWithExistingKey(assistantId: platformAssistantId)
             } catch {
                 log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
@@ -181,6 +182,7 @@ public final class LocalAssistantBootstrapService {
 
         // Step 5: Inject into daemon
         try await injectKeyIntoDaemon(key: rawKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
+        try await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
 
         return .registeredAndProvisioned(assistantId: platformAssistantId)
     }
@@ -220,6 +222,32 @@ public final class LocalAssistantBootstrapService {
             "type": "credential",
             "name": "vellum:assistant_api_key",
             "value": key
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+    }
+
+    /// Inject the platform assistant ID into the daemon's secret store.
+    private func injectPlatformAssistantIdIntoDaemon(id: String, daemonBaseURL: String, daemonToken: String) async throws {
+        guard let url = URL(string: "\(daemonBaseURL)/v1/secrets") else {
+            throw LocalBootstrapError.daemonInjectionFailed
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(daemonToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+
+        let body: [String: String] = [
+            "type": "credential",
+            "name": "vellum:platform_assistant_id",
+            "value": id
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
