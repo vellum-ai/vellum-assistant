@@ -89,6 +89,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let authManager = AuthManager()
     let ambientAgentManager = AmbientAgentManager()
     private var actorTokenBootstrapTask: Task<Void, Never>?
+    /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
+    /// the daemon-instance-changed observer. Stored so we can properly remove
+    /// the closure-based observer before registering a new one.
+    private var instanceChangeObserver: NSObjectProtocol?
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
         super.init()
@@ -220,9 +224,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func ensureActorCredentials() {
         actorTokenBootstrapTask?.cancel()
 
-        // Re-bootstrap on instance switch
-        NotificationCenter.default.removeObserver(self, name: .daemonInstanceChanged, object: nil)
-        NotificationCenter.default.addObserver(forName: .daemonInstanceChanged, object: nil, queue: .main) { [weak self] _ in
+        // Re-bootstrap on instance switch — remove previous closure-based observer
+        // using the opaque token (removeObserver(self) doesn't work for closure observers).
+        if let prev = instanceChangeObserver {
+            NotificationCenter.default.removeObserver(prev)
+        }
+        instanceChangeObserver = NotificationCenter.default.addObserver(forName: .daemonInstanceChanged, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             log.info("Daemon instance changed — re-running credential bootstrap")
             self.ensureActorCredentials()

@@ -84,6 +84,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
+    /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
+    /// the daemon-instance-changed observer. Stored so we can properly remove
+    /// the closure-based observer before registering a new one.
+    var instanceChangeObserver: NSObjectProtocol?
     /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
