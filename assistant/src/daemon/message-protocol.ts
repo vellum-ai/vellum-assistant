@@ -4,8 +4,7 @@
  * All message types are defined in domain files under ./message-types/.
  * Each domain file exports `_<Domain>ClientMessages` and/or
  * `_<Domain>ServerMessages` type aliases. This file composes those
- * into the aggregate ClientMessage and ServerMessage unions, and provides
- * serialization/parsing utilities.
+ * into the aggregate ClientMessage and ServerMessage unions.
  *
  * To add a new message type:
  *   1. Define its interface in the appropriate domain file.
@@ -39,7 +38,6 @@ export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
-import { getLogger } from "../util/logger.js";
 import type {
   _AppsClientMessages,
   _AppsServerMessages,
@@ -192,75 +190,4 @@ export type ServerMessage =
 export interface ContractSchema {
   client: ClientMessage;
   server: ServerMessage;
-}
-
-const log = getLogger("message-protocol");
-
-// === Serialization ===
-
-export function serialize(msg: ClientMessage | ServerMessage): string {
-  return JSON.stringify(msg) + "\n";
-}
-
-export interface ParsedMessage<T = ClientMessage | ServerMessage> {
-  msg: T;
-  /** UTF-8 byte length of the raw line, populated only for cu_observation messages. */
-  rawByteLength?: number;
-}
-
-export function createMessageParser(options?: { maxLineSize?: number }) {
-  let buffer = "";
-  const maxLineSize = options?.maxLineSize;
-
-  function parseLines(): Array<ParsedMessage> {
-    const lines = buffer.split("\n");
-    // Keep the last partial line in the buffer
-    buffer = lines.pop() ?? "";
-    const results: Array<ParsedMessage> = [];
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed) {
-        try {
-          const msg = JSON.parse(trimmed);
-          const entry: ParsedMessage = { msg };
-          if (
-            typeof msg === "object" &&
-            msg != null &&
-            msg.type === "cu_observation"
-          ) {
-            entry.rawByteLength = Buffer.byteLength(trimmed, "utf8");
-          }
-          results.push(entry);
-        } catch (err) {
-          // Log only the error name, not the message — JSON.parse errors embed
-          // fragments of the input which could contain sensitive data.
-          log.warn(
-            {
-              lineLength: trimmed.length,
-              errorType: err instanceof Error ? err.name : "unknown",
-            },
-            "Skipping malformed IPC message",
-          );
-        }
-      }
-    }
-    if (maxLineSize != null && buffer.length > maxLineSize) {
-      buffer = "";
-      throw new Error(
-        `IPC message exceeds maximum line size of ${maxLineSize} bytes. Message discarded.`,
-      );
-    }
-    return results;
-  }
-
-  return {
-    feed(data: string): Array<ClientMessage | ServerMessage> {
-      buffer += data;
-      return parseLines().map((r) => r.msg);
-    },
-    feedRaw(data: string): Array<ParsedMessage> {
-      buffer += data;
-      return parseLines();
-    },
-  };
 }

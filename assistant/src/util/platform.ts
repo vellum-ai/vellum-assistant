@@ -243,14 +243,6 @@ export function getInterfacesDir(): string {
   return join(getDataDir(), "interfaces");
 }
 
-export function getSocketPath(): string {
-  return join(getRootDir(), "vellum.sock");
-}
-
-export function getSessionTokenPath(): string {
-  return join(getRootDir(), "session-token");
-}
-
 /**
  * Returns the TCP port the daemon should listen on for iOS clients.
  * Reads VELLUM_DAEMON_TCP_PORT env var; defaults to 8765.
@@ -326,18 +318,6 @@ export function getPlatformTokenPath(): string {
 export function readPlatformToken(): string | null {
   try {
     return readFileSync(getPlatformTokenPath(), "utf-8").trim();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read the daemon session token from disk. Returns null if the file
- * doesn't exist or can't be read (daemon not running).
- */
-export function readSessionToken(): string | null {
-  try {
-    return readFileSync(getSessionTokenPath(), "utf-8").trim();
   } catch {
     return null;
   }
