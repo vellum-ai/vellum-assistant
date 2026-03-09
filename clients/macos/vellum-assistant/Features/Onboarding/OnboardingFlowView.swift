@@ -92,7 +92,7 @@ struct OnboardingFlowView: View {
                             case 1:
                                 APIKeyStepView(state: state)
                             case 2:
-                                if state.userHostedEnabled {
+                                if state.needsCloudCredentials {
                                     CloudCredentialsStepView(state: state)
                                 } else {
                                     ImproveExperienceStepView(state: state)

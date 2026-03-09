@@ -41,6 +41,12 @@ final class OnboardingState {
     var cloudProvider: String = "local"
     var onboardingVariant: OnboardingVariant = .default
 
+    /// Whether the user's hosting choice requires cloud credentials (not local/docker).
+    var needsCloudCredentials: Bool {
+        let userHosted = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+        return userHosted && cloudProvider != "local" && cloudProvider != "docker"
+    }
+
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
 
@@ -136,7 +142,7 @@ final class OnboardingState {
         // from reopening legacy permission-request steps.
         // When userHostedEnabled is on and a cloud provider is selected, the flow
         // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
-        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local"
+        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local" && cloudProvider != "docker"
         let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
         if currentStep > maxStep {
             currentStep = maxStep
