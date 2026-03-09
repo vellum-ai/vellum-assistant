@@ -603,11 +603,12 @@ private struct WorkspaceFileViewer: View {
 
     private func saveFile(path: String) async {
         state.isSaving = true
-        let data = Data(state.editableContent.utf8)
+        let snapshot = state.editableContent
+        let data = Data(snapshot.utf8)
         let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
         if success {
-            state.originalContent = state.editableContent
-            state.isDirty = false
+            state.originalContent = snapshot
+            state.isDirty = state.editableContent != snapshot
         }
         state.isSaving = false
     }
