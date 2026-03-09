@@ -183,6 +183,9 @@ public enum VColor {
     // Icon & button accent
     public static let iconAccent = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
 
+    // Active/highlighted icon foreground — lighter green in dark mode for better contrast
+    public static let activeIconForeground = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
+
     // Send button — always green
     public static let sendButton = Color(hex: 0x216C37)
     public static let accentSubtle = adaptiveColor(light: Forest._100, dark: Forest._900)

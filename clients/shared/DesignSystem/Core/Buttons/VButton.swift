@@ -175,7 +175,7 @@ private struct VButtonStyle: ButtonStyle {
         case .danger: return .white
         case .ghost: return VColor.buttonPrimary
         case .outlined: return VColor.buttonSecondaryText
-        case .success: return VColor.iconAccent
+        case .success: return VColor.activeIconForeground
         }
     }
 
