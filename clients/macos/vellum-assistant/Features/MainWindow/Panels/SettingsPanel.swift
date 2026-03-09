@@ -351,9 +351,7 @@ struct SettingsPanel: View {
                             Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -417,9 +415,7 @@ struct SettingsPanel: View {
                             Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -483,9 +479,7 @@ struct SettingsPanel: View {
                             Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -570,9 +564,7 @@ struct SettingsPanel: View {
                             Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -784,9 +776,7 @@ struct SettingsPanel: View {
                             Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -1056,8 +1046,8 @@ private struct SettingsNavRow: View {
         .padding(.trailing, VSpacing.md)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 }
 

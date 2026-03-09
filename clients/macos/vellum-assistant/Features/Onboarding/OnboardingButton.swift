@@ -41,14 +41,8 @@ struct OnboardingButton: View {
             withAnimation(.easeOut(duration: 0.15)) {
                 isHovered = hovering
             }
-            if !disabled {
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
         }
+        .pointerCursor()
         .onAppear {
             if fadeIn {
                 DispatchQueue.main.asyncAfter(deadline: .now() + fadeDelay) {

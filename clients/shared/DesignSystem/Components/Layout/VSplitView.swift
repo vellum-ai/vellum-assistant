@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public struct VSplitView<Main: View, Panel: View>: View {
     // MARK: - Properties
@@ -69,16 +66,10 @@ public struct VSplitView<Main: View, Panel: View>: View {
         .contentShape(Rectangle())
         .animation(VAnimation.fast, value: isDividerHovered)
         .animation(VAnimation.fast, value: isDragging)
-        #if os(macOS)
         .onHover { hovering in
             isDividerHovered = hovering
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
         }
-        #endif
+        .pointerCursor()
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
                 .onChanged { value in

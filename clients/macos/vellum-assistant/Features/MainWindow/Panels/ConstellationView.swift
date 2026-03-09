@@ -338,20 +338,10 @@ private struct SkillNodeView: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
             }
-            #if os(macOS)
-            if isTappable {
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
-            #endif
         }
-        #if os(macOS)
-        .onDisappear {
-            if isHovered && isTappable {
-                NSCursor.pop()
-                isHovered = false
-            }
+        .if(isTappable) { view in
+            view.pointerCursor()
         }
-        #endif
         .onTapGesture {
             onTap?()
         }

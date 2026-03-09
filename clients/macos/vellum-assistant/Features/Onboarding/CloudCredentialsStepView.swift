@@ -240,9 +240,7 @@ struct CloudCredentialsStepView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(adaptiveColor(light: VColor.accent, dark: Forest._400))
             }
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -287,9 +285,7 @@ struct CloudCredentialsStepView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(adaptiveColor(light: VColor.accent, dark: Forest._400))
             }
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -332,9 +328,7 @@ struct CloudCredentialsStepView: View {
                 )
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         } else {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.file, size: 14)
@@ -351,9 +345,7 @@ struct CloudCredentialsStepView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
@@ -444,9 +436,7 @@ struct CloudCredentialsStepView: View {
                 .foregroundColor(VColor.textMuted)
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointerCursor()
         .padding(.top, VSpacing.xs)
     }
 

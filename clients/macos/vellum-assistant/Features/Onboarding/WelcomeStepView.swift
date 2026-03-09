@@ -53,9 +53,7 @@ struct WelcomeStepView: View {
                 )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointerCursor()
         .opacity(showButton ? 1 : 0)
         .offset(y: showButton ? 0 : 12)
 

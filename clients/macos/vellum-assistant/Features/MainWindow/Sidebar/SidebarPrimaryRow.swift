@@ -54,8 +54,8 @@ struct SidebarPrimaryRow: View {
         .help(isExpanded ? "" : label)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 }
 

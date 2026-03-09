@@ -92,9 +92,7 @@ struct AvatarRevealStepView: View {
                 .buttonStyle(.plain)
                 .opacity(showButton ? 1 : 0)
                 .offset(y: showButton ? 0 : 12)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
             }
 
             Spacer()

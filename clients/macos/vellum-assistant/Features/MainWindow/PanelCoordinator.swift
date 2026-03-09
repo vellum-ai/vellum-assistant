@@ -1021,9 +1021,8 @@ private struct PublishedButton: View {
                 }
                 .onHover { hovering in
                     isCopyHovered = hovering
-                    if hovering { NSCursor.pointingHand.set() }
-                    else { NSCursor.arrow.set() }
                 }
+                .pointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
         .foregroundColor(VColor.buttonSecondaryText)
@@ -1094,8 +1093,8 @@ private struct ShareDrawerRow: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 }
 

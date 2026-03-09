@@ -149,9 +149,7 @@ struct APIKeyStepView: View {
             )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointerCursor()
     }
 
     // MARK: - API Key Field
@@ -216,9 +214,7 @@ struct APIKeyStepView: View {
                     .font(.system(size: 13))
                     .foregroundColor(VColor.accent)
             }
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
 
             Button(action: { goBack() }) {
                 Text("Back")
@@ -226,9 +222,7 @@ struct APIKeyStepView: View {
                     .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         }
         .padding(.top, VSpacing.xs)
     }

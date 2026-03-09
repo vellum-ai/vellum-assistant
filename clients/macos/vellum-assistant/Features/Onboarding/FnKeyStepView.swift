@@ -105,9 +105,7 @@ struct FnKeyStepView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
                 .transition(.opacity)
             } else {
                 Button(action: { requestPermissions() }) {
@@ -125,9 +123,7 @@ struct FnKeyStepView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
             }
 
             // Skip + Back
@@ -142,9 +138,7 @@ struct FnKeyStepView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
 
                 Button(action: {
                     stopPolling()
@@ -157,9 +151,7 @@ struct FnKeyStepView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
             }
             .padding(.top, VSpacing.xs)
         }

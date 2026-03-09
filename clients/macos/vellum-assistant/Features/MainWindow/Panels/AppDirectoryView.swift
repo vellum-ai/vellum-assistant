@@ -244,8 +244,8 @@ struct AppDirectoryView: View {
             withAnimation(VAnimation.fast) {
                 hoveredAppId = hovering ? item.id : nil
             }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 
     // MARK: - Filtering

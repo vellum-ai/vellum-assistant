@@ -161,13 +161,7 @@ extension ChatBubble {
         .onTapGesture {
             saveFileAttachment(attachment)
         }
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .pointerCursor()
     }
 
     func openImageInPreview(_ attachment: ChatAttachment) {

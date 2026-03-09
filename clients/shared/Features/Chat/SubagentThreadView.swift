@@ -150,10 +150,8 @@ public struct SubagentThreadView: View {
         .onTapGesture { onTap?() }
         .onHover { hovering in
             isHovered = hovering
-            #if os(macOS)
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            #endif
         }
+        .pointerCursor()
         .accessibilityLabel("Thread: \(subagent.label)")
         .accessibilityHint("Opens thread detail panel")
         .accessibilityAddTraits(.isButton)
