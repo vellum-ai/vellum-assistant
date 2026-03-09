@@ -240,11 +240,18 @@ export async function startCli(): Promise<void> {
     scope: string,
     decision: "allow" | "deny",
     confirmDecision: string,
+    options?: { allowHighRisk?: boolean },
   ): Promise<void> {
     try {
       await httpSend("/v1/trust-rules", {
         method: "POST",
-        body: JSON.stringify({ requestId, pattern, scope, decision }),
+        body: JSON.stringify({
+          requestId,
+          pattern,
+          scope,
+          decision,
+          ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
+        }),
       });
       await httpSend("/v1/confirm", {
         method: "POST",
@@ -467,6 +474,9 @@ export async function startCli(): Promise<void> {
           req.scopeOptions[idx].scope,
           trustDecision,
           trustDecision,
+          decision === "always_allow_high_risk"
+            ? { allowHighRisk: true }
+            : undefined,
         );
       } else {
         // Invalid selection → deny
@@ -522,15 +532,18 @@ export async function startCli(): Promise<void> {
           prompt();
         } else {
           try {
+            const newKey = `builtin-cli:${selected.id}`;
             const resp = await httpSend("/v1/conversations/switch", {
               method: "POST",
-              body: JSON.stringify({ conversationId: selected.id }),
+              body: JSON.stringify({
+                conversationId: selected.id,
+                conversationKey: newKey,
+              }),
             });
             if (resp.ok) {
               const data = (await resp.json()) as { sessionId: string; title: string };
               sessionId = data.sessionId;
-              // Use the session ID as conversation key for the SSE stream
-              conversationKey = `builtin-cli:${sessionId}`;
+              conversationKey = newKey;
               pendingSessionPick = false;
               await reconnectSse();
               process.stdout.write(

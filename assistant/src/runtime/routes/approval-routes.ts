@@ -150,9 +150,10 @@ export async function handleTrustRule(
     pattern?: string;
     scope?: string;
     decision?: string;
+    allowHighRisk?: boolean;
   };
 
-  const { requestId, pattern, scope, decision } = body;
+  const { requestId, pattern, scope, decision, allowHighRisk } = body;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);
@@ -234,6 +235,7 @@ export async function handleTrustRule(
     const executionTarget =
       tool?.origin === "skill" ? confirmation.executionTarget : undefined;
     addRule(confirmation.toolName, pattern, scope, decision, undefined, {
+      allowHighRisk: allowHighRisk || undefined,
       executionTarget,
     });
     log.info(

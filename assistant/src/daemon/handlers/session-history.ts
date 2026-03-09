@@ -6,6 +6,7 @@ import {
 import { getMessageById } from "../../memory/conversation-crud.js";
 import {
   getMessagesPaginated,
+  listConversations,
   searchConversations,
 } from "../../memory/conversation-queries.js";
 import { silentlyWithLog } from "../../util/silently.js";
@@ -299,6 +300,16 @@ export interface ConversationSearchParams {
 
 /** Search conversations and return results (no transport dependency). */
 export function performConversationSearch(params: ConversationSearchParams) {
+  // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
+  if (params.query.trim() === "*") {
+    const rows = listConversations(params.limit);
+    return rows.map((r) => ({
+      conversationId: r.id,
+      conversationTitle: r.title,
+      conversationUpdatedAt: r.updatedAt,
+      matchingMessages: [],
+    }));
+  }
   return searchConversations(params.query, {
     limit: params.limit,
     maxMessagesPerConversation: params.maxMessagesPerConversation,

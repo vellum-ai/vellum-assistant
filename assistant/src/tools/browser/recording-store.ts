@@ -3,7 +3,13 @@
  * Stores recordings at ~/.vellum/workspace/data/recordings/<id>.json
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
@@ -34,6 +40,18 @@ export function saveRecording(recording: SessionRecording): string {
     "Recording saved",
   );
   return filePath;
+}
+
+/** List all recording file paths in the recordings directory. */
+export function listRecordingFiles(): string[] {
+  const dir = getRecordingsDir();
+  try {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => join(dir, f));
+  } catch {
+    return [];
+  }
 }
 
 export function loadRecording(recordingId: string): SessionRecording | null {

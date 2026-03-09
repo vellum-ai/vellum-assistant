@@ -5,6 +5,8 @@
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
  */
 
+import { statSync } from "node:fs";
+
 import { Command } from "commander";
 import { parse as parseTld } from "tldts";
 
@@ -14,7 +16,10 @@ import {
   saveApiMap,
 } from "../../tools/browser/api-map.js";
 import { ensureChromeWithCdp } from "../../tools/browser/chrome-cdp.js";
-import { loadRecording } from "../../tools/browser/recording-store.js";
+import {
+  listRecordingFiles,
+  loadRecording,
+} from "../../tools/browser/recording-store.js";
 import { httpSend } from "../http-client.js";
 import { getCliLogger } from "../logger.js";
 
@@ -161,6 +166,9 @@ async function startLearnSession(
     process.stderr.write(`Chrome is ready — using tab at ${tabUrl}\n`);
   }
 
+  // Snapshot existing recordings so we can detect new ones after the session
+  const existingRecordings = new Set(listRecordingFiles());
+
   // Start ride shotgun via HTTP
   const response = await httpSend("/v1/computer-use/ride-shotgun/start", {
     method: "POST",
@@ -181,17 +189,49 @@ async function startLearnSession(
     );
   }
 
-  const result = (await response.json()) as {
+  const startResult = (await response.json()) as {
     watchId?: string;
     sessionId?: string;
-    recordingId?: string;
-    recordingPath?: string;
   };
 
-  return {
-    recordingId: result.recordingId,
-    recordingPath: result.recordingPath,
-  };
+  if (!startResult.watchId) {
+    throw new Error("Ride-shotgun start response missing watchId");
+  }
+
+  // Poll for a new recording file to appear after the session completes
+  const timeoutMs = (durationSeconds + 30) * 1000;
+  const pollIntervalMs = 2000;
+  const startTime = Date.now();
+
+  return new Promise<LearnResult>((resolve, reject) => {
+    const poll = setInterval(() => {
+      if (Date.now() - startTime > timeoutMs) {
+        clearInterval(poll);
+        reject(
+          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
+        );
+        return;
+      }
+
+      const currentRecordings = listRecordingFiles();
+      for (const filePath of currentRecordings) {
+        if (existingRecordings.has(filePath)) continue;
+
+        try {
+          const stat = statSync(filePath);
+          if (stat.mtimeMs >= startTime - 1000) {
+            clearInterval(poll);
+            const filename = filePath.split("/").pop() ?? "";
+            const recordingId = filename.replace(/\.json$/, "");
+            resolve({ recordingId, recordingPath: filePath });
+            return;
+          }
+        } catch {
+          // File may have been deleted between readdir and stat
+        }
+      }
+    }, pollIntervalMs);
+  });
 }
 
 // ---------------------------------------------------------------------------
