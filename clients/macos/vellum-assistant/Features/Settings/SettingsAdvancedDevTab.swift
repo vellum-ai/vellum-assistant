@@ -174,6 +174,11 @@ struct SettingsAdvancedDevTab: View {
             set: { newValue in
                 macOSFlagStates[index].enabled = newValue
                 MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
+                NotificationCenter.default.post(
+                    name: .assistantFeatureFlagDidChange,
+                    object: nil,
+                    userInfo: ["key": entry.key, "enabled": newValue]
+                )
             }
         )
         return HStack {
