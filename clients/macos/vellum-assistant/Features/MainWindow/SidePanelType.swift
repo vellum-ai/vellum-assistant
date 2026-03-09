@@ -20,8 +20,8 @@ enum SidePanelType: Hashable, CaseIterable {
         case "usageDashboard": self = .usageDashboard
         // Legacy values from older builds — map to the unified Intelligence panel
         case "identity", "agent": self = .intelligence
-        // Legacy Home Base panel — removed
-        case "directory": return nil
+        // Legacy Home Base panel — map to apps as a reasonable fallback
+        case "directory": self = .apps
         default: return nil
         }
     }

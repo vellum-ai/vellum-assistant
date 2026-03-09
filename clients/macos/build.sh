@@ -205,6 +205,9 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
+    cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/cli-bin" "vellum-cli"
@@ -381,6 +384,11 @@ if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
 fi
+if [ -f "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
+    cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
+fi
 # Also rebuild if daemon binary changed or newly added
 if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
@@ -518,6 +526,10 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/hook-templates" ]; then
     rm -rf "$RESOURCES_DIR/hook-templates"
     cp -R "$SCRIPT_DIR/daemon-bin/hook-templates" "$RESOURCES_DIR/hook-templates"
+fi
+if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
+    rm -rf "$RESOURCES_DIR/brain-graph"
+    cp -R "$SCRIPT_DIR/daemon-bin/brain-graph" "$RESOURCES_DIR/brain-graph"
 fi
 # Always refresh feature flag registry for the bundled gateway.
 # The compiled gateway resolves this from Contents/Resources in app layouts.
