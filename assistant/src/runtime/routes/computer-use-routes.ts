@@ -50,6 +50,14 @@ export interface ComputerUseDeps {
   }) => Promise<{ watchId: string; sessionId: string }>;
   /** Handle a ride-shotgun stop request. */
   handleRideShotgunStop: (watchId: string) => Promise<void>;
+  /** Get ride-shotgun session status by watchId. */
+  getRideShotgunStatus: (watchId: string) => {
+    status: "active" | "completing" | "completed" | "cancelled";
+    sessionId: string;
+    recordingId?: string;
+    savedRecordingPath?: string;
+    bootstrapFailureReason?: string;
+  } | undefined;
   /** Handle a watch observation. */
   handleWatchObservation: (params: {
     watchId: string;
@@ -445,6 +453,20 @@ async function handleRideShotgunStopRoute(
 }
 
 /**
+ * GET /v1/computer-use/ride-shotgun/status/:watchId — get ride-shotgun session status.
+ */
+function handleRideShotgunStatusRoute(
+  watchId: string,
+  deps: ComputerUseDeps,
+): Response {
+  const status = deps.getRideShotgunStatus(watchId);
+  if (!status) {
+    return httpError("NOT_FOUND", "Session not found", 404);
+  }
+  return Response.json(status);
+}
+
+/**
  * POST /v1/computer-use/watch — send a watch observation.
  *
  * Body: { watchId, sessionId, ocrText, appName?, windowTitle?,
@@ -556,6 +578,12 @@ export function computerUseRouteDefinitions(deps: {
       method: "POST",
       policyKey: "computer-use/ride-shotgun/stop",
       handler: async ({ req }) => handleRideShotgunStopRoute(req, getDeps()),
+    },
+    {
+      endpoint: "computer-use/ride-shotgun/status/:watchId",
+      method: "GET",
+      policyKey: "computer-use/ride-shotgun/status",
+      handler: ({ params }) => handleRideShotgunStatusRoute(params.watchId, getDeps()),
     },
     {
       endpoint: "computer-use/watch",

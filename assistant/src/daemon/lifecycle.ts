@@ -93,6 +93,7 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { handleRideShotgunStart, handleRideShotgunStop } from "./ride-shotgun-handler.js";
+import { watchSessions } from "../tools/watch/watch-state.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { initSlashPairingContext } from "./session-slash.js";
@@ -523,6 +524,17 @@ export async function runDaemon(): Promise<void> {
               { type: "ride_shotgun_stop", watchId },
               ctx,
             );
+          },
+          getRideShotgunStatus: (watchId) => {
+            const session = watchSessions.get(watchId);
+            if (!session) return undefined;
+            return {
+              status: session.status,
+              sessionId: session.sessionId,
+              recordingId: session.recordingId,
+              savedRecordingPath: session.savedRecordingPath,
+              bootstrapFailureReason: session.bootstrapFailureReason,
+            };
           },
           handleWatchObservation: async (params) => {
             await handleWatchObservation(

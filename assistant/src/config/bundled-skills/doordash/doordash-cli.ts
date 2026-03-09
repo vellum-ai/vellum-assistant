@@ -5,7 +5,7 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import { readdirSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import { Command } from "commander";
@@ -950,21 +950,6 @@ interface LearnResult {
   recordingPath?: string;
 }
 
-/**
- * List recording JSON files in the recordings directory, returning their
- * full paths. Returns an empty array if the directory doesn't exist.
- */
-function listRecordingFiles(): string[] {
-  const recordingsDir = join(getDataDir(), "recordings");
-  try {
-    return readdirSync(recordingsDir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => join(recordingsDir, f));
-  } catch {
-    return [];
-  }
-}
-
 async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
@@ -973,10 +958,7 @@ async function startLearnSession(
     startUrl: "https://www.doordash.com/consumer/login/",
   });
 
-  // Step 2: Snapshot existing recordings so we can detect new ones
-  const existingRecordings = new Set(listRecordingFiles());
-
-  // Step 3: Start ride-shotgun learn session via HTTP
+  // Step 2: Start ride-shotgun learn session via HTTP
   const port = getHttpPort();
   const baseUrl = buildDaemonUrl(port);
   const token = readHttpToken();
@@ -1018,15 +1000,16 @@ async function startLearnSession(
     throw new Error("Ride-shotgun start response missing watchId");
   }
 
-  // Step 4: Poll for a new recording file to appear.
-  // The daemon's ride-shotgun handler saves recordings to <dataDir>/recordings/<id>.json
-  // when the learn session completes. We poll until a new file appears or timeout.
+  // Step 3: Poll session status endpoint for completion or failure, then
+  // look for the correlated recording file using the recordingId from the session.
+  const { watchId } = startResult;
+  const statusUrl = `${baseUrl}/v1/computer-use/ride-shotgun/status/${watchId}`;
   const timeoutMs = (durationSeconds + 30) * 1000;
   const pollIntervalMs = 2000;
   const startTime = Date.now();
 
   return new Promise<LearnResult>((resolve, reject) => {
-    const poll = setInterval(() => {
+    const poll = setInterval(async () => {
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(poll);
         reject(
@@ -1035,24 +1018,71 @@ async function startLearnSession(
         return;
       }
 
-      const currentRecordings = listRecordingFiles();
-      for (const filePath of currentRecordings) {
-        if (existingRecordings.has(filePath)) continue;
+      // Poll session status to detect failures early
+      try {
+        const statusRes = await fetch(statusUrl, { headers });
+        if (statusRes.ok) {
+          const status = (await statusRes.json()) as {
+            status: string;
+            recordingId?: string;
+            savedRecordingPath?: string;
+            bootstrapFailureReason?: string;
+          };
 
-        // New recording found — verify it was created after we started
-        try {
-          const stat = statSync(filePath);
-          if (stat.mtimeMs >= startTime - 1000) {
+          // Session failed without producing a recording
+          if (status.bootstrapFailureReason) {
             clearInterval(poll);
-            // Extract recording ID from filename (e.g. "<uuid>.json" -> "<uuid>")
-            const filename = filePath.split("/").pop() ?? "";
-            const recordingId = filename.replace(/\.json$/, "");
-            resolve({ recordingId, recordingPath: filePath });
+            reject(
+              new Error(
+                `Learn session failed: ${status.bootstrapFailureReason}`,
+              ),
+            );
             return;
           }
-        } catch {
-          // File may have been deleted between readdir and stat
+
+          // Session completed — check for the correlated recording file
+          if (status.status === "completed") {
+            clearInterval(poll);
+
+            if (status.savedRecordingPath && status.recordingId) {
+              resolve({
+                recordingId: status.recordingId,
+                recordingPath: status.savedRecordingPath,
+              });
+              return;
+            }
+
+            // Recording path not in status — fall back to filesystem lookup
+            // using the recordingId for correlation
+            if (status.recordingId) {
+              const recordingsDir = join(getDataDir(), "recordings");
+              const expectedPath = join(
+                recordingsDir,
+                `${status.recordingId}.json`,
+              );
+              try {
+                statSync(expectedPath);
+                resolve({
+                  recordingId: status.recordingId,
+                  recordingPath: expectedPath,
+                });
+                return;
+              } catch {
+                // Recording file not yet written — will retry
+              }
+            }
+
+            // Completed but no recording saved
+            reject(
+              new Error(
+                "Learn session completed but no recording was saved.",
+              ),
+            );
+            return;
+          }
         }
+      } catch {
+        // Status endpoint not reachable — continue polling
       }
     }, pollIntervalMs);
   });
