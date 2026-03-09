@@ -1,19 +1,19 @@
 import Foundation
+import os
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "LockfilePaths")
 
 public enum LockfilePaths {
-    private static var baseDir: URL {
-        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-            return URL(fileURLWithPath: baseDir)
-        }
-        return URL(fileURLWithPath: NSHomeDirectory())
+    private static var homeDir: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
     }
 
     public static var primary: URL {
-        baseDir.appendingPathComponent(".vellum.lock.json")
+        homeDir.appendingPathComponent(".vellum.lock.json")
     }
 
     public static var legacy: URL {
-        baseDir.appendingPathComponent(".vellum.lockfile.json")
+        homeDir.appendingPathComponent(".vellum.lockfile.json")
     }
 
     public static var primaryPath: String { primary.path }
@@ -23,11 +23,22 @@ public enum LockfilePaths {
     /// Returns nil if neither file exists or both are malformed.
     public static func read() -> [String: Any]? {
         for url in [primary, legacy] {
-            guard let data = try? Data(contentsOf: url),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let path = url.path
+            guard FileManager.default.fileExists(atPath: path) else {
+                log.error("[lockfileRead] file not found: \(path, privacy: .public)")
                 continue
             }
-            return json
+            do {
+                let data = try Data(contentsOf: url)
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    log.error("[lockfileRead] parsed but not [String: Any]: \(path, privacy: .public)")
+                    continue
+                }
+                return json
+            } catch {
+                log.error("[lockfileRead] failed to read/parse \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
         }
         return nil
     }

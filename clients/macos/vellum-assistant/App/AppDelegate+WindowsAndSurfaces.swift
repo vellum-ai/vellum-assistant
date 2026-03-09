@@ -349,21 +349,22 @@ extension AppDelegate {
     /// assistant entry.
     func lockfileHasAssistants() -> Bool {
         let primaryPath = LockfilePaths.primaryPath
+        let homeDir = NSHomeDirectory()
         let fileExists = FileManager.default.fileExists(atPath: primaryPath)
-        log.info("[lockfileCheck] primaryPath=\(primaryPath, privacy: .public) exists=\(fileExists)")
+        log.error("[lockfileCheck] NSHomeDirectory=\(homeDir, privacy: .public) primaryPath=\(primaryPath, privacy: .public) exists=\(fileExists)")
 
         guard let json = LockfilePaths.read() else {
-            log.warning("[lockfileCheck] LockfilePaths.read() returned nil — no valid lockfile found")
+            log.error("[lockfileCheck] LockfilePaths.read() returned nil — no valid lockfile found")
             return false
         }
 
         guard let assistants = json["assistants"] as? [[String: Any]] else {
             let keys = json.keys.joined(separator: ", ")
-            log.warning("[lockfileCheck] lockfile has no 'assistants' array, keys: \(keys, privacy: .public)")
+            log.error("[lockfileCheck] lockfile has no 'assistants' array, keys: \(keys, privacy: .public)")
             return false
         }
 
-        log.info("[lockfileCheck] found \(assistants.count) assistant(s)")
+        log.error("[lockfileCheck] found \(assistants.count) assistant(s)")
         return !assistants.isEmpty
     }
 

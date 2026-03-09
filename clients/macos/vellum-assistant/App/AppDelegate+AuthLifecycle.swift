@@ -15,12 +15,12 @@ extension AppDelegate {
             await authManager.checkSession()
             let isAuthed = authManager.isAuthenticated
             let hasKey = APIKeyManager.hasAnyKey()
-            log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
+            log.error("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
-                log.info("[authFlow] → proceedToApp()")
+                log.error("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
-                log.info("[authFlow] → showAuthWindow()")
+                log.error("[authFlow] → showAuthWindow()")
                 showAuthWindow()
             }
         }
