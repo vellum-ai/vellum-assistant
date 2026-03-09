@@ -95,6 +95,14 @@ struct WorkspacePanel: View {
                             state.originalContent = ""
                             state.isDirty = false
                         }
+                        // Clean up stale expandedDirs and directoryCache for deleted path
+                        state.expandedDirs.remove(path)
+                        let deletedPrefix = path + "/"
+                        state.expandedDirs = state.expandedDirs.filter { !$0.hasPrefix(deletedPrefix) }
+                        state.directoryCache.removeValue(forKey: path)
+                        for key in state.directoryCache.keys where key.hasPrefix(deletedPrefix) {
+                            state.directoryCache.removeValue(forKey: key)
+                        }
                     }
                 }
             }
