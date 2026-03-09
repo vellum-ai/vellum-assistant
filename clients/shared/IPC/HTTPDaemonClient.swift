@@ -233,6 +233,10 @@ public final class HTTPTransport {
         case workspaceTree(path: String)
         case workspaceFile(path: String)
         case workspaceFileContent(path: String)
+        case workspaceWrite
+        case workspaceMkdir
+        case workspaceRename
+        case workspaceDelete
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -352,6 +356,14 @@ public final class HTTPTransport {
         case .workspaceFileContent(let path):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("/v1/workspace/file/content", "path=\(encoded)")
+        case .workspaceWrite:
+            return ("/v1/workspace/write", nil)
+        case .workspaceMkdir:
+            return ("/v1/workspace/mkdir", nil)
+        case .workspaceRename:
+            return ("/v1/workspace/rename", nil)
+        case .workspaceDelete:
+            return ("/v1/workspace/delete", nil)
         }
     }
 
@@ -452,6 +464,14 @@ public final class HTTPTransport {
         case .workspaceFileContent(let path):
             let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("\(prefix)/workspace/file/content/", "path=\(encoded)")
+        case .workspaceWrite:
+            return ("\(prefix)/workspace/write/", nil)
+        case .workspaceMkdir:
+            return ("\(prefix)/workspace/mkdir/", nil)
+        case .workspaceRename:
+            return ("\(prefix)/workspace/rename/", nil)
+        case .workspaceDelete:
+            return ("\(prefix)/workspace/delete/", nil)
         }
     }
 
@@ -2159,6 +2179,138 @@ public final class HTTPTransport {
     /// Build a URL for streaming/downloading workspace file content.
     func workspaceFileContentURL(path: String) -> URL? {
         return buildURL(for: .workspaceFileContent(path: path))
+    }
+
+    /// Write (create or overwrite) a file in the workspace via `POST /v1/workspace/write`.
+    /// Automatically detects text vs binary content — text is sent as a plain string,
+    /// binary content is base64-encoded with an `encoding` field.
+    func writeWorkspaceFile(path: String, content: Data, isRetry: Bool = false) async -> Bool {
+        guard let url = buildURL(for: .workspaceWrite) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["path": path]
+        if let text = String(data: content, encoding: .utf8), !content.isEmpty {
+            body["content"] = text
+        } else {
+            body["content"] = content.base64EncodedString()
+            body["encoding"] = "base64"
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await writeWorkspaceFile(path: path, content: content, isRetry: true)
+                    }
+                    return false
+                }
+                return (200...299).contains(http.statusCode)
+            }
+            return false
+        } catch {
+            log.error("writeWorkspaceFile failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Create a directory in the workspace via `POST /v1/workspace/mkdir`.
+    func createWorkspaceDirectory(path: String, isRetry: Bool = false) async -> Bool {
+        guard let url = buildURL(for: .workspaceMkdir) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["path": path]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await createWorkspaceDirectory(path: path, isRetry: true)
+                    }
+                    return false
+                }
+                return (200...299).contains(http.statusCode)
+            }
+            return false
+        } catch {
+            log.error("createWorkspaceDirectory failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Rename or move a file/directory in the workspace via `POST /v1/workspace/rename`.
+    func renameWorkspaceItem(oldPath: String, newPath: String, isRetry: Bool = false) async -> Bool {
+        guard let url = buildURL(for: .workspaceRename) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["oldPath": oldPath, "newPath": newPath]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await renameWorkspaceItem(oldPath: oldPath, newPath: newPath, isRetry: true)
+                    }
+                    return false
+                }
+                return (200...299).contains(http.statusCode)
+            }
+            return false
+        } catch {
+            log.error("renameWorkspaceItem failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Delete a file or directory in the workspace via `POST /v1/workspace/delete`.
+    func deleteWorkspaceItem(path: String, isRetry: Bool = false) async -> Bool {
+        guard let url = buildURL(for: .workspaceDelete) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["path": path]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await deleteWorkspaceItem(path: path, isRetry: true)
+                    }
+                    return false
+                }
+                return (200...299).contains(http.statusCode)
+            }
+            return false
+        } catch {
+            log.error("deleteWorkspaceItem failed: \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - Disconnect
