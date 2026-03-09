@@ -46,7 +46,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                 |
 | `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)         |
 | `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections                |
-| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (CLI bootstrap, local) |
+| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)                |
 
 **Scope profiles:**
 
@@ -59,7 +59,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Identity lifecycle:**
 
-1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
+1. **Bootstrap (loopback-only, macOS)** — On first launch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The CLI obtains its bearer token during `hatch` and does not perform a separate bootstrap step.
 
 2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
 
