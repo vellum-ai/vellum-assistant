@@ -367,6 +367,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "recordings/pause", scopes: ["settings.write"] },
   { endpoint: "recordings/resume", scopes: ["settings.write"] },
   { endpoint: "recordings/status", scopes: ["settings.read"] },
+  { endpoint: "recordings/status:POST", scopes: ["settings.write"] },
 
   // Surface actions
   { endpoint: "surface-actions", scopes: ["chat.write"] },
