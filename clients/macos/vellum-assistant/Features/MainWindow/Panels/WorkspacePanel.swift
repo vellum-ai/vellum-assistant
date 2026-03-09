@@ -28,6 +28,8 @@ final class WorkspaceBrowserState {
     var newItemParentPath: String = ""
     var deleteConfirmPath: String?
     var deleteConfirmName: String = ""
+    var renamingPath: String? = nil
+    var renamingText: String = ""
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
         if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
@@ -288,11 +290,23 @@ private struct WorkspaceTreeRow: View {
                     VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
                         .foregroundColor(entry.isDirectory ? VColor.iconAccent : VColor.textSecondary)
 
-                    Text(entry.name)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    if state.renamingPath == entry.path {
+                        TextField("Name", text: $state.renamingText)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .onSubmit {
+                                submitRename()
+                            }
+                            .onExitCommand {
+                                state.renamingPath = nil
+                            }
+                    } else {
+                        Text(entry.name)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
 
                     Spacer()
                 }
@@ -347,7 +361,35 @@ private struct WorkspaceTreeRow: View {
             } label: {
                 Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
             }
+            Button {
+                state.renamingPath = entry.path
+                state.renamingText = entry.name
+            } label: {
+                Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+            }
         }
+    }
+
+    private func submitRename() {
+        let oldPath = entry.path
+        let parentPath = parentDirectory(of: oldPath)
+        let newPath = parentPath.isEmpty ? state.renamingText : "\(parentPath)/\(state.renamingText)"
+        Task {
+            let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
+            if success {
+                await state.refreshDirectory(parentPath, using: daemonClient)
+                if state.selectedFilePath == oldPath {
+                    state.selectedFilePath = newPath
+                }
+            }
+            state.renamingPath = nil
+        }
+    }
+
+    private func parentDirectory(of path: String) -> String {
+        let components = path.split(separator: "/")
+        guard components.count > 1 else { return "" }
+        return components.dropLast().joined(separator: "/")
     }
 
     private func handleTap() async {
