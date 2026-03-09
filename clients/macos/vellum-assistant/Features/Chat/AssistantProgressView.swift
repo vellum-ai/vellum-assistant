@@ -607,7 +607,7 @@ private struct StepDetailRow: View {
                         if let decision = toolCall.confirmationDecision {
                             compactPermissionChip(
                                 state: decision,
-                                label: toolCall.confirmationLabel ?? toolCall.toolName
+                                label: toolCall.confirmationLabel ?? toolCall.friendlyName
                             )
                         }
 
