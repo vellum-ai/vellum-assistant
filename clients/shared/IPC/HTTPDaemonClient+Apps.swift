@@ -92,6 +92,13 @@ extension HTTPTransport {
         }
     }
 
+    /// REST shape returned by `/v1/apps/:id/data`.
+    private struct RESTAppDataResponse: Decodable {
+        let success: Bool
+        let result: AnyCodable?
+        let error: String?
+    }
+
     private func fetchAppData(_ msg: AppDataRequestMessage, isRetry: Bool = false) async {
         guard let url = buildURL(for: .appData(id: msg.appId)) else { return }
 
@@ -142,11 +149,27 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppDataResponse.self, from: data)
-            onMessage?(.appDataResponse(decoded))
+            // REST returns { success, result, error? } — wrap into IPC envelope
+            let rest = try decoder.decode(RESTAppDataResponse.self, from: data)
+            let ipcResponse = IPCAppDataResponse(
+                type: "app_data_response",
+                surfaceId: msg.surfaceId,
+                callId: msg.callId,
+                success: rest.success,
+                result: rest.result,
+                error: rest.error
+            )
+            onMessage?(.appDataResponse(ipcResponse))
         } catch {
             log.error("App data request error: \(error.localizedDescription)")
         }
+    }
+
+    /// REST shape returned by `/v1/apps/:id/open`.
+    private struct RESTAppOpenResponse: Decodable {
+        let appId: String
+        let name: String
+        let html: String
     }
 
     private func handleAppOpen(appId: String, isRetry: Bool = false) async {
@@ -172,8 +195,20 @@ extension HTTPTransport {
                 }
             }
 
-            // App open response is handled by the daemon via SSE events
-            log.info("App open request sent for \(appId)")
+            // REST returns { appId, name, html } — translate into ui_surface_show event
+            let rest = try decoder.decode(RESTAppOpenResponse.self, from: data)
+            let surfaceId = "app-\(rest.appId)"
+            let surfaceMessage = UiSurfaceShowMessage(
+                sessionId: "",
+                surfaceId: surfaceId,
+                surfaceType: "dynamic_page",
+                title: rest.name,
+                data: AnyCodable(["html": rest.html, "appId": rest.appId]),
+                actions: nil,
+                display: "panel",
+                messageId: nil
+            )
+            onMessage?(.uiSurfaceShow(surfaceMessage))
         } catch {
             log.error("App open error: \(error.localizedDescription)")
         }

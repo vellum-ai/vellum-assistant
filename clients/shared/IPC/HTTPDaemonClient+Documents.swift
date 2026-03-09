@@ -34,6 +34,42 @@ extension HTTPTransport {
         }
     }
 
+    // MARK: - REST Response Shapes
+
+    /// REST shape returned by `GET /v1/documents`.
+    private struct RESTDocumentListResponse: Decodable {
+        let documents: [RESTDocumentListItem]
+    }
+
+    private struct RESTDocumentListItem: Decodable {
+        let surfaceId: String
+        let conversationId: String
+        let title: String
+        let wordCount: Int
+        let createdAt: Int
+        let updatedAt: Int
+    }
+
+    /// REST shape returned by `GET /v1/documents/:id`.
+    private struct RESTDocumentLoadResponse: Decodable {
+        let success: Bool
+        let surfaceId: String
+        let conversationId: String
+        let title: String
+        let content: String
+        let wordCount: Int
+        let createdAt: Int
+        let updatedAt: Int
+        let error: String?
+    }
+
+    /// REST shape returned by `POST /v1/documents`.
+    private struct RESTDocumentSaveResponse: Decodable {
+        let success: Bool
+        let surfaceId: String
+        let error: String?
+    }
+
     // MARK: - Documents HTTP Endpoints
 
     private func fetchDocumentList(conversationId: String?, isRetry: Bool = false) async {
@@ -65,8 +101,23 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCDocumentListResponse.self, from: data)
-            onMessage?(.documentListResponse(decoded))
+            // REST returns { documents: [...] } without `type` — wrap into IPC envelope
+            let rest = try decoder.decode(RESTDocumentListResponse.self, from: data)
+            let ipcDocs = rest.documents.map { doc in
+                IPCDocumentListResponseDocument(
+                    surfaceId: doc.surfaceId,
+                    conversationId: doc.conversationId,
+                    title: doc.title,
+                    wordCount: doc.wordCount,
+                    createdAt: doc.createdAt,
+                    updatedAt: doc.updatedAt
+                )
+            }
+            let ipcResponse = IPCDocumentListResponse(
+                type: "document_list_response",
+                documents: ipcDocs
+            )
+            onMessage?(.documentListResponse(ipcResponse))
         } catch {
             log.error("Fetch document list error: \(error.localizedDescription)")
         }
@@ -93,8 +144,21 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCDocumentLoadResponse.self, from: data)
-            onMessage?(.documentLoadResponse(decoded))
+            // REST returns { success, surfaceId, conversationId, ... } without `type` — wrap into IPC envelope
+            let rest = try decoder.decode(RESTDocumentLoadResponse.self, from: data)
+            let ipcResponse = IPCDocumentLoadResponse(
+                type: "document_load_response",
+                surfaceId: rest.surfaceId,
+                conversationId: rest.conversationId,
+                title: rest.title,
+                content: rest.content,
+                wordCount: rest.wordCount,
+                createdAt: rest.createdAt,
+                updatedAt: rest.updatedAt,
+                success: rest.success,
+                error: rest.error
+            )
+            onMessage?(.documentLoadResponse(ipcResponse))
         } catch {
             log.error("Fetch document load error: \(error.localizedDescription)")
         }
@@ -148,8 +212,15 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCDocumentSaveResponse.self, from: data)
-            onMessage?(.documentSaveResponse(decoded))
+            // REST returns { success, surfaceId, error? } without `type` — wrap into IPC envelope
+            let rest = try decoder.decode(RESTDocumentSaveResponse.self, from: data)
+            let ipcResponse = IPCDocumentSaveResponse(
+                type: "document_save_response",
+                surfaceId: rest.surfaceId,
+                success: rest.success,
+                error: rest.error
+            )
+            onMessage?(.documentSaveResponse(ipcResponse))
         } catch {
             log.error("Document save error: \(error.localizedDescription)")
         }
