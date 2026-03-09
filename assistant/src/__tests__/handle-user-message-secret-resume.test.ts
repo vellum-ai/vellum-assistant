@@ -130,7 +130,6 @@ describe("handleUserMessage secret redirect continuation", () => {
     };
 
     const ctx = {
-      socketToSession: new Map<net.Socket, string>(),
       sessions: new Map(),
       cuSessions: new Map(),
       getOrCreateSession: async () => session,

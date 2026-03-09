@@ -151,15 +151,11 @@ function createCtx(): {
 } {
   const sent: Array<{ type: string; [k: string]: unknown }> = [];
   const fakeSocket = {} as net.Socket;
-  const socketToSession = new Map<net.Socket, string>();
 
   const ctx: HandlerContext = {
     sessions: new Map(),
-    socketToSession,
     cuSessions: new Map(),
-    socketToCuSession: new Map(),
     cuObservationParseSequence: new Map(),
-    socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
@@ -168,7 +164,9 @@ function createCtx(): {
     send: (_socket, msg) => {
       sent.push(msg as { type: string; [k: string]: unknown });
     },
-    broadcast: noop,
+    broadcast: (msg) => {
+      sent.push(msg as { type: string; [k: string]: unknown });
+    },
     clearAllSessions: () => 0,
     getOrCreateSession: () => {
       throw new Error("not implemented");
@@ -191,19 +189,17 @@ describe("handleRecordingRestart", () => {
   test("sends recording_stop and defers start until stop-ack", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-restart-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording first
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(originalId).not.toBeNull();
     sent.length = 0;
 
-    const result = handleRecordingRestart(conversationId, fakeSocket, ctx);
+    const result = handleRecordingRestart(conversationId, ctx);
 
     expect(result.initiated).toBe(true);
     expect(result.operationToken).toBeTruthy();
@@ -233,7 +229,7 @@ describe("handleRecordingRestart", () => {
   test('returns "no active recording" with reason when nothing is recording', () => {
     const { ctx, fakeSocket } = createCtx();
 
-    const result = handleRecordingRestart("conv-no-rec", fakeSocket, ctx);
+    const result = handleRecordingRestart("conv-no-rec", ctx);
 
     expect(result.initiated).toBe(false);
     expect(result.reason).toBe("no_active_recording");
@@ -243,16 +239,14 @@ describe("handleRecordingRestart", () => {
   test("generates unique operation token for each restart", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-restart-unique";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // First restart cycle
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
-    const result1 = handleRecordingRestart(conversationId, fakeSocket, ctx);
+    const result1 = handleRecordingRestart(conversationId, ctx);
 
     // Simulate the stop-ack to trigger the deferred start
     const stoppedStatus1: RecordingStatus = {
@@ -275,7 +269,7 @@ describe("handleRecordingRestart", () => {
 
     // Second restart cycle
     sent.length = 0;
-    const result2 = handleRecordingRestart(conversationId, fakeSocket, ctx);
+    const result2 = handleRecordingRestart(conversationId, ctx);
 
     expect(result1.operationToken).not.toBe(result2.operationToken);
   });
@@ -293,18 +287,15 @@ describe("restart_cancelled status", () => {
   test('emits restart_cancelled response, never "new recording started"', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-cancel-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start -> restart
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -353,17 +344,14 @@ describe("restart_cancelled status", () => {
   test("cleans up restart state on cancel", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-cancel-cleanup";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
 
@@ -410,18 +398,15 @@ describe("stale completion guard (operation token)", () => {
   test("rejects recording_status with stale operation token", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-stale-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start recording -> restart (creates operation token)
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -458,17 +443,14 @@ describe("stale completion guard (operation token)", () => {
   test("accepts recording_status with matching operation token", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-matching-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
 
@@ -499,13 +481,11 @@ describe("stale completion guard (operation token)", () => {
   test("allows tokenless recording_status during active restart (old recording ack)", async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-tokenless-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start recording -> restart (creates operation token)
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -541,19 +521,16 @@ describe("stale completion guard (operation token)", () => {
   test("no ghost state after restart stop/start handoff", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-ghost-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
 
     // Restart sends stop and defers start until stop-ack
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -587,12 +564,10 @@ describe("handleRecordingPause", () => {
   test("sends recording_pause for active recording", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-pause-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -616,9 +591,8 @@ describe("handleRecordingPause", () => {
   test("resolves to globally active recording from different conversation", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const convA = "conv-owner-pause";
-    ctx.socketToSession.set(fakeSocket, convA);
 
-    const recordingId = handleRecordingStart(convA, undefined, fakeSocket, ctx);
+    const recordingId = handleRecordingStart(convA, undefined, ctx);
     sent.length = 0;
 
     const result = handleRecordingPause("conv-other-pause", ctx);
@@ -634,12 +608,10 @@ describe("handleRecordingResume", () => {
   test("sends recording_resume for active recording", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-resume-1";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -674,17 +646,16 @@ describe("isRecordingIdle", () => {
 
   test("returns false when recording is active", () => {
     const { ctx, fakeSocket } = createCtx();
-    handleRecordingStart("conv-idle-1", undefined, fakeSocket, ctx);
+    handleRecordingStart("conv-idle-1", undefined, ctx);
     expect(isRecordingIdle()).toBe(false);
   });
 
   test("returns false when mid-restart (between stop-ack and start confirmation)", () => {
     const { ctx, fakeSocket } = createCtx();
     const conversationId = "conv-idle-restart";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
+    handleRecordingRestart(conversationId, ctx);
 
     // Mid-restart: the old recording maps are still present AND there's a
     // pending restart, so the system is not idle
@@ -694,17 +665,14 @@ describe("isRecordingIdle", () => {
   test("returns true after restart completes", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-idle-complete";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
 
@@ -744,20 +712,18 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   test("restart_only executes actual restart (deferred start)", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-exec-restart";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording first
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     sent.length = 0;
 
     const result = executeRecordingIntent(
       { kind: "restart_only" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -788,7 +754,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
 
     const result = executeRecordingIntent(
       { kind: "restart_only" },
-      { conversationId: "conv-no-rec", socket: fakeSocket, ctx },
+      { conversationId: "conv-no-rec", ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -800,7 +766,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
 
     const result = executeRecordingIntent(
       { kind: "restart_with_remainder", remainder: "do something else" },
-      { conversationId: "conv-rem", socket: fakeSocket, ctx },
+      { conversationId: "conv-rem", ctx },
     );
 
     expect(result.handled).toBe(false);
@@ -811,14 +777,13 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   test("pause_only executes actual pause", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-exec-pause";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
     sent.length = 0;
 
     const result = executeRecordingIntent(
       { kind: "pause_only" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -833,7 +798,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
 
     const result = executeRecordingIntent(
       { kind: "pause_only" },
-      { conversationId: "conv-no-rec", socket: fakeSocket, ctx },
+      { conversationId: "conv-no-rec", ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -843,14 +808,13 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   test("resume_only executes actual resume", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-exec-resume";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
     sent.length = 0;
 
     const result = executeRecordingIntent(
       { kind: "resume_only" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -865,7 +829,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
 
     const result = executeRecordingIntent(
       { kind: "resume_only" },
-      { conversationId: "conv-no-rec", socket: fakeSocket, ctx },
+      { conversationId: "conv-no-rec", ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -887,7 +851,6 @@ describe("recording_status paused/resumed", () => {
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -910,7 +873,6 @@ describe("recording_status paused/resumed", () => {
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -939,15 +901,13 @@ describe("failure during restart", () => {
   test("failed status during restart clears pending restart state (old recording fails)", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fail-restart";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    handleRecordingRestart(conversationId, ctx);
     sent.length = 0;
 
     // Simulate the old recording failing to stop (before stop-ack)
@@ -968,17 +928,14 @@ describe("failure during restart", () => {
   test("failed status during restart clears state (new recording fails after deferred start)", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fail-restart-new";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
 
@@ -1021,13 +978,12 @@ describe("start_and_stop_only fallback to plain start when idle", () => {
   test("falls back to handleRecordingStart when no active recording", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-stop-start-idle";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // No recording is active — start_and_stop_only should fall back to a
     // plain start rather than returning "No active recording to restart."
     const result = executeRecordingIntent(
       { kind: "start_and_stop_only" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -1044,13 +1000,11 @@ describe("start_and_stop_only fallback to plain start when idle", () => {
   test("goes through restart when a recording is active (deferred start)", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-stop-start-active";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording first
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(originalId).not.toBeNull();
@@ -1059,7 +1013,7 @@ describe("start_and_stop_only fallback to plain start when idle", () => {
     // Now start_and_stop_only should go through handleRecordingRestart
     const result = executeRecordingIntent(
       { kind: "start_and_stop_only" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(true);
@@ -1102,7 +1056,7 @@ describe("start_and_stop_with_remainder fallback to plain start when idle", () =
 
     const result = executeRecordingIntent(
       { kind: "start_and_stop_with_remainder", remainder: "do something" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(false);
@@ -1114,14 +1068,13 @@ describe("start_and_stop_with_remainder fallback to plain start when idle", () =
   test("sets pendingRestart when a recording is active", () => {
     const { ctx, fakeSocket } = createCtx();
     const conversationId = "conv-rem-active";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording first
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
 
     const result = executeRecordingIntent(
       { kind: "start_and_stop_with_remainder", remainder: "do something" },
-      { conversationId, socket: fakeSocket, ctx },
+      { conversationId, ctx },
     );
 
     expect(result.handled).toBe(false);
@@ -1143,12 +1096,11 @@ describe("deferred restart prevents race condition", () => {
   test("recording_start is NOT sent until client acks the stop", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-deferred-race";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
     sent.length = 0;
 
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    handleRecordingRestart(conversationId, ctx);
 
     // Only recording_stop should have been sent — no recording_start yet
     expect(sent.filter((m) => m.type === "recording_stop")).toHaveLength(1);
@@ -1162,10 +1114,9 @@ describe("deferred restart prevents race condition", () => {
     // This test uses a real timer via bun's jest-compatible API
     const { ctx, fakeSocket } = createCtx();
     const conversationId = "conv-deferred-timeout";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
+    handleRecordingRestart(conversationId, ctx);
 
     // Mid-restart: not idle
     expect(isRecordingIdle()).toBe(false);
@@ -1179,15 +1130,14 @@ describe("deferred restart prevents race condition", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const convA = "conv-owner-A";
     const convB = "conv-requester-B";
-    ctx.socketToSession.set(fakeSocket, convA);
 
     // Conversation A starts a recording
-    const originalId = handleRecordingStart(convA, undefined, fakeSocket, ctx);
+    const originalId = handleRecordingStart(convA, undefined, ctx);
     expect(originalId).not.toBeNull();
     sent.length = 0;
 
     // Conversation B requests a restart (cross-conversation via global fallback)
-    const result = handleRecordingRestart(convB, fakeSocket, ctx);
+    const result = handleRecordingRestart(convB, ctx);
     expect(result.initiated).toBe(true);
     expect(result.operationToken).toBeTruthy();
 
@@ -1247,12 +1197,10 @@ describe("deferred restart prevents race condition", () => {
   test("normal stop (non-restart) does not trigger deferred start", () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-normal-stop";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -1289,13 +1237,11 @@ describe("restart finalization", () => {
   test("publishes previous recording attachment on restart", async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fin-publish";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(originalId).not.toBeNull();
@@ -1303,7 +1249,6 @@ describe("restart finalization", () => {
     // Trigger restart
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -1348,20 +1293,17 @@ describe("restart finalization", () => {
   test("restart + picker cancel preserves previous publish", async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fin-cancel-preserve";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
 
     // Restart
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -1428,20 +1370,17 @@ describe("restart finalization", () => {
   test("emits truthful failure text when previous finalize fails", async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fin-fail-truth";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
 
     // Restart
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -1481,20 +1420,17 @@ describe("restart finalization", () => {
   test("preserves previous attachment when new start fails", async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fin-new-fail";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
 
     // Restart
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -1553,20 +1489,17 @@ describe("restart finalization", () => {
   test("duplicate stopped callback does not double-attach", async () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = "conv-fin-dup-stop";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording
     const originalId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
 
     // Restart
     const restartResult = handleRecordingRestart(
       conversationId,
-      fakeSocket,
       ctx,
     );
     expect(restartResult.initiated).toBe(true);
@@ -1628,13 +1561,12 @@ describe("restart finalization", () => {
     // Start a recording, verify not idle
     const { ctx, fakeSocket } = createCtx();
     const conversationId = "conv-fin-sanity";
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    handleRecordingStart(conversationId, undefined, ctx);
     expect(isRecordingIdle()).toBe(false);
 
     // Restart, verify token is set
-    handleRecordingRestart(conversationId, fakeSocket, ctx);
+    handleRecordingRestart(conversationId, ctx);
     expect(getActiveRestartToken()).not.toBeNull();
 
     // Reset everything, verify clean state

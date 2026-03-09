@@ -210,7 +210,6 @@ async function handleStructuredRecordingIntent(
     const recordingId = handleRecordingStart(
       msg.sessionId,
       { promptForSource: true },
-      socket,
       ctx,
     );
     const responseText = recordingId
@@ -240,7 +239,7 @@ async function handleStructuredRecordingIntent(
     );
     return true;
   } else if (action === "restart") {
-    const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
+    const restartResult = handleRecordingRestart(msg.sessionId, ctx);
     await persistRecordingExchange(
       msg.sessionId,
       messageText,
@@ -324,7 +323,6 @@ async function handleStandaloneRecordingIntent(
   ) {
     const execResult = executeRecordingIntent(intentResult, {
       conversationId: msg.sessionId,
-      socket,
       ctx,
     });
 
@@ -354,7 +352,6 @@ async function handleStandaloneRecordingIntent(
   ) {
     const execResult = executeRecordingIntent(intentResult, {
       conversationId: msg.sessionId,
-      socket,
       ctx,
     });
 
@@ -369,7 +366,6 @@ async function handleStandaloneRecordingIntent(
       handleRecordingStart(
         msg.sessionId,
         { promptForSource: true },
-        socket,
         ctx,
       );
     }
@@ -377,7 +373,7 @@ async function handleStandaloneRecordingIntent(
       intentResult.kind === "restart_with_remainder" ||
       intentResult.kind === "start_and_stop_with_remainder"
     ) {
-      const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
+      const restartResult = handleRecordingRestart(msg.sessionId, ctx);
       if (
         !restartResult.initiated &&
         restartResult.reason === "no_active_recording" &&
@@ -386,7 +382,6 @@ async function handleStandaloneRecordingIntent(
         handleRecordingStart(
           msg.sessionId,
           { promptForSource: true },
-          socket,
           ctx,
         );
       }
@@ -431,7 +426,6 @@ async function handleStandaloneRecordingIntent(
       if (mapped) {
         const execResult = executeRecordingIntent(mapped, {
           conversationId: msg.sessionId,
-          socket,
           ctx,
         });
 
@@ -854,7 +848,6 @@ export async function handleUserMessage(
   const requestId = uuid();
   const rlog = log.child({ sessionId: msg.sessionId, requestId });
   try {
-    ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
     // Only wire the escalation handler if one isn't already set — handleTaskSubmit
     // sets a handler with the client's actual screen dimensions, and overwriting it

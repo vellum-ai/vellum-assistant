@@ -26,11 +26,6 @@ function removeCuSessionReferences(
   ctx.cuSessions.delete(sessionId);
   cuObservationSequenceBySession.delete(sessionId);
   ctx.cuObservationParseSequence.delete(sessionId);
-  for (const [sock, ids] of ctx.socketToCuSession) {
-    if (ids.delete(sessionId) && ids.size === 0) {
-      ctx.socketToCuSession.delete(sock);
-    }
-  }
 }
 
 export function handleCuSessionCreate(
@@ -84,14 +79,6 @@ export function handleCuSessionCreate(
   sessionRef.current = session;
 
   ctx.cuSessions.set(msg.sessionId, session);
-
-  // Track all CU sessions per socket so disconnect cleans up all of them
-  let sessionIds = ctx.socketToCuSession.get(socket);
-  if (!sessionIds) {
-    sessionIds = new Set();
-    ctx.socketToCuSession.set(socket, sessionIds);
-  }
-  sessionIds.add(msg.sessionId);
 
   log.info(
     { sessionId: msg.sessionId, taskLength: msg.task.length },

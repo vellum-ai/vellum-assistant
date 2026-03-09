@@ -78,7 +78,6 @@ export async function handleTaskSubmit(
       // end-to-end. The conversation is deleted after the prompt resolves
       // to avoid accumulating placeholder entries in session history.
       const conversation = createConversation("(blocked — secret detected)");
-      ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(
         conversation.id,
         socket,
@@ -94,11 +93,7 @@ export async function handleTaskSubmit(
             s.dispose();
             ctx.sessions.delete(conversation.id);
           }
-          // Only unbind if the socket still points to this ephemeral conversation;
-          // a new task_submit may have already rebound it to a real session.
-          if (ctx.socketToSession.get(socket) === conversation.id) {
-            ctx.socketToSession.delete(socket);
-          }
+          // Socket-session unbinding removed (HTTP-only mode).
         },
       });
       return;
@@ -117,11 +112,9 @@ export async function handleTaskSubmit(
       );
       if (action === "start") {
         const conversation = createConversation(msg.task || "Screen Recording");
-        ctx.socketToSession.set(socket, conversation.id);
         const recordingId = handleRecordingStart(
           conversation.id,
           { promptForSource: true },
-          socket,
           ctx,
         );
         const responseText = recordingId
@@ -163,15 +156,10 @@ export async function handleTaskSubmit(
             content: [{ type: "text", text: responseText }],
           });
         }
-        if (!recordingId) ctx.socketToSession.delete(socket);
         return;
       } else if (action === "stop") {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(msg.task || "Stop Recording");
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(msg.task || "Stop Recording");
+        const activeSessionId = conversation.id;
         const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
         const responseText = stopped
           ? "Stopping the recording."
@@ -213,17 +201,12 @@ export async function handleTaskSubmit(
         }
         return;
       } else if (action === "restart") {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(
-            msg.task || "Restart Recording",
-          );
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(
+          msg.task || "Restart Recording",
+        );
+        const activeSessionId = conversation.id;
         const restartResult = handleRecordingRestart(
           activeSessionId,
-          socket,
           ctx,
         );
         ctx.send(socket, {
@@ -263,14 +246,10 @@ export async function handleTaskSubmit(
         }
         return;
       } else if (action === "pause") {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(
-            msg.task || "Pause Recording",
-          );
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(
+          msg.task || "Pause Recording",
+        );
+        const activeSessionId = conversation.id;
         const paused = handleRecordingPause(activeSessionId, ctx) !== undefined;
         const responseText = paused
           ? "Pausing the recording."
@@ -312,14 +291,10 @@ export async function handleTaskSubmit(
         }
         return;
       } else if (action === "resume") {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(
-            msg.task || "Resume Recording",
-          );
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(
+          msg.task || "Resume Recording",
+        );
+        const activeSessionId = conversation.id;
         const resumed =
           handleRecordingResume(activeSessionId, ctx) !== undefined;
         const responseText = resumed
@@ -387,11 +362,9 @@ export async function handleTaskSubmit(
       if (intentResult.kind === "start_only") {
         // Create a conversation so the recording can be attached later
         const conversation = createConversation(msg.task);
-        ctx.socketToSession.set(socket, conversation.id);
 
         const execResult = executeRecordingIntent(intentResult, {
           conversationId: conversation.id,
-          socket,
           ctx,
         });
 
@@ -431,11 +404,6 @@ export async function handleTaskSubmit(
           });
         }
 
-        // If recording rejected, unbind socket
-        if (execResult.recordingStarted === false) {
-          ctx.socketToSession.delete(socket);
-        }
-
         rlog.info(
           { sessionId: conversation.id },
           "Recording-only intent intercepted — routed to standalone recording",
@@ -444,16 +412,11 @@ export async function handleTaskSubmit(
       }
 
       if (intentResult.kind === "stop_only") {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(msg.task);
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(msg.task);
+        const activeSessionId = conversation.id;
 
         const execResult = executeRecordingIntent(intentResult, {
           conversationId: activeSessionId,
-          socket,
           ctx,
         });
 
@@ -497,16 +460,11 @@ export async function handleTaskSubmit(
       }
 
       if (intentResult.kind === "start_and_stop_only") {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(msg.task);
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(msg.task);
+        const activeSessionId = conversation.id;
 
         const execResult = executeRecordingIntent(intentResult, {
           conversationId: activeSessionId,
-          socket,
           ctx,
         });
 
@@ -555,16 +513,11 @@ export async function handleTaskSubmit(
         intentResult.kind === "pause_only" ||
         intentResult.kind === "resume_only"
       ) {
-        let activeSessionId = ctx.socketToSession.get(socket);
-        if (!activeSessionId) {
-          const conversation = createConversation(msg.task);
-          activeSessionId = conversation.id;
-          ctx.socketToSession.set(socket, activeSessionId);
-        }
+        const conversation = createConversation(msg.task);
+        const activeSessionId = conversation.id;
 
         const execResult = executeRecordingIntent(intentResult, {
           conversationId: activeSessionId,
-          socket,
           ctx,
         });
 
@@ -666,16 +619,11 @@ export async function handleTaskSubmit(
           };
           const mapped = kindMap[fallback.action];
           if (mapped) {
-            let activeSessionId = ctx.socketToSession.get(socket);
-            if (!activeSessionId) {
-              const conversation = createConversation(msg.task);
-              activeSessionId = conversation.id;
-              ctx.socketToSession.set(socket, activeSessionId);
-            }
+            const conversation = createConversation(msg.task);
+            const activeSessionId = conversation.id;
 
             const execResult = executeRecordingIntent(mapped, {
               conversationId: activeSessionId,
-              socket,
               ctx,
             });
 
@@ -722,11 +670,6 @@ export async function handleTaskSubmit(
                 });
               }
 
-              // If recording was rejected (e.g. already active), unbind the
-              // socket so it doesn't stay bound to an orphaned conversation.
-              if (execResult.recordingStarted === false) {
-                ctx.socketToSession.delete(socket);
-              }
               return;
             }
           }
@@ -776,13 +719,11 @@ export async function handleTaskSubmit(
           handleRecordingStart(
             recConversation.id,
             { promptForSource: true },
-            socket,
             ctx,
           );
         if (pendingRecordingRestart) {
           const restartResult = handleRecordingRestart(
             recConversation.id,
-            socket,
             ctx,
           );
           // TOCTOU: recording may have stopped between intent resolution and
@@ -796,7 +737,6 @@ export async function handleTaskSubmit(
             handleRecordingStart(
               recConversation.id,
               { promptForSource: true },
-              socket,
               ctx,
             );
           }
@@ -816,7 +756,6 @@ export async function handleTaskSubmit(
         context: { origin: "task_submit" },
         userMessage: msg.task,
       });
-      ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(
         conversation.id,
         socket,
@@ -838,13 +777,11 @@ export async function handleTaskSubmit(
         handleRecordingStart(
           conversation.id,
           { promptForSource: true },
-          socket,
           ctx,
         );
       if (pendingRecordingRestart) {
         const restartResult = handleRecordingRestart(
           conversation.id,
-          socket,
           ctx,
         );
         if (
@@ -855,7 +792,6 @@ export async function handleTaskSubmit(
           handleRecordingStart(
             conversation.id,
             { promptForSource: true },
-            socket,
             ctx,
           );
         }

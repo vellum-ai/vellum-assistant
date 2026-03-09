@@ -151,11 +151,8 @@ export interface SessionCreateOptions {
  */
 export interface HandlerContext {
   sessions: Map<string, Session>;
-  socketToSession: Map<net.Socket, string>;
   cuSessions: Map<string, ComputerUseSession>;
-  socketToCuSession: Map<net.Socket, Set<string>>;
   cuObservationParseSequence: Map<string, number>;
-  socketSandboxOverride: Map<net.Socket, boolean>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
@@ -226,31 +223,15 @@ export function getScreenDimensions(): { width: number; height: number } {
 }
 
 /**
- * Find the current socket bound to a given session by reversing the
- * `socketToSession` map. Returns `undefined` if no socket is bound.
- */
-export function findSocketForSession(
-  sessionId: string,
-  ctx: HandlerContext,
-): net.Socket | undefined {
-  for (const [sock, id] of ctx.socketToSession) {
-    if (id === sessionId) return sock;
-  }
-  return undefined;
-}
-
-/**
  * Wire the escalation handler on a text_qa session so that invoking
  * `computer_use_request_control` creates a CU session and notifies the client.
  *
- * Instead of closing over the original `socket`, the handler looks up the
- * current socket for the session at call time via `ctx.socketToSession`.
- * This ensures the handler targets the correct socket even after a
- * disconnect-and-rebind cycle.
+ * In the HTTP-only world, the escalation handler broadcasts events via
+ * `ctx.broadcast` instead of targeting a specific socket.
  */
 export function wireEscalationHandler(
   session: Session,
-  _socket: net.Socket,
+  socket: net.Socket,
   ctx: HandlerContext,
   explicitWidth?: number,
   explicitHeight?: number,
@@ -266,15 +247,6 @@ export function wireEscalationHandler(
   const screenHeight = dims.height;
   session.setEscalationHandler(
     (task: string, sourceSessionId: string): boolean => {
-      const currentSocket = findSocketForSession(sourceSessionId, ctx);
-      if (!currentSocket) {
-        log.warn(
-          { sourceSessionId },
-          "Escalation handler: no active socket found for session",
-        );
-        return false;
-      }
-
       const cuSessionId = uuid();
       const cuMsg: CuSessionCreate = {
         type: "cu_session_create",
@@ -284,9 +256,9 @@ export function wireEscalationHandler(
         screenHeight,
         interactionType: "computer_use",
       };
-      handleCuSessionCreate(cuMsg, currentSocket, ctx);
+      handleCuSessionCreate(cuMsg, socket, ctx);
 
-      ctx.send(currentSocket, {
+      ctx.broadcast({
         type: "task_routed",
         sessionId: cuSessionId,
         interactionType: "computer_use",
