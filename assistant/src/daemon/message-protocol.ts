@@ -1,5 +1,5 @@
 /**
- * IPC Protocol -- message types and serialization.
+ * Message Protocol -- message types and serialization.
  *
  * All message types are defined in domain files under ./message-types/.
  * Each domain file exports `_<Domain>ClientMessages` and/or
@@ -7,7 +7,7 @@
  * into the aggregate ClientMessage and ServerMessage unions, and provides
  * serialization/parsing utilities.
  *
- * To add a new IPC message type:
+ * To add a new message type:
  *   1. Define its interface in the appropriate domain file.
  *   2. Add it to that file's _<Domain>ClientMessages or _<Domain>ServerMessages.
  * No changes needed here unless you're adding an entirely new domain file.
@@ -189,7 +189,7 @@ export type ServerMessage =
 
 // === Contract schema ===
 
-export interface IPCContractSchema {
+export interface ContractSchema {
   client: ClientMessage;
   server: ServerMessage;
 }
@@ -197,15 +197,6 @@ export interface IPCContractSchema {
 const log = getLogger("message-protocol");
 
 // === Serialization ===
-
-/**
- * Maximum size of a single line in the IPC buffer (96MB).
- *
- * Attachment payloads are sent inline as base64 in `user_message`, so the
- * parser must tolerate large partial frames before the terminating newline
- * arrives.
- */
-export const MAX_LINE_SIZE = 96 * 1024 * 1024;
 
 export function serialize(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg) + "\n";
