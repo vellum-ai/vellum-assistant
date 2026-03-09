@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
@@ -9,58 +8,6 @@ private let ipcLog = OSLog(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
     category: .pointsOfInterest
 )
-
-#if os(macOS)
-private func expandHomePath(_ path: String) -> String {
-    if path == "~" {
-        return NSHomeDirectory()
-    }
-    if path.hasPrefix("~/") {
-        return NSHomeDirectory() + "/" + String(path.dropFirst(2))
-    }
-    return path
-}
-
-/// Resolve the Unix domain socket path for the daemon connection.
-/// Returns the path in priority order:
-/// 1. `VELLUM_DAEMON_SOCKET` environment variable (trimmed, with ~/ expansion)
-/// 2. `~/.vellum/vellum.sock`
-///
-/// Accepts an optional environment dictionary for testability.
-func resolveSocketPath(environment: [String: String]? = nil) -> String {
-    let env = environment ?? ProcessInfo.processInfo.environment
-    if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        return expandHomePath(trimmed)
-    }
-    return resolveVellumDir(environment: environment) + "/vellum.sock"
-}
-
-/// Resolve the daemon session token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-func resolveSessionTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/session-token"
-}
-
-/// Read the daemon session token from disk.
-func readSessionToken(environment: [String: String]? = nil) -> String? {
-    let tokenPath = resolveSessionTokenPath(environment: environment)
-    let data: Data
-    do {
-        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
-    } catch {
-        log.error("Failed to read session token from \(tokenPath, privacy: .private): \(error)")
-        return nil
-    }
-    guard let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
-        return nil
-    }
-    return token
-}
-
-#endif
 
 /// Resolve the `.vellum` data directory, honoring `BASE_DATA_DIR` when set.
 public func resolveVellumDir(environment: [String: String]? = nil) -> String {
@@ -288,22 +235,12 @@ extension Notification.Name {
     /// Posted by `DaemonClient` on the main actor immediately after `isConnected` transitions to `true`.
     public static let daemonDidReconnect = Notification.Name("daemonDidReconnect")
 
-    /// Posted when a connection attempt fails because the daemon socket does not exist (ENOENT).
-    /// The health monitor observes this to trigger an immediate restart instead of waiting
-    /// for the next periodic health check.
-    public static let daemonSocketNotFound = Notification.Name("daemonSocketNotFound")
-
     /// Posted when the daemon's signing key fingerprint changes, indicating an instance switch.
     /// Observers should trigger credential re-bootstrap.
     public static let daemonInstanceChanged = Notification.Name("daemonInstanceChanged")
 }
 
-/// Platform-agnostic client for communicating with the Vellum daemon.
-///
-/// **macOS**: Connects via Unix domain socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override).
-/// **iOS**: Connects via TCP to configurable hostname:port (UserDefaults: `daemon_hostname`, `daemon_port`).
-///
-/// Sends and receives newline-delimited JSON messages over the connection.
+/// Platform-agnostic client for communicating with the Vellum daemon via HTTP + SSE.
 ///
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
 /// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
@@ -317,8 +254,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var isConnecting: Bool = false
 
     /// Whether blob transport has been verified for this connection.
-    /// Resets to `false` on disconnect/reconnect. Only set to `true` after
-    /// a successful probe round-trip on macOS local-socket connections.
+    /// Always `false` — blob transport was only available over the legacy socket
+    /// transport which has been removed. Kept for protocol conformance.
     @Published public internal(set) var isBlobTransportAvailable: Bool = false
 
     /// The runtime HTTP server port, populated via `daemon_status` on connect.
@@ -685,70 +622,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Internal State (accessed by extensions in DaemonConnection.swift and DaemonMessageRouter.swift)
 
-    var connection: NWConnection?
-    let queue = DispatchQueue(label: "com.vellum.vellum-assistant.daemon-client", qos: .userInitiated)
-
     var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
     var isAuthenticated = false
-    var authContinuation: CheckedContinuation<Void, Error>?
-    var authTimeoutTask: Task<Void, Never>?
-
-    /// Buffer for accumulating incoming data until we have complete newline-delimited messages.
-    /// Legacy — only cleared on disconnect. Buffering + decoding now happens on the
-    /// NWConnection queue via `decodeBuffer`.
-    var receiveBuffer = Data()
-
-    /// Buffer for accumulating incoming data on the NWConnection background queue.
-    /// Accessed ONLY from NWConnection receive callbacks (which run on `queue`),
-    /// so concurrent access is safe despite the @MainActor class isolation.
-    nonisolated(unsafe) var decodeBuffer = Data()
-
-    /// Maximum line size: 96 MB (for screenshots with base64).
-    let maxLineSize = 96 * 1024 * 1024
 
     /// Monotonic per-session sequence for CU observation sends.
     var cuObservationSequenceBySession: [String: Int] = [:]
 
-    /// Whether we should attempt to reconnect on disconnect.
-    var shouldReconnect = true
-
-    /// Current reconnect backoff delay in seconds.
-    var reconnectDelay: TimeInterval = 1.0
-
-    /// Maximum reconnect backoff delay.
-    let maxReconnectDelay: TimeInterval = 30.0
-
-    /// Reconnect task handle.
-    var reconnectTask: Task<Void, Never>?
-
-    /// Network path monitor — triggers immediate reconnect when network becomes available.
-    var pathMonitor: NWPathMonitor?
-    let pathMonitorQueue = DispatchQueue(label: "com.vellum.vellum-assistant.network-monitor", qos: .background)
-
-    /// Ping timer task handle.
-    var pingTask: Task<Void, Never>?
-
-    /// Whether we're waiting for a pong response.
-    var awaitingPong = false
-
-    /// Pong timeout task handle.
-    var pongTimeoutTask: Task<Void, Never>?
-
-    /// Blob probe task handle — fire-and-forget after connect on macOS.
-    var blobProbeTask: Task<Void, Never>?
-
-    /// The probe ID we're currently waiting for a response to.
-    /// Used to match ipc_blob_probe_result to the outstanding probe.
-    /// Internal (not private) for testability via @testable import.
-    var pendingProbeId: String?
-
-    /// HTTP transport used when connecting to a remote assistant via gateway.
-    /// Non-nil when `config.transport` is `.http`.
+    /// HTTP transport for communicating with the assistant.
     public var httpTransport: HTTPTransport?
-
-    let encoder = JSONEncoder()
-    let decoder = JSONDecoder()
 
     public private(set) var config: DaemonConfig
 
@@ -784,8 +666,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
-        // Only call thread-safe cancellation methods here — Task.cancel() and
-        // NWConnection.cancel() are safe from any thread.
+        // Only call thread-safe cancellation methods here — Task.cancel() is safe from any thread.
         //
         // We must finish subscriber continuations to prevent hanging `for await` loops.
         // deinit guarantees exclusive access (no other strong references exist), so
@@ -794,25 +675,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         for continuation in continuations {
             continuation.finish()
         }
-
-        reconnectTask?.cancel()
-        pingTask?.cancel()
-        pongTimeoutTask?.cancel()
-        blobProbeTask?.cancel()
-        pathMonitor?.cancel()
-        connection?.cancel()
         // httpTransport is cleaned up via disconnectInternal() before dealloc;
     }
-
-    // MARK: - Socket Path
-
-    /// Resolves the daemon socket path (macOS only).
-    /// Delegates to the standalone `resolveSocketPath()` function for DRY.
-    #if os(macOS)
-    public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
-        return VellumAssistantShared.resolveSocketPath(environment: environment)
-    }
-    #endif
 
     // MARK: - PID Validation
 
@@ -835,18 +699,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     public enum SendError: Error, LocalizedError {
         case notConnected
-        case notAuthenticated
 
         public var errorDescription: String? {
             switch self {
             case .notConnected:
                 return "Cannot send: not connected to daemon"
-            case .notAuthenticated:
-                return "Cannot send: daemon authentication not complete"
             }
         }
     }
 
+    /// Legacy authentication errors — retained for compatibility with code
+    /// that catches `AuthError` (e.g. bootstrap retry coordinator).
     public enum AuthError: Error, LocalizedError {
         case missingToken
         case timeout
@@ -865,13 +728,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Closure that, when set, replaces the real send path.
-    /// Used in tests to avoid needing a live NWConnection.
+    /// Used in tests to avoid needing a live HTTP connection.
     internal var sendOverride: ((Any) throws -> Void)?
 
-    /// Send a message to the daemon.
-    /// Encodes the message as JSON, appends a newline, and writes to the connection.
-    /// Throws `SendError.notConnected` when the connection is nil so callers can
-    /// distinguish a silently-dropped message from a successful write.
+    /// Send a message to the daemon via HTTP transport.
+    /// Throws `SendError.notConnected` when the transport is unavailable.
     public func send<T: Encodable>(_ message: T) throws {
         let sendID = OSSignpostID(log: ipcLog)
         os_signpost(.begin, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
@@ -882,67 +743,24 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        // Route through HTTP transport when active (remote assistants).
-        // Note: httpTransport.send() dispatches the actual HTTP request
-        // asynchronously (Task { ... }), so the signpost only captures the
-        // synchronous dispatch overhead, not the full network round-trip.
-        // Full HTTP latency instrumentation belongs in HTTPDaemonClient.
-        if let httpTransport {
-            guard httpTransport.isConnected else {
-                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-                throw SendError.notConnected
-            }
-            do {
-                try httpTransport.send(message)
-                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            } catch {
-                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-                throw error
-            }
-            return
-        }
-
-        guard let conn = connection else {
+        guard let httpTransport else {
             os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
         }
 
-        if !isAuthenticated, !(message is AuthMessage) {
+        guard httpTransport.isConnected else {
             os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            log.warning("Cannot send: authentication not complete")
-            throw SendError.notAuthenticated
+            throw SendError.notConnected
         }
 
-        let data: Data
         do {
-            var encoded = try encoder.encode(message)
-            encoded.append(contentsOf: [0x0A]) // newline byte
-            data = encoded
+            try httpTransport.send(message)
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
         } catch {
             os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             throw error
         }
-
-        if let observation = message as? CuObservationMessage {
-            let previousSequence = cuObservationSequenceBySession[observation.sessionId] ?? 0
-            let sequence = previousSequence + 1
-            cuObservationSequenceBySession[observation.sessionId] = sequence
-            let payloadJSONBytes = max(0, data.count - 1)
-            let screenshotBase64Bytes = observation.screenshot?.utf8.count ?? 0
-            let axTreeBytes = observation.axTree?.utf8.count ?? 0
-            let sendTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
-            log.info(
-                "IPC_METRIC cu_observation_send sessionId=\(observation.sessionId) sequence=\(sequence) sendTsMs=\(sendTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes)"
-            )
-        }
-
-        conn.send(content: data, completion: .contentProcessed { error in
-            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            if let error {
-                log.error("Send failed: \(error.localizedDescription)")
-            }
-        })
     }
 
     public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
@@ -951,15 +769,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        if let httpTransport {
-            guard httpTransport.isConnected else {
-                throw SendError.notConnected
-            }
-            try await httpTransport.sendConversationUnread(signal)
-            return
+        guard let httpTransport else {
+            throw SendError.notConnected
         }
-
-        try send(signal)
+        guard httpTransport.isConnected else {
+            throw SendError.notConnected
+        }
+        try await httpTransport.sendConversationUnread(signal)
     }
 
     // MARK: - Surface Actions
@@ -1738,54 +1554,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Remote Identity
 
-    /// Fetch identity info from the daemon.
-    /// Uses HTTP transport directly when available, otherwise falls back to IPC.
+    /// Fetch identity info from the daemon via HTTP transport.
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        // If HTTP transport is active, use its direct endpoint
-        if let httpTransport {
-            return await httpTransport.fetchRemoteIdentity()
-        }
-
-        // Fall back to IPC-based identity fetch (TCP connections)
-        let stream = subscribe()
-        do {
-            try sendIdentityGet()
-        } catch {
-            return nil
-        }
-
-        // Race the stream against a 10-second timeout so we don't wait forever
-        // if the daemon doesn't support this message.
-        let response: IdentityGetResponseMessage? = await withTaskGroup(of: IdentityGetResponseMessage?.self) { group in
-            group.addTask {
-                for await message in stream {
-                    if case .identityGetResponse(let msg) = message {
-                        return msg
-                    }
-                }
-                return nil
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-
-        guard let response, response.found else { return nil }
-        return RemoteIdentityInfo(
-            name: response.name,
-            role: response.role,
-            personality: response.personality,
-            emoji: response.emoji,
-            version: response.version,
-            assistantId: response.assistantId,
-            home: response.home,
-            createdAt: response.createdAt,
-            originSystem: response.originSystem
-        )
+        guard let httpTransport else { return nil }
+        return await httpTransport.fetchRemoteIdentity()
     }
 
     /// Request identity info via IPC.
@@ -2126,7 +1898,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Routes through `HTTPTransport` when available so that managed-mode
     /// URL paths (`/v1/assistants/{id}/contacts/`) and auth headers
     /// (`X-Session-Token`) are applied correctly. Falls back to the local
-    /// daemon HTTP server for socket-based connections.
+    /// local daemon HTTP server for local connections.
     public func updateContact(
         contactId: String,
         displayName: String,
@@ -2208,7 +1980,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
     /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway (port 7830) for socket-based connections.
+    /// local gateway (port 7830) for local connections.
     public func createInvite(
         sourceChannel: String,
         note: String? = nil,
@@ -2281,7 +2053,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Fetch per-channel readiness state from the gateway.
     /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway for socket-based connections.
+    /// local gateway for local connections.
     public func fetchChannelReadiness() async throws -> [String: ChannelReadinessInfo] {
         if let httpTransport {
             return try await httpTransport.fetchChannelReadiness()
@@ -2507,7 +2279,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// to the runtime bearer token (the gateway accepts both).
     ///
     /// On macOS: if `httpTransport` targets a **remote** gateway (non-localhost baseURL),
-    /// delegates to it. Otherwise (socket transport or local HTTP via `localHttpEnabled`),
+    /// delegates to it. Otherwise (local HTTP),
     /// calls the local gateway directly on port 7830 because the runtime HTTP server
     /// doesn't serve feature-flag routes.
     /// On iOS, always delegates to `httpTransport` which targets the remote gateway.
@@ -2529,7 +2301,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        // Local mode (socket, TCP, or local HTTP): call the gateway directly.
+        // Local mode: call the gateway directly.
         let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
         guard var request = buildLocalRequest(target: .gateway, path: "v1/feature-flags/\(encoded)", method: "PATCH", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL

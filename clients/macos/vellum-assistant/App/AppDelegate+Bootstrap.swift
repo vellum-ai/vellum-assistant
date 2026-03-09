@@ -18,7 +18,6 @@ enum BootstrapState: String {
 /// Categorises the most recent bootstrap failure so diagnostic messages
 /// can be specific rather than generic escalating text.
 enum BootstrapFailureKind {
-    case socketMissing
     case daemonNotRunning
     case connectionRefused
     case gatewayUnhealthy
@@ -202,17 +201,11 @@ extension AppDelegate {
                     return
                 }
 
-                // If the daemon socket doesn't exist, the daemon process
-                // likely isn't running (e.g. hatch failed). Re-attempt hatch
-                // so we don't loop forever on connect-only retries.
+                // If the daemon process isn't running (e.g. hatch failed),
+                // re-attempt hatch so we don't loop forever on connect-only retries.
                 // Managed mode skips local hatch — the platform hosts the daemon.
                 if !isCurrentAssistantManaged {
-                    let socketPath = DaemonClient.resolveSocketPath()
-                    if !FileManager.default.fileExists(atPath: socketPath) {
-                        bootstrapFailureKind = .socketMissing
-                        log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
-                        try? await assistantCli.hatch(daemonOnly: true)
-                    } else if !DaemonClient.isDaemonProcessAlive() {
+                    if !DaemonClient.isDaemonProcessAlive() {
                         bootstrapFailureKind = .daemonNotRunning
                         log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
                         try? await assistantCli.hatch(daemonOnly: true)
@@ -277,12 +270,6 @@ extension AppDelegate {
     /// kind and how long the bootstrap retry has been running.
     func bootstrapDiagnosticMessage(elapsed: CFAbsoluteTime) -> String {
         switch bootstrapFailureKind {
-        case .socketMissing:
-            if elapsed > 60 {
-                return "Assistant files are missing. Try quitting (\u{2318}Q) and reopening."
-            }
-            return "Restarting your assistant\u{2026}"
-
         case .daemonNotRunning:
             if elapsed > 60 {
                 return "Unable to restart assistant. Try quitting (\u{2318}Q) and reopening."

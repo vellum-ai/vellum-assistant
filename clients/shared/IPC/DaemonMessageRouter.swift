@@ -8,13 +8,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 extension DaemonClient {
 
     func handleServerMessage(_ message: ServerMessage) {
-        // Handle pong internally.
-        if case .pong = message {
-            awaitingPong = false
-            pongTimeoutTask?.cancel()
-            pongTimeoutTask = nil
-        }
-
         // Handle daemon status internally.
         if case .daemonStatus(let status) = message {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
@@ -36,11 +29,6 @@ extension DaemonClient {
                     // token is stale. No proactive action needed here.
                 }
             }
-        }
-
-        // Handle blob probe result internally.
-        if case .ipcBlobProbeResult(let result) = message {
-            handleBlobProbeResult(result)
         }
 
         // Forward surface messages to registered callbacks.
@@ -304,20 +292,12 @@ extension DaemonClient {
         }
     }
 
+    /// Handle auth_result messages. With HTTP transport, authentication is
+    /// handled via bearer tokens at the HTTP level. This handler updates
+    /// the local authentication state for backward compatibility with
+    /// daemon broadcasts.
     func handleAuthResult(_ result: AuthResultMessage) {
-        #if os(macOS) || os(iOS)
         isAuthenticated = result.success
-        if let pending = authContinuation {
-            authContinuation = nil
-            authTimeoutTask?.cancel()
-            authTimeoutTask = nil
-            if result.success {
-                pending.resume(returning: ())
-            } else {
-                pending.resume(throwing: AuthError.rejected(result.message))
-            }
-        }
-        #endif
     }
 
     // MARK: - Signing Identity (macOS only)

@@ -89,11 +89,11 @@ final class DaemonClientReconfigureTests: XCTestCase {
         XCTAssertTrue(callbackInvoked, "Preserved callback should still be invocable")
     }
 
-    func testReconfigureFromSocketToHTTP() {
-        // Start with default socket config
+    func testReconfigureBetweenHTTPEndpoints() {
+        // Start with default HTTP config
         XCTAssertNotNil(client.config)
 
-        // Reconfigure to HTTP
+        // Reconfigure to a different HTTP endpoint
         let httpConfig = DaemonConfig(transport: .http(
             baseURL: "http://remote-host:8080",
             bearerToken: "bearer-123",
@@ -129,7 +129,7 @@ final class DaemonClientReconfigureTests: XCTestCase {
         )))
         XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
 
-        // Third reconfigure back to socket
+        // Third reconfigure back to default
         client.reconfigure(config: .default)
         XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
     }

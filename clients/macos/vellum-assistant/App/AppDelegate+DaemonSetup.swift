@@ -66,8 +66,7 @@ extension AppDelegate {
     /// Configure the daemon client's transport based on the lockfile assistant.
     /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
     /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
-    /// Local assistants use the default Unix domain socket, unless the
-    /// `localHttpEnabled` flag redirects them to the daemon's runtime HTTP server.
+    /// Local assistants use HTTP+SSE via the daemon's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
@@ -94,31 +93,21 @@ extension AppDelegate {
         }
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
-            // Local assistant or no assistant.
-            if MacOSClientFeatureFlagManager.shared.isEnabled("local_http_enabled") {
-                // Use HTTP transport for the local daemon instead of IPC.
-                // Bearer token is nil; resolved lazily at connect time.
-                let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-                let port = Int(portString) ?? 7821
-                let baseURL = "http://localhost:\(port)"
-                let conversationKey = assistant?.assistantId ?? UUID().uuidString
-                let config = DaemonConfig(transport: .http(
-                    baseURL: baseURL,
-                    bearerToken: nil,
-                    conversationKey: conversationKey
-                ))
-                services.reconfigureDaemonClient(config: config)
-                log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
-            } else {
-                // Use the specific assistant's socket path and instance dir so
-                // switching between local instances connects to the correct daemon
-                // and authenticates with the correct session token.
-                let socketPath = assistant?.socketPath ?? DaemonClient.resolveSocketPath()
-                let instanceDir = assistant?.instanceDir
-                let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
-                let config = DaemonConfig(transport: .socket(path: socketPath), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
-                services.reconfigureDaemonClient(config: config)
-            }
+            // Local assistant or no assistant — use HTTP transport to the local daemon.
+            // Bearer token is nil; resolved lazily at connect time.
+            let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
+            let port = Int(portString) ?? 7821
+            let baseURL = "http://localhost:\(port)"
+            let conversationKey = assistant?.assistantId ?? UUID().uuidString
+            let instanceDir = assistant?.instanceDir
+            let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
+            let config = DaemonConfig(transport: .http(
+                baseURL: baseURL,
+                bearerToken: nil,
+                conversationKey: conversationKey
+            ), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
+            services.reconfigureDaemonClient(config: config)
+            log.info("Configured local HTTP transport on port \(port)")
             return
         }
 
