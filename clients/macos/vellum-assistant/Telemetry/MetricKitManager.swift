@@ -98,6 +98,11 @@ import os
     nonisolated static func startSentry() {
         sentrySerialQueue.async {
             guard !SentrySDK.isEnabled else { return }
+            // Defense-in-depth: respect the primary usage-data opt-out even if
+            // the caller forgot to check. Prevents re-enabling Sentry after a
+            // rapid toggle sequence (collectUsageData off → sendPerformanceReports change).
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+            guard collectUsageData else { return }
             let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
             SentrySDK.start { options in
                 options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"

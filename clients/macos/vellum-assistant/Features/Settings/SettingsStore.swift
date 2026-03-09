@@ -452,7 +452,11 @@ public final class SettingsStore: ObservableObject {
             .sink {
                 UserDefaults.standard.set($0, forKey: "sendPerformanceReports")
                 // Restart Sentry so the updated profilesSampleRate takes effect
-                // (Sentry config is immutable after start).
+                // (Sentry config is immutable after start). Only restart when the
+                // user has opted into usage data — otherwise we'd re-enable Sentry
+                // after the user explicitly disabled it.
+                let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+                guard collectUsageData else { return }
                 MetricKitManager.closeSentry()
                 MetricKitManager.startSentry()
             }
