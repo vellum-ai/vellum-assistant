@@ -437,11 +437,28 @@ private struct WorkspaceTreeRow: View {
             if success {
                 await state.refreshDirectory(parentPath, using: daemonClient)
 
-                // Update selectedFilePath for exact match or descendants
+                // Update selectedFilePath and selectedFileDetail for exact match or descendants
                 if state.selectedFilePath == oldPath {
                     state.selectedFilePath = newPath
+                    if let detail = state.selectedFileDetail {
+                        let newName = String(newPath.split(separator: "/").last ?? Substring(newPath))
+                        state.selectedFileDetail = WorkspaceFileResponse(
+                            path: newPath, name: newName, size: detail.size,
+                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                            content: detail.content, isBinary: detail.isBinary
+                        )
+                    }
                 } else if let selected = state.selectedFilePath, selected.hasPrefix(oldPath + "/") {
-                    state.selectedFilePath = newPath + selected.dropFirst(oldPath.count)
+                    let updatedPath = newPath + selected.dropFirst(oldPath.count)
+                    state.selectedFilePath = updatedPath
+                    if let detail = state.selectedFileDetail {
+                        let newName = String(updatedPath.split(separator: "/").last ?? Substring(updatedPath))
+                        state.selectedFileDetail = WorkspaceFileResponse(
+                            path: updatedPath, name: newName, size: detail.size,
+                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                            content: detail.content, isBinary: detail.isBinary
+                        )
+                    }
                 }
 
                 // Migrate expandedDirs and directoryCache for renamed directories
