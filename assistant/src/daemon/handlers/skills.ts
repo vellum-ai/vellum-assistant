@@ -24,6 +24,7 @@ import {
 import {
   clawhubCheckUpdates,
   clawhubInspect,
+  type ClawhubInspectResult,
   clawhubInstall,
   clawhubSearch,
   clawhubUpdate,
@@ -56,6 +57,20 @@ import {
   type HandlerContext,
   log,
 } from "./shared.js";
+
+// ─── Shared context for standalone functions ─────────────────────────────────
+
+/**
+ * Minimal context needed by the standalone skill business-logic functions.
+ * HandlerContext satisfies this interface, but HTTP routes can also provide
+ * a compatible object without coupling to IPC internals.
+ */
+export interface SkillOperationContext {
+  debounceTimers: HandlerContext["debounceTimers"];
+  setSuppressConfigReload(value: boolean): void;
+  updateConfigFingerprint(): void;
+  broadcast: HandlerContext["broadcast"];
+}
 
 // ─── Provenance resolution ──────────────────────────────────────────────────
 
@@ -101,559 +116,6 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
   }
 
   return { kind: "local" };
-}
-
-export function handleSkillsList(
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const config = getConfig();
-  const catalog = loadSkillCatalog();
-  const resolved = resolveSkillStates(catalog, config);
-
-  const skills = resolved.map((r) => ({
-    id: r.summary.id,
-    name: r.summary.displayName,
-    description: r.summary.description,
-    emoji: r.summary.emoji,
-    homepage: r.summary.homepage,
-    source: r.summary.source,
-    state: (r.state === "degraded" ? "enabled" : r.state) as
-      | "enabled"
-      | "disabled"
-      | "available",
-    degraded: r.degraded,
-    missingRequirements: r.missingRequirements,
-    updateAvailable: false,
-    userInvocable: r.summary.userInvocable,
-    provenance: resolveProvenance(r.summary),
-  }));
-
-  ctx.send(socket, { type: "skills_list_response", skills });
-}
-
-export function handleSkillsEnable(
-  msg: SkillsEnableRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  try {
-    const raw = loadRawConfig();
-    ensureSkillEntry(raw, msg.name).enabled = true;
-
-    ctx.setSuppressConfigReload(true);
-    try {
-      saveRawConfig(raw);
-    } catch (err) {
-      ctx.setSuppressConfigReload(false);
-      throw err;
-    }
-    invalidateConfigCache();
-
-    ctx.debounceTimers.schedule(
-      "__suppress_reset__",
-      () => {
-        ctx.setSuppressConfigReload(false);
-      },
-      CONFIG_RELOAD_DEBOUNCE_MS,
-    );
-
-    ctx.updateConfigFingerprint();
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "enable",
-      success: true,
-    });
-    ctx.broadcast({
-      type: "skills_state_changed",
-      name: msg.name,
-      state: "enabled",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to enable skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "enable",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export function handleSkillsDisable(
-  msg: SkillsDisableRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  try {
-    const raw = loadRawConfig();
-    ensureSkillEntry(raw, msg.name).enabled = false;
-
-    ctx.setSuppressConfigReload(true);
-    try {
-      saveRawConfig(raw);
-    } catch (err) {
-      ctx.setSuppressConfigReload(false);
-      throw err;
-    }
-    invalidateConfigCache();
-
-    ctx.debounceTimers.schedule(
-      "__suppress_reset__",
-      () => {
-        ctx.setSuppressConfigReload(false);
-      },
-      CONFIG_RELOAD_DEBOUNCE_MS,
-    );
-
-    ctx.updateConfigFingerprint();
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "disable",
-      success: true,
-    });
-    ctx.broadcast({
-      type: "skills_state_changed",
-      name: msg.name,
-      state: "disabled",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to disable skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "disable",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export function handleSkillsConfigure(
-  msg: SkillsConfigureRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  try {
-    const raw = loadRawConfig();
-
-    const entry = ensureSkillEntry(raw, msg.name);
-    if (msg.env) {
-      entry.env = msg.env;
-    }
-    if (msg.apiKey !== undefined) {
-      entry.apiKey = msg.apiKey;
-    }
-    if (msg.config) {
-      entry.config = msg.config;
-    }
-
-    ctx.setSuppressConfigReload(true);
-    try {
-      saveRawConfig(raw);
-    } catch (err) {
-      ctx.setSuppressConfigReload(false);
-      throw err;
-    }
-    invalidateConfigCache();
-
-    ctx.debounceTimers.schedule(
-      "__suppress_reset__",
-      () => {
-        ctx.setSuppressConfigReload(false);
-      },
-      CONFIG_RELOAD_DEBOUNCE_MS,
-    );
-
-    ctx.updateConfigFingerprint();
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "configure",
-      success: true,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to configure skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "configure",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillsInstall(
-  msg: SkillsInstallRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    // Bundled skills are already available — no install needed
-    const catalog = loadSkillCatalog();
-    const bundled = catalog.find(
-      (s) => s.id === msg.slug && s.source === "bundled",
-    );
-    if (bundled) {
-      // Auto-enable the bundled skill so it's immediately usable
-      let autoEnabled = false;
-      try {
-        const raw = loadRawConfig();
-        ensureSkillEntry(raw, msg.slug).enabled = true;
-        ctx.setSuppressConfigReload(true);
-        try {
-          saveRawConfig(raw);
-        } catch (err) {
-          ctx.setSuppressConfigReload(false);
-          throw err;
-        }
-        invalidateConfigCache();
-        ctx.debounceTimers.schedule(
-          "__suppress_reset__",
-          () => {
-            ctx.setSuppressConfigReload(false);
-          },
-          CONFIG_RELOAD_DEBOUNCE_MS,
-        );
-        ctx.updateConfigFingerprint();
-        autoEnabled = true;
-      } catch (err) {
-        log.warn(
-          { err, skillId: msg.slug },
-          "Failed to auto-enable bundled skill",
-        );
-      }
-
-      ctx.send(socket, {
-        type: "skills_operation_response",
-        operation: "install",
-        success: true,
-      });
-      if (autoEnabled) {
-        ctx.broadcast({
-          type: "skills_state_changed",
-          name: msg.slug,
-          state: "enabled",
-        });
-      }
-      return;
-    }
-
-    // Install from clawhub (community)
-    const result = await clawhubInstall(msg.slug, { version: msg.version });
-    if (!result.success) {
-      ctx.send(socket, {
-        type: "skills_operation_response",
-        operation: "install",
-        success: false,
-        error: result.error ?? "Unknown error",
-      });
-      return;
-    }
-    const rawId = result.skillName ?? msg.slug;
-    const skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
-
-    // Reload skill catalog so the newly installed skill is picked up
-    loadSkillCatalog();
-
-    // Auto-enable the newly installed skill so it's immediately usable.
-    let autoEnabled = false;
-    try {
-      const raw = loadRawConfig();
-      ensureSkillEntry(raw, skillId).enabled = true;
-      ctx.setSuppressConfigReload(true);
-      try {
-        saveRawConfig(raw);
-      } catch (err) {
-        ctx.setSuppressConfigReload(false);
-        throw err;
-      }
-      invalidateConfigCache();
-      ctx.debounceTimers.schedule(
-        "__suppress_reset__",
-        () => {
-          ctx.setSuppressConfigReload(false);
-        },
-        CONFIG_RELOAD_DEBOUNCE_MS,
-      );
-      ctx.updateConfigFingerprint();
-      autoEnabled = true;
-    } catch (err) {
-      log.warn({ err, skillId }, "Failed to auto-enable installed skill");
-    }
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "install",
-      success: true,
-    });
-    if (autoEnabled) {
-      ctx.broadcast({
-        type: "skills_state_changed",
-        name: skillId,
-        state: "enabled",
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to install skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "install",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillsUninstall(
-  msg: SkillsUninstallRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  // Validate skill name to prevent path traversal while allowing namespaced slugs (org/name)
-  const validNamespacedSlug =
-    /^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-  const validSimpleName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-  if (
-    msg.name.includes("..") ||
-    msg.name.includes("\\") ||
-    !(validSimpleName.test(msg.name) || validNamespacedSlug.test(msg.name))
-  ) {
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "uninstall",
-      success: false,
-      error: "Invalid skill name",
-    });
-    return;
-  }
-
-  try {
-    // Use shared managed-store logic for simple managed skill IDs
-    const isManagedId = !validateManagedSkillId(msg.name);
-    if (isManagedId) {
-      const result = deleteManagedSkill(msg.name);
-      if (!result.deleted) {
-        ctx.send(socket, {
-          type: "skills_operation_response",
-          operation: "uninstall",
-          success: false,
-          error: result.error ?? "Failed to delete managed skill",
-        });
-        return;
-      }
-    } else {
-      // Namespaced slug (org/name) — direct filesystem removal
-      const skillDir = join(getWorkspaceSkillsDir(), msg.name);
-      if (!existsSync(skillDir)) {
-        ctx.send(socket, {
-          type: "skills_operation_response",
-          operation: "uninstall",
-          success: false,
-          error: "Skill not found",
-        });
-        return;
-      }
-      rmSync(skillDir, { recursive: true });
-      try {
-        removeSkillsIndexEntry(msg.name);
-      } catch {
-        /* best effort */
-      }
-    }
-
-    // Clean config entry
-    const raw = loadRawConfig();
-    const skills = raw.skills as Record<string, unknown> | undefined;
-    const entries = skills?.entries as Record<string, unknown> | undefined;
-    if (entries?.[msg.name]) {
-      delete entries[msg.name];
-
-      ctx.setSuppressConfigReload(true);
-      try {
-        saveRawConfig(raw);
-      } catch (err) {
-        ctx.setSuppressConfigReload(false);
-        throw err;
-      }
-      invalidateConfigCache();
-
-      ctx.debounceTimers.schedule(
-        "__suppress_reset__",
-        () => {
-          ctx.setSuppressConfigReload(false);
-        },
-        CONFIG_RELOAD_DEBOUNCE_MS,
-      );
-
-      ctx.updateConfigFingerprint();
-    }
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "uninstall",
-      success: true,
-    });
-    ctx.broadcast({
-      type: "skills_state_changed",
-      name: msg.name,
-      state: "uninstalled",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to uninstall skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "uninstall",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillsUpdate(
-  msg: SkillsUpdateRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    const result = await clawhubUpdate(msg.name);
-    if (!result.success) {
-      ctx.send(socket, {
-        type: "skills_operation_response",
-        operation: "update",
-        success: false,
-        error: result.error ?? "Unknown error",
-      });
-      return;
-    }
-
-    // Reload skill catalog to pick up updated skill
-    loadSkillCatalog();
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "update",
-      success: true,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to update skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "update",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillsCheckUpdates(
-  _msg: SkillsCheckUpdatesRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    const updates = await clawhubCheckUpdates();
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "check_updates",
-      success: true,
-      data: updates,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to check for skill updates");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "check_updates",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillsSearch(
-  msg: SkillsSearchRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    const result = await clawhubSearch(msg.query);
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "search",
-      success: true,
-      data: result,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to search skills");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "search",
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillsInspect(
-  msg: SkillsInspectRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    const result = await clawhubInspect(msg.slug);
-    ctx.send(socket, {
-      type: "skills_inspect_response",
-      slug: msg.slug,
-      ...(result.data ? { data: result.data } : {}),
-      ...(result.error ? { error: result.error } : {}),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to inspect skill");
-    ctx.send(socket, {
-      type: "skills_inspect_response",
-      slug: msg.slug,
-      error: message,
-    });
-  }
-}
-
-export async function handleSkillDetail(
-  msg: SkillDetailRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = loadSkillBySelector(msg.skillId);
-  if (result.skill) {
-    const icon = await ensureSkillIcon(
-      result.skill.directoryPath,
-      result.skill.displayName,
-      result.skill.description,
-    );
-    ctx.send(socket, {
-      type: "skill_detail_response",
-      skillId: result.skill.id,
-      body: result.skill.body,
-      ...(icon ? { icon } : {}),
-    });
-  } else {
-    ctx.send(socket, {
-      type: "skill_detail_response",
-      skillId: msg.skillId,
-      body: "",
-      error: result.error ?? "Skill not found",
-    });
-  }
 }
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
@@ -740,19 +202,353 @@ function heuristicDraft(body: string): {
   return { skillId, name, description, emoji: "\u{1F4DD}" };
 }
 
-// ─── Draft handler ───────────────────────────────────────────────────────────
-
 const LLM_DRAFT_TIMEOUT_MS = 15_000;
 
-export async function handleSkillsDraft(
-  msg: SkillsDraftRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
+// ─── Standalone business-logic functions ─────────────────────────────────────
+// These are consumed by both the IPC handlers below and the HTTP route layer.
+
+/** Helper: suppress config reload, save, debounce, and update fingerprint. */
+function saveConfigWithSuppression(
+  raw: Record<string, unknown>,
+  ctx: SkillOperationContext,
+): void {
+  ctx.setSuppressConfigReload(true);
+  try {
+    saveRawConfig(raw);
+  } catch (err) {
+    ctx.setSuppressConfigReload(false);
+    throw err;
+  }
+  invalidateConfigCache();
+
+  ctx.debounceTimers.schedule(
+    "__suppress_reset__",
+    () => {
+      ctx.setSuppressConfigReload(false);
+    },
+    CONFIG_RELOAD_DEBOUNCE_MS,
+  );
+
+  ctx.updateConfigFingerprint();
+}
+
+export interface SkillListItem {
+  id: string;
+  name: string;
+  description: string;
+  emoji?: string;
+  homepage?: string;
+  source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
+  state: "enabled" | "disabled" | "available";
+  degraded: boolean;
+  missingRequirements?: {
+    bins?: string[];
+    env?: string[];
+    permissions?: string[];
+  };
+  updateAvailable: boolean;
+  userInvocable: boolean;
+  provenance: SkillProvenance;
+}
+
+export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
+  const config = getConfig();
+  const catalog = loadSkillCatalog();
+  const resolved = resolveSkillStates(catalog, config);
+
+  return resolved.map((r) => ({
+    id: r.summary.id,
+    name: r.summary.displayName,
+    description: r.summary.description,
+    emoji: r.summary.emoji,
+    homepage: r.summary.homepage,
+    source: r.summary.source,
+    state: (r.state === "degraded" ? "enabled" : r.state) as
+      | "enabled"
+      | "disabled"
+      | "available",
+    degraded: r.degraded,
+    missingRequirements: r.missingRequirements,
+    updateAvailable: false,
+    userInvocable: r.summary.userInvocable,
+    provenance: resolveProvenance(r.summary),
+  }));
+}
+
+export function enableSkill(
+  skillId: string,
+  ctx: SkillOperationContext,
+): { success: true } | { success: false; error: string } {
+  try {
+    const raw = loadRawConfig();
+    ensureSkillEntry(raw, skillId).enabled = true;
+    saveConfigWithSuppression(raw, ctx);
+    ctx.broadcast({
+      type: "skills_state_changed",
+      name: skillId,
+      state: "enabled",
+    });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to enable skill");
+    return { success: false, error: message };
+  }
+}
+
+export function disableSkill(
+  skillId: string,
+  ctx: SkillOperationContext,
+): { success: true } | { success: false; error: string } {
+  try {
+    const raw = loadRawConfig();
+    ensureSkillEntry(raw, skillId).enabled = false;
+    saveConfigWithSuppression(raw, ctx);
+    ctx.broadcast({
+      type: "skills_state_changed",
+      name: skillId,
+      state: "disabled",
+    });
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to disable skill");
+    return { success: false, error: message };
+  }
+}
+
+export function configureSkill(
+  skillId: string,
+  config: { env?: Record<string, string>; apiKey?: string; config?: Record<string, unknown> },
+  ctx: SkillOperationContext,
+): { success: true } | { success: false; error: string } {
+  try {
+    const raw = loadRawConfig();
+    const entry = ensureSkillEntry(raw, skillId);
+    if (config.env) entry.env = config.env;
+    if (config.apiKey !== undefined) entry.apiKey = config.apiKey;
+    if (config.config) entry.config = config.config;
+    saveConfigWithSuppression(raw, ctx);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to configure skill");
+    return { success: false, error: message };
+  }
+}
+
+export async function installSkill(
+  spec: { slug: string; version?: string },
+  ctx: SkillOperationContext,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    // Bundled skills are already available — no install needed
+    const catalog = loadSkillCatalog();
+    const bundled = catalog.find(
+      (s) => s.id === spec.slug && s.source === "bundled",
+    );
+    if (bundled) {
+      // Auto-enable the bundled skill so it's immediately usable
+      try {
+        const raw = loadRawConfig();
+        ensureSkillEntry(raw, spec.slug).enabled = true;
+        saveConfigWithSuppression(raw, ctx);
+        ctx.broadcast({
+          type: "skills_state_changed",
+          name: spec.slug,
+          state: "enabled",
+        });
+      } catch (err) {
+        log.warn(
+          { err, skillId: spec.slug },
+          "Failed to auto-enable bundled skill",
+        );
+      }
+      return { success: true };
+    }
+
+    // Install from clawhub (community)
+    const result = await clawhubInstall(spec.slug, { version: spec.version });
+    if (!result.success) {
+      return { success: false, error: result.error ?? "Unknown error" };
+    }
+    const rawId = result.skillName ?? spec.slug;
+    const skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
+
+    // Reload skill catalog so the newly installed skill is picked up
+    loadSkillCatalog();
+
+    // Auto-enable the newly installed skill
+    try {
+      const raw = loadRawConfig();
+      ensureSkillEntry(raw, skillId).enabled = true;
+      saveConfigWithSuppression(raw, ctx);
+      ctx.broadcast({
+        type: "skills_state_changed",
+        name: skillId,
+        state: "enabled",
+      });
+    } catch (err) {
+      log.warn({ err, skillId }, "Failed to auto-enable installed skill");
+    }
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to install skill");
+    return { success: false, error: message };
+  }
+}
+
+export async function uninstallSkill(
+  skillId: string,
+  ctx: SkillOperationContext,
+): Promise<{ success: true } | { success: false; error: string }> {
+  // Validate skill name to prevent path traversal while allowing namespaced slugs (org/name)
+  const validNamespacedSlug =
+    /^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+  const validSimpleName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+  if (
+    skillId.includes("..") ||
+    skillId.includes("\\") ||
+    !(validSimpleName.test(skillId) || validNamespacedSlug.test(skillId))
+  ) {
+    return { success: false, error: "Invalid skill name" };
+  }
+
+  try {
+    // Use shared managed-store logic for simple managed skill IDs
+    const isManagedId = !validateManagedSkillId(skillId);
+    if (isManagedId) {
+      const result = deleteManagedSkill(skillId);
+      if (!result.deleted) {
+        return {
+          success: false,
+          error: result.error ?? "Failed to delete managed skill",
+        };
+      }
+    } else {
+      // Namespaced slug (org/name) — direct filesystem removal
+      const skillDir = join(getWorkspaceSkillsDir(), skillId);
+      if (!existsSync(skillDir)) {
+        return { success: false, error: "Skill not found" };
+      }
+      rmSync(skillDir, { recursive: true });
+      try {
+        removeSkillsIndexEntry(skillId);
+      } catch {
+        /* best effort */
+      }
+    }
+
+    // Clean config entry
+    const raw = loadRawConfig();
+    const skills = raw.skills as Record<string, unknown> | undefined;
+    const entries = skills?.entries as Record<string, unknown> | undefined;
+    if (entries?.[skillId]) {
+      delete entries[skillId];
+      saveConfigWithSuppression(raw, ctx);
+    }
+
+    ctx.broadcast({
+      type: "skills_state_changed",
+      name: skillId,
+      state: "uninstalled",
+    });
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to uninstall skill");
+    return { success: false, error: message };
+  }
+}
+
+export async function updateSkill(
+  skillId: string,
+  _ctx: SkillOperationContext,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const result = await clawhubUpdate(skillId);
+    if (!result.success) {
+      return { success: false, error: result.error ?? "Unknown error" };
+    }
+    // Reload skill catalog to pick up updated skill
+    loadSkillCatalog();
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to update skill");
+    return { success: false, error: message };
+  }
+}
+
+export async function checkSkillUpdates(
+  _ctx: SkillOperationContext,
+): Promise<{ success: true; data: unknown } | { success: false; error: string }> {
+  try {
+    const updates = await clawhubCheckUpdates();
+    return { success: true, data: updates };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to check for skill updates");
+    return { success: false, error: message };
+  }
+}
+
+export async function searchSkills(
+  query: string,
+  _ctx: SkillOperationContext,
+): Promise<{ success: true; data: unknown } | { success: false; error: string }> {
+  try {
+    const result = await clawhubSearch(query);
+    return { success: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to search skills");
+    return { success: false, error: message };
+  }
+}
+
+export async function inspectSkill(
+  skillId: string,
+  _ctx: SkillOperationContext,
+): Promise<{ slug: string; data?: ClawhubInspectResult; error?: string }> {
+  try {
+    const result = await clawhubInspect(skillId);
+    return {
+      slug: skillId,
+      ...(result.data ? { data: result.data } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to inspect skill");
+    return { slug: skillId, error: message };
+  }
+}
+
+export interface DraftResult {
+  success: boolean;
+  draft?: {
+    skillId: string;
+    name: string;
+    description: string;
+    emoji?: string;
+    bodyMarkdown: string;
+  };
+  warnings?: string[];
+  error?: string;
+}
+
+export async function draftSkill(
+  params: { sourceText: string },
+  _ctx: SkillOperationContext,
+): Promise<DraftResult> {
   try {
     const warnings: string[] = [];
-    const parsed = parseFrontmatter(msg.sourceText);
-    const body = parsed.body.trim() || msg.sourceText.trim();
+    const parsed = parseFrontmatter(params.sourceText);
+    const body = parsed.body.trim() || params.sourceText.trim();
 
     let { skillId, name, description, emoji } = parsed;
 
@@ -870,8 +666,7 @@ export async function handleSkillsDraft(
       );
     }
 
-    ctx.send(socket, {
-      type: "skills_draft_response",
+    return {
       success: true,
       draft: {
         skillId: skillId!,
@@ -881,28 +676,251 @@ export async function handleSkillsDraft(
         bodyMarkdown: body,
       },
       ...(warnings.length > 0 ? { warnings } : {}),
-    });
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to generate skill draft");
+    return { success: false, error: message };
+  }
+}
+
+export interface CreateSkillParams {
+  skillId: string;
+  name: string;
+  description: string;
+  emoji?: string;
+  bodyMarkdown: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  overwrite?: boolean;
+}
+
+export async function createSkill(
+  params: CreateSkillParams,
+  ctx: SkillOperationContext,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const result = createManagedSkill({
+      id: params.skillId,
+      name: params.name,
+      description: params.description,
+      emoji: params.emoji,
+      bodyMarkdown: params.bodyMarkdown,
+      userInvocable: params.userInvocable,
+      disableModelInvocation: params.disableModelInvocation,
+      overwrite: params.overwrite,
+    });
+
+    if (!result.created) {
+      return {
+        success: false,
+        error: result.error ?? "Failed to create managed skill",
+      };
+    }
+
+    // Auto-enable the newly created skill
+    try {
+      const raw = loadRawConfig();
+      ensureSkillEntry(raw, params.skillId).enabled = true;
+      saveConfigWithSuppression(raw, ctx);
+      ctx.broadcast({
+        type: "skills_state_changed",
+        name: params.skillId,
+        state: "enabled",
+      });
+    } catch (err) {
+      log.warn(
+        { err, skillId: params.skillId },
+        "Failed to auto-enable created skill",
+      );
+    }
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to create skill");
+    return { success: false, error: message };
+  }
+}
+
+// ─── IPC handlers (thin wrappers) ───────────────────────────────────────────
+
+export function handleSkillsList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const skills = listSkills(ctx);
+  ctx.send(socket, { type: "skills_list_response", skills });
+}
+
+export function handleSkillsEnable(
+  msg: SkillsEnableRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const result = enableSkill(msg.name, ctx);
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "enable",
+    ...result,
+  });
+}
+
+export function handleSkillsDisable(
+  msg: SkillsDisableRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const result = disableSkill(msg.name, ctx);
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "disable",
+    ...result,
+  });
+}
+
+export function handleSkillsConfigure(
+  msg: SkillsConfigureRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const result = configureSkill(
+    msg.name,
+    { env: msg.env, apiKey: msg.apiKey, config: msg.config },
+    ctx,
+  );
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "configure",
+    ...result,
+  });
+}
+
+export async function handleSkillsInstall(
+  msg: SkillsInstallRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await installSkill(
+    { slug: msg.slug, version: msg.version },
+    ctx,
+  );
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "install",
+    ...result,
+  });
+}
+
+export async function handleSkillsUninstall(
+  msg: SkillsUninstallRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await uninstallSkill(msg.name, ctx);
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "uninstall",
+    ...result,
+  });
+}
+
+export async function handleSkillsUpdate(
+  msg: SkillsUpdateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await updateSkill(msg.name, ctx);
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "update",
+    ...result,
+  });
+}
+
+export async function handleSkillsCheckUpdates(
+  _msg: SkillsCheckUpdatesRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await checkSkillUpdates(ctx);
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "check_updates",
+    ...result,
+  });
+}
+
+export async function handleSkillsSearch(
+  msg: SkillsSearchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await searchSkills(msg.query, ctx);
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "search",
+    ...result,
+  });
+}
+
+export async function handleSkillsInspect(
+  msg: SkillsInspectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await inspectSkill(msg.slug, ctx);
+  ctx.send(socket, {
+    type: "skills_inspect_response",
+    ...result,
+  });
+}
+
+export async function handleSkillDetail(
+  msg: SkillDetailRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = loadSkillBySelector(msg.skillId);
+  if (result.skill) {
+    const icon = await ensureSkillIcon(
+      result.skill.directoryPath,
+      result.skill.displayName,
+      result.skill.description,
+    );
     ctx.send(socket, {
-      type: "skills_draft_response",
-      success: false,
-      error: message,
+      type: "skill_detail_response",
+      skillId: result.skill.id,
+      body: result.skill.body,
+      ...(icon ? { icon } : {}),
+    });
+  } else {
+    ctx.send(socket, {
+      type: "skill_detail_response",
+      skillId: msg.skillId,
+      body: "",
+      error: result.error ?? "Skill not found",
     });
   }
 }
 
-// ─── Create handler ──────────────────────────────────────────────────────────
+export async function handleSkillsDraft(
+  msg: SkillsDraftRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const result = await draftSkill({ sourceText: msg.sourceText }, ctx);
+  ctx.send(socket, { type: "skills_draft_response", ...result });
+}
 
 export async function handleSkillsCreate(
   msg: SkillsCreateRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  try {
-    const result = createManagedSkill({
-      id: msg.skillId,
+  const result = await createSkill(
+    {
+      skillId: msg.skillId,
       name: msg.name,
       description: msg.description,
       emoji: msg.emoji,
@@ -910,69 +928,14 @@ export async function handleSkillsCreate(
       userInvocable: msg.userInvocable,
       disableModelInvocation: msg.disableModelInvocation,
       overwrite: msg.overwrite,
-    });
-
-    if (!result.created) {
-      ctx.send(socket, {
-        type: "skills_operation_response",
-        operation: "create",
-        success: false,
-        error: result.error ?? "Failed to create managed skill",
-      });
-      return;
-    }
-
-    // Auto-enable the newly created skill
-    let autoEnabled = false;
-    try {
-      const raw = loadRawConfig();
-      ensureSkillEntry(raw, msg.skillId).enabled = true;
-      ctx.setSuppressConfigReload(true);
-      try {
-        saveRawConfig(raw);
-      } catch (err) {
-        ctx.setSuppressConfigReload(false);
-        throw err;
-      }
-      invalidateConfigCache();
-      ctx.debounceTimers.schedule(
-        "__suppress_reset__",
-        () => {
-          ctx.setSuppressConfigReload(false);
-        },
-        CONFIG_RELOAD_DEBOUNCE_MS,
-      );
-      ctx.updateConfigFingerprint();
-      autoEnabled = true;
-    } catch (err) {
-      log.warn(
-        { err, skillId: msg.skillId },
-        "Failed to auto-enable created skill",
-      );
-    }
-
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "create",
-      success: true,
-    });
-    if (autoEnabled) {
-      ctx.broadcast({
-        type: "skills_state_changed",
-        name: msg.skillId,
-        state: "enabled",
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to create skill");
-    ctx.send(socket, {
-      type: "skills_operation_response",
-      operation: "create",
-      success: false,
-      error: message,
-    });
-  }
+    },
+    ctx,
+  );
+  ctx.send(socket, {
+    type: "skills_operation_response",
+    operation: "create",
+    ...result,
+  });
 }
 
 export const skillHandlers = defineHandlers({

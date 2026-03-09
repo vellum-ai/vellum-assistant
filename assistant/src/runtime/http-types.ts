@@ -6,6 +6,7 @@ import type {
   SurfaceData,
   SurfaceType,
 } from "../daemon/ipc-contract/surfaces.js";
+import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
@@ -176,6 +177,8 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
+  /** Context provider for skill management HTTP routes. */
+  getSkillContext?: () => SkillOperationContext;
   /** Lookup an active session by ID (for surface actions and content fetches). */
   findSession?: (sessionId: string) =>
     | {

@@ -279,6 +279,12 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Interfaces
   { endpoint: "interfaces", scopes: ["settings.read"] },
 
+  // Skills
+  { endpoint: "skills:GET", scopes: ["settings.read"] },
+  { endpoint: "skills:POST", scopes: ["settings.write"] },
+  { endpoint: "skills:DELETE", scopes: ["settings.write"] },
+  { endpoint: "skills:PATCH", scopes: ["settings.write"] },
+
   // Trust rule CRUD management
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
   { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },

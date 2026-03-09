@@ -63,6 +63,7 @@ import { ConfigWatcher } from "./config-watcher.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import { handleMessage } from "./handlers/index.js";
 import { cleanupRecordingsOnDisconnect } from "./handlers/recording.js";
+import type { SkillOperationContext } from "./handlers/skills.js";
 import type {
   HandlerContext,
   SessionCreateOptions,
@@ -1004,6 +1005,20 @@ export class DaemonServer {
         this.getOrCreateSession(id, socket, rebind, options),
       touchSession: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,
+    };
+  }
+
+  /** Public subset of handler context for skill management HTTP routes. */
+  getSkillContext(): SkillOperationContext {
+    return {
+      debounceTimers: this.configWatcher.timers,
+      setSuppressConfigReload: (value: boolean) => {
+        this.configWatcher.suppressConfigReload = value;
+      },
+      updateConfigFingerprint: () => {
+        this.configWatcher.updateFingerprint();
+      },
+      broadcast: (msg) => this.broadcast(msg),
     };
   }
 
