@@ -34,9 +34,9 @@ import {
   getFailoverProvider,
   initializeProviders,
 } from "../providers/registry.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -52,13 +52,12 @@ import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import type { SkillOperationContext } from "./handlers/skills.js";
 import type {
   HandlerContext,
   SessionCreateOptions,
 } from "./handlers/shared.js";
+import type { SkillOperationContext } from "./handlers/skills.js";
 import type { ServerMessage } from "./ipc-protocol.js";
-import { normalizeThreadType } from "./ipc-protocol.js";
 import {
   DEFAULT_MEMORY_POLICY,
   Session,

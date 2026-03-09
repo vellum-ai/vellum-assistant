@@ -14,6 +14,17 @@ import { join } from "node:path";
 import archiver from "archiver";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 
+import {
+  type ProfileResolution,
+  resolveProfile,
+} from "../../daemon/dictation-profile-store.js";
+import {
+  applyDictionary,
+  expandSnippets,
+} from "../../daemon/dictation-text-processing.js";
+import { detectDictationModeHeuristic } from "../../daemon/handlers/dictation.js";
+import type { DictationRequest } from "../../daemon/ipc-contract/diagnostics.js";
+import type { DictationContext } from "../../daemon/ipc-contract/shared.js";
 import { getDb } from "../../memory/db.js";
 import {
   llmRequestLogs,
@@ -27,17 +38,6 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import {
-  type ProfileResolution,
-  resolveProfile,
-} from "../../daemon/dictation-profile-store.js";
-import {
-  applyDictionary,
-  expandSnippets,
-} from "../../daemon/dictation-text-processing.js";
-import { detectDictationModeHeuristic } from "../../daemon/handlers/dictation.js";
-import type { DictationRequest } from "../../daemon/ipc-contract/diagnostics.js";
-import type { DictationContext } from "../../daemon/ipc-contract/shared.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";

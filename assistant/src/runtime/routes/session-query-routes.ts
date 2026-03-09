@@ -15,9 +15,9 @@
 
 import {
   getModelInfo,
+  type ModelSetContext,
   setImageGenModel,
   setModel,
-  type ModelSetContext,
 } from "../../daemon/handlers/config-model.js";
 import {
   getMessageContent,

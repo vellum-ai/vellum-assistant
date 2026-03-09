@@ -5,6 +5,8 @@
  * sharing business logic with the IPC handlers in
  * `daemon/handlers/work-items.ts`.
  */
+import type { ServerMessage } from "../../daemon/ipc-protocol.js";
+import type { Session } from "../../daemon/session.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
 import { getSubagentManager } from "../../subagent/index.js";
@@ -15,6 +17,7 @@ import {
   getToolDescription,
   sanitizeToolList,
 } from "../../tasks/tool-sanitizer.js";
+import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import {
   deleteWorkItem,
@@ -23,9 +26,6 @@ import {
   updateWorkItem,
   type WorkItemStatus,
 } from "../../work-items/work-item-store.js";
-import type { ServerMessage } from "../../daemon/ipc-protocol.js";
-import type { Session } from "../../daemon/session.js";
-import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";

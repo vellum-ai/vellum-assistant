@@ -109,6 +109,7 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
+import { computerUseRouteDefinitions } from "./routes/computer-use-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -116,6 +117,7 @@ import {
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
+import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
@@ -136,9 +138,12 @@ import {
   handlePairingStatus,
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
+import { recordingRouteDefinitions } from "./routes/recording-routes.js";
+import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
 import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
+import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
@@ -147,17 +152,6 @@ import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
-import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
-import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
-import { settingsRouteDefinitions } from "./routes/settings-routes.js";
-import {
-  computerUseRouteDefinitions,
-  type ComputerUseDeps,
-} from "./routes/computer-use-routes.js";
-import {
-  recordingRouteDefinitions,
-  type RecordingDeps,
-} from "./routes/recording-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";

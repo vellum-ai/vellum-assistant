@@ -33,7 +33,7 @@ export function resolveWorkspacePath(relativePath: string): string | undefined {
     // Path doesn't exist yet — walk up to the nearest existing ancestor and
     // verify *it* resolves inside the workspace.
     let ancestor = resolved;
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       const parent = resolve(ancestor, "..");
       if (parent === ancestor) break; // reached filesystem root

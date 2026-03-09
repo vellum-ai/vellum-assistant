@@ -4,8 +4,8 @@
 
 import * as net from "node:net";
 
-import { getSubagentManager } from "../../subagent/index.js";
 import { getSubagentDetail } from "../../runtime/routes/subagents-routes.js";
+import { getSubagentManager } from "../../subagent/index.js";
 import type {
   SubagentAbortRequest,
   SubagentDetailRequest,
@@ -13,7 +13,7 @@ import type {
   SubagentStatusRequest,
 } from "../ipc-protocol.js";
 import type { HandlerContext } from "./shared.js";
-import { defineHandlers, isRecord, log } from "./shared.js";
+import { defineHandlers, log } from "./shared.js";
 
 export function handleSubagentAbort(
   msg: SubagentAbortRequest,

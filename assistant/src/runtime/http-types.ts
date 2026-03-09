@@ -2,15 +2,14 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type {
   SurfaceData,
   SurfaceType,
 } from "../daemon/ipc-contract/surfaces.js";
-import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import type { SessionManagementDeps } from "./routes/session-management-routes.js";
 import type {
   ApprovalMessageContext,
   ComposeApprovalMessageGenerativeOptions,
@@ -20,6 +19,7 @@ import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
+import type { SessionManagementDeps } from "./routes/session-management-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).

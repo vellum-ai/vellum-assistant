@@ -12,7 +12,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -248,25 +247,6 @@ function listSharedApps(): Array<Record<string, unknown>> {
     const { forked: _, ...rest } = app;
     return { ...rest, updateAvailable: updateAvailable || undefined };
   });
-}
-
-function deleteSharedApp(uuid: string): boolean {
-  if (uuid.includes("/") || uuid.includes("\\") || uuid.includes("..")) {
-    return false;
-  }
-
-  const dir = getSharedAppsDir();
-  const appDir = join(dir, uuid);
-  const metaFile = join(dir, `${uuid}-meta.json`);
-
-  if (existsSync(appDir)) {
-    rmSync(appDir, { recursive: true });
-  }
-  if (existsSync(metaFile)) {
-    rmSync(metaFile);
-  }
-
-  return true;
 }
 
 function forkSharedApp(

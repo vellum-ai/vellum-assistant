@@ -24,6 +24,7 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
 import { getHomeBaseAppLink } from "../../home-base/app-link-store.js";
 import {
   bootstrapHomeBaseAppLink,
@@ -60,7 +61,6 @@ import { ConfigError } from "../../util/errors.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";

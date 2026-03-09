@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildIpcAuthContext } from "../../local-actor-identity.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
+import { buildIpcAuthContext } from "../../local-actor-identity.js";
 import { CURRENT_POLICY_EPOCH } from "../policy.js";
 import { resolveScopeProfile } from "../scopes.js";
 

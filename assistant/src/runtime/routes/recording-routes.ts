@@ -10,17 +10,17 @@
  * require `settings.read`.
  */
 
-import type { RecordingOptions } from "../../daemon/ipc-protocol.js";
 import {
-  handleRecordingStart,
-  handleRecordingStop,
+  getActiveRestartToken,
   handleRecordingPause,
   handleRecordingResume,
+  handleRecordingStart,
+  handleRecordingStop,
   isRecordingIdle,
-  getActiveRestartToken,
 } from "../../daemon/handlers/recording.js";
 import type { HandlerContext } from "../../daemon/handlers/shared.js";
 import { findSocketForSession } from "../../daemon/handlers/shared.js";
+import type { RecordingOptions } from "../../daemon/ipc-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -218,7 +218,7 @@ function handleRecordingStatus(): Response {
 
   return Response.json({
     idle,
-    restartInProgress: activeRestartToken !== null,
+    restartInProgress: activeRestartToken !== undefined,
   });
 }
 

@@ -9,18 +9,18 @@
  * All CU write operations require the `chat.write` scope.
  */
 
+import { getConfig } from "../../config/loader.js";
 import type { ComputerUseSession } from "../../daemon/computer-use-session.js";
 import type { CuObservation } from "../../daemon/ipc-protocol.js";
-import { getConfig } from "../../config/loader.js";
+import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import { RateLimitProvider } from "../../providers/ratelimit.js";
 import { getFailoverProvider } from "../../providers/registry.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import type { ServerMessage } from "../../daemon/ipc-protocol.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("computer-use-routes");
 

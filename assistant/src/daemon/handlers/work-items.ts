@@ -1,5 +1,10 @@
 import * as net from "node:net";
 
+import {
+  approveWorkItemPermissions,
+  getWorkItemOutput,
+  preflightWorkItem,
+} from "../../runtime/routes/work-items-routes.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { runTask } from "../../tasks/task-runner.js";
 import { getTask } from "../../tasks/task-store.js";
@@ -7,11 +12,6 @@ import {
   getRegisteredToolNames,
   sanitizeToolList,
 } from "../../tasks/tool-sanitizer.js";
-import {
-  approveWorkItemPermissions,
-  getWorkItemOutput,
-  preflightWorkItem,
-} from "../../runtime/routes/work-items-routes.js";
 import {
   deleteWorkItem,
   getWorkItem,
