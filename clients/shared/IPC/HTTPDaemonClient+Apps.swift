@@ -489,7 +489,12 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await fetchSharedAppsList(isRetry: true) }
+                    if case .success = result {
+                        await fetchSharedAppsList(isRetry: true)
+                        return
+                    }
+                    // Auth refresh failed - send empty response
+                    onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(type: "shared_apps_list_response", apps: [])))
                     return
                 }
                 guard http.statusCode == 200 else {
