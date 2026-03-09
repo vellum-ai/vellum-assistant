@@ -473,11 +473,11 @@ private struct WorkspaceTreeRow: View {
                         state.expandedDirs.remove(dir)
                         state.expandedDirs.insert(newPath + dir.dropFirst(oldPath.count))
                     }
-                    // Transfer directory cache entries
+                    // Invalidate directory cache for renamed directory and descendants
+                    // (WorkspaceTreeEntry.path is immutable, so entries must be re-fetched)
                     let cacheKeys = state.directoryCache.keys.filter { $0 == oldPath || $0.hasPrefix(oldPrefix) }
                     for key in cacheKeys {
-                        let newKey = key == oldPath ? newPath : newPath + key.dropFirst(oldPath.count)
-                        state.directoryCache[newKey] = state.directoryCache.removeValue(forKey: key)
+                        state.directoryCache.removeValue(forKey: key)
                     }
                 }
             }
