@@ -913,7 +913,7 @@ public typealias DaemonStatusMessage = IPCDaemonStatusMessage
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let surfaceType: String
     public let title: String?
@@ -924,7 +924,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(sessionId: String, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(sessionId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
         self.sessionId = sessionId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType

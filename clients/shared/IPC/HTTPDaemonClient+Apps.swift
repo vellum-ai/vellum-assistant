@@ -199,7 +199,7 @@ extension HTTPTransport {
             let rest = try decoder.decode(RESTAppOpenResponse.self, from: data)
             let surfaceId = "app-\(rest.appId)"
             let surfaceMessage = UiSurfaceShowMessage(
-                sessionId: "",
+                sessionId: nil,
                 surfaceId: surfaceId,
                 surfaceType: "dynamic_page",
                 title: rest.name,
