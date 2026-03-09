@@ -475,7 +475,10 @@ extension HTTPTransport {
     }
 
     private func fetchSharedAppsList(isRetry: Bool = false) async {
-        guard let url = buildURL(for: .appsShared) else { return }
+        guard let url = buildURL(for: .appsShared) else {
+            onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(type: "shared_apps_list_response", apps: [])))
+            return
+        }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -491,6 +494,7 @@ extension HTTPTransport {
                 }
                 guard http.statusCode == 200 else {
                     log.error("Fetch shared apps list failed (\(http.statusCode))")
+                    onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(type: "shared_apps_list_response", apps: [])))
                     return
                 }
             }
@@ -499,6 +503,7 @@ extension HTTPTransport {
             onMessage?(.sharedAppsListResponse(decoded))
         } catch {
             log.error("Fetch shared apps list error: \(error.localizedDescription)")
+            onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(type: "shared_apps_list_response", apps: [])))
         }
     }
 
