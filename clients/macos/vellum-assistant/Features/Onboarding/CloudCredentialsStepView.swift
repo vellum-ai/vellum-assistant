@@ -332,7 +332,7 @@ struct CloudCredentialsStepView: View {
         } else {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.file, size: 14)
-                    .foregroundColor(VColor.onboardingStepBackground)
+                    .foregroundColor(VColor.onboardingFileIcon)
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
