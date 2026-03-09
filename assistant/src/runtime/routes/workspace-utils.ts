@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -18,6 +19,41 @@ export function resolveWorkspacePath(relativePath: string): string | undefined {
   if (resolved !== base && !resolved.startsWith(base + sep)) {
     return undefined;
   }
+
+  // Canonicalize via realpath to prevent symlink traversal outside workspace.
+  // For new files, realpath the nearest existing ancestor to catch symlinked
+  // parent directories.
+  try {
+    const real = realpathSync(resolved);
+    const realBase = realpathSync(base);
+    if (real !== realBase && !real.startsWith(realBase + sep)) {
+      return undefined;
+    }
+  } catch {
+    // Path doesn't exist yet — walk up to the nearest existing ancestor and
+    // verify *it* resolves inside the workspace.
+    let ancestor = resolved;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const parent = resolve(ancestor, "..");
+      if (parent === ancestor) break; // reached filesystem root
+      ancestor = parent;
+      try {
+        const realAncestor = realpathSync(ancestor);
+        const realBase = realpathSync(base);
+        if (
+          realAncestor !== realBase &&
+          !realAncestor.startsWith(realBase + sep)
+        ) {
+          return undefined;
+        }
+        break;
+      } catch {
+        // ancestor doesn't exist either — keep walking up
+      }
+    }
+  }
+
   return resolved;
 }
 

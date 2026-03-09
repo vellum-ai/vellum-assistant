@@ -244,6 +244,10 @@ async function handleWorkspaceWrite(ctx: RouteContext): Promise<Response> {
     return httpError("BAD_REQUEST", "path is required", 400);
   }
 
+  if (content !== undefined && typeof content !== "string") {
+    return httpError("BAD_REQUEST", "content must be a string", 400);
+  }
+
   const resolved = resolveWorkspacePath(path);
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
