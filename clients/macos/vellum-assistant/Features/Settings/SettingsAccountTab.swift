@@ -25,6 +25,7 @@ struct SettingsAccountTab: View {
     @State private var devModeMessage: String?
     @State private var isHatchFlagEnabled: Bool = true
     @State private var isLoadingHatchFlag: Bool = false
+    @State private var showingHatchConfirmation: Bool = false
 
     // -- Wake/sleep toggle state --
     @State private var awakeStates: [String: Bool] = [:]
@@ -477,8 +478,16 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                     VButton(label: "Hatch...", style: .primary) {
-                        AppDelegate.shared?.replayOnboarding()
-                        onClose()
+                        showingHatchConfirmation = true
+                    }
+                    .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Continue") {
+                            AppDelegate.shared?.hatchNewAssistant()
+                            onClose()
+                        }
+                    } message: {
+                        Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
                     }
                 }
             }
