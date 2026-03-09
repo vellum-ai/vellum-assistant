@@ -34,6 +34,7 @@ struct OnboardingButton: View {
                 )
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .disabled(disabled)
         .opacity(opacity)
         .scaleEffect(isHovered && !disabled ? 1.03 : 1.0)
@@ -42,7 +43,6 @@ struct OnboardingButton: View {
                 isHovered = hovering
             }
         }
-        .pointerCursor()
         .onAppear {
             if fadeIn {
                 DispatchQueue.main.asyncAfter(deadline: .now() + fadeDelay) {
