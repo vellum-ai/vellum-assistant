@@ -1,19 +1,16 @@
 import Foundation
 
 public enum LockfilePaths {
-    private static var baseDir: URL {
-        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-            return URL(fileURLWithPath: baseDir)
-        }
-        return URL(fileURLWithPath: NSHomeDirectory())
+    private static var homeDir: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
     }
 
     public static var primary: URL {
-        baseDir.appendingPathComponent(".vellum.lock.json")
+        homeDir.appendingPathComponent(".vellum.lock.json")
     }
 
     public static var legacy: URL {
-        baseDir.appendingPathComponent(".vellum.lockfile.json")
+        homeDir.appendingPathComponent(".vellum.lockfile.json")
     }
 
     public static var primaryPath: String { primary.path }
