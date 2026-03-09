@@ -197,11 +197,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupMenuBar()
         setupHotKey()
 
-        if !skipOnboarding && !lockfileHasAssistants() {
+        let hasAssistants = lockfileHasAssistants()
+        log.error("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
+
+        if !skipOnboarding && !hasAssistants {
+            log.error("[appLaunch] → showOnboarding()")
             showOnboarding()
             return
         }
 
+        log.error("[appLaunch] → startAuthenticatedFlow()")
         startAuthenticatedFlow()
     }
 
