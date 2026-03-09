@@ -1,8 +1,17 @@
-import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from "fs";
 import { spawn, type ChildProcess } from "child_process";
-import type { Writable } from "stream";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import type { Writable } from "stream";
 
 /** Regex matching pino-pretty's short time prefix, e.g. `[12:07:37.467] `. */
 const PINO_TIME_RE = /^\[\d{2}:\d{2}:\d{2}\.\d{3}\]\s*/;
@@ -33,6 +42,25 @@ export function resetLogFile(name: string): void {
     const dir = getLogDir();
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, name), "");
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Copy the current log file into `destDir` with a timestamped name so that
+ * previous session logs are preserved for debugging. No-op when the source
+ * file is missing or empty.
+ */
+export function archiveLogFile(name: string, destDir: string): void {
+  try {
+    const srcPath = join(getLogDir(), name);
+    if (!existsSync(srcPath) || statSync(srcPath).size === 0) return;
+
+    mkdirSync(destDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = name.replace(/\.log$/, "");
+    copyFileSync(srcPath, join(destDir, `${base}-${ts}.log`));
   } catch {
     /* best-effort */
   }
@@ -110,36 +138,8 @@ export function pipeToLogFile(
   }
 }
 
-/**
- * Inline script executed by the log-forwarder process spawned in openLogPipe.
- * Reads from stdin, strips pino-pretty's short time prefix, prepends an ISO
- * timestamp + tag, and appends the result to the target log file.
- */
-const LOG_FORWARDER_SCRIPT = [
-  'const fs = require("fs");',
-  "const tag = process.argv[2];",
-  "const logPath = process.argv[3];",
-  "let fd;",
-  'try { fd = fs.openSync(logPath, "a"); } catch { process.exit(0); }',
-  "const P = /^\\[\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\]\\s*/;",
-  'let b = "";',
-  'process.stdin.on("data", (c) => {',
-  "  const t = b + c.toString();",
-  '  const l = t.split("\\n");',
-  '  b = l.pop() || "";',
-  "  for (const x of l) {",
-  '    const s = x.replace(P, "");',
-  '    try { fs.writeSync(fd, new Date().toISOString() + " [" + tag + "] " + s + "\\n"); } catch {}',
-  "  }",
-  "});",
-  'process.stdin.on("end", () => {',
-  "  if (b) {",
-  '    const s = b.replace(P, "");',
-  '    try { fs.writeSync(fd, new Date().toISOString() + " [" + tag + "] " + s + "\\n"); } catch {}',
-  "  }",
-  "  try { fs.closeSync(fd); } catch {}",
-  "});",
-].join("\n");
+/** Path to the standalone log-forwarder script (sibling of this module). */
+const LOG_FORWARDER_PATH = join(import.meta.dir, "log-forwarder.ts");
 
 export interface LogPipe {
   /** Value to pass as stdout/stderr in spawn's stdio option. */
@@ -163,7 +163,7 @@ export function openLogPipe(name: string, tag: string): LogPipe {
     mkdirSync(dir, { recursive: true });
     const logPath = join(dir, name);
 
-    const forwarder = spawn("bun", ["-e", LOG_FORWARDER_SCRIPT, tag, logPath], {
+    const forwarder = spawn("bun", ["run", LOG_FORWARDER_PATH, tag, logPath], {
       detached: true,
       stdio: ["pipe", "ignore", "ignore"],
     });
