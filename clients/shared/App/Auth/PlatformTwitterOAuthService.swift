@@ -12,45 +12,54 @@ extension URLSession: URLSessionProtocol {}
 
 /// A Twitter OAuth connection returned by the platform.
 public struct TwitterOAuthConnection: Codable, Sendable {
-    public let id: String
     public let provider: String
-    public let accountInfo: String?
-    public let createdAt: String?
+    public let status: String           // "ACTIVE", "REVOKED", "EXPIRED"
+    public let connected: Bool
+    public let accountLabel: String?
+    public let scopesGranted: [String]?
+    public let expiresAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id
         case provider
-        case accountInfo = "account_info"
-        case createdAt = "created_at"
+        case status
+        case connected
+        case accountLabel = "account_label"
+        case scopesGranted = "scopes_granted"
+        case expiresAt = "expires_at"
     }
 
-    public init(id: String, provider: String, accountInfo: String? = nil, createdAt: String? = nil) {
-        self.id = id
+    public init(provider: String, status: String, connected: Bool, accountLabel: String? = nil, scopesGranted: [String]? = nil, expiresAt: String? = nil) {
         self.provider = provider
-        self.accountInfo = accountInfo
-        self.createdAt = createdAt
-    }
-}
-
-/// Response from listing Twitter OAuth connections.
-public struct ListTwitterOAuthConnectionsResponse: Codable, Sendable {
-    public let connections: [TwitterOAuthConnection]
-
-    public init(connections: [TwitterOAuthConnection]) {
-        self.connections = connections
+        self.status = status
+        self.connected = connected
+        self.accountLabel = accountLabel
+        self.scopesGranted = scopesGranted
+        self.expiresAt = expiresAt
     }
 }
 
 /// Response from starting a Twitter OAuth connect flow.
 public struct StartTwitterConnectResponse: Codable, Sendable {
-    public let authorizationUrl: String
+    public let success: Bool
+    public let deferred: Bool
+    public let provider: String
+    public let connectUrl: String
+    public let stateId: String
 
     enum CodingKeys: String, CodingKey {
-        case authorizationUrl = "authorization_url"
+        case success
+        case deferred
+        case provider
+        case connectUrl = "connect_url"
+        case stateId = "state_id"
     }
 
-    public init(authorizationUrl: String) {
-        self.authorizationUrl = authorizationUrl
+    public init(success: Bool, deferred: Bool, provider: String, connectUrl: String, stateId: String) {
+        self.success = success
+        self.deferred = deferred
+        self.provider = provider
+        self.connectUrl = connectUrl
+        self.stateId = stateId
     }
 }
 
@@ -83,9 +92,8 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         "offline.access",
     ]
 
-    /// The redirect URL the platform navigates to after OAuth completes.
-    /// Points to a desktop completion page served by the platform.
-    public static let redirectAfterConnect = "vellum://oauth/twitter/complete"
+    /// The redirect path the platform navigates to after OAuth completes.
+    public static let redirectAfterConnect = "/"
 
     /// Creates a new service instance.
     ///
@@ -114,8 +122,8 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
     public func listConnections(
         platformAssistantId: String,
         organizationId: String
-    ) async throws -> ListTwitterOAuthConnectionsResponse {
-        let urlString = "\(baseURL)/v1/assistants/\(platformAssistantId)/twitter/connections/"
+    ) async throws -> [TwitterOAuthConnection] {
+        let urlString = "\(baseURL)/v1/assistants/\(platformAssistantId)/oauth/connections/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -130,7 +138,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         let (data, response) = try await performRequest(request)
         let statusCode = httpStatusCode(response)
 
-        log.debug("Platform request GET assistants/\(platformAssistantId, privacy: .public)/twitter/connections/ -> \(statusCode)")
+        log.debug("Platform request GET assistants/\(platformAssistantId, privacy: .public)/oauth/connections/ -> \(statusCode)")
 
         try checkAuthErrors(statusCode: statusCode)
 
@@ -140,7 +148,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         }
 
         do {
-            return try JSONDecoder().decode(ListTwitterOAuthConnectionsResponse.self, from: data)
+            return try JSONDecoder().decode([TwitterOAuthConnection].self, from: data)
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
         }
@@ -158,7 +166,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         platformAssistantId: String,
         organizationId: String
     ) async throws -> StartTwitterConnectResponse {
-        let urlString = "\(baseURL)/v1/assistants/\(platformAssistantId)/twitter/connect/"
+        let urlString = "\(baseURL)/v1/assistants/\(platformAssistantId)/oauth/twitter/start/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -180,7 +188,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         let (data, response) = try await performRequest(request)
         let statusCode = httpStatusCode(response)
 
-        log.debug("Platform request POST assistants/\(platformAssistantId, privacy: .public)/twitter/connect/ -> \(statusCode)")
+        log.debug("Platform request POST assistants/\(platformAssistantId, privacy: .public)/oauth/twitter/start/ -> \(statusCode)")
 
         try checkAuthErrors(statusCode: statusCode)
 
@@ -208,7 +216,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         platformAssistantId: String,
         organizationId: String
     ) async throws -> DisconnectTwitterResponse {
-        let urlString = "\(baseURL)/v1/assistants/\(platformAssistantId)/twitter/disconnect/"
+        let urlString = "\(baseURL)/v1/assistants/\(platformAssistantId)/oauth/twitter/disconnect/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -223,7 +231,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         let (data, response) = try await performRequest(request)
         let statusCode = httpStatusCode(response)
 
-        log.debug("Platform request POST assistants/\(platformAssistantId, privacy: .public)/twitter/disconnect/ -> \(statusCode)")
+        log.debug("Platform request POST assistants/\(platformAssistantId, privacy: .public)/oauth/twitter/disconnect/ -> \(statusCode)")
 
         try checkAuthErrors(statusCode: statusCode)
 
