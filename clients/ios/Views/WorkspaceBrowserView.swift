@@ -13,6 +13,7 @@ struct WorkspaceBrowserView: View {
     @State private var showingNewFileAlert = false
     @State private var showingNewFolderAlert = false
     @State private var newItemName: String = ""
+    @State private var newItemParentPath: String = ""
     @State private var deletingEntry: WorkspaceTreeEntry?
     @State private var renamingEntry: WorkspaceTreeEntry?
     @State private var renameText: String = ""
@@ -49,12 +50,14 @@ struct WorkspaceBrowserView: View {
                     Menu {
                         Button {
                             newItemName = ""
+                            newItemParentPath = ""
                             showingNewFileAlert = true
                         } label: {
                             Label { Text("New File") } icon: { VIconView(.filePlus, size: 14) }
                         }
                         Button {
                             newItemName = ""
+                            newItemParentPath = ""
                             showingNewFolderAlert = true
                         } label: {
                             Label { Text("New Folder") } icon: { VIconView(.folder, size: 14) }
@@ -158,6 +161,7 @@ struct WorkspaceBrowserView: View {
 
             Button {
                 newItemName = ""
+                newItemParentPath = entry.path
                 showingNewFileAlert = true
             } label: {
                 Label { Text("New File") } icon: { VIconView(.filePlus, size: 14) }
@@ -165,6 +169,7 @@ struct WorkspaceBrowserView: View {
 
             Button {
                 newItemName = ""
+                newItemParentPath = entry.path
                 showingNewFolderAlert = true
             } label: {
                 Label { Text("New Folder") } icon: { VIconView(.folder, size: 14) }
@@ -344,10 +349,11 @@ struct WorkspaceBrowserView: View {
     }
 
     private func buildPath(_ name: String) -> String {
-        if initialPath.isEmpty {
+        let parent = newItemParentPath.isEmpty ? initialPath : newItemParentPath
+        if parent.isEmpty {
             return name
         }
-        let base = initialPath.hasSuffix("/") ? initialPath : initialPath + "/"
+        let base = parent.hasSuffix("/") ? parent : parent + "/"
         return base + name
     }
 
