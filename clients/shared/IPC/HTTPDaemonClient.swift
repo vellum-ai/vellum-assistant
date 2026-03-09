@@ -749,7 +749,7 @@ public final class HTTPTransport {
             return ("/v1/schedules/\(encoded)", nil)
         case .scheduleRunNow(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/schedules/\(encoded)/run-now", nil)
+            return ("/v1/schedules/\(encoded)/run", nil)
         // Diagnostics
         case .diagnosticsExport:
             return ("/v1/diagnostics/export", nil)
@@ -819,7 +819,7 @@ public final class HTTPTransport {
         case .homeBase:
             return ("/v1/home-base", nil)
         case .channelVerificationSessions:
-            return ("/v1/channels/verification-sessions", nil)
+            return ("/v1/channel-verification-sessions", nil)
         case .registerDeviceToken:
             return ("/v1/device-token", nil)
         }
@@ -1132,7 +1132,7 @@ public final class HTTPTransport {
             return ("\(prefix)/schedules/\(encoded)/", nil)
         case .scheduleRunNow(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/schedules/\(encoded)/run-now/", nil)
+            return ("\(prefix)/schedules/\(encoded)/run/", nil)
         // Diagnostics
         case .diagnosticsExport:
             return ("\(prefix)/diagnostics/export/", nil)
@@ -1202,7 +1202,7 @@ public final class HTTPTransport {
         case .homeBase:
             return ("\(prefix)/home-base/", nil)
         case .channelVerificationSessions:
-            return ("\(prefix)/channels/verification-sessions/", nil)
+            return ("\(prefix)/channel-verification-sessions/", nil)
         case .registerDeviceToken:
             return ("\(prefix)/device-token/", nil)
         }

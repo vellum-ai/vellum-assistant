@@ -1,7 +1,6 @@
-// AUTO-GENERATED from assistant/src/daemon/ipc-protocol.ts — DO NOT EDIT
-// Regenerate: cd assistant && bun run generate:ipc
+// Originally auto-generated from IPC contract types. Now maintained manually.
 //
-// This file contains Swift Codable DTOs derived from the IPC contract.
+// This file contains Swift Codable DTOs derived from the message-types contract.
 // The discriminated union enums (ClientMessage/ServerMessage) remain
 // in the hand-written IPCMessages.swift since they require custom
 // Decodable init logic that code generators cannot express cleanly.
