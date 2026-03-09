@@ -253,8 +253,8 @@ async function handlePostRecordingStatus(
   }
 
   const msg: RecordingStatus = {
-    type: "recording_status",
     ...body,
+    type: "recording_status",
   };
 
   const ctx = deps.getHandlerContext();
@@ -325,7 +325,7 @@ export function recordingRouteDefinitions(deps: {
     {
       endpoint: "recordings/status",
       method: "POST",
-      policyKey: "recordings/status",
+      policyKey: "recordings/status:POST",
       handler: async ({ req }) => handlePostRecordingStatus(req, getDeps()),
     },
   ];
