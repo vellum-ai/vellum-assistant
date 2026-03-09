@@ -211,7 +211,6 @@ describe("registerToolTraceListener", () => {
   test("ignores non-tool domain events", async () => {
     await bus.emit("daemon.lifecycle.started", {
       pid: 123,
-      socketPath: "/tmp/test.sock",
       startedAtMs: 9000,
     });
 

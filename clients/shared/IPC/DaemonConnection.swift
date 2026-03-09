@@ -94,7 +94,6 @@ extension DaemonClient {
 
     func disconnectInternal(triggerReconnect: Bool) {
         isAuthenticated = false
-        isBlobTransportAvailable = false
 
         httpTransport?.disconnect()
         httpTransport = nil

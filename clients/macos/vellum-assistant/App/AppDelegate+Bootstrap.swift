@@ -61,7 +61,7 @@ extension AppDelegate {
     /// `setupDaemonClient()`. This avoids a dual-connect race where two
     /// concurrent Tasks both attempt `daemonClient.connect()`, with the
     /// second caller's `disconnectInternal()` tearing down the first
-    /// caller's in-flight NWConnection.
+    /// caller's in-flight HTTP connection.
     func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
         log.info("Waiting for daemon to become ready (timeout: \(timeout)s)")
         let start = CFAbsoluteTimeGetCurrent()

@@ -7,7 +7,6 @@ import Testing
 @MainActor
 private final class MockUsageClient: DaemonClientProtocol {
     var isConnected: Bool = true
-    var isBlobTransportAvailable: Bool = false
 
     func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
     func send<T: Encodable>(_ message: T) throws {}
@@ -356,7 +355,6 @@ struct UsageDashboardStoreGroupTests {
 @MainActor
 private final class DelayedMockUsageClient: DaemonClientProtocol {
     var isConnected: Bool = true
-    var isBlobTransportAvailable: Bool = false
 
     func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
     func send<T: Encodable>(_ message: T) throws {}

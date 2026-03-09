@@ -64,7 +64,6 @@ final class DaemonClientReconfigureTests: XCTestCase {
         XCTAssertNil(client.currentModel, "currentModel should be reset after reconfigure")
         XCTAssertNil(client.daemonVersion, "daemonVersion should be reset after reconfigure")
         XCTAssertNil(client.latestMemoryStatus, "latestMemoryStatus should be reset after reconfigure")
-        XCTAssertFalse(client.isBlobTransportAvailable, "isBlobTransportAvailable should be false after reconfigure")
         XCTAssertFalse(client.isConnected, "isConnected should be false after reconfigure")
     }
 

@@ -86,7 +86,6 @@ public func readFeatureFlagToken(environment: [String: String]? = nil) -> String
 @MainActor
 public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
-    var isBlobTransportAvailable: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
     func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws
@@ -252,11 +251,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published public var isConnected: Bool = false
     public var isConnecting: Bool = false
-
-    /// Whether blob transport has been verified for this connection.
-    /// Always `false` — blob transport was only available over the legacy socket
-    /// transport which has been removed. Kept for protocol conformance.
-    @Published public internal(set) var isBlobTransportAvailable: Bool = false
 
     /// The runtime HTTP server port, populated via `daemon_status` on connect.
     /// `nil` means the HTTP server is not running.
@@ -655,7 +649,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         self.config = newConfig
         // Reset connection-specific state
         isAuthenticated = false
-        isBlobTransportAvailable = false
         httpPort = nil
         daemonVersion = nil
         keyFingerprint = nil

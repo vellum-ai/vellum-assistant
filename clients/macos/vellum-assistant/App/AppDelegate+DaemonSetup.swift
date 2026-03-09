@@ -411,7 +411,7 @@ extension AppDelegate {
             // Skip connect if the bootstrap retry coordinator already connected
             // or has a connect in flight (hatch can take a long time; the
             // coordinator connects independently). Checking isConnecting
-            // prevents tearing down the coordinator's in-flight NWConnection
+            // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
             if !daemonClient.isConnected && !daemonClient.isConnecting {
                 do {
