@@ -60,12 +60,12 @@ describe("starter task surface actions", () => {
     ctx.pendingSurfaceActions.set("surf-1", { surfaceType: "dynamic_page" });
 
     handleSurfaceAction(ctx, "surf-1", "relay_prompt", {
-      prompt: "Help me customize Home Base with a calmer palette.",
+      prompt: "Help me customize the app with a calmer palette.",
       task: "change_look_and_feel",
     });
 
     expect(forwarded).toEqual([
-      "Help me customize Home Base with a calmer palette.",
+      "Help me customize the app with a calmer palette.",
     ]);
     expect(ctx.pendingSurfaceActions.has("surf-1")).toBe(true);
   });

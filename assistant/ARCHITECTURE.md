@@ -5,12 +5,11 @@ This document owns assistant-runtime architecture details. The repo-level archit
 ### Channel Onboarding Playbook Bootstrap
 
 - Transport metadata arrives via `session_create.transport` (HTTP) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
-- Telegram webhook ingress now injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer Home Base-only UI tasks cleanly.
+- Telegram webhook ingress injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer dashboard-only UI tasks cleanly.
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies per-channel first-time fast-path onboarding.
-- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
+- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture) from playbook + transport context.
 - Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
-- Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
-- Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
+- Permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
 ### Guardian Actor Context (Unified Across Channels)
 
@@ -719,7 +718,7 @@ graph LR
         CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes assistantFeatureFlagValues)"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
-        APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
+        APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>User-created apps stored here"]
         SKILLS_DIR["skills/<br/>managed skill directories<br/>SKILL.md + TOOLS.json + tools/"]
     end
 
@@ -1736,7 +1735,7 @@ Every event published through the hub is wrapped in an `AssistantEvent` (defined
 | `assistantId` | `string`            | Logical assistant identifier (`"self"` for HTTP runs) |
 | `sessionId`   | `string?`           | Resolved conversation ID when available               |
 | `emittedAt`   | `string` (ISO-8601) | Server-side timestamp                                 |
-| `message`     | `ServerMessage`     | The outbound message payload                           |
+| `message`     | `ServerMessage`     | The outbound message payload                          |
 
 ### SSE Frame Format
 
@@ -1766,12 +1765,12 @@ Keep-alive heartbeats (every 30 s by default):
 
 ### Key Source Files
 
-| File                                            | Role                                                                                |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers         |
-| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                               |
-| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                              |
-| `assistant/src/daemon/server.ts`                | Session event paths that publish to the hub (`send` → `publishAssistantEvent`)      |
+| File                                            | Role                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers    |
+| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                          |
+| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                         |
+| `assistant/src/daemon/server.ts`                | Session event paths that publish to the hub (`send` → `publishAssistantEvent`) |
 
 ---
 

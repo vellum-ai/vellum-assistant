@@ -4,7 +4,7 @@ export const TELEGRAM_CHANNEL_TRANSPORT_HINTS = [
   "defer-dashboard-only-tasks",
 ] as const;
 export const TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF =
-  "Telegram is chat-only. Complete channel-safe steps in-channel and defer dashboard-only Home Base tasks to desktop.";
+  "Telegram is chat-only. Complete channel-safe steps in-channel and defer dashboard-only tasks to desktop.";
 
 export function buildTelegramTransportMetadata(): {
   hints: string[];
