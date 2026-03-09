@@ -96,7 +96,7 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
-            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: message.isError ? .infinity : VSpacing.chatBubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
