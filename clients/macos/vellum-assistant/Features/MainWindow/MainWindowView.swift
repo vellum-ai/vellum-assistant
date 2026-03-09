@@ -431,7 +431,7 @@ struct MainWindowView: View {
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
         .frame(height: 36)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        .background(VColor.backgroundSubtle)
     }
 
     /// Core layout extracted to break up type-checker complexity.

@@ -101,7 +101,7 @@ struct ComposerView: View {
             .padding(.trailing, VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(adaptiveColor(light: Moss._200, dark: Moss._700))
+                    .fill(VColor.composerBackground)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(

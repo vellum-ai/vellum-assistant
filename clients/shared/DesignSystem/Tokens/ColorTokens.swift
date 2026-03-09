@@ -295,4 +295,16 @@ public enum VColor {
     // Subagent / skill chip
     public static let statusRunning = adaptiveColor(light: Forest._600, dark: Forest._400)
     public static let skillChipBorder = adaptiveColor(light: Amber._400, dark: Amber._600)
+
+    // Contextual text — primary in light, secondary in dark
+    public static let contextualText = adaptiveColor(light: Stone._900, dark: Moss._400)
+
+    // Panel divider — used in identity panel sidebar
+    public static let panelDivider = adaptiveColor(light: Moss._50, dark: Moss._500)
+
+    // Composer background fill
+    public static let composerBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
+
+    // Microphone icon color
+    public static let micIcon = adaptiveColor(light: Forest._500, dark: Moss._400)
 }
