@@ -41,6 +41,21 @@ import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
 
 const log = getLogger("runtime-http");
 
+export function isBoundGuardianActor(params: {
+  trustClass: TrustContext["trustClass"];
+  guardianExternalUserId?: string;
+  requesterExternalUserId?: string;
+}): boolean {
+  const { trustClass, guardianExternalUserId, requesterExternalUserId } =
+    params;
+
+  return (
+    trustClass === "guardian" &&
+    !!guardianExternalUserId &&
+    requesterExternalUserId === guardianExternalUserId
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -97,6 +112,12 @@ export function processChannelMessageInBackground(
   } = params;
 
   (async () => {
+    const boundGuardianActor = isBoundGuardianActor({
+      trustClass: trustCtx.trustClass,
+      guardianExternalUserId: trustCtx.guardianExternalUserId,
+      requesterExternalUserId: trustCtx.requesterExternalUserId,
+    });
+
     const typingCallbackUrl = shouldEmitTelegramTyping(
       sourceChannel,
       replyCallbackUrl,
@@ -210,8 +231,14 @@ export function processChannelMessageInBackground(
       if (telegramStreaming) {
         // Retrieve approval metadata from pending interactions (if any)
         // so approval buttons can be attached to the final streamed message.
-        const prompt = getChannelApprovalPrompt(conversationId);
-        const pending = getApprovalInfoByConversation(conversationId);
+        // Approval prompts are guardian-only and must never be attached for
+        // non-guardian or unverified actors.
+        const prompt = boundGuardianActor
+          ? getChannelApprovalPrompt(conversationId)
+          : undefined;
+        const pending = boundGuardianActor
+          ? getApprovalInfoByConversation(conversationId)
+          : [];
         const approvalMeta =
           prompt && pending.length > 0
             ? buildApprovalUIMetadata(prompt, pending[0])
@@ -474,11 +501,13 @@ export function startPendingApprovalPromptWatcher(params: {
   // actors must never receive approval prompt broadcasts for the conversation.
   // We also require an explicit identity match against the bound guardian to
   // avoid broadcasting prompts when trustClass is stale/mis-scoped.
-  const isBoundGuardianActor =
-    trustClass === "guardian" &&
-    !!guardianExternalUserId &&
-    requesterExternalUserId === guardianExternalUserId;
-  if (!isBoundGuardianActor) {
+  if (
+    !isBoundGuardianActor({
+      trustClass,
+      guardianExternalUserId,
+      requesterExternalUserId,
+    })
+  ) {
     return () => {};
   }
 
