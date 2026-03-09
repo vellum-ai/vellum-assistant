@@ -21,9 +21,21 @@ extension Notification.Name {
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
 
+    /// All provider identifiers whose API keys should be synced to the daemon.
+    /// Every call site that iterates over syncable providers must use this list
+    /// to keep key sync, hasAnyKey checks, and reconnect flows consistent.
+    static let allSyncableProviders = [
+        "anthropic",
+        "brave",
+        "fireworks",
+        "gemini",
+        "openai",
+        "perplexity",
+    ]
+
     /// Returns true if any known provider has a key configured.
     static func hasAnyKey() -> Bool {
-        for provider in ["anthropic", "openai", "gemini", "fireworks"] {
+        for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
         return false

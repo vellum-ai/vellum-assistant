@@ -316,16 +316,8 @@ extension AppDelegate {
                 return
             }
 
-            let providers: [(String, String?)] = [
-                ("anthropic", APIKeyManager.getKey(for: "anthropic")),
-                ("openai", APIKeyManager.getKey(for: "openai")),
-                ("gemini", APIKeyManager.getKey(for: "gemini")),
-                ("brave", APIKeyManager.getKey(for: "brave")),
-                ("perplexity", APIKeyManager.getKey(for: "perplexity")),
-            ]
-
-            for (name, value) in providers {
-                guard let key = value, !key.isEmpty else { continue }
+            for name in APIKeyManager.allSyncableProviders {
+                guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
                 guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { continue }
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"

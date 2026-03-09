@@ -1398,14 +1398,8 @@ public final class SettingsStore: ObservableObject {
                 guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
             }
 
-            let apiKeyProviders: [(String, String?)] = [
-                ("anthropic", APIKeyManager.getKey(for: "anthropic")),
-                ("brave", APIKeyManager.getKey(for: "brave")),
-                ("perplexity", APIKeyManager.getKey(for: "perplexity")),
-                ("gemini", APIKeyManager.getKey(for: "gemini")),
-            ]
-            for (provider, value) in apiKeyProviders {
-                if let key = value {
+            for provider in APIKeyManager.allSyncableProviders {
+                if let key = APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
             }
