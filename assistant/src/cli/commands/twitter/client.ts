@@ -89,8 +89,8 @@ export class SessionExpiredError extends Error {
   }
 }
 
-function requireSession(): TwitterSession {
-  const session = loadSession();
+async function requireSession(): Promise<TwitterSession> {
+  const session = await loadSession();
   if (!session) {
     throw new SessionExpiredError("No Twitter session found.");
   }
@@ -384,7 +384,7 @@ async function graphqlGet(
   queryName: string,
   variables: Record<string, unknown>,
 ): Promise<unknown> {
-  requireSession();
+  await requireSession();
   const wsUrl = await findTwitterTab();
   const url = graphqlUrl(queryId, queryName, variables);
   const json = (await cdpGet(wsUrl, url)) as {
@@ -678,7 +678,7 @@ export async function postTweet(
   text: string,
   opts?: { inReplyToTweetId?: string },
 ): Promise<PostTweetResult> {
-  requireSession();
+  await requireSession();
 
   const wsUrl = await findTwitterTab();
   const url = `https://x.com/i/api/graphql/${QUERY_IDS.CreateTweet}/CreateTweet`;
@@ -810,7 +810,7 @@ export async function searchTweets(
   query: string,
   product: "Top" | "Latest" | "People" | "Media" = "Top",
 ): Promise<TweetEntry[]> {
-  requireSession();
+  await requireSession();
   const wsUrl = await findTwitterTab();
 
   // Search requires X's client-generated transaction ID, so we navigate Chrome
@@ -923,7 +923,7 @@ export async function getFollowers(
   // Followers requires X's client-generated transaction ID.
   // Navigate to the followers page and capture via CDP.
   if (screenName) {
-    requireSession();
+    await requireSession();
     const wsUrl = await findTwitterTab();
     const json = (await cdpNavigateAndCapture(
       wsUrl,
