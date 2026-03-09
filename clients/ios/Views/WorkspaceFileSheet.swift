@@ -64,9 +64,9 @@ struct WorkspaceFileSheet: View {
         let resolvedMime = fileResponse?.mimeType ?? mimeType ?? ""
 
         if resolvedMime.hasPrefix("image/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
-            AuthenticatedImageView(url: contentURL)
+            AuthenticatedImageView(url: contentURL, client: client)
         } else if resolvedMime.hasPrefix("video/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
-            WorkspaceVideoPlayer(url: contentURL)
+            WorkspaceVideoPlayer(url: contentURL, client: client)
         } else if let response = fileResponse, !response.isBinary, let content = response.content {
             ScrollView {
                 markdownContent(content)
@@ -193,6 +193,7 @@ struct WorkspaceFileSheet: View {
 
 private struct AuthenticatedImageView: View {
     let url: URL
+    let client: DaemonClient?
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -239,9 +240,19 @@ private struct AuthenticatedImageView: View {
                 failed = true
                 return
             }
-            // 401 retry: clear stale credentials and retry once with refreshed token
+            // 401 retry: re-bootstrap actor token via DaemonClient then retry once
             if http.statusCode == 401 {
-                ActorTokenManager.deleteAllCredentials()
+                guard let client,
+                      let platform = client.recoveryPlatform,
+                      let deviceId = client.recoveryDeviceId else {
+                    failed = true
+                    return
+                }
+                let success = await client.bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else {
+                    failed = true
+                    return
+                }
                 var retryRequest = URLRequest(url: url)
                 if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
                     retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
@@ -271,6 +282,7 @@ private struct AuthenticatedImageView: View {
 
 private struct WorkspaceVideoPlayer: View {
     let url: URL
+    let client: DaemonClient?
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false
@@ -320,10 +332,20 @@ private struct WorkspaceVideoPlayer: View {
                 failed = true
                 return
             }
-            // 401 retry: clear stale credentials and retry once with refreshed token
+            // 401 retry: re-bootstrap actor token via DaemonClient then retry once
             if http.statusCode == 401 {
                 try? FileManager.default.removeItem(at: localURL)
-                ActorTokenManager.deleteAllCredentials()
+                guard let client,
+                      let platform = client.recoveryPlatform,
+                      let deviceId = client.recoveryDeviceId else {
+                    failed = true
+                    return
+                }
+                let success = await client.bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else {
+                    failed = true
+                    return
+                }
                 var retryRequest = URLRequest(url: url)
                 if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
                     retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
