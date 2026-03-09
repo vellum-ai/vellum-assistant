@@ -719,9 +719,9 @@ public final class HTTPTransport {
             let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
             return ("/v1/computer-use/sessions/\(encoded)/abort", nil)
         case .cuObservation:
-            return ("/v1/computer-use/observation", nil)
+            return ("/v1/computer-use/observations", nil)
         case .cuTaskSubmit:
-            return ("/v1/computer-use/task", nil)
+            return ("/v1/computer-use/tasks", nil)
         case .rideShotgunStart:
             return ("/v1/computer-use/ride-shotgun/start", nil)
         case .rideShotgunStop:
@@ -1102,9 +1102,9 @@ public final class HTTPTransport {
             let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
             return ("\(prefix)/computer-use/sessions/\(encoded)/abort/", nil)
         case .cuObservation:
-            return ("\(prefix)/computer-use/observation/", nil)
+            return ("\(prefix)/computer-use/observations/", nil)
         case .cuTaskSubmit:
-            return ("\(prefix)/computer-use/task/", nil)
+            return ("\(prefix)/computer-use/tasks/", nil)
         case .rideShotgunStart:
             return ("\(prefix)/computer-use/ride-shotgun/start/", nil)
         case .rideShotgunStop:
