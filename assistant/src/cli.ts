@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import * as readline from "node:readline";
 
-import { httpSend, httpHealthCheck, readHttpToken } from "./cli/http-client.js";
+import { httpHealthCheck, httpSend, readHttpToken } from "./cli/http-client.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
