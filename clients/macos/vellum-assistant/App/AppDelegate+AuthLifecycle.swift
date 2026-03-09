@@ -329,12 +329,35 @@ extension AppDelegate {
             assistantCli.stop()
         }
 
-        // Check if other assistants remain in the lockfile
+        // Check if other assistants remain in the lockfile.
+        // Prefer remote assistants (always reachable), then try waking local ones.
         let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
-        if let next = remaining.first {
-            // Auto-switch to the next available assistant
-            performSwitchAssistant(to: next)
-            return true
+        if !remaining.isEmpty {
+            // Try remote assistants first — they're always reachable
+            if let remote = remaining.first(where: { $0.isRemote }) {
+                performSwitchAssistant(to: remote)
+                return true
+            }
+
+            // Try local assistants — check if awake, otherwise wake them
+            for candidate in remaining {
+                let env: [String: String]? = candidate.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                if DaemonClient.isDaemonProcessAlive(environment: env) {
+                    performSwitchAssistant(to: candidate)
+                    return true
+                }
+
+                // Sleeping — try to wake it
+                do {
+                    try await assistantCli.wake(name: candidate.assistantId)
+                    performSwitchAssistant(to: candidate)
+                    return true
+                } catch {
+                    log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
+                    continue
+                }
+            }
+            // All local wake attempts failed — fall through to onboarding
         }
 
         // No assistants left — tear down fully and show onboarding

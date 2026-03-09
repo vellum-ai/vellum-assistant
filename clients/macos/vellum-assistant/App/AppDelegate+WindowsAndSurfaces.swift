@@ -286,6 +286,65 @@ extension AppDelegate {
         onboardingWindow = onboarding
     }
 
+    /// Hatches a new assistant via onboarding and auto-switches to it on success.
+    /// Unlike `replayOnboarding()`, this method detects the newly created assistant
+    /// and makes it the active one.
+    func hatchNewAssistant() {
+        guard onboardingWindow == nil else { return }
+
+        if !daemonClient.isConnected {
+            setupDaemonClient()
+        }
+
+        // Snapshot existing assistant IDs so we can detect the new one after hatch
+        let existingIds = Set(LockfileAssistant.loadAll().map(\.assistantId))
+
+        // Hide the main window during hatch to avoid showing stale old-assistant UI
+        let mainWindowWasVisible = mainWindow?.isVisible ?? false
+        if mainWindowWasVisible {
+            mainWindow?.hide()
+        }
+
+        OnboardingState.clearPersistedState()
+
+        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
+        onboarding.onComplete = { [weak self] state in
+            OnboardingState.clearPersistedState()
+            UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+
+            onboarding.close()
+            self?.onboardingWindow = nil
+            UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
+            // Detect the newly hatched assistant by diffing lockfile against snapshot.
+            // loadAll() returns newest-first, so the first new ID is the most recently hatched.
+            let allAssistants = LockfileAssistant.loadAll()
+            let newAssistant = allAssistants.first { !existingIds.contains($0.assistantId) }
+
+            if let assistant = newAssistant {
+                self?.performSwitchAssistant(to: assistant)
+            } else {
+                // No new assistant detected (e.g. managed bootstrap set connectedAssistantId
+                // but reused an existing entry). Check if connectedAssistantId changed.
+                if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                   !existingIds.isEmpty,
+                   let connected = allAssistants.first(where: { $0.assistantId == connectedId }) {
+                    self?.performSwitchAssistant(to: connected)
+                } else {
+                    self?.showMainWindow()
+                }
+            }
+        }
+        onboarding.onDismiss = { [weak self] in
+            self?.onboardingWindow = nil
+            if mainWindowWasVisible {
+                self?.showMainWindow()
+            }
+        }
+        onboarding.show()
+        onboardingWindow = onboarding
+    }
+
     /// Returns `true` when `~/.vellum.lock.json` contains at least one
     /// assistant entry.
     func lockfileHasAssistants() -> Bool {
