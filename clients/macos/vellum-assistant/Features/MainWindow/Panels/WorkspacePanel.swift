@@ -184,6 +184,7 @@ private struct WorkspaceTreeSidebar: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .accessibilityLabel("Add new file or folder")
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
