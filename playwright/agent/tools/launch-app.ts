@@ -41,7 +41,7 @@ export async function execute(
 
   try {
     execSync(
-      `open -a "${appPath}" --env E2E_STATUS_FILE "${statusFile}"`,
+      `open -a "${appPath}" --env "E2E_STATUS_FILE=${statusFile}"`,
       {
         encoding: "utf-8",
         timeout: 10_000,
