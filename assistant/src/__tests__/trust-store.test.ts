@@ -874,13 +874,13 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default allow for host_bash", () => {
+    test("findHighestPriorityRule matches default ask for host_bash", () => {
       const match = findHighestPriorityRule("host_bash", ["ls"], "/tmp");
       expect(match).not.toBeNull();
-      expect(match!.id).toBe("default:allow-host_bash-global");
-      expect(match!.decision).toBe("allow");
+      expect(match!.id).toBe("default:ask-host_bash-global");
+      expect(match!.decision).toBe("ask");
       expect(match!.priority).toBe(
-        DEFAULT_PRIORITY_BY_ID.get("default:allow-host_bash-global")!,
+        DEFAULT_PRIORITY_BY_ID.get("default:ask-host_bash-global")!,
       );
     });
 
