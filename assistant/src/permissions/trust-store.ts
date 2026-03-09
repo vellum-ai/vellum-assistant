@@ -233,8 +233,19 @@ function loadFromDisk(): TrustRule[] {
       // Restore persisted starter bundle flag
       cachedStarterBundleAccepted = data.starterBundleAccepted === true;
 
-      if (data.version === TRUST_FILE_VERSION) {
+      if (
+        data.version === TRUST_FILE_VERSION ||
+        data.version === 1 ||
+        data.version === 2
+      ) {
         rules = rawRules;
+        if (data.version !== TRUST_FILE_VERSION) {
+          needsSave = true;
+          log.info(
+            { version: data.version, targetVersion: TRUST_FILE_VERSION },
+            "Migrating legacy trust file version",
+          );
+        }
 
         // Strip legacy principal-scoped fields from persisted v3 rules.
         // Before the principal concept was removed, rules could carry
