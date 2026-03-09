@@ -7,9 +7,16 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { createWriteStream, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import archiver from "archiver";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
@@ -102,6 +109,58 @@ function redactDeep(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+// ---------------------------------------------------------------------------
+// Crash report discovery
+// ---------------------------------------------------------------------------
+
+const CRASH_REPORT_EXTENSIONS = new Set([".crash", ".ips", ".diag"]);
+const CRASH_REPORT_TAR_GZ = ".tar.gz";
+const CRASH_REPORT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function findRecentCrashReports(): string[] {
+  const diagnosticReportsDir = join(
+    homedir(),
+    "Library",
+    "Logs",
+    "DiagnosticReports",
+  );
+
+  try {
+    const entries = readdirSync(diagnosticReportsDir);
+    const now = Date.now();
+    const results: string[] = [];
+
+    for (const entry of entries) {
+      // Case-insensitive prefix match for "vellum-assistant"
+      if (!entry.toLowerCase().startsWith("vellum-assistant")) continue;
+
+      // Check extension
+      const lowerEntry = entry.toLowerCase();
+      const hasValidExt =
+        CRASH_REPORT_EXTENSIONS.has(
+          lowerEntry.slice(lowerEntry.lastIndexOf(".")),
+        ) || lowerEntry.endsWith(CRASH_REPORT_TAR_GZ);
+
+      if (!hasValidExt) continue;
+
+      const filePath = join(diagnosticReportsDir, entry);
+      try {
+        const stat = statSync(filePath);
+        if (!stat.isFile()) continue;
+        if (now - stat.mtimeMs > CRASH_REPORT_MAX_AGE_MS) continue;
+        results.push(filePath);
+      } catch {
+        // Skip files we can't stat
+      }
+    }
+
+    return results;
+  } catch {
+    // Directory doesn't exist or can't be read — not an error
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +403,19 @@ async function handleDiagnosticsExport(body: {
 
         archive.pipe(output);
         archive.directory(tempDir, false);
+
+        // Add recent crash report files under crash-reports/
+        const crashReportFiles = findRecentCrashReports();
+        for (const filePath of crashReportFiles) {
+          try {
+            archive.file(filePath, {
+              name: "crash-reports/" + basename(filePath),
+            });
+          } catch {
+            // Skip files that can't be read
+          }
+        }
+
         archive.finalize();
       });
 
@@ -382,9 +454,7 @@ const MAX_WINDOW_TITLE_LENGTH = 100;
 
 function sanitizeWindowTitle(title: string | undefined): string {
   if (!title) return "";
-  return title
-    .replace(/[<>]/g, "")
-    .slice(0, MAX_WINDOW_TITLE_LENGTH);
+  return title.replace(/[<>]/g, "").slice(0, MAX_WINDOW_TITLE_LENGTH);
 }
 
 interface DictationBody {
@@ -469,10 +539,7 @@ function buildCombinedDictationPrompt(
   return sections.join("\n");
 }
 
-function buildCommandPrompt(
-  body: DictationBody,
-  stylePrompt?: string,
-): string {
+function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
   const sections = [
     "You are a text transformation assistant. The user has selected text and given a voice command to transform it.",
     "",
@@ -559,7 +626,10 @@ async function handleDictation(body: DictationBody): Promise<Response> {
   const stylePrompt = profile.stylePrompt || undefined;
 
   // Command mode: selected text present
-  if (body.context.selectedText && body.context.selectedText.trim().length > 0) {
+  if (
+    body.context.selectedText &&
+    body.context.selectedText.trim().length > 0
+  ) {
     log.info({ mode: "command" }, "Command mode (selected text present)");
     return handleCommandMode(body, profile, profileMeta, stylePrompt);
   }
@@ -669,10 +739,7 @@ async function handleDictation(body: DictationBody): Promise<Response> {
           });
         }
         const cleanedText = input.text?.trim() || transcription;
-        const normalizedText = applyDictionary(
-          cleanedText,
-          profile.dictionary,
-        );
+        const normalizedText = applyDictionary(cleanedText, profile.dictionary);
         return Response.json({
           text: normalizedText,
           mode: "dictation",
