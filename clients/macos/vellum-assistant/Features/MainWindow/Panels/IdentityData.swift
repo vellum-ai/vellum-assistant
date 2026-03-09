@@ -368,7 +368,7 @@ struct LockfileAssistant {
     /// Returns `nil` if the file doesn't exist, the name hasn't been set yet,
     /// or the name is the generic "Assistant" placeholder.
     func loadDisplayName() -> String? {
-        let base = instanceDir ?? NSHomeDirectory()
+        guard let base = instanceDir else { return nil }
         let identityPath = base + "/.vellum/workspace/IDENTITY.md"
         guard let info = IdentityInfo.load(from: identityPath) else { return nil }
         guard let resolved = AssistantDisplayName.firstUserFacing(from: [info.name]),
