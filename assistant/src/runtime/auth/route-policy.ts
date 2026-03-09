@@ -320,6 +320,22 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "trust-rules/manage:DELETE", scopes: ["settings.write"] },
   { endpoint: "trust-rules/manage:PATCH", scopes: ["settings.write"] },
 
+  // Computer use
+  { endpoint: "computer-use/sessions", scopes: ["chat.write"] },
+  { endpoint: "computer-use/sessions/abort", scopes: ["chat.write"] },
+  { endpoint: "computer-use/observations", scopes: ["chat.write"] },
+  { endpoint: "computer-use/tasks", scopes: ["chat.write"] },
+  { endpoint: "computer-use/ride-shotgun/start", scopes: ["chat.write"] },
+  { endpoint: "computer-use/ride-shotgun/stop", scopes: ["chat.write"] },
+  { endpoint: "computer-use/watch", scopes: ["chat.write"] },
+
+  // Recordings
+  { endpoint: "recordings/start", scopes: ["settings.write"] },
+  { endpoint: "recordings/stop", scopes: ["settings.write"] },
+  { endpoint: "recordings/pause", scopes: ["settings.write"] },
+  { endpoint: "recordings/resume", scopes: ["settings.write"] },
+  { endpoint: "recordings/status", scopes: ["settings.read"] },
+
   // Surface actions
   { endpoint: "surface-actions", scopes: ["chat.write"] },
 

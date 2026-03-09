@@ -142,6 +142,14 @@ import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
+import {
+  computerUseRouteDefinitions,
+  type ComputerUseDeps,
+} from "./routes/computer-use-routes.js";
+import {
+  recordingRouteDefinitions,
+  type RecordingDeps,
+} from "./routes/recording-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -198,6 +206,8 @@ export class RuntimeHttpServer {
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
   private modelSetContext?: RuntimeHttpServerOptions["modelSetContext"];
+  private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
+  private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -214,6 +224,8 @@ export class RuntimeHttpServer {
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
     this.modelSetContext = options.modelSetContext;
+    this.getComputerUseDeps = options.getComputerUseDeps;
+    this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -901,6 +913,13 @@ export class RuntimeHttpServer {
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
+
+      ...computerUseRouteDefinitions({
+        getComputerUseDeps: this.getComputerUseDeps,
+      }),
+      ...recordingRouteDefinitions({
+        getRecordingDeps: this.getRecordingDeps,
+      }),
 
       {
         endpoint: "interfaces/:path*",
