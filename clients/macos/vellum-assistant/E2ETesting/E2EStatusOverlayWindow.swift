@@ -158,10 +158,6 @@ struct E2EStatusOverlayView: View {
                     VIconView(.terminal, size: 12)
                         .foregroundColor(VColor.accent)
 
-                    Text(status.tool)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.accent)
-
                     Text(status.summary)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)

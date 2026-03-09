@@ -46,6 +46,9 @@ Rules:
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
 - You have a strict 5-minute time limit and a limited iteration budget. Work efficiently.
 
+Status overlay:
+- Every tool call includes an optional "summary" field. ALWAYS provide a short, human-readable summary of what the tool call does (e.g. "Click Sign In button", "Dump accessibility tree", "Wait 3s for app to load"). This is displayed in a status overlay during test runs.
+
 Efficiency guidelines (CRITICAL — work as fast as possible):
 - Combine multiple actions in a single applescript call when possible (e.g., dump the tree AND click a button in one script).
 - Do NOT dump the full accessibility tree every single time. Dump it once when you first encounter a new screen, then reference the elements you found. Only re-dump if your element reference fails.
@@ -110,52 +113,6 @@ function writeE2EStatus(statusFilePath: string, status: E2EStatus): void {
   } catch {
     // Non-critical — overlay simply won't update.
   }
-}
-
-function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
-  if (toolName === "applescript") {
-    const script = (input.script as string) ?? "";
-    const lines = script.split("\n").map((l) => l.trim()).filter(Boolean);
-    const lastLine = lines[lines.length - 1] ?? "";
-
-    if (/keystroke/.test(script)) {
-      const match = script.match(/keystroke\s+"([^"]*)"/i);
-      if (match) {
-        return `Type "${match[1].slice(0, 40)}${match[1].length > 40 ? "..." : ""}"`;
-      }
-      return "Type keystrokes";
-    }
-    if (/click\s+(button|checkbox|menu item|pop up button)/i.test(script)) {
-      const match = script.match(/click\s+(button|checkbox|menu item|pop up button)\s+"([^"]*)"/i);
-      if (match) {
-        return `Click ${match[1]} "${match[2]}"`;
-      }
-      return "Click UI element";
-    }
-    if (/click/i.test(script) && /static text/i.test(script)) {
-      const match = script.match(/click\s+static\s+text\s+"([^"]*)"/i);
-      if (match) {
-        return `Click "${match[1]}"`;
-      }
-    }
-    if (/entire contents/i.test(script)) {
-      return "Read accessibility tree";
-    }
-    if (/set value/i.test(script)) {
-      return "Set input value";
-    }
-    if (/tell application\s+"([^"]*)"/i.test(script)) {
-      const appMatch = script.match(/tell application\s+"([^"]*)"/i);
-      if (lastLine.startsWith("return") || lastLine.startsWith("get")) {
-        return `Query ${appMatch?.[1] ?? "app"}`;
-      }
-      return `Interact with ${appMatch?.[1] ?? "app"}`;
-    }
-    return script.length > 60 ? script.slice(0, 57) + "..." : script;
-  }
-
-  const inputStr = JSON.stringify(input);
-  return inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
 }
 
 function clearE2EStatus(statusFilePath: string): void {
@@ -323,7 +280,11 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       const seconds = elapsedSec % 60;
       const elapsedStr = `${minutes}:${String(seconds).padStart(2, "0")}`;
 
-      const summaryText = summarizeToolInput(block.name, block.input as Record<string, unknown>);
+      const toolInput = block.input as Record<string, unknown>;
+      const summaryText =
+        typeof toolInput.summary === "string" && toolInput.summary
+          ? toolInput.summary
+          : block.name;
 
       writeE2EStatus(statusFilePath, {
         iteration: iteration + 1,
