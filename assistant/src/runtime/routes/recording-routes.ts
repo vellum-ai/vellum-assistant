@@ -2,9 +2,8 @@
  * HTTP route handlers for screen recording lifecycle.
  *
  * These endpoints expose recording start/stop/pause/resume/status
- * functionality over HTTP. The existing IPC handlers remain as the
- * primary transport; these routes provide the HTTP-first API surface
- * for the phase-out-ipc migration.
+ * functionality over HTTP. Recording commands are broadcast to connected
+ * clients via the assistant event hub (SSE).
  *
  * Recording write operations require `settings.write`; status queries
  * require `settings.read`.
@@ -19,7 +18,6 @@ import {
   isRecordingIdle,
 } from "../../daemon/handlers/recording.js";
 import type { HandlerContext } from "../../daemon/handlers/shared.js";
-import { findSocketForSession } from "../../daemon/handlers/shared.js";
 import type { RecordingOptions } from "../../daemon/ipc-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -36,7 +34,7 @@ const log = getLogger("recording-routes");
  * The daemon wires a concrete HandlerContext at startup.
  */
 export interface RecordingDeps {
-  /** The daemon's handler context for IPC message dispatch. */
+  /** The daemon's handler context for recording operations. */
   getHandlerContext: () => HandlerContext;
 }
 
@@ -65,19 +63,10 @@ async function handleStartRecording(
   }
 
   const ctx = deps.getHandlerContext();
-  const socket = findSocketForSession(body.conversationId, ctx);
-  if (!socket) {
-    return httpError(
-      "UNPROCESSABLE_ENTITY",
-      "No active client connection for this conversation — recording requires a connected client",
-      422,
-    );
-  }
 
   const recordingId = handleRecordingStart(
     body.conversationId,
     body.options,
-    socket,
     ctx,
   );
 

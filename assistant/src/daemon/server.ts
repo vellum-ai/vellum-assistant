@@ -570,11 +570,8 @@ export class DaemonServer {
   private handlerContext(): HandlerContext {
     return {
       sessions: this.sessions,
-      socketToSession: new Map(),
       cuSessions: this.cuSessions,
-      socketToCuSession: new Map(),
       cuObservationParseSequence: this.cuObservationParseSequence,
-      socketSandboxOverride: new Map(),
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,

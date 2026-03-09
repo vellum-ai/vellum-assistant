@@ -409,7 +409,6 @@ export async function handleSessionCreate(
       });
     }
 
-    ctx.socketToSession.set(socket, conversation.id);
     const requestId = uuid();
     const transportChannel =
       parseChannelId(msg.transport?.channelId) ?? "vellum";
@@ -488,8 +487,6 @@ export async function switchSession(
   const isHeadlessLocked = existingSession?.headlessLock;
 
   if (socket) {
-    ctx.socketToSession.set(socket, sessionId);
-
     if (isHeadlessLocked) {
       // Load the session without rebinding the client — the session stays headless
       await ctx.getOrCreateSession(sessionId, socket, false);
@@ -600,7 +597,7 @@ export function handleCancel(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
+  const sessionId = msg.sessionId;
   if (sessionId) {
     cancelGeneration(sessionId, ctx);
   }

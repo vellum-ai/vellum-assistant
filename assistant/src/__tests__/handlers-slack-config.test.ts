@@ -67,11 +67,8 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
   const ctx: HandlerContext = {
     sessions: new Map(),
-    socketToSession: new Map(),
     cuSessions: new Map(),
-    socketToCuSession: new Map(),
     cuObservationParseSequence: new Map(),
-    socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,

@@ -20,7 +20,7 @@ export function handleSubagentAbort(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const callerSessionId = ctx.socketToSession.get(socket);
+  const callerSessionId: string | undefined = undefined;
   if (!callerSessionId) {
     log.warn(
       { subagentId: msg.subagentId },
@@ -53,7 +53,7 @@ export function handleSubagentStatus(
 ): void {
   const manager = getSubagentManager();
 
-  const callerSessionId = ctx.socketToSession.get(socket);
+  const callerSessionId: string | undefined = undefined;
   if (!callerSessionId) {
     log.warn("Status rejected: socket has no bound session");
     return;
@@ -97,7 +97,7 @@ export async function handleSubagentMessage(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const callerSessionId = ctx.socketToSession.get(socket);
+  const callerSessionId: string | undefined = undefined;
   if (!callerSessionId) {
     log.warn(
       { subagentId: msg.subagentId },
@@ -169,7 +169,7 @@ export function handleSubagentDetailRequest(
   ctx: HandlerContext,
 ): void {
   // Ownership check: reject if the socket has no bound session.
-  const callerSessionId = ctx.socketToSession.get(socket);
+  const callerSessionId: string | undefined = undefined;
   if (!callerSessionId) {
     log.warn(
       { subagentId: msg.subagentId },

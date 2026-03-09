@@ -423,7 +423,6 @@ function createCtx(overrides?: Partial<HandlerContext>): {
 } {
   const sent: Array<{ type: string; [k: string]: unknown }> = [];
   const fakeSocket = {} as net.Socket;
-  const socketToSession = new Map<net.Socket, string>();
 
   // Create a fake session that fulfills minimum interface for handleUserMessage
   const fakeSession = {
@@ -454,11 +453,8 @@ function createCtx(overrides?: Partial<HandlerContext>): {
 
   const ctx: HandlerContext = {
     sessions,
-    socketToSession,
     cuSessions: new Map(),
-    socketToCuSession: new Map(),
     cuObservationParseSequence: new Map(),
-    socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
@@ -467,7 +463,9 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     send: (_socket, msg) => {
       sent.push(msg as { type: string; [k: string]: unknown });
     },
-    broadcast: noop,
+    broadcast: (msg) => {
+      sent.push(msg as { type: string; [k: string]: unknown });
+    },
     clearAllSessions: () => 0,
     getOrCreateSession: async (conversationId: string) => {
       sessions.set(conversationId, fakeSession);

@@ -1308,11 +1308,8 @@ function createMockCtx(): {
   let captured: ChannelVerificationSessionResponse | null = null;
   const ctx = {
     sessions: new Map(),
-    socketToSession: new Map(),
     cuSessions: new Map(),
-    socketToCuSession: new Map(),
     cuObservationParseSequence: new Map(),
-    socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: {
       schedule: () => {},
