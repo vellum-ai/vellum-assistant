@@ -165,14 +165,27 @@ public final class HTTPTransport {
     /// The local session ID used by the client (set from the synthetic session_info).
     /// Used to remap the daemon's internal conversation ID to the client's session ID
     /// so that ChatViewModel's belongsToSession() filter passes.
-    private var activeLocalSessionId: String?
+    var activeLocalSessionId: String?
 
     /// The daemon's internal conversation ID, learned from the first SSE event.
     /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
-    private var remoteSessionId: String?
+    var remoteSessionId: String?
 
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+
+    /// Registered domain dispatchers. Each handler receives the message as `Any`
+    /// and returns `true` if it handled the message, `false` otherwise.
+    /// Dispatchers are tried in registration order; the first match wins.
+    private var domainDispatchers: [(Any) -> Bool] = []
+
+    /// Register a domain dispatcher that can handle specific message types.
+    /// The handler receives the message as `Any` and returns `true` if it
+    /// handled the message. Return `false` to let subsequent dispatchers
+    /// (or the default fallback) handle it.
+    func registerDomainDispatcher(_ handler: @escaping (Any) -> Bool) {
+        domainDispatchers.append(handler)
+    }
 
     // MARK: - Init
 
@@ -183,6 +196,9 @@ public final class HTTPTransport {
         self.conversationKey = conversationKey
         self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
+
+        // Register dispatchers for existing HTTP-transported message types
+        registerExistingRoutes()
     }
 
     // MARK: - Endpoint Builder
@@ -712,68 +728,23 @@ public final class HTTPTransport {
     // MARK: - Send (HTTP API Calls)
 
     /// Translate an IPC message to the appropriate HTTP API call.
+    /// Domain dispatchers are tried in registration order; the first match wins.
+    /// If no dispatcher handles the message, it falls through to a default log.
     func send<T: Encodable>(_ message: T) throws {
-        if let msg = message as? UserMessageMessage {
-            Task { await self.sendMessage(content: msg.content, sessionId: msg.sessionId) }
-        } else if let msg = message as? ConfirmationResponseMessage {
-            Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
-        } else if let msg = message as? SecretResponseMessage {
-            Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
-        } else if let msg = message as? CancelMessage {
-            // Best-effort cancel — no dedicated endpoint yet
-            log.info("Cancel requested for session \(msg.sessionId ?? "unknown") (no-op over HTTP)")
-        } else if let msg = message as? SessionCreateMessage {
-            // For HTTP transport, session creation is implicit — the conversationKey
-            // acts as the session. Emit a synthetic session_info so ChatViewModel
-            // records the session ID.
-            let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-            activeLocalSessionId = sessionId
-            remoteSessionId = nil  // Reset — will be learned from the first SSE event
-            let info = ServerMessage.sessionInfo(
-                SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
-            )
-            onMessage?(info)
-        } else if let msg = message as? SessionListRequestMessage {
-            Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
-        } else if let msg = message as? HistoryRequestMessage {
-            Task { await self.fetchHistory(sessionId: msg.sessionId) }
-        } else if let msg = message as? IPCConversationSeenSignal {
-            Task { await self.sendConversationSeen(msg) }
-        } else if let msg = message as? IPCConversationUnreadSignal {
-            Task {
-                do {
-                    try await self.sendConversationUnread(msg)
-                } catch {
-                    log.error("Conversation unread signal error: \(error.localizedDescription)")
-                }
+        // Try registered domain dispatchers first
+        for dispatcher in domainDispatchers {
+            if dispatcher(message) {
+                return
             }
-        } else if let msg = message as? GuardianActionsPendingRequestMessage {
-            Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
-        } else if let msg = message as? GuardianActionDecisionMessage {
-            Task { await self.submitGuardianActionDecision(requestId: msg.requestId, action: msg.action, conversationId: msg.conversationId) }
-        } else if let msg = message as? UiSurfaceActionMessage {
-            Task { await self.sendSurfaceAction(msg) }
-        } else if let msg = message as? AddTrustRuleMessage {
-            Task { await self.sendAddTrustRule(msg) }
-        } else if message is TrustRulesListMessage {
-            Task { await self.fetchTrustRules() }
-        } else if let msg = message as? RemoveTrustRuleMessage {
-            Task { await self.sendRemoveTrustRule(msg) }
-        } else if let msg = message as? UpdateTrustRuleMessage {
-            Task { await self.sendUpdateTrustRule(msg) }
-        } else if let msg = message as? ContactsRequestMessage {
-            Task { await self.handleContactsRequest(msg) }
-        } else if message is PingMessage {
-            // No-op for HTTP transport — SSE keepalive is handled by the connection
-        } else {
-            // For unhandled message types, log and skip
-            log.debug("HTTPTransport: unhandled send message type \(String(describing: type(of: message)))")
         }
+
+        // No dispatcher handled the message
+        log.debug("HTTPTransport: unhandled send message type \(String(describing: type(of: message)))")
     }
 
     // MARK: - HTTP Endpoints
 
-    private func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
+    func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .sendMessage) else { return }
 
         var request = URLRequest(url: url)
@@ -835,7 +806,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
+    func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .confirm) else { return }
 
         var request = URLRequest(url: url)
@@ -878,7 +849,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
+    func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .secret) else { return }
 
         var request = URLRequest(url: url)
@@ -918,7 +889,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
+    func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .guardianActionsPending(conversationId: conversationId)) else { return }
 
         var request = URLRequest(url: url)
@@ -957,7 +928,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
+    func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
         guard let url = buildURL(for: .guardianActionsDecision) else { return }
 
         var request = URLRequest(url: url)
@@ -1047,7 +1018,7 @@ public final class HTTPTransport {
         return jsonCompatible
     }
 
-    private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
+    func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
         var request = URLRequest(url: url)
@@ -1167,7 +1138,7 @@ public final class HTTPTransport {
     // MARK: - Contacts
 
     /// Route a `ContactsRequestMessage` to the appropriate HTTP endpoint based on its action.
-    private func handleContactsRequest(_ msg: ContactsRequestMessage) async {
+    func handleContactsRequest(_ msg: ContactsRequestMessage) async {
         switch msg.action {
         case "list":
             await fetchContactsList(limit: Int(msg.limit ?? 50), role: msg.role)
@@ -1570,7 +1541,7 @@ public final class HTTPTransport {
 
     // MARK: - Surface Actions
 
-    private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
+    func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
         guard let url = buildURL(for: .surfaceAction) else { return }
 
         var request = URLRequest(url: url)
@@ -1649,7 +1620,7 @@ public final class HTTPTransport {
 
     // MARK: - Trust Rule Management
 
-    private func sendAddTrustRule(_ rule: AddTrustRuleMessage, isRetry: Bool = false) async {
+    func sendAddTrustRule(_ rule: AddTrustRuleMessage, isRetry: Bool = false) async {
         guard let url = buildURL(for: .trustRulesManage) else { return }
 
         var request = URLRequest(url: url)
@@ -1689,7 +1660,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchTrustRules(isRetry: Bool = false) async {
+    func fetchTrustRules(isRetry: Bool = false) async {
         guard let url = buildURL(for: .trustRulesManage) else { return }
 
         var request = URLRequest(url: url)
@@ -1723,7 +1694,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendRemoveTrustRule(_ rule: RemoveTrustRuleMessage, isRetry: Bool = false) async {
+    func sendRemoveTrustRule(_ rule: RemoveTrustRuleMessage, isRetry: Bool = false) async {
         guard let url = buildURL(for: .trustRuleManageById(id: rule.id)) else { return }
 
         var request = URLRequest(url: url)
@@ -1748,7 +1719,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendUpdateTrustRule(_ rule: UpdateTrustRuleMessage, isRetry: Bool = false) async {
+    func sendUpdateTrustRule(_ rule: UpdateTrustRuleMessage, isRetry: Bool = false) async {
         guard let url = buildURL(for: .trustRuleManageById(id: rule.id)) else { return }
 
         var request = URLRequest(url: url)
@@ -1792,7 +1763,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false) async {
+    func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
 
         var request = URLRequest(url: url)
@@ -1831,7 +1802,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchHistory(sessionId: String, isRetry: Bool = false) async {
+    func fetchHistory(sessionId: String, isRetry: Bool = false) async {
         guard let url = buildURL(for: .getMessages(conversationId: sessionId)) else { return }
 
         var request = URLRequest(url: url)
