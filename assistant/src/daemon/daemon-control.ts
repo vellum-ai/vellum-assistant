@@ -8,17 +8,15 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 
+import { getRuntimeHttpPort } from "../config/env.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   getPidPath,
   getRootDir,
-  getSocketPath,
   getWorkspaceConfigPath,
-  removeSocketFile,
 } from "../util/platform.js";
 
 const log = getLogger("lifecycle");
@@ -29,7 +27,7 @@ const DAEMON_TIMEOUT_DEFAULTS = {
   sigkillGracePeriodMs: 2000,
 };
 
-const SOCKET_HEALTH_TIMEOUT_MS = 1500;
+const HEALTH_CHECK_TIMEOUT_MS = 1500;
 const STARTUP_LOCK_STALE_MS = 30_000;
 
 function isPositiveInteger(v: unknown): v is number {
@@ -131,31 +129,19 @@ function isVellumDaemonProcess(pid: number): boolean {
   }
 }
 
-/** Try a TCP connect to the Unix socket. Returns true if the connection
- *  handshake completes within the timeout — false on connection refused,
- *  timeout, or missing socket file. */
-function isSocketResponsive(): Promise<boolean> {
-  const socketPath = getSocketPath();
-  if (!existsSync(socketPath)) return Promise.resolve(false);
-
-  return new Promise((resolve) => {
-    const socket = createConnection(socketPath);
-    const timer = setTimeout(() => {
-      socket.destroy();
-      resolve(false);
-    }, SOCKET_HEALTH_TIMEOUT_MS);
-
-    socket.on("connect", () => {
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(true);
+/** Hit the daemon's HTTP /healthz endpoint. Returns true if it responds
+ *  with HTTP 200 within the timeout — false on connection refused, timeout,
+ *  or any other error. */
+async function isHttpHealthy(): Promise<boolean> {
+  const port = getRuntimeHttpPort();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/healthz`, {
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
-    socket.on("error", () => {
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(false);
-    });
-  });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function readPid(): number | null {
@@ -219,13 +205,13 @@ export async function getDaemonStatus(): Promise<{
     cleanupPidFile();
     return { running: false };
   }
-  // Process is alive and is ours — verify the socket is responsive. A
+  // Process is alive and is ours — verify HTTP /healthz is responsive. A
   // deadlocked or wedged daemon will pass the PID liveness check but fail
   // to accept connections, and should be treated as not running so
   // killStaleDaemon() can clean it up.
-  const responsive = await isSocketResponsive();
+  const responsive = await isHttpHealthy();
   if (!responsive) {
-    log.warn({ pid }, "Daemon process alive but socket unresponsive");
+    log.warn({ pid }, "Daemon process alive but HTTP health check unresponsive");
     return { running: false, pid };
   }
   return { running: true, pid };
@@ -335,7 +321,7 @@ async function startDaemonLocked(): Promise<{
   // a crash where the process is alive but non-responsive).
   killStaleDaemon();
 
-  // Only create the root dir for socket/PID — the daemon process itself
+  // Only create the root dir for PID files — the daemon process itself
   // handles migration + full ensureDataDir() in runDaemon(). Calling
   // ensureDataDir() here would pre-create workspace destination dirs
   // and cause migration moves to no-op.
@@ -343,10 +329,6 @@ async function startDaemonLocked(): Promise<{
   if (!existsSync(rootDir)) {
     mkdirSync(rootDir, { recursive: true });
   }
-
-  // Clean up stale socket (only if it's actually a Unix socket)
-  const socketPath = getSocketPath();
-  removeSocketFile(socketPath);
 
   // Spawn the daemon as a detached child process
   const mainPath = resolve(import.meta.dirname ?? __dirname, "main.ts");
@@ -381,18 +363,14 @@ async function startDaemonLocked(): Promise<{
     throw new DaemonError("Failed to start daemon: no PID returned");
   }
 
-  // Wait for socket to appear before writing the PID file. Writing it
-  // earlier would leave an orphaned PID file if the daemon crashes during
+  // Wait for HTTP /healthz to respond before writing the PID file. Writing
+  // it earlier would leave an orphaned PID file if the daemon crashes during
   // initialization — callers would think the daemon is still running.
   const timeouts = readDaemonTimeouts();
   const maxWait = timeouts.startupSocketWaitMs;
-  const interval = 100;
+  const interval = 200;
   let waited = 0;
   while (waited < maxWait) {
-    if (existsSync(socketPath)) {
-      writePid(pid);
-      return { pid, alreadyRunning: false };
-    }
     if (childExited) {
       const stderr = readFileSync(stderrPath, "utf-8").trim();
       const detail = stderr
@@ -404,16 +382,20 @@ async function startDaemonLocked(): Promise<{
         }).${detail}`,
       );
     }
+    if (await isHttpHealthy()) {
+      writePid(pid);
+      return { pid, alreadyRunning: false };
+    }
     await new Promise((r) => setTimeout(r, interval));
     waited += interval;
   }
 
-  // The child process is still running but the socket hasn't appeared yet.
-  // Write the PID file so isDaemonRunning()/stopDaemon() can still track
-  // and manage the orphaned process.
+  // The child process is still running but the HTTP health check hasn't
+  // passed yet. Write the PID file so isDaemonRunning()/stopDaemon() can
+  // still track and manage the orphaned process.
   writePid(pid);
   throw new DaemonError(
-    `Daemon started but socket not available after ${maxWait}ms`,
+    `Daemon started but health check not responding after ${maxWait}ms`,
   );
 }
 
@@ -465,8 +447,7 @@ export async function stopDaemon(): Promise<StopResult> {
   }
 
   // Wait for the process to actually die after SIGKILL. Without this,
-  // startDaemon() can race with the dying process's shutdown handler,
-  // which removes the socket file and bricks the new daemon.
+  // startDaemon() can race with the dying process's shutdown handler.
   const killMaxWait = timeouts.sigkillGracePeriodMs;
   let killWaited = 0;
   while (killWaited < killMaxWait && isProcessRunning(pid)) {
@@ -475,18 +456,17 @@ export async function stopDaemon(): Promise<StopResult> {
   }
 
   // Only clean up if the process has actually exited.
-  // If it's still alive after SIGKILL + timeout, preserve both socket
-  // and PID file so isDaemonRunning() still reports true and prevents
-  // a duplicate daemon from being spawned.
+  // If it's still alive after SIGKILL + timeout, preserve the PID file
+  // so isDaemonRunning() still reports true and prevents a duplicate
+  // daemon from being spawned.
   if (!isProcessRunning(pid)) {
-    removeSocketFile(getSocketPath());
     cleanupPidFile();
     return { stopped: true };
   }
 
   log.warn(
     { pid },
-    "Daemon process still running after SIGKILL + timeout, leaving socket and PID file intact",
+    "Daemon process still running after SIGKILL + timeout, leaving PID file intact",
   );
   return { stopped: false, reason: "stop_failed" };
 }
