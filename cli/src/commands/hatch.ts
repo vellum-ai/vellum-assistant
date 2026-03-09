@@ -50,6 +50,7 @@ import {
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
+import { resetLogFile } from "../lib/xdg-log";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
@@ -729,6 +730,8 @@ async function hatchLocal(
   } else {
     resources = await allocateLocalResources(instanceName);
   }
+
+  resetLogFile("hatch.log");
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);

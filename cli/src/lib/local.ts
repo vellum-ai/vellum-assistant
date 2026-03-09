@@ -1,6 +1,5 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import {
-  closeSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -18,7 +17,7 @@ import {
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
-import { openLogFile, pipeToLogFile } from "./xdg-log.js";
+import { openLogFile, openLogPipe, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
 
@@ -258,16 +257,13 @@ async function startDaemonFromSource(
     delete env.QDRANT_URL;
   }
 
-  // Use fd inheritance instead of pipes so the daemon's stdout/stderr survive
-  // after the parent (hatch) exits. Bun does not ignore SIGPIPE, so piped
-  // stdio would kill the daemon on its first write after the parent closes.
-  const logFd = openLogFile("hatch.log");
+  const logPipe = openLogPipe("hatch.log", "daemon");
   const child = spawn("bun", ["run", daemonMainPath], {
     detached: true,
-    stdio: ["ignore", logFd, logFd],
+    stdio: ["ignore", logPipe.stdio, logPipe.stdio],
     env,
   });
-  if (typeof logFd === "number") closeSync(logFd);
+  logPipe.detach();
   child.unref();
 
   if (child.pid) {
@@ -714,18 +710,14 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
-      // Use fd inheritance instead of pipes so the daemon's stdout/stderr
-      // survive after the parent (hatch) exits. Bun does not ignore SIGPIPE,
-      // so piped stdio would kill the daemon on its first write after the
-      // parent closes.
-      const daemonLogFd = openLogFile("hatch.log");
+      const daemonLogPipe = openLogPipe("hatch.log", "daemon");
       const child = spawn(daemonBinary, [], {
         cwd: dirname(daemonBinary),
         detached: true,
-        stdio: ["ignore", daemonLogFd, daemonLogFd],
+        stdio: ["ignore", daemonLogPipe.stdio, daemonLogPipe.stdio],
         env: daemonEnv,
       });
-      if (typeof daemonLogFd === "number") closeSync(daemonLogFd);
+      daemonLogPipe.detach();
       child.unref();
       const daemonPid = child.pid;
 
@@ -962,29 +954,27 @@ export async function startGateway(
       );
     }
 
-    // Use fd inheritance (not pipes) so the gateway survives after the
-    // hatch CLI exits — Bun does not ignore SIGPIPE.
-    const gatewayLogFd = openLogFile("hatch.log");
+    const gatewayLogPipe = openLogPipe("hatch.log", "gateway");
     gateway = spawn(gatewayBinary, [], {
       detached: true,
-      stdio: ["ignore", gatewayLogFd, gatewayLogFd],
+      stdio: ["ignore", gatewayLogPipe.stdio, gatewayLogPipe.stdio],
       env: gatewayEnv,
     });
-    if (typeof gatewayLogFd === "number") closeSync(gatewayLogFd);
+    gatewayLogPipe.detach();
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
     const bunArgs = watch
       ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
       : ["run", "src/index.ts", "--vellum-gateway"];
-    const gwLogFd = openLogFile("hatch.log");
+    const gwLogPipe = openLogPipe("hatch.log", "gateway");
     gateway = spawn("bun", bunArgs, {
       cwd: gatewayDir,
       detached: true,
-      stdio: ["ignore", gwLogFd, gwLogFd],
+      stdio: ["ignore", gwLogPipe.stdio, gwLogPipe.stdio],
       env: gatewayEnv,
     });
-    if (typeof gwLogFd === "number") closeSync(gwLogFd);
+    gwLogPipe.detach();
     if (watch) {
       console.log("   Gateway started in watch mode (bun --watch)");
     }

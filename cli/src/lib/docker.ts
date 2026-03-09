@@ -10,7 +10,7 @@ import type { Species } from "./constants";
 import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
-import { closeLogFile, openLogFile, writeToLogFile } from "./xdg-log";
+import { closeLogFile, openLogFile, resetLogFile, writeToLogFile } from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
 
@@ -162,6 +162,8 @@ export async function hatchDocker(
     console.error(`Error: ${dockerfile} not found at ${dockerfilePath}`);
     process.exit(1);
   }
+
+  resetLogFile("hatch.log");
 
   console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
