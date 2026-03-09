@@ -18,7 +18,7 @@ private let log = Logger(
 /// - `~/.vellum/workspace/data/logs/` — daemon rotating log files (assistant-*.log)
 /// - `~/.vellum/daemon-stderr.log` — daemon stderr capture
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
-/// - `~/.vellum.lock.json` — lockfile with assistant entries and resource ports
+/// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
 @MainActor
@@ -122,14 +122,10 @@ enum LogExporter {
             fileManager: fileManager
         )
 
-        // 6. Lockfile — ~/.vellum.lock.json
-        let lockfile = URL(fileURLWithPath: LockfilePaths.primaryPath)
-        if fileManager.fileExists(atPath: lockfile.path) {
-            try? fileManager.copyItem(
-                at: lockfile,
-                to: tempDir.appendingPathComponent("vellum.lock.json")
-            )
-        }
+        // 6. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
+        writeSanitizedLockfile(
+            to: tempDir.appendingPathComponent("vellum.lock.json")
+        )
 
         // 7. UserDefaults snapshot — app-relevant keys for debugging
         writeUserDefaultsSnapshot(
@@ -209,6 +205,32 @@ enum LogExporter {
     }
 
     // MARK: - Snapshot Helpers
+
+    /// Writes a sanitized copy of the lockfile with credential fields stripped.
+    /// Preserves all structural data (assistant IDs, cloud, ports, timestamps)
+    /// while replacing `bearerToken` and `runtimeUrl` with boolean presence flags.
+    private nonisolated static func writeSanitizedLockfile(to url: URL) {
+        guard let json = LockfilePaths.read() else { return }
+
+        var sanitized = json
+        if var assistants = json["assistants"] as? [[String: Any]] {
+            for i in assistants.indices {
+                let hasBearerToken = assistants[i]["bearerToken"] != nil
+                let hasRuntimeUrl = assistants[i]["runtimeUrl"] != nil
+                assistants[i].removeValue(forKey: "bearerToken")
+                assistants[i].removeValue(forKey: "runtimeUrl")
+                assistants[i]["hasBearerToken"] = hasBearerToken
+                assistants[i]["hasRuntimeUrl"] = hasRuntimeUrl
+            }
+            sanitized["assistants"] = assistants
+        }
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: sanitized,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? data.write(to: url)
+    }
 
     /// Writes a JSON snapshot of app-relevant UserDefaults keys.
     /// Values are included as-is for non-sensitive keys; sensitive keys are
