@@ -720,6 +720,14 @@ jobs:
           echo "Main executable architecture:"
           file "$APP_PATH/Contents/MacOS/Vellum"
 
+      - name: Upload dSYMs to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+          sentry-cli debug-files upload --org vellum-ai --project vellum-macos dist/*.dSYM
+
       - name: Free disk space
         run: |
           rm -rf .build daemon-bin cli-bin gateway-bin
@@ -1051,6 +1059,14 @@ jobs:
 
           echo "Main executable architecture:"
           file "$APP_PATH/Contents/MacOS/Vellum"
+
+      - name: Upload dSYMs to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+          sentry-cli debug-files upload --org vellum-ai --project vellum-macos dist/*.dSYM
 
       - name: Free disk space
         run: |
