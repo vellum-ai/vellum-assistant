@@ -62,7 +62,7 @@ import os
             let wasDisabled = !SentrySDK.isEnabled
             if wasDisabled {
                 SentrySDK.start { options in
-                    options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                    options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                     options.sendDefaultPii = false
                     // Disable crash capture and session tracking so the temporary
                     // restart only sends the explicit event, not incidental crashes.
@@ -99,9 +99,9 @@ import os
         sentrySerialQueue.async {
             guard !SentrySDK.isEnabled else { return }
             SentrySDK.start { options in
-                options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                 options.debug = false
-                options.tracesSampleRate = 0.1
+                options.tracesSampleRate = 1.0
                 options.sendDefaultPii = false
             }
         }
