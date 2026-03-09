@@ -14,7 +14,9 @@ public final class DirectoryStore: ObservableObject {
     @Published public var localApps: [AppItem] = []
     @Published public var sharedApps: [SharedAppItem] = []
     @Published public var documents: [DocumentListItem] = []
-    @Published public var isLoading = false
+    @Published public var isLoadingApps = false
+    @Published public var isLoadingSharedApps = false
+    @Published public var isLoadingDocuments = false
 
     // MARK: - Private State
 
@@ -38,7 +40,7 @@ public final class DirectoryStore: ObservableObject {
 
     /// Fetch the list of local apps from the daemon.
     public func fetchApps() {
-        isLoading = true
+        isLoadingApps = true
 
         Task {
             let stream = daemonClient.subscribe()
@@ -46,18 +48,18 @@ public final class DirectoryStore: ObservableObject {
             do {
                 try daemonClient.sendAppsList()
             } catch {
-                isLoading = false
+                isLoadingApps = false
                 return
             }
 
             for await message in stream {
                 if case .appsListResponse(let response) = message {
                     self.localApps = response.apps
-                    self.isLoading = false
+                    self.isLoadingApps = false
                     return
                 }
             }
-            isLoading = false
+            isLoadingApps = false
         }
     }
 
@@ -80,7 +82,7 @@ public final class DirectoryStore: ObservableObject {
             for await message in stream {
                 if case .appDeleteResponse(let response) = message {
                     if response.success {
-                        localApps.removeAll { $0.id == id }
+                        fetchApps()
                     }
                     return
                 }
@@ -97,21 +99,26 @@ public final class DirectoryStore: ObservableObject {
 
     /// Fetch the list of shared apps from the daemon.
     public func fetchSharedApps() {
+        isLoadingSharedApps = true
+
         Task {
             let stream = daemonClient.subscribe()
 
             do {
                 try daemonClient.sendSharedAppsList()
             } catch {
+                isLoadingSharedApps = false
                 return
             }
 
             for await message in stream {
                 if case .sharedAppsListResponse(let response) = message {
                     self.sharedApps = response.apps
+                    self.isLoadingSharedApps = false
                     return
                 }
             }
+            isLoadingSharedApps = false
         }
     }
 
@@ -129,7 +136,7 @@ public final class DirectoryStore: ObservableObject {
             for await message in stream {
                 if case .sharedAppDeleteResponse(let response) = message {
                     if response.success {
-                        sharedApps.removeAll { $0.uuid == uuid }
+                        fetchSharedApps()
                     }
                     return
                 }
@@ -165,12 +172,15 @@ public final class DirectoryStore: ObservableObject {
 
     /// Fetch the list of documents from the daemon.
     public func fetchDocuments(conversationId: String? = nil) {
+        isLoadingDocuments = true
+
         Task {
             let stream = daemonClient.subscribe()
 
             do {
                 try daemonClient.sendDocumentList(conversationId: conversationId)
             } catch {
+                isLoadingDocuments = false
                 return
             }
 
@@ -184,9 +194,11 @@ public final class DirectoryStore: ObservableObject {
                             updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
                         )
                     }
+                    self.isLoadingDocuments = false
                     return
                 }
             }
+            isLoadingDocuments = false
         }
     }
 

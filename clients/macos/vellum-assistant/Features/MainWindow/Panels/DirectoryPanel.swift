@@ -149,7 +149,10 @@ struct DirectoryPanel: View {
 
     private var documentsContent: some View {
         Group {
-            if directoryStore.documents.isEmpty {
+            if directoryStore.isLoadingDocuments {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if directoryStore.documents.isEmpty {
                 VEmptyState(
                     title: "No saved documents",
                     subtitle: "Documents you save will appear here",
