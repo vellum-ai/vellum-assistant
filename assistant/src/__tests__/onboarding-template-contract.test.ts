@@ -28,15 +28,6 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("change it later");
     });
 
-    test("creates Home Base silently in the background", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("app_create");
-      expect(lower).toContain("set_as_home_base");
-      // Must NOT open or announce it
-      expect(lower).toContain("do not open it with `app_open`");
-      expect(lower).toContain("do not announce it");
-    });
-
     test("contains naming intent markers so the first reply includes naming cues", () => {
       const lower = bootstrap.toLowerCase();
       // The template must prompt the assistant to ask about names.
@@ -84,7 +75,6 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("work role");
       expect(lower).toContain("2 suggestions shown");
       expect(lower).toContain("selected one, deferred both");
-      expect(lower).toContain("home base");
     });
 
     test("contains refusal policy", () => {

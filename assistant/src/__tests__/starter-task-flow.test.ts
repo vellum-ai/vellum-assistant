@@ -4,28 +4,18 @@ import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
 
 mock.module("../memory/app-store.js", () => ({
   getApp: (id: string) => {
-    if (id !== "home-base-app") return null;
+    if (id !== "test-app") return null;
     return {
       id,
-      name: "Home Base",
-      htmlDefinition:
-        '<main id="home-base-root" data-vellum-home-base="v1"></main>',
+      name: "Test App",
+      description: "A test app",
+      htmlDefinition: "<main>Test App</main>",
     };
   },
+  getAppPreview: () => null,
   updateApp: () => {
     throw new Error("updateApp should not be called in this test");
   },
-}));
-
-mock.module("../home-base/prebuilt/seed.js", () => ({
-  findSeededHomeBaseApp: () => ({ id: "home-base-app" }),
-  getPrebuiltHomeBasePreview: () => ({
-    title: "Home Base",
-    subtitle: "Dashboard",
-    description: "Preview",
-    icon: "🏠",
-    metrics: [{ label: "Starter tasks", value: "3" }],
-  }),
 }));
 
 import {
@@ -133,7 +123,7 @@ describe("starter task surface actions", () => {
     ctx.sendToClient = (msg) => sent.push(msg);
 
     const result = await surfaceProxyResolver(ctx, "app_open", {
-      app_id: "home-base-app",
+      app_id: "test-app",
     });
 
     expect(result.isError).toBe(false);
@@ -141,7 +131,7 @@ describe("starter task surface actions", () => {
       surfaceId: string;
       appId: string;
     };
-    expect(parsed.appId).toBe("home-base-app");
+    expect(parsed.appId).toBe("test-app");
     expect(ctx.pendingSurfaceActions.get(parsed.surfaceId)?.surfaceType).toBe(
       "dynamic_page",
     );

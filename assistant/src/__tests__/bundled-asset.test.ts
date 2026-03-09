@@ -124,7 +124,7 @@ describe("resolveBundledDir", () => {
       process.execPath = join(macosDir, "vellum-daemon");
 
       const result = resolveBundledDir(
-        "/$bunfs/root/src/home-base/prebuilt",
+        "/$bunfs/root/src/widgets/prebuilt",
         ".",
         "prebuilt",
       );

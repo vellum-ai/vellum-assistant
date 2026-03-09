@@ -36,10 +36,6 @@
             "type": "boolean",
             "description": "When true (default), an inline preview card is shown in chat after creation. The app is NOT automatically opened in a workspace panel \u2014 users can open it explicitly via the 'Open App' button on the inline card."
           },
-          "set_as_home_base": {
-            "type": "boolean",
-            "description": "Link this app as the user's Home Base dashboard. Defaults to false. When true, this app becomes the default Home Base shown on launch."
-          },
           "preview": {
             "type": "object",
             "description": "Inline preview card shown in chat after creation. Always include this so users see a compact summary of what was built. Required fields: title.",

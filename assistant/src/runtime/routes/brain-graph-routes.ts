@@ -156,39 +156,6 @@ export function handleGetBrainGraph(): Response {
   }
 }
 
-export function handleServeHomeBaseUI(bearerToken?: string): Response {
-  try {
-    const prebuiltDir = resolveBundledDir(
-      import.meta.dirname ?? __dirname,
-      "../../home-base/prebuilt",
-      "prebuilt",
-    );
-    let html = readFileSync(join(prebuiltDir, "index.html"), "utf-8");
-    if (bearerToken) {
-      const escapedToken = bearerToken
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      html = html.replace(
-        "</head>",
-        `  <meta name="api-token" content="${escapedToken}">\n</head>`,
-      );
-    }
-    return new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  } catch (err) {
-    return Response.json(
-      {
-        error: "Home Base UI not available",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 },
-    );
-  }
-}
-
 export function handleServeBrainGraphUI(bearerToken?: string): Response {
   try {
     const brainGraphDir = resolveBundledDir(
@@ -255,11 +222,6 @@ export function brainGraphRouteDefinitions(deps: {
       endpoint: "brain-graph-ui",
       method: "GET",
       handler: () => handleServeBrainGraphUI(deps.mintUiPageToken()),
-    },
-    {
-      endpoint: "home-base-ui",
-      method: "GET",
-      handler: () => handleServeHomeBaseUI(deps.mintUiPageToken()),
     },
   ];
 }
