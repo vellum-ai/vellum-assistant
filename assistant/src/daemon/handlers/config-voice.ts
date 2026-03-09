@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
@@ -201,7 +199,6 @@ export function normalizeActivationKey(
  */
 export function handleVoiceConfigUpdate(
   msg: VoiceConfigUpdateRequest,
-  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = normalizeActivationKey(msg.activationKey);

@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   createTimeout,
   extractToolUse,
@@ -218,7 +216,6 @@ function computeMaxTokens(inputLength: number): number {
 
 export async function handleDictationRequest(
   msg: DictationRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   log.info(
@@ -250,7 +247,6 @@ export async function handleDictationRequest(
     log.info({ mode: "command" }, "Command mode (selected text present)");
     await handleCommandMode(
       msg,
-      socket,
       ctx,
       profile,
       profileMeta,
@@ -271,7 +267,7 @@ export async function handleDictationRequest(
       const mode = detectDictationModeHeuristic(msg);
       const normalizedText = applyDictionary(transcription, profile.dictionary);
       if (mode === "action") {
-        ctx.send(socket, {
+        ctx.send({
           type: "dictation_response",
           text: msg.transcription,
           mode: "action",
@@ -279,7 +275,7 @@ export async function handleDictationRequest(
           ...profileMeta,
         });
       } else {
-        ctx.send(socket, {
+        ctx.send({
           type: "dictation_response",
           text: normalizedText,
           mode,
@@ -352,7 +348,7 @@ export async function handleDictationRequest(
         );
 
         if (mode === "action") {
-          ctx.send(socket, {
+          ctx.send({
             type: "dictation_response",
             text: msg.transcription,
             mode: "action",
@@ -365,7 +361,7 @@ export async function handleDictationRequest(
             cleanedText,
             profile.dictionary,
           );
-          ctx.send(socket, {
+          ctx.send({
             type: "dictation_response",
             text: normalizedText,
             mode: "dictation",
@@ -392,7 +388,7 @@ export async function handleDictationRequest(
   const fallbackMode = detectDictationModeHeuristic(msg);
   log.info({ mode: fallbackMode }, "Using heuristic fallback");
   if (fallbackMode === "action") {
-    ctx.send(socket, {
+    ctx.send({
       type: "dictation_response",
       text: msg.transcription,
       mode: "action",
@@ -401,7 +397,7 @@ export async function handleDictationRequest(
     });
   } else {
     const normalizedText = applyDictionary(transcription, profile.dictionary);
-    ctx.send(socket, {
+    ctx.send({
       type: "dictation_response",
       text: normalizedText,
       mode: fallbackMode,
@@ -413,7 +409,6 @@ export async function handleDictationRequest(
 /** Handle command mode (selected text) — separate code path, latency-optimized. */
 async function handleCommandMode(
   msg: DictationRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
   profile: ReturnType<typeof resolveProfile>["profile"],
   profileMeta: {
@@ -435,7 +430,7 @@ async function handleCommandMode(
         msg.context.selectedText ?? msg.transcription,
         profile.dictionary,
       );
-      ctx.send(socket, {
+      ctx.send({
         type: "dictation_response",
         text: normalizedText,
         mode: "command",
@@ -457,7 +452,7 @@ async function handleCommandMode(
         ? textBlock.text.trim()
         : (msg.context.selectedText ?? msg.transcription);
     const normalizedText = applyDictionary(cleanedText, profile.dictionary);
-    ctx.send(socket, {
+    ctx.send({
       type: "dictation_response",
       text: normalizedText,
       mode: "command",
@@ -470,13 +465,13 @@ async function handleCommandMode(
       msg.context.selectedText ?? msg.transcription,
       profile.dictionary,
     );
-    ctx.send(socket, {
+    ctx.send({
       type: "dictation_response",
       text: normalizedText,
       mode: "command",
       ...profileMeta,
     });
-    ctx.send(socket, {
+    ctx.send({
       type: "error",
       message: `Dictation cleanup failed: ${message}`,
     });

@@ -1,4 +1,3 @@
-import * as net from "node:net";
 import { describe, expect, mock, test } from "bun:test";
 
 const actualEnv = await import("../config/env.js");
@@ -133,7 +132,7 @@ describe("handleUserMessage secret redirect continuation", () => {
       sessions: new Map(),
       cuSessions: new Map(),
       getOrCreateSession: async () => session,
-      send: (_socket: net.Socket, message: Record<string, unknown>) => {
+      send: (message: Record<string, unknown>) => {
         sentMessages.push(message);
       },
     };
@@ -146,7 +145,6 @@ describe("handleUserMessage secret redirect continuation", () => {
           "Set up Telegram with my bot token 123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
         interface: "cli",
       },
-      new net.Socket(),
       ctx as never,
     );
 

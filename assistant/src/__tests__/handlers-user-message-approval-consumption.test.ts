@@ -1,4 +1,3 @@
-import * as net from "node:net";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
@@ -252,7 +251,7 @@ function createContext(session: TestSession): {
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},
-    send: (_socket, msg) => {
+    send: (msg) => {
       sent.push(msg);
     },
     broadcast: () => {},
@@ -338,7 +337,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     const session = makeSession();
     const { ctx, sent } = createContext(session);
 
-    await handleUserMessage(makeMessage("go for it"), {} as net.Socket, ctx);
+    await handleUserMessage(makeMessage("go for it"), ctx);
 
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     const routeCall = (routeGuardianReplyMock as any).mock
@@ -414,7 +413,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     });
     const { ctx } = createContext(session);
 
-    await handleUserMessage(makeMessage("approve"), {} as net.Socket, ctx);
+    await handleUserMessage(makeMessage("approve"), ctx);
 
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(
@@ -438,7 +437,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     const session = makeSession({ isProcessing: () => true });
     const { ctx, sent } = createContext(session);
 
-    await handleUserMessage(makeMessage("approve"), {} as net.Socket, ctx);
+    await handleUserMessage(makeMessage("approve"), ctx);
 
     expect(addMessageMock).toHaveBeenCalledTimes(2);
     expect(session.messages).toHaveLength(0);
@@ -475,11 +474,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     const session = makeSession();
     const { ctx, sent } = createContext(session);
 
-    await handleUserMessage(
-      makeMessage("what does that do?"),
-      {} as net.Socket,
-      ctx,
-    );
+    await handleUserMessage(makeMessage("what does that do?"), ctx);
 
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(
@@ -520,7 +515,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     });
 
     const { ctx } = createContext(session);
-    await handleUserMessage(makeMessage("allow"), {} as net.Socket, ctx);
+    await handleUserMessage(makeMessage("allow"), ctx);
 
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
     const routeCall = (routeGuardianReplyMock as any).mock
@@ -560,11 +555,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     });
     const { ctx, sent } = createContext(session);
 
-    await handleUserMessage(
-      makeMessage("please call now"),
-      {} as net.Socket,
-      ctx,
-    );
+    await handleUserMessage(makeMessage("please call now"), ctx);
 
     expect(registerMock).toHaveBeenCalledTimes(1);
     expect(registerMock).toHaveBeenCalledWith(
@@ -623,11 +614,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     });
     const { ctx, sent } = createContext(session);
 
-    await handleUserMessage(
-      makeMessage("please call now"),
-      {} as net.Socket,
-      ctx,
-    );
+    await handleUserMessage(makeMessage("please call now"), ctx);
 
     expect(registerMock).toHaveBeenCalledWith(
       "req-prompter-1",
@@ -666,7 +653,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
       decision: "always_allow",
     };
 
-    handleConfirmationResponse(msg, {} as net.Socket, ctx);
+    handleConfirmationResponse(msg, ctx);
 
     expect((session.handleConfirmationResponse as any).mock.calls.length).toBe(
       1,
@@ -708,7 +695,7 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
       decision: "always_deny",
     };
 
-    handleConfirmationResponse(msg, {} as net.Socket, ctx);
+    handleConfirmationResponse(msg, ctx);
 
     expect(
       (cuSession.handleConfirmationResponse as any).mock.calls.length,

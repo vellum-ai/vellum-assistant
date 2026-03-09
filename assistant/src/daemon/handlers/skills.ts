@@ -1,5 +1,4 @@
 import { existsSync, rmSync } from "node:fs";
-import * as net from "node:net";
 import { join } from "node:path";
 
 import {
@@ -746,20 +745,18 @@ export async function createSkill(
 // ─── IPC handlers (thin wrappers) ───────────────────────────────────────────
 
 export function handleSkillsList(
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const skills = listSkills(ctx);
-  ctx.send(socket, { type: "skills_list_response", skills });
+  ctx.send({ type: "skills_list_response", skills });
 }
 
 export function handleSkillsEnable(
   msg: SkillsEnableRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = enableSkill(msg.name, ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "enable",
     ...result,
@@ -768,11 +765,10 @@ export function handleSkillsEnable(
 
 export function handleSkillsDisable(
   msg: SkillsDisableRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = disableSkill(msg.name, ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "disable",
     ...result,
@@ -781,7 +777,6 @@ export function handleSkillsDisable(
 
 export function handleSkillsConfigure(
   msg: SkillsConfigureRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = configureSkill(
@@ -789,7 +784,7 @@ export function handleSkillsConfigure(
     { env: msg.env, apiKey: msg.apiKey, config: msg.config },
     ctx,
   );
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "configure",
     ...result,
@@ -798,14 +793,13 @@ export function handleSkillsConfigure(
 
 export async function handleSkillsInstall(
   msg: SkillsInstallRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await installSkill(
     { slug: msg.slug, version: msg.version },
     ctx,
   );
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "install",
     ...result,
@@ -814,11 +808,10 @@ export async function handleSkillsInstall(
 
 export async function handleSkillsUninstall(
   msg: SkillsUninstallRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await uninstallSkill(msg.name, ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "uninstall",
     ...result,
@@ -827,11 +820,10 @@ export async function handleSkillsUninstall(
 
 export async function handleSkillsUpdate(
   msg: SkillsUpdateRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await updateSkill(msg.name, ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "update",
     ...result,
@@ -840,11 +832,10 @@ export async function handleSkillsUpdate(
 
 export async function handleSkillsCheckUpdates(
   _msg: SkillsCheckUpdatesRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await checkSkillUpdates(ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "check_updates",
     ...result,
@@ -853,11 +844,10 @@ export async function handleSkillsCheckUpdates(
 
 export async function handleSkillsSearch(
   msg: SkillsSearchRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await searchSkills(msg.query, ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "search",
     ...result,
@@ -866,11 +856,10 @@ export async function handleSkillsSearch(
 
 export async function handleSkillsInspect(
   msg: SkillsInspectRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await inspectSkill(msg.slug, ctx);
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_inspect_response",
     ...result,
   });
@@ -878,7 +867,6 @@ export async function handleSkillsInspect(
 
 export async function handleSkillDetail(
   msg: SkillDetailRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = loadSkillBySelector(msg.skillId);
@@ -888,14 +876,14 @@ export async function handleSkillDetail(
       result.skill.displayName,
       result.skill.description,
     );
-    ctx.send(socket, {
+    ctx.send({
       type: "skill_detail_response",
       skillId: result.skill.id,
       body: result.skill.body,
       ...(icon ? { icon } : {}),
     });
   } else {
-    ctx.send(socket, {
+    ctx.send({
       type: "skill_detail_response",
       skillId: msg.skillId,
       body: "",
@@ -906,16 +894,14 @@ export async function handleSkillDetail(
 
 export async function handleSkillsDraft(
   msg: SkillsDraftRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await draftSkill({ sourceText: msg.sourceText }, ctx);
-  ctx.send(socket, { type: "skills_draft_response", ...result });
+  ctx.send({ type: "skills_draft_response", ...result });
 }
 
 export async function handleSkillsCreate(
   msg: SkillsCreateRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = await createSkill(
@@ -931,7 +917,7 @@ export async function handleSkillsCreate(
     },
     ctx,
   );
-  ctx.send(socket, {
+  ctx.send({
     type: "skills_operation_response",
     operation: "create",
     ...result,
@@ -939,7 +925,7 @@ export async function handleSkillsCreate(
 }
 
 export const skillHandlers = defineHandlers({
-  skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
+  skills_list: (_msg, ctx) => handleSkillsList(ctx),
   skill_detail: handleSkillDetail,
   skills_enable: handleSkillsEnable,
   skills_disable: handleSkillsDisable,

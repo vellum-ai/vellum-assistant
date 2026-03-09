@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import * as net from "node:net";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
@@ -520,7 +519,6 @@ export async function verifyTrustedContact(
 
 export async function handleChannelVerificationSession(
   msg: ChannelVerificationSessionRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const channel = msg.channel ?? "telegram";
@@ -528,7 +526,7 @@ export async function handleChannelVerificationSession(
   try {
     if (msg.action === "create_session") {
       if (msg.purpose === "trusted_contact" && !msg.contactChannelId) {
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           success: false,
           error: "contactChannelId is required for trusted_contact purpose",
@@ -539,7 +537,7 @@ export async function handleChannelVerificationSession(
           msg.contactChannelId!,
           DAEMON_INTERNAL_ASSISTANT_ID,
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           ...result,
         });
@@ -550,7 +548,7 @@ export async function handleChannelVerificationSession(
           rebind: msg.rebind,
           originConversationId: msg.originConversationId,
         });
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           ...result,
         });
@@ -560,28 +558,28 @@ export async function handleChannelVerificationSession(
           msg.rebind,
           msg.sessionId,
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           ...result,
         });
       }
     } else if (msg.action === "status") {
       const result = getVerificationStatus(channel);
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         ...result,
       });
     } else if (msg.action === "cancel_session") {
       cancelOutbound({ channel });
       revokePendingSessions(channel);
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         success: true,
         channel,
       });
     } else if (msg.action === "revoke") {
       const result = revokeVerificationForChannel(channel);
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         ...result,
       });
@@ -590,12 +588,12 @@ export async function handleChannelVerificationSession(
         channel,
         originConversationId: msg.originConversationId,
       });
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         ...result,
       });
     } else {
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
@@ -605,7 +603,7 @@ export async function handleChannelVerificationSession(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to handle channel verification session");
-    ctx.send(socket, {
+    ctx.send({
       type: "channel_verification_session_response",
       success: false,
       error: message,

@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   getAttachmentsForMessage,
   getFilePathForAttachment,
@@ -30,7 +28,6 @@ import {
 
 export function handleHistoryRequest(
   msg: HistoryRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // No limit means return all messages.
@@ -277,7 +274,7 @@ export function handleHistoryRequest(
   const oldestMessageId =
     historyMessages.length > 0 ? historyMessages[0].id : undefined;
 
-  ctx.send(socket, {
+  ctx.send({
     type: "history_response",
     sessionId: msg.sessionId,
     messages: historyMessages,
@@ -367,7 +364,6 @@ export function getMessageContent(
 
 export function handleConversationSearch(
   msg: ConversationSearchRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const results = performConversationSearch({
@@ -375,7 +371,7 @@ export function handleConversationSearch(
     limit: msg.limit,
     maxMessagesPerConversation: msg.maxMessagesPerConversation,
   });
-  ctx.send(socket, {
+  ctx.send({
     type: "conversation_search_response",
     query: msg.query,
     results,
@@ -384,19 +380,18 @@ export function handleConversationSearch(
 
 export function handleMessageContentRequest(
   msg: MessageContentRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = getMessageContent(msg.messageId, msg.sessionId);
   if (!result) {
-    ctx.send(socket, {
+    ctx.send({
       type: "error",
       message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
     });
     return;
   }
 
-  ctx.send(socket, {
+  ctx.send({
     type: "message_content_response",
     sessionId: msg.sessionId,
     messageId: msg.messageId,

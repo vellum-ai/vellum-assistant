@@ -1,5 +1,4 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import * as net from "node:net";
 import * as path from "node:path";
 
 import { v4 as uuid } from "uuid";
@@ -664,7 +663,7 @@ export async function finalizeAndPublishRecording(params: {
     // AVAssetImageGenerator, which is faster and doesn't depend on ffmpeg.
     const thumbnailData: string | undefined = undefined;
 
-    // Notify the client via the reporting socket
+    // Notify the client via broadcast
     ctx.broadcast({
       type: "assistant_text_delta",
       text: msgText,
@@ -1056,7 +1055,6 @@ export function __resetRecordingState(): void {
 /** IPC-compatible wrapper: ignores the socket (unused) and delegates to core. */
 async function handleRecordingStatusIpc(
   msg: RecordingStatus,
-  _reportingSocket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   return handleRecordingStatusCore(msg, ctx);

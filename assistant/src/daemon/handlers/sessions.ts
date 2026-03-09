@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import { v4 as uuid } from "uuid";
 
 import {
@@ -110,12 +108,11 @@ export function syncCanonicalStatusFromIpcConfirmationDecision(
 
 export function makeIpcEventSender(params: {
   ctx: HandlerContext;
-  socket: net.Socket;
   session: Session;
   conversationId: string;
   sourceChannel: string;
 }): (event: ServerMessage) => void {
-  const { ctx, socket, session, conversationId, sourceChannel } = params;
+  const { ctx, session, conversationId, sourceChannel } = params;
 
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
@@ -163,17 +160,16 @@ export function makeIpcEventSender(params: {
       });
     }
 
-    ctx.send(socket, event);
+    ctx.send(event);
   };
 }
 
 export function handleConfirmationResponse(
   msg: ConfirmationResponse,
-  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // Route by requestId to the session that originated the prompt, not by
-  // the current socket-session binding which may have changed since the
+  // the current session binding which may have changed since the
   // request was issued (e.g. after a session switch).
   for (const [sessionId, session] of ctx.sessions) {
     if (session.hasPendingConfirmation(msg.requestId)) {
@@ -221,7 +217,6 @@ export function handleConfirmationResponse(
 
 export function handleSecretResponse(
   msg: SecretResponse,
-  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // Check standalone (non-session) prompts first, since they use a dedicated
@@ -239,7 +234,7 @@ export function handleSecretResponse(
   }
 
   // Route by requestId to the session that originated the prompt, not by
-  // the current socket-session binding which may have changed since the
+  // the current session binding which may have changed since the
   // request was issued (e.g. after a session switch).
   for (const [sessionId, session] of ctx.sessions) {
     if (session.hasPendingSecret(msg.requestId)) {
@@ -256,7 +251,6 @@ export function handleSecretResponse(
 }
 
 export function handleSessionList(
-  socket: net.Socket,
   ctx: HandlerContext,
   offset = 0,
   limit = 50,
@@ -268,7 +262,7 @@ export function handleSessionList(
     externalConversationStore.getBindingsForConversations(conversationIds);
   const attentionStates = getAttentionStateByConversationIds(conversationIds);
   const displayMetas = getDisplayMetaForConversations(conversationIds);
-  ctx.send(socket, {
+  ctx.send({
     type: "session_list_response",
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
@@ -347,16 +341,14 @@ export function clearAllSessions(ctx: HandlerContext): number {
 }
 
 export function handleSessionsClear(
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const cleared = clearAllSessions(ctx);
-  ctx.send(socket, { type: "sessions_clear_response", cleared });
+  ctx.send({ type: "sessions_clear_response", cleared });
 }
 
 export async function handleSessionCreate(
   msg: SessionCreateRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const threadType = normalizeThreadType(msg.threadType);
@@ -366,12 +358,12 @@ export async function handleSessionCreate(
     title,
     threadType,
   });
-  const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
+  const session = await ctx.getOrCreateSession(conversation.id, true, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
   });
-  wireEscalationHandler(session, socket, ctx);
+  wireEscalationHandler(session, ctx);
 
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
@@ -379,7 +371,7 @@ export async function handleSessionCreate(
     session.setPreactivatedSkillIds(msg.preactivatedSkillIds);
   }
 
-  ctx.send(socket, {
+  ctx.send({
     type: "session_info",
     sessionId: conversation.id,
     title: conversation.title ?? "New Conversation",
@@ -400,7 +392,7 @@ export async function handleSessionCreate(
         context: { origin: "ipc" },
         userMessage: msg.initialMessage,
         onTitleUpdated: (newTitle) => {
-          ctx.send(socket, {
+          ctx.send({
             type: "session_title_updated",
             sessionId: conversation.id,
             title: newTitle,
@@ -414,7 +406,6 @@ export async function handleSessionCreate(
       parseChannelId(msg.transport?.channelId) ?? "vellum";
     const sendEvent = makeIpcEventSender({
       ctx,
-      socket,
       session,
       conversationId: conversation.id,
       sourceChannel: transportChannel,
@@ -438,7 +429,7 @@ export async function handleSessionCreate(
           { err, sessionId: conversation.id },
           "Error processing initial message",
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "error",
           message: `Failed to process initial message: ${message}`,
         });
@@ -450,7 +441,7 @@ export async function handleSessionCreate(
           if (current && current.title === GENERATING_TITLE) {
             const fallback = UNTITLED_FALLBACK;
             updateConversationTitle(conversation.id, fallback);
-            ctx.send(socket, {
+            ctx.send({
               type: "session_title_updated",
               sessionId: conversation.id,
               title: fallback,
@@ -470,7 +461,6 @@ export async function handleSessionCreate(
 export async function switchSession(
   sessionId: string,
   ctx: HandlerContext,
-  socket?: net.Socket,
 ): Promise<{
   sessionId: string;
   title: string;
@@ -482,28 +472,20 @@ export async function switchSession(
   }
 
   // If the target session is headless-locked (actively executing a task run),
-  // skip rebinding the socket so tool confirmations stay suppressed.
+  // skip rebinding so tool confirmations stay suppressed.
   const existingSession = ctx.sessions.get(sessionId);
   const isHeadlessLocked = existingSession?.headlessLock;
 
-  if (socket) {
-    if (isHeadlessLocked) {
-      // Load the session without rebinding the client — the session stays headless
-      await ctx.getOrCreateSession(sessionId, socket, false);
-    } else {
-      const session = await ctx.getOrCreateSession(sessionId, socket, true);
-      // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-      // sets a handler with the client's actual screen dimensions, and overwriting it
-      // here would replace those dimensions with the daemon's defaults.
-      if (!session.hasEscalationHandler()) {
-        wireEscalationHandler(session, socket, ctx);
-      }
-    }
+  if (isHeadlessLocked) {
+    // Load the session without rebinding the client — the session stays headless
+    await ctx.getOrCreateSession(sessionId, false);
   } else {
-    // Socketless callers (HTTP) still need the session hydrated in memory so
-    // follow-up operations (undo, regenerate, cancel) find an active session.
-    if (!existingSession) {
-      await ctx.getOrCreateSession(sessionId);
+    const session = await ctx.getOrCreateSession(sessionId, true);
+    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+    // sets a handler with the client's actual screen dimensions, and overwriting it
+    // here would replace those dimensions with the daemon's defaults.
+    if (!session.hasEscalationHandler()) {
+      wireEscalationHandler(session, ctx);
     }
   }
 
@@ -516,19 +498,18 @@ export async function switchSession(
 
 export async function handleSessionSwitch(
   msg: SessionSwitchRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const result = await switchSession(msg.sessionId, ctx, socket);
+  const result = await switchSession(msg.sessionId, ctx);
   if (!result) {
-    ctx.send(socket, {
+    ctx.send({
       type: "error",
       message: `Session ${msg.sessionId} not found`,
     });
     return;
   }
 
-  ctx.send(socket, {
+  ctx.send({
     type: "session_info",
     sessionId: result.sessionId,
     title: result.title,
@@ -553,18 +534,17 @@ export function renameSession(
 
 export function handleSessionRename(
   msg: SessionRenameRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const success = renameSession(msg.sessionId, msg.title);
   if (!success) {
-    ctx.send(socket, {
+    ctx.send({
       type: "error",
       message: `Session ${msg.sessionId} not found`,
     });
     return;
   }
-  ctx.send(socket, {
+  ctx.send({
     type: "session_title_updated",
     sessionId: msg.sessionId,
     title: msg.title,
@@ -594,7 +574,6 @@ export function cancelGeneration(
 
 export function handleCancel(
   msg: CancelRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const sessionId = msg.sessionId;
@@ -621,15 +600,14 @@ export function undoLastMessage(
 
 export function handleUndo(
   msg: UndoRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = undoLastMessage(msg.sessionId, ctx);
   if (!result) {
-    ctx.send(socket, { type: "error", message: "No active session" });
+    ctx.send({ type: "error", message: "No active session" });
     return;
   }
-  ctx.send(socket, {
+  ctx.send({
     type: "undo_complete",
     removedCount: result.removedCount,
     sessionId: msg.sessionId,
@@ -678,12 +656,11 @@ export async function regenerateResponse(
 
 export async function handleRegenerate(
   msg: RegenerateRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const session = ctx.sessions.get(msg.sessionId);
   if (!session) {
-    ctx.send(socket, { type: "error", message: "No active session" });
+    ctx.send({ type: "error", message: "No active session" });
     return;
   }
 
@@ -692,7 +669,6 @@ export async function handleRegenerate(
     "vellum";
   const sendEvent = makeIpcEventSender({
     ctx,
-    socket,
     session,
     conversationId: msg.sessionId,
     sourceChannel: regenerateChannel,
@@ -702,27 +678,26 @@ export async function handleRegenerate(
     await regenerateResponse(msg.sessionId, ctx, sendEvent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, {
+    ctx.send({
       type: "error",
       message: `Failed to regenerate: ${message}`,
     });
     const classified = classifySessionError(err, { phase: "regenerate" });
-    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+    ctx.send(buildSessionErrorMessage(msg.sessionId, classified));
   }
 }
 
 export function handleUsageRequest(
   msg: UsageRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const conversation = getConversation(msg.sessionId);
   if (!conversation) {
-    ctx.send(socket, { type: "error", message: "No active session" });
+    ctx.send({ type: "error", message: "No active session" });
     return;
   }
   const config = getConfig();
-  ctx.send(socket, {
+  ctx.send({
     type: "usage_response",
     totalInputTokens: conversation.totalInputTokens,
     totalOutputTokens: conversation.totalOutputTokens,
@@ -769,7 +744,6 @@ export function deleteQueuedMessage(
 
 export function handleDeleteQueuedMessage(
   msg: DeleteQueuedMessage,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const result = deleteQueuedMessage(
@@ -778,7 +752,7 @@ export function handleDeleteQueuedMessage(
     (id) => ctx.sessions.get(id),
   );
   if (result.removed) {
-    ctx.send(socket, {
+    ctx.send({
       type: "message_queued_deleted",
       sessionId: msg.sessionId,
       requestId: msg.requestId,
@@ -788,7 +762,6 @@ export function handleDeleteQueuedMessage(
 
 export function handleReorderThreads(
   msg: ReorderThreadsRequest,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): void {
   if (!Array.isArray(msg.updates)) {
@@ -807,10 +780,10 @@ export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
   secret_response: handleSecretResponse,
-  session_list: (msg, socket, ctx) =>
-    handleSessionList(socket, ctx, msg.offset ?? 0, msg.limit ?? 50),
+  session_list: (msg, ctx) =>
+    handleSessionList(ctx, msg.offset ?? 0, msg.limit ?? 50),
   session_create: handleSessionCreate,
-  sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
+  sessions_clear: (_msg, ctx) => handleSessionsClear(ctx),
   session_switch: handleSessionSwitch,
   session_rename: handleSessionRename,
   cancel: handleCancel,

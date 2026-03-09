@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import { cleanupPairingState } from "../../runtime/routes/pairing-routes.js";
 import {
   approveDevice,
@@ -28,7 +26,6 @@ export function initPairingHandlers(
 
 function handlePairingApprovalResponse(
   msg: PairingApprovalResponse,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): void {
   if (!pairingStoreRef) {
@@ -83,11 +80,10 @@ function handlePairingApprovalResponse(
 }
 
 function handleApprovedDevicesList(
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const devices = listDevices();
-  ctx.send(socket, {
+  ctx.send({
     type: "approved_devices_list_response",
     devices,
   });
@@ -95,11 +91,10 @@ function handleApprovedDevicesList(
 
 function handleApprovedDeviceRemove(
   msg: ApprovedDeviceRemove,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const success = removeDevice(msg.hashedDeviceId);
-  ctx.send(socket, {
+  ctx.send({
     type: "approved_device_remove_response",
     success,
   });
@@ -110,7 +105,6 @@ function handleApprovedDeviceRemove(
 }
 
 function handleApprovedDevicesClear(
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): void {
   clearAllDevices();
@@ -119,9 +113,7 @@ function handleApprovedDevicesClear(
 
 export const pairingHandlers = defineHandlers({
   pairing_approval_response: handlePairingApprovalResponse,
-  approved_devices_list: (_msg, socket, ctx) =>
-    handleApprovedDevicesList(socket, ctx),
+  approved_devices_list: (_msg, ctx) => handleApprovedDevicesList(ctx),
   approved_device_remove: handleApprovedDeviceRemove,
-  approved_devices_clear: (_msg, socket, ctx) =>
-    handleApprovedDevicesClear(socket, ctx),
+  approved_devices_clear: (_msg, ctx) => handleApprovedDevicesClear(ctx),
 });

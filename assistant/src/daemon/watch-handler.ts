@@ -1,5 +1,3 @@
-import type * as net from "node:net";
-
 import {
   extractText,
   getConfiguredProvider,
@@ -30,7 +28,6 @@ export const lastSummaryBySession = new Map<string, string>();
 
 export async function handleWatchObservation(
   msg: WatchObservation,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): Promise<void> {
   try {

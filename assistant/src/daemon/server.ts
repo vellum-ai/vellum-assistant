@@ -581,10 +581,10 @@ export class DaemonServer {
       updateConfigFingerprint: () => {
         this.configWatcher.updateFingerprint();
       },
-      send: (_socket, msg) => this.broadcast(msg),
+      send: (msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
       clearAllSessions: () => this.clearAllSessions(),
-      getOrCreateSession: (id, _socket?, _rebind?, options?) =>
+      getOrCreateSession: (id, _rebind?, options?) =>
         this.getOrCreateSession(id, undefined, undefined, options),
       touchSession: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,

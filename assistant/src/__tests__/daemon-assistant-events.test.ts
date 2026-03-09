@@ -6,7 +6,6 @@
  *   - send()      → one mirrored assistant event per message
  *   - broadcast() → one mirrored assistant event per message (not per socket)
  */
-import * as net from "node:net";
 import { describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
@@ -45,16 +44,6 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeFakeSocket(destroyed = false): net.Socket {
-  const s = Object.create(net.Socket.prototype) as net.Socket;
-  Object.assign(s, {
-    destroyed,
-    write: () => true,
-    on: () => s,
-  });
-  return s;
-}
 
 // ── buildAssistantEvent factory ───────────────────────────────────────────────
 
@@ -115,7 +104,7 @@ describe("daemon send → one mirrored assistant event", () => {
     expect(received[0].message.type).toBe("assistant_text_delta");
   });
 
-  test("sessionId falls back to socket binding when message lacks it", async () => {
+  test("sessionId falls back to explicit parameter when message lacks it", async () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
@@ -123,19 +112,13 @@ describe("daemon send → one mirrored assistant event", () => {
       received.push(e);
     });
 
-    // Simulate server.ts resolving sessionId from socket→session map
-    const socketSessionMap = new Map<object, string>();
-    const fakeSocket = makeFakeSocket();
-    socketSessionMap.set(fakeSocket, "sess_from_socket");
-
     const msg: ServerMessage = { type: "pong" }; // no sessionId field
-    const sessionId = socketSessionMap.get(fakeSocket);
-    const event = buildAssistantEvent("ast_ipc", msg, sessionId);
+    const event = buildAssistantEvent("ast_ipc", msg, "sess_explicit");
 
     await hub.publish(event);
 
     expect(received).toHaveLength(1);
-    expect(received[0].sessionId).toBe("sess_from_socket");
+    expect(received[0].sessionId).toBe("sess_explicit");
   });
 });
 

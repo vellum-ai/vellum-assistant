@@ -30,8 +30,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import type * as net from "node:net";
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -1318,7 +1316,7 @@ function createMockCtx(): {
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},
-    send: (_socket: net.Socket, msg: unknown) => {
+    send: (msg: unknown) => {
       captured = msg as ChannelVerificationSessionResponse;
     },
     broadcast: () => {},
@@ -1329,7 +1327,6 @@ function createMockCtx(): {
   return { ctx, lastResponse: () => captured };
 }
 
-const mockSocket = {} as net.Socket;
 
 describe("IPC handler channel-aware guardian status", () => {
   beforeEach(() => {
@@ -1344,7 +1341,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1363,7 +1360,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1388,7 +1385,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1440,7 +1437,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1456,7 +1453,7 @@ describe("IPC handler channel-aware guardian status", () => {
       // channel omitted — should default to 'telegram'
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1473,7 +1470,7 @@ describe("IPC handler channel-aware guardian status", () => {
       // assistantId omitted — should default to 'self'
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1489,7 +1486,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1508,7 +1505,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1524,7 +1521,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1973,7 +1970,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1993,7 +1990,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2018,7 +2015,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2044,7 +2041,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2076,7 +2073,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     expect(getGuardianBinding("self", "phone")).toBeNull();
     expect(getGuardianBinding("self", "telegram")).not.toBeNull();
@@ -2560,7 +2557,7 @@ describe("outbound voice verification", () => {
       destination: "+15551234567",
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2597,7 +2594,7 @@ describe("outbound voice verification", () => {
       rebind: false,
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2623,7 +2620,7 @@ describe("outbound voice verification", () => {
       rebind: true,
     };
 
-    await handleChannelVerificationSession(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2641,7 +2638,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -2653,7 +2649,6 @@ describe("outbound voice verification", () => {
         action: "resend_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2673,7 +2668,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -2698,7 +2692,6 @@ describe("outbound voice verification", () => {
         action: "resend_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2719,7 +2712,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -2741,7 +2733,6 @@ describe("outbound voice verification", () => {
         action: "resend_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2761,7 +2752,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -2777,7 +2767,6 @@ describe("outbound voice verification", () => {
         action: "cancel_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2849,7 +2838,6 @@ describe("outbound voice verification", () => {
         channel: "email",
         destination: "user@example.com",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2868,7 +2856,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         // no destination — unified create_session creates an inbound challenge
       },
-      mockSocket,
       ctx,
     );
 
@@ -2887,7 +2874,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "not-a-phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2906,7 +2892,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "(555) 123-4567",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2939,7 +2924,6 @@ describe("outbound voice verification", () => {
         action: "cancel_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -2967,7 +2951,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3002,7 +2985,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "someuser",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3024,7 +3006,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3065,7 +3046,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3092,7 +3072,6 @@ describe("outbound Telegram verification", () => {
         destination: "@newuser",
         rebind: false,
       },
-      mockSocket,
       ctx,
     );
 
@@ -3255,7 +3234,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3276,7 +3254,6 @@ describe("outbound Telegram verification", () => {
         action: "resend_session",
         channel: "telegram",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3301,7 +3278,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3312,7 +3288,6 @@ describe("outbound Telegram verification", () => {
         action: "resend_session",
         channel: "telegram",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3332,7 +3307,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3346,7 +3320,6 @@ describe("outbound Telegram verification", () => {
         action: "cancel_session",
         channel: "telegram",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3395,7 +3368,6 @@ describe("outbound Telegram verification", () => {
         action: "create_session",
         channel: "telegram",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3415,7 +3387,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3437,7 +3408,6 @@ describe("outbound Telegram verification", () => {
         action: "resend_session",
         channel: "telegram",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3457,7 +3427,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3469,7 +3438,6 @@ describe("outbound Telegram verification", () => {
         action: "resend_session",
         channel: "telegram",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3498,7 +3466,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3540,7 +3507,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "not-a-phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3559,7 +3525,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "555-123-4567",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3603,7 +3568,6 @@ describe("outbound voice verification", () => {
         destination: "+15559876543",
         rebind: false,
       },
-      mockSocket,
       ctx,
     );
 
@@ -3623,7 +3587,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3635,7 +3598,6 @@ describe("outbound voice verification", () => {
         action: "resend_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3655,7 +3617,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3667,7 +3628,6 @@ describe("outbound voice verification", () => {
         action: "cancel_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3710,7 +3670,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3728,7 +3687,6 @@ describe("outbound voice verification", () => {
         action: "create_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3765,7 +3723,6 @@ describe("M1–M4 hardening coverage", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3789,7 +3746,6 @@ describe("M1–M4 hardening coverage", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      mockSocket,
       startCtx,
     );
 
@@ -3811,7 +3767,6 @@ describe("M1–M4 hardening coverage", () => {
         action: "resend_session",
         channel: "phone",
       },
-      mockSocket,
       ctx,
     );
 
@@ -3834,7 +3789,6 @@ describe("M1–M4 hardening coverage", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      mockSocket,
       ctx,
     );
 

@@ -1,5 +1,4 @@
 import { execSync } from "node:child_process";
-import * as net from "node:net";
 
 import { v4 as uuid } from "uuid";
 
@@ -159,12 +158,11 @@ export interface HandlerContext {
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
-  send(socket: net.Socket, msg: ServerMessage): void;
+  send(msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
   clearAllSessions(): number;
   getOrCreateSession(
     conversationId: string,
-    socket?: net.Socket,
     rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session>;
@@ -182,7 +180,6 @@ export type DispatchableType = Exclude<MessageType, "auth">;
 type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
 type MessageHandler<T extends MessageType> = (
   msg: MessageOfType<T>,
-  socket: net.Socket,
   ctx: HandlerContext,
 ) => void | Promise<void>;
 export type DispatchMap = { [T in DispatchableType]: MessageHandler<T> };
@@ -232,7 +229,6 @@ export function getScreenDimensions(): { width: number; height: number } {
  */
 export function wireEscalationHandler(
   session: Session,
-  socket: net.Socket,
   ctx: HandlerContext,
   explicitWidth?: number,
   explicitHeight?: number,
@@ -270,7 +266,7 @@ export function wireEscalationHandler(
       }
 
       const sendToClient = (serverMsg: ServerMessage) => {
-        ctx.send(socket, serverMsg);
+        ctx.send(serverMsg);
       };
 
       const sessionRef: { current?: ComputerUseSession } = {};
@@ -588,7 +584,6 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
  * outside of a session context (e.g. from handler-level code like publish_page).
  */
 export function requestSecretStandalone(
-  socket: net.Socket,
   ctx: HandlerContext,
   params: {
     service: string;
@@ -609,7 +604,7 @@ export function requestSecretStandalone(
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
-    ctx.send(socket, {
+    ctx.send({
       type: "secret_request",
       requestId,
       service: params.service,
@@ -632,7 +627,6 @@ const SIGNING_TIMEOUT_MS = 30_000;
  * over IPC and waits for the `sign_bundle_payload_response`.
  */
 export function createSigningCallback(
-  socket: net.Socket,
   ctx: HandlerContext,
 ): (
   payload: string,
@@ -645,7 +639,7 @@ export function createSigningCallback(
         reject(new Error("Signing request timed out"));
       }, SIGNING_TIMEOUT_MS);
       pendingSignBundlePayload.set(requestId, { resolve, reject, timer });
-      ctx.send(socket, { type: "sign_bundle_payload", requestId, payload });
+      ctx.send({ type: "sign_bundle_payload", requestId, payload });
     });
 }
 

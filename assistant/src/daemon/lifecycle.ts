@@ -1,5 +1,4 @@
 import { chmodSync, writeFileSync } from "node:fs";
-import type * as net from "node:net";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -480,22 +479,19 @@ export async function runDaemon(): Promise<void> {
       },
       getComputerUseDeps: () => {
         const ctx = server.getHandlerContext();
-        // Stub socket for IPC handlers called from HTTP — ctx.send ignores
-        // the socket parameter and broadcasts to all clients instead.
-        const stubSocket = {} as net.Socket;
         return {
           cuSessions: ctx.cuSessions,
           sharedRequestTimestamps: ctx.sharedRequestTimestamps,
           cuObservationParseSequence: ctx.cuObservationParseSequence,
           handleRideShotgunStart: async (params) => {
-            // The IPC handler generates its own watchId/sessionId and
+            // The handler generates its own watchId/sessionId and
             // sends them via ctx.send as a watch_started message.
             // We intercept send to capture the IDs before they broadcast.
             let capturedWatchId = "";
             let capturedSessionId = "";
             const interceptCtx = {
               ...ctx,
-              send: (_socket: net.Socket, msg: ServerMessage) => {
+              send: (msg: ServerMessage) => {
                 if (
                   "type" in msg &&
                   msg.type === "watch_started" &&
@@ -505,7 +501,7 @@ export async function runDaemon(): Promise<void> {
                   capturedWatchId = (msg as { watchId: string }).watchId;
                   capturedSessionId = (msg as { sessionId: string }).sessionId;
                 }
-                ctx.send(_socket, msg);
+                ctx.send(msg);
               },
             };
             await handleRideShotgunStart(
@@ -518,7 +514,6 @@ export async function runDaemon(): Promise<void> {
                 navigateDomain: params.navigateDomain,
                 autoNavigate: params.autoNavigate,
               },
-              stubSocket,
               interceptCtx,
             );
             return { watchId: capturedWatchId, sessionId: capturedSessionId };
@@ -526,7 +521,6 @@ export async function runDaemon(): Promise<void> {
           handleRideShotgunStop: async (watchId) => {
             await handleRideShotgunStop(
               { type: "ride_shotgun_stop", watchId },
-              stubSocket,
               ctx,
             );
           },
@@ -544,7 +538,6 @@ export async function runDaemon(): Promise<void> {
                 captureIndex: params.captureIndex,
                 totalExpected: params.totalExpected,
               },
-              stubSocket,
               ctx,
             );
           },

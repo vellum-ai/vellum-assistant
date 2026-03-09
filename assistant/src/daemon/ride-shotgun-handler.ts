@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type * as net from "node:net";
 
 import { autoNavigate } from "../tools/browser/auto-navigate.js";
 import {
@@ -134,7 +133,6 @@ async function completeSession(session: WatchSession): Promise<void> {
 
 export async function handleRideShotgunStart(
   msg: RideShotgunStart,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const watchId = randomUUID();
@@ -224,7 +222,7 @@ export async function handleRideShotgunStart(
           { err, watchId },
           "Failed to ensure Chrome with CDP — cannot start recording",
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "ride_shotgun_error",
           watchId,
           sessionId,
@@ -291,7 +289,7 @@ export async function handleRideShotgunStart(
                   { watchId, currentCount },
                   "Activity resumed — clearing idleHint",
                 );
-                ctx.send(socket, {
+                ctx.send({
                   type: "ride_shotgun_progress",
                   watchId,
                   message: `Recording network traffic...`,
@@ -315,7 +313,7 @@ export async function handleRideShotgunStart(
               );
             }
 
-            ctx.send(socket, {
+            ctx.send({
               type: "ride_shotgun_progress",
               watchId,
               message: `Recording network traffic...`,
@@ -374,7 +372,7 @@ export async function handleRideShotgunStart(
                 // Send progress to connected client
                 if (progress.type === "visiting" && progress.url) {
                   const shortUrl = progress.url.replace(/^https?:\/\//, "");
-                  ctx.send(socket, {
+                  ctx.send({
                     type: "ride_shotgun_progress",
                     watchId,
                     message: `[${progress.pageNumber || "?"}] ${shortUrl}`,
@@ -423,7 +421,7 @@ export async function handleRideShotgunStart(
               { err, watchId },
               "Failed to start network recording after 10 attempts",
             );
-            ctx.send(socket, {
+            ctx.send({
               type: "ride_shotgun_error",
               watchId,
               sessionId,
@@ -466,12 +464,11 @@ export async function handleRideShotgunStart(
           sessionId,
           observationCount,
           summaryLength: summary.length,
-          socketDestroyed: socket.destroyed,
         },
         "Completion notifier firing — sending ride_shotgun_result to client",
       );
 
-      ctx.send(socket, {
+      ctx.send({
         type: "ride_shotgun_result",
         sessionId,
         watchId,
@@ -494,7 +491,7 @@ export async function handleRideShotgunStart(
   fireWatchStartNotifier(sessionId, session);
 
   // Send watch_started so the Swift client knows the watchId/sessionId
-  ctx.send(socket, {
+  ctx.send({
     type: "watch_started",
     sessionId,
     watchId,
@@ -510,7 +507,6 @@ export async function handleRideShotgunStart(
 
 export async function handleRideShotgunStop(
   msg: RideShotgunStop,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): Promise<void> {
   const { watchId } = msg;

@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   getConfig,
   loadRawConfig,
@@ -161,9 +159,9 @@ export function setImageGenModel(
 // IPC handlers (delegate to shared logic)
 // ---------------------------------------------------------------------------
 
-export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
+export function handleModelGet(ctx: HandlerContext): void {
   const info = getModelInfo();
-  ctx.send(socket, {
+  ctx.send({
     type: "model_info",
     ...info,
   });
@@ -171,15 +169,14 @@ export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
 
 export function handleModelSet(
   msg: ModelSetRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   try {
     const info = setModel(msg.model, ctx);
-    ctx.send(socket, { type: "model_info", ...info });
+    ctx.send({ type: "model_info", ...info });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, {
+    ctx.send({
       type: "error",
       message: `Failed to set model: ${message}`,
     });
@@ -188,7 +185,6 @@ export function handleModelSet(
 
 export function handleImageGenModelSet(
   msg: ImageGenModelSetRequest,
-  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   try {
@@ -200,7 +196,7 @@ export function handleImageGenModelSet(
 }
 
 export const modelHandlers = defineHandlers({
-  model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
+  model_get: (_msg, ctx) => handleModelGet(ctx),
   model_set: handleModelSet,
   image_gen_model_set: handleImageGenModelSet,
 });

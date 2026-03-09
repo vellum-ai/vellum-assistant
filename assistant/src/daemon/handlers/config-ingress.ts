@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   getTwilioCredentials,
   hasTwilioCredentials,
@@ -93,7 +91,6 @@ export async function syncTwilioWebhooks(
 
 export async function handleIngressConfig(
   msg: IngressConfigRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const localGatewayTarget = computeGatewayTarget();
@@ -103,7 +100,7 @@ export async function handleIngressConfig(
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
       const enabled = (ingress.enabled as boolean | undefined) ?? false;
-      ctx.send(socket, {
+      ctx.send({
         type: "ingress_config_response",
         enabled,
         publicBaseUrl,
@@ -164,7 +161,7 @@ export async function handleIngressConfig(
         setIngressPublicBaseUrl(undefined);
       }
 
-      ctx.send(socket, {
+      ctx.send({
         type: "ingress_config_response",
         enabled: isEnabled,
         publicBaseUrl: value,
@@ -233,7 +230,7 @@ export async function handleIngressConfig(
         }
       }
     } else {
-      ctx.send(socket, {
+      ctx.send({
         type: "ingress_config_response",
         enabled: false,
         publicBaseUrl: "",
@@ -244,7 +241,7 @@ export async function handleIngressConfig(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, {
+    ctx.send({
       type: "ingress_config_response",
       enabled: false,
       publicBaseUrl: "",

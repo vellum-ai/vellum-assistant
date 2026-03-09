@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   invalidateConfigCache,
   loadRawConfig,
@@ -365,7 +363,6 @@ export async function setupTelegram(
 
 export async function handleTelegramConfig(
   msg: TelegramConfigRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
@@ -391,11 +388,11 @@ export async function handleTelegramConfig(
       };
     }
 
-    ctx.send(socket, { type: "telegram_config_response", ...result });
+    ctx.send({ type: "telegram_config_response", ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to handle Telegram config");
-    ctx.send(socket, {
+    ctx.send({
       type: "telegram_config_response",
       success: false,
       hasBotToken: false,
