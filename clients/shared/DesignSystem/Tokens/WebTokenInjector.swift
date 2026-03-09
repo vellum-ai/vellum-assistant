@@ -37,6 +37,37 @@ public enum WebTokenInjector {
         """
     }
 
+    /// Returns a CSS block tuned for the document editor context.
+    ///
+    /// The editor uses warmer Stone-palette tones and a pure-white surface so
+    /// that document content is easy to read and edit.  The accent colour maps
+    /// to a neutral dark (light mode) / green (dark mode) instead of the
+    /// global Forest-green to keep the editing chrome unobtrusive.
+    public static func editorCSSTokenBlock() -> String {
+        """
+        :root {
+          --v-bg: #FFFFFF;
+          --v-surface: #FFFFFF;
+          --v-surface-border: #E7E5E4;
+          --v-text: #292524;
+          --v-text-secondary: #78716C;
+          --v-text-muted: #97918B;
+          --v-accent: #262624;
+        }
+        @media (prefers-color-scheme: dark) {
+          :root {
+            --v-bg: #262624;
+            --v-surface: #2F2F2D;
+            --v-surface-border: #3A3A37;
+            --v-text: #F5F3EB;
+            --v-text-secondary: #A1A096;
+            --v-text-muted: #6B6B65;
+            --v-accent: #216C37;
+          }
+        }
+        """
+    }
+
     /// Returns a JS snippet that sets `window.vellum.theme.mode` to the
     /// current colour-scheme and dispatches a `vellum-theme-change`
     /// CustomEvent whenever the system appearance changes.
