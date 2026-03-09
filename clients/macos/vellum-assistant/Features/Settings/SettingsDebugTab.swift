@@ -20,6 +20,9 @@ struct SettingsDebugTab: View {
         .onAppear {
             isSentryEnabled = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
         }
+        .onDisappear {
+            dismissTask?.cancel()
+        }
     }
 
     // MARK: - Sentry Testing Section
@@ -73,11 +76,7 @@ struct SettingsDebugTab: View {
                 // Test error
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Send Test Error", style: .secondary) {
-                        let event = Event(level: .error)
-                        event.message = SentryMessage(formatted: "Sentry test error from Settings debug tab")
-                        event.tags = ["source": "settings_debug"]
-                        MetricKitManager.captureSentryEvent(event)
-                        showStatus("Error event sent!")
+                        sendTestEvent(level: .error, label: "error")
                     }
                     Text("Captures a Sentry event with level .error")
                         .font(VFont.caption)
@@ -89,11 +88,7 @@ struct SettingsDebugTab: View {
                 // Test warning
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Send Test Warning", style: .secondary) {
-                        let event = Event(level: .warning)
-                        event.message = SentryMessage(formatted: "Sentry test warning from Settings debug tab")
-                        event.tags = ["source": "settings_debug"]
-                        MetricKitManager.captureSentryEvent(event)
-                        showStatus("Warning event sent!")
+                        sendTestEvent(level: .warning, label: "warning")
                     }
                     Text("Captures a Sentry event with level .warning")
                         .font(VFont.caption)
@@ -105,11 +100,7 @@ struct SettingsDebugTab: View {
                 // Test message
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Send Test Message", style: .secondary) {
-                        let event = Event(level: .info)
-                        event.message = SentryMessage(formatted: "Sentry test message from Settings debug tab")
-                        event.tags = ["source": "settings_debug"]
-                        MetricKitManager.captureSentryEvent(event)
-                        showStatus("Info message sent!")
+                        sendTestEvent(level: .info, label: "info message")
                     }
                     Text("Captures a Sentry event with level .info")
                         .font(VFont.caption)
@@ -123,7 +114,7 @@ struct SettingsDebugTab: View {
                     VButton(label: "Test Performance Transaction", style: .secondary) {
                         MetricKitManager.sentrySerialQueue.async {
                             guard SentrySDK.isEnabled else {
-                                DispatchQueue.main.async { showStatus("Sentry is disabled — transaction not sent.") }
+                                Task { @MainActor in showStatus("Sentry is disabled — transaction not sent.") }
                                 return
                             }
                             let transaction = SentrySDK.startTransaction(
@@ -131,7 +122,7 @@ struct SettingsDebugTab: View {
                                 operation: "test.transaction"
                             )
                             transaction.finish()
-                            DispatchQueue.main.async { showStatus("Performance transaction sent!") }
+                            Task { @MainActor in showStatus("Performance transaction sent!") }
                         }
                     }
                     Text("Starts and finishes a Sentry transaction to validate tracing.")
@@ -147,6 +138,18 @@ struct SettingsDebugTab: View {
     }
 
     // MARK: - Helpers
+
+    private func sendTestEvent(level: SentryLevel, label: String) {
+        guard isSentryEnabled else {
+            showStatus("Sentry is disabled — \(label) not sent.")
+            return
+        }
+        let event = Event(level: level)
+        event.message = SentryMessage(formatted: "Sentry test \(label) from Settings debug tab")
+        event.tags = ["source": "settings_debug"]
+        MetricKitManager.captureSentryEvent(event)
+        showStatus("\(label.capitalized) event sent!")
+    }
 
     private func showStatus(_ message: String) {
         dismissTask?.cancel()
