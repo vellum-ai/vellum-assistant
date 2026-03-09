@@ -76,6 +76,16 @@ public struct WorkspaceFileResponse: Codable, Sendable {
     public let modifiedAt: String
     public let content: String?
     public let isBinary: Bool
+
+    public init(path: String, name: String, size: Int, mimeType: String, modifiedAt: String, content: String?, isBinary: Bool) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mimeType = mimeType
+        self.modifiedAt = modifiedAt
+        self.content = content
+        self.isBinary = isBinary
+    }
 }
 
 // MARK: - HTTP Transport
