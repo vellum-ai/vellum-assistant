@@ -14,12 +14,6 @@ export interface EnvVarsRequest {
   type: "env_vars_request";
 }
 
-export interface IpcBlobProbe {
-  type: "ipc_blob_probe";
-  probeId: string;
-  nonceSha256: string;
-}
-
 export interface DictationRequest {
   type: "dictation_request";
   transcription: string;
@@ -41,14 +35,6 @@ export interface EnvVarsResponse {
   vars: Record<string, string>;
 }
 
-export interface IpcBlobProbeResult {
-  type: "ipc_blob_probe_result";
-  probeId: string;
-  ok: boolean;
-  observedNonceSha256?: string;
-  reason?: string;
-}
-
 export interface DictationResponse {
   type: "dictation_response";
   text: string;
@@ -63,11 +49,9 @@ export interface DictationResponse {
 export type _DiagnosticsClientMessages =
   | DiagnosticsExportRequest
   | EnvVarsRequest
-  | IpcBlobProbe
   | DictationRequest;
 
 export type _DiagnosticsServerMessages =
   | DiagnosticsExportResponse
   | EnvVarsResponse
-  | IpcBlobProbeResult
   | DictationResponse;

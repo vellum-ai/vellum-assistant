@@ -1,7 +1,5 @@
-import { chmodSync, existsSync, readFileSync, statSync } from "node:fs";
-import * as net from "node:net";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import * as tls from "node:tls";
 
 import {
   createAssistantMessage,
@@ -30,7 +28,6 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
-import { getLatestConversation } from "../memory/conversation-queries.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
@@ -38,6 +35,8 @@ import {
   initializeProviders,
 } from "../providers/registry.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -45,39 +44,21 @@ import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getLocalIPv4 } from "../util/network-info.js";
 import {
   getSandboxWorkingDir,
-  getSocketPath,
-  getTCPHost,
-  getTCPPort,
   getWorkspacePromptPath,
-  isIOSPairingEnabled,
-  isTCPEnabled,
-  removeSocketFile,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { AuthManager } from "./auth-manager.js";
 import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import { handleMessage } from "./handlers/index.js";
-import { cleanupRecordingsOnDisconnect } from "./handlers/recording.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import type {
   HandlerContext,
   SessionCreateOptions,
 } from "./handlers/shared.js";
-import { ensureBlobDir, sweepStaleBlobs } from "./ipc-blob-store.js";
-import { IpcSender } from "./ipc-handler.js";
-import {
-  createMessageParser,
-  MAX_LINE_SIZE,
-  normalizeThreadType,
-  serialize,
-  type ServerMessage,
-} from "./ipc-protocol.js";
-import { validateClientMessage } from "./ipc-validate.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import { normalizeThreadType } from "./ipc-protocol.js";
 import {
   DEFAULT_MEMORY_POLICY,
   Session,
@@ -86,7 +67,6 @@ import {
 import { SessionEvictor } from "./session-evictor.js";
 import { resolveChannelCapabilities } from "./session-runtime-assembly.js";
 import { resolveSlash } from "./session-slash.js";
-import { ensureTlsCert } from "./tls-certs.js";
 
 const log = getLogger("server");
 
@@ -177,7 +157,7 @@ function makePendingInteractionRegistrar(
         },
       });
 
-      // Create a canonical guardian request so IPC/HTTP handlers can find it
+      // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
         const trustContext = session.trustContext;
@@ -226,29 +206,19 @@ function makePendingInteractionRegistrar(
 }
 
 export class DaemonServer {
-  private server: net.Server | null = null;
-  private tcpServer: tls.Server | null = null;
   private sessions = new Map<string, Session>();
-  private socketToSession = new Map<net.Socket, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
-  private socketToCuSession = new Map<net.Socket, Set<string>>();
-  private connectedSockets = new Set<net.Socket>();
-  private socketSandboxOverride = new Map<net.Socket, boolean>();
   private cuObservationParseSequence = new Map<string, number>();
   private sessionOptions = new Map<string, SessionCreateOptions>();
   private sessionCreating = new Map<string, Promise<Session>>();
   private sharedRequestTimestamps: number[] = [];
-  private socketPath: string;
   private httpPort: number | undefined;
-  private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribeContactChange: (() => void) | null = null;
-  private static readonly MAX_CONNECTIONS = 50;
   private evictor: SessionEvictor;
+  private _hubChain: Promise<void> = Promise.resolve();
 
   // Composed subsystems
-  private auth = new AuthManager();
   private configWatcher = new ConfigWatcher();
-  private ipc = new IpcSender();
 
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
@@ -287,7 +257,6 @@ export class DaemonServer {
   }
 
   constructor() {
-    this.socketPath = getSocketPath();
     this.evictor = new SessionEvictor(this.sessions);
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     this.evictor.onEvict = (sessionId: string) => {
@@ -350,20 +319,32 @@ export class DaemonServer {
     };
   }
 
-  // ── Send / Broadcast wrappers ───────────────────────────────────────
+  // ── Broadcast / Event publishing ──────────────────────────────────
 
-  private send(socket: net.Socket, msg: ServerMessage): void {
-    this.ipc.send(socket, msg, this.socketToSession, this.assistantId);
+  /**
+   * Publish `msg` as an `AssistantEvent` to the process-level hub.
+   * Publications are serialized via a promise chain so subscribers
+   * always observe events in send order.
+   */
+  private publishAssistantEvent(
+    msg: ServerMessage,
+    sessionId?: string,
+  ): void {
+    const id = this.assistantId ?? "default";
+    const event = buildAssistantEvent(id, msg, sessionId);
+    this._hubChain = this._hubChain
+      .then(() => assistantEventHub.publish(event))
+      .catch((err: unknown) => {
+        log.warn(
+          { err },
+          "assistant-events hub subscriber threw during broadcast",
+        );
+      });
   }
 
-  broadcast(msg: ServerMessage, excludeSocket?: net.Socket): void {
-    this.ipc.broadcast(
-      this.auth.getAuthenticatedSockets(),
-      msg,
-      this.socketToSession,
-      this.assistantId,
-      excludeSocket,
-    );
+  broadcast(msg: ServerMessage): void {
+    const sessionId = extractSessionId(msg);
+    this.publishAssistantEvent(msg, sessionId);
   }
 
   private broadcastIdentityChanged(): void {
@@ -389,8 +370,6 @@ export class DaemonServer {
   // ── Server lifecycle ────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    removeSocketFile(this.socketPath);
-
     const config = getConfig();
     initializeProviders(config);
     this.configWatcher.initFingerprint(config);
@@ -412,16 +391,6 @@ export class DaemonServer {
       broadcast: (msg) => this.broadcast(msg),
     });
 
-    ensureBlobDir();
-    this.blobSweepTimer = setInterval(
-      () => {
-        sweepStaleBlobs(30 * 60 * 1000).catch((err) => {
-          log.warn({ err }, "Blob sweep failed");
-        });
-      },
-      5 * 60 * 1000,
-    );
-
     this.configWatcher.start(
       () => this.evictSessionsForReload(),
       () => this.broadcastIdentityChanged(),
@@ -432,140 +401,17 @@ export class DaemonServer {
       this.broadcast({ type: "contacts_changed" });
     });
 
-    this.auth.initToken();
-
-    let tlsCreds: { cert: string; key: string; fingerprint: string } | null =
-      null;
-    if (isTCPEnabled()) {
-      try {
-        tlsCreds = await ensureTlsCert();
-      } catch (err) {
-        log.error(
-          { err },
-          "Failed to generate TLS certificate — TCP listener will not start",
-        );
-      }
-    }
-
-    return new Promise((resolve, reject) => {
-      this.server = net.createServer((socket) => {
-        this.handleConnection(socket);
-      });
-
-      const oldUmask = process.umask(0o177);
-
-      this.server.once("error", (err) => {
-        process.umask(oldUmask);
-        log.error(
-          { err, socketPath: this.socketPath },
-          "Server failed to start (is another daemon already running?)",
-        );
-        reject(err);
-      });
-
-      this.server.listen(this.socketPath, () => {
-        process.umask(oldUmask);
-        this.server!.removeAllListeners("error");
-        this.server!.on("error", (err) => {
-          log.error(
-            { err, socketPath: this.socketPath },
-            "Server socket error while running",
-          );
-        });
-        chmodSync(this.socketPath, 0o600);
-        // Validate the chmod actually took effect — some filesystems
-        // (e.g. FAT32 mounts, container overlays) silently ignore chmod.
-        const socketStat = statSync(this.socketPath);
-        if ((socketStat.mode & 0o077) !== 0) {
-          const actual = "0o" + (socketStat.mode & 0o777).toString(8);
-          log.error(
-            { socketPath: this.socketPath, mode: actual },
-            "IPC socket is accessible by other users (expected 0600) — filesystem may not support Unix permissions",
-          );
-        }
-        log.info({ socketPath: this.socketPath }, "Daemon server listening");
-
-        if (tlsCreds) {
-          const tcpPort = getTCPPort();
-          const tcpHost = getTCPHost();
-          this.tcpServer = tls.createServer(
-            { cert: tlsCreds.cert, key: tlsCreds.key },
-            (socket) => {
-              this.handleConnection(socket);
-            },
-          );
-          this.tcpServer.on("error", (err) => {
-            log.error({ err, tcpPort }, "TLS TCP server error");
-          });
-          const fingerprint = tlsCreds.fingerprint;
-          this.tcpServer.listen(tcpPort, tcpHost, () => {
-            const localIP = getLocalIPv4();
-            log.info(
-              {
-                tcpPort,
-                tcpHost,
-                fingerprint,
-                localIP,
-                iosPairing: isIOSPairingEnabled(),
-              },
-              "TLS TCP listener started",
-            );
-            if (isIOSPairingEnabled() && localIP) {
-              log.warn(
-                { localIP, tcpPort },
-                "iOS pairing enabled — daemon is reachable on the local network at %s:%d",
-                localIP,
-                tcpPort,
-              );
-            }
-          });
-        }
-
-        resolve();
-      });
-    });
+    log.info("DaemonServer started (HTTP-only mode)");
   }
 
   async stop(): Promise<void> {
     getSubagentManager().disposeAll();
     this.evictor.stop();
-    if (this.blobSweepTimer) {
-      clearInterval(this.blobSweepTimer);
-      this.blobSweepTimer = null;
-    }
     this.configWatcher.stop();
     if (this.unsubscribeContactChange) {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;
     }
-    this.auth.cleanupAll();
-
-    const serverClosed = new Promise<void>((resolve) => {
-      if (this.server) {
-        this.server.close(() => {
-          try {
-            removeSocketFile(this.socketPath);
-          } catch (err) {
-            log.warn(
-              { err, socketPath: this.socketPath },
-              "Failed to remove socket file during shutdown",
-            );
-          }
-          resolve();
-        });
-      } else {
-        resolve();
-      }
-    });
-
-    const tcpServerClosed = new Promise<void>((resolve) => {
-      if (this.tcpServer) {
-        this.tcpServer.close(() => resolve());
-        this.tcpServer = null;
-      } else {
-        resolve();
-      }
-    });
 
     for (const session of this.sessions.values()) {
       session.dispose();
@@ -576,223 +422,8 @@ export class DaemonServer {
       cuSession.abort();
     }
     this.cuSessions.clear();
-    this.socketToCuSession.clear();
 
-    for (const socket of this.connectedSockets) {
-      socket.destroy();
-    }
-    this.connectedSockets.clear();
-    this.socketToSession.clear();
-    this.socketSandboxOverride.clear();
-    this.cuObservationParseSequence.clear();
-
-    await Promise.all([serverClosed, tcpServerClosed]);
     log.info("Daemon server stopped");
-  }
-
-  // ── Connection handling ─────────────────────────────────────────────
-
-  private handleConnection(socket: net.Socket): void {
-    if (this.connectedSockets.size >= DaemonServer.MAX_CONNECTIONS) {
-      log.warn(
-        {
-          current: this.connectedSockets.size,
-          max: DaemonServer.MAX_CONNECTIONS,
-        },
-        "Connection limit reached, rejecting client",
-      );
-      socket.once("error", (err) => {
-        log.error({ err }, "Socket error while rejecting connection");
-      });
-      socket.write(
-        serialize({
-          type: "error",
-          message: `Connection limit reached (max ${DaemonServer.MAX_CONNECTIONS})`,
-        }),
-      );
-      socket.destroy();
-      return;
-    }
-
-    log.info("Client connected");
-    this.connectedSockets.add(socket);
-    const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
-
-    if (this.auth.shouldAutoAuth()) {
-      this.auth.markAuthenticated(socket);
-      log.warn(
-        "Auto-authenticated client (VELLUM_DAEMON_NOAUTH is set — token auth bypassed)",
-      );
-      this.send(socket, { type: "auth_result", success: true });
-      this.sendInitialSession(socket).catch((err) => {
-        log.error(
-          { err },
-          "Failed to send initial session info after auto-auth",
-        );
-      });
-    }
-
-    this.auth.startTimeout(socket, () => {
-      this.send(socket, { type: "error", message: "Authentication timeout" });
-      socket.destroy();
-    });
-
-    socket.on("data", (data) => {
-      const chunkReceivedAtMs = Date.now();
-      const parseStartNs = process.hrtime.bigint();
-      let parsed;
-      try {
-        parsed = parser.feedRaw(data.toString());
-      } catch (err) {
-        log.error(
-          { err },
-          "IPC parse error (malformed JSON or message exceeded size limit), dropping client",
-        );
-        socket.write(
-          serialize({
-            type: "error",
-            message: `IPC parse error: ${(err as Error).message}`,
-          }),
-        );
-        socket.destroy();
-        return;
-      }
-      const parsedAtMs = Date.now();
-      const parseDurationMs =
-        Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
-      for (const entry of parsed) {
-        const msg = entry.msg;
-        if (
-          typeof msg === "object" &&
-          msg != null &&
-          (msg as { type?: unknown }).type === "cu_observation"
-        ) {
-          const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
-          const sessionId =
-            typeof maybeSessionId === "string" ? maybeSessionId : "unknown";
-          const previousSequence =
-            this.cuObservationParseSequence.get(sessionId) ?? 0;
-          const sequence = previousSequence + 1;
-          this.cuObservationParseSequence.set(sessionId, sequence);
-          log.info(
-            {
-              sessionId,
-              sequence,
-              chunkReceivedAtMs,
-              parsedAtMs,
-              parseDurationMs,
-              messageBytes: entry.rawByteLength,
-            },
-            "IPC_METRIC cu_observation_parse",
-          );
-        }
-        const result = validateClientMessage(msg);
-        if (!result.valid) {
-          log.warn(
-            { reason: result.reason },
-            "Invalid IPC message, dropping client",
-          );
-          socket.write(
-            serialize({
-              type: "error",
-              message: `Invalid message: ${result.reason}`,
-            }),
-          );
-          socket.destroy();
-          return;
-        }
-
-        // Auth gate
-        if (!this.auth.isAuthenticated(socket)) {
-          this.auth.clearTimeout(socket);
-
-          if (result.message.type === "auth") {
-            const authMsg = result.message as { type: "auth"; token: string };
-            if (this.auth.authenticate(socket, authMsg.token)) {
-              this.send(socket, { type: "auth_result", success: true });
-              this.sendInitialSession(socket).catch((err) => {
-                log.error(
-                  { err },
-                  "Failed to send initial session info after auth",
-                );
-              });
-            } else {
-              this.send(socket, {
-                type: "auth_result",
-                success: false,
-                message: "Invalid token",
-              });
-              socket.destroy();
-            }
-            continue;
-          }
-
-          log.warn(
-            { type: result.message.type },
-            "Unauthenticated client sent non-auth message, disconnecting",
-          );
-          this.send(socket, {
-            type: "error",
-            message: "Authentication required",
-          });
-          socket.destroy();
-          return;
-        }
-
-        // Already-authenticated socket sending auth (e.g. auto-auth'd + local token)
-        if (result.message.type === "auth") {
-          this.send(socket, { type: "auth_result", success: true });
-          continue;
-        }
-
-        this.dispatchMessage(result.message, socket);
-      }
-    });
-
-    socket.on("close", () => {
-      this.auth.cleanupSocket(socket);
-      this.connectedSockets.delete(socket);
-      this.socketSandboxOverride.delete(socket);
-      const sessionId = this.socketToSession.get(socket);
-      if (sessionId) {
-        const session = this.sessions.get(sessionId);
-        if (session) {
-          session.abort();
-        }
-        getSubagentManager().abortAllForParent(sessionId);
-      }
-      // Clean up recording state for recordings whose owning conversation is
-      // bound to the disconnecting socket. Runs outside the sessionId check
-      // because recordings may be keyed to a different conversation than the
-      // socket's current session.
-      cleanupRecordingsOnDisconnect(socket, (convId) => {
-        for (const [s, sid] of this.socketToSession.entries()) {
-          if (sid === convId) return s;
-        }
-        return undefined;
-      });
-      this.socketToSession.delete(socket);
-      const cuSessionIds = this.socketToCuSession.get(socket);
-      if (cuSessionIds) {
-        for (const cuSessionId of cuSessionIds) {
-          this.cuObservationParseSequence.delete(cuSessionId);
-          const cuSession = this.cuSessions.get(cuSessionId);
-          if (cuSession) {
-            cuSession.abort();
-            this.cuSessions.delete(cuSessionId);
-          }
-        }
-      }
-      this.socketToCuSession.delete(socket);
-      log.info("Client disconnected");
-    });
-
-    socket.on("error", (err) => {
-      log.error(
-        { err, remoteAddress: socket.remoteAddress },
-        "Client socket error",
-      );
-    });
   }
 
   // ── Session management ──────────────────────────────────────────────
@@ -850,51 +481,14 @@ export class DaemonServer {
     return changed;
   }
 
-  private async sendInitialSession(socket: net.Socket): Promise<void> {
-    const conversation = getLatestConversation();
-    if (!conversation) {
-      this.send(socket, {
-        type: "daemon_status",
-        httpPort: this.httpPort,
-        version: daemonVersion,
-        keyFingerprint: getSigningKeyFingerprint(),
-      });
-      return;
-    }
-
-    await this.getOrCreateSession(conversation.id, undefined, false);
-
-    this.send(socket, {
-      type: "session_info",
-      sessionId: conversation.id,
-      title: conversation.title ?? "New Conversation",
-      threadType: normalizeThreadType(conversation.threadType),
-    });
-
-    this.send(socket, {
-      type: "daemon_status",
-      httpPort: this.httpPort,
-      version: daemonVersion,
-      keyFingerprint: getSigningKeyFingerprint(),
-    });
-  }
-
   private async getOrCreateSession(
     conversationId: string,
-    socket?: net.Socket,
-    rebindClient = true,
+    _socket?: undefined,
+    _rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session> {
     let session = this.sessions.get(conversationId);
-    const sendToClient = socket
-      ? (msg: ServerMessage) => this.send(socket, msg)
-      : () => {};
-    const maybeBindClient = (target: Session): void => {
-      if (!rebindClient || !socket) return;
-      target.updateClient(sendToClient);
-      target.setSandboxOverride(this.socketSandboxOverride.get(socket));
-      getSubagentManager().updateParentSender(conversationId, sendToClient);
-    };
+    const sendToClient = () => {};
 
     if (options && Object.values(options).some((v) => v !== undefined)) {
       this.sessionOptions.set(conversationId, {
@@ -912,7 +506,6 @@ export class DaemonServer {
       const pending = this.sessionCreating.get(conversationId);
       if (pending) {
         session = await pending;
-        maybeBindClient(session);
         return session;
       }
 
@@ -947,19 +540,14 @@ export class DaemonServer {
           provider,
           systemPrompt,
           maxTokens,
-          rebindClient ? sendToClient : () => {},
+          sendToClient,
           workingDir,
-          (msg) => this.broadcast(msg, socket),
+          (msg) => this.broadcast(msg),
           memoryPolicy,
         );
-        if (!socket) {
-          newSession.updateClient(sendToClient, true);
-        }
+        newSession.updateClient(sendToClient, true);
         await newSession.loadFromDb();
         this.applyTransportMetadata(newSession, storedOptions);
-        if (rebindClient && socket) {
-          newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
-        }
         this.sessions.set(conversationId, newSession);
         return newSession;
       })();
@@ -972,23 +560,22 @@ export class DaemonServer {
       }
       this.evictor.touch(conversationId);
     } else {
-      maybeBindClient(session);
       this.applyTransportMetadata(session, options);
       this.evictor.touch(conversationId);
     }
     return session;
   }
 
-  // ── Message dispatch ────────────────────────────────────────────────
+  // ── Handler context ────────────────────────────────────────────────
 
   private handlerContext(): HandlerContext {
     return {
       sessions: this.sessions,
-      socketToSession: this.socketToSession,
+      socketToSession: new Map(),
       cuSessions: this.cuSessions,
-      socketToCuSession: this.socketToCuSession,
+      socketToCuSession: new Map(),
       cuObservationParseSequence: this.cuObservationParseSequence,
-      socketSandboxOverride: this.socketSandboxOverride,
+      socketSandboxOverride: new Map(),
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
@@ -998,11 +585,11 @@ export class DaemonServer {
       updateConfigFingerprint: () => {
         this.configWatcher.updateFingerprint();
       },
-      send: (socket, msg) => this.send(socket, msg),
+      send: (_socket, msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
       clearAllSessions: () => this.clearAllSessions(),
-      getOrCreateSession: (id, socket?, rebind?, options?) =>
-        this.getOrCreateSession(id, socket, rebind, options),
+      getOrCreateSession: (id, _socket?, _rebind?, options?) =>
+        this.getOrCreateSession(id, undefined, undefined, options),
       touchSession: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,
     };
@@ -1020,31 +607,6 @@ export class DaemonServer {
       },
       broadcast: (msg) => this.broadcast(msg),
     };
-  }
-
-  private dispatchMessage(
-    msg: Parameters<typeof handleMessage>[0],
-    socket: net.Socket,
-  ): void {
-    if (msg.type !== "ping") {
-      const now = Date.now();
-      if (
-        now - this.configWatcher.lastConfigRefreshTime >=
-        ConfigWatcher.REFRESH_INTERVAL_MS
-      ) {
-        try {
-          const changed = this.configWatcher.refreshConfigFromSources();
-          if (changed) this.evictSessionsForReload();
-          this.configWatcher.lastConfigRefreshTime = now;
-        } catch (err) {
-          log.warn(
-            { err },
-            "Failed to refresh config from secure sources before handling IPC message",
-          );
-        }
-      }
-    }
-    handleMessage(msg, socket, this.handlerContext());
   }
 
   // ── HTTP message processing ─────────────────────────────────────────
@@ -1161,10 +723,6 @@ export class DaemonServer {
         }
       : registrar;
     if (options?.isInteractive === true) {
-      // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
-      // socket. Route prompter events through the registrar callback so
-      // confirmation_request/secret_request events are tracked, and mark the
-      // session interactive so prompt decisions are not auto-denied.
       session.updateClient(onEvent, false);
     }
 
@@ -1174,8 +732,6 @@ export class DaemonServer {
         isUserMessage: true,
       })
       .finally(() => {
-        // Only reset if no other caller (e.g. a real IPC client) has rebound
-        // the session's sender while the agent loop was running.
         if (
           options?.isInteractive === true &&
           session.getCurrentSender() === onEvent
@@ -1312,10 +868,6 @@ export class DaemonServer {
         }
       : registrar;
     if (options?.isInteractive === true) {
-      // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
-      // socket. Route prompter events through the registrar callback so
-      // confirmation_request/secret_request events are tracked, and mark the
-      // session interactive so prompt decisions are not auto-denied.
       session.updateClient(onEvent, false);
     }
 
@@ -1325,8 +877,6 @@ export class DaemonServer {
         isUserMessage: true,
       });
     } finally {
-      // Only reset if no other caller (e.g. a real IPC client) has rebound
-      // the session's sender while the agent loop was running.
       if (
         options?.isInteractive === true &&
         session.getCurrentSender() === onEvent
@@ -1349,7 +899,7 @@ export class DaemonServer {
   /**
    * Look up an active session by ID without creating one.
    * Checks both normal sessions and computer-use sessions so the HTTP
-   * surface-action path is consistent with IPC dispatch.
+   * surface-action path is consistent with dispatch.
    */
   findSession(sessionId: string): Session | ComputerUseSession | undefined {
     return this.cuSessions.get(sessionId) ?? this.sessions.get(sessionId);
@@ -1362,4 +912,13 @@ export class DaemonServer {
   getHandlerContext(): HandlerContext {
     return this.handlerContext();
   }
+}
+
+/** Extract sessionId from a ServerMessage if present. */
+function extractSessionId(msg: ServerMessage): string | undefined {
+  const record = msg as unknown as Record<string, unknown>;
+  if ("sessionId" in msg && typeof record.sessionId === "string") {
+    return record.sessionId as string;
+  }
+  return undefined;
 }

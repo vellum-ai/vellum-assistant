@@ -9,14 +9,6 @@ export function normalizeThreadType(
   return raw === "private" ? "private" : "standard";
 }
 
-export interface IpcBlobRef {
-  id: string;
-  kind: "ax_tree" | "screenshot_jpeg";
-  encoding: "utf8" | "binary";
-  byteLength: number;
-  sha256?: string;
-}
-
 export interface UsageStats {
   inputTokens: number;
   outputTokens: number;

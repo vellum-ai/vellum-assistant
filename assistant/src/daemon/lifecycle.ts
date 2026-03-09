@@ -55,8 +55,6 @@ import {
   ensureDataDir,
   getInterfacesDir,
   getRootDir,
-  getSocketPath,
-  removeSocketFile,
 } from "../util/platform.js";
 import {
   listWorkItems,
@@ -67,10 +65,6 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "./approval-generators.js";
-import {
-  hasNoAuthOverride,
-  hasUngatedNoAuthOverride,
-} from "./connection-policy.js";
 import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
@@ -122,21 +116,6 @@ function loadDotEnv(): void {
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
   validateEnv();
-
-  if (hasUngatedNoAuthOverride()) {
-    log.warn(
-      "VELLUM_DAEMON_NOAUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
-    );
-  } else if (hasNoAuthOverride()) {
-    log.warn(
-      "VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.",
-    );
-  }
-
-  // Track whether the IPC socket has been created so we can clean it up
-  // if init crashes after the socket is bound but before shutdown handlers
-  // are installed.
-  let socketCreated = false;
 
   try {
     // Initialize crash reporting eagerly so early startup failures are
@@ -246,13 +225,11 @@ export async function runDaemon(): Promise<void> {
 
     await initializeProvidersAndTools(config);
 
-    // Start the IPC socket BEFORE Qdrant so that clients can connect
-    // immediately. Qdrant startup can take 30+ seconds (binary download,
-    // /readyz polling) which previously blocked the socket from appearing.
-    log.info("Daemon startup: starting DaemonServer (IPC socket)");
+    // Start the DaemonServer (session manager) before Qdrant so HTTP
+    // routes can begin accepting requests while Qdrant initializes.
+    log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
     await server.start();
-    socketCreated = true;
     log.info("Daemon startup: DaemonServer started");
 
     // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
@@ -288,8 +265,8 @@ export async function runDaemon(): Promise<void> {
     registerWatcherProviders();
     registerMessagingProviders();
 
-    // Register the IPC broadcast function for the notification signal pipeline's
-    // macOS adapter so it can deliver notification_intent messages to desktop clients.
+    // Register the broadcast function for the notification signal pipeline's
+    // macOS adapter so it can deliver notification_intent messages to clients.
     registerBroadcastFn((msg) => server.broadcast(msg));
 
     const scheduler = startScheduler(
@@ -641,7 +618,6 @@ export async function runDaemon(): Promise<void> {
 
     void hookManager.trigger("daemon-start", {
       pid: process.pid,
-      socketPath: getSocketPath(),
     });
 
     // Download embedding runtime in background (non-blocking).
@@ -717,13 +693,6 @@ export async function runDaemon(): Promise<void> {
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     cleanupPidFileIfOwner(process.pid);
-    if (socketCreated) {
-      try {
-        removeSocketFile(getSocketPath());
-      } catch {
-        // Best-effort socket cleanup
-      }
-    }
     throw err;
   }
 }

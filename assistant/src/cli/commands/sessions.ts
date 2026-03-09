@@ -7,6 +7,7 @@ import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
   clearAll as clearAllConversations,
+  createConversation,
   getConversation,
   getMessages,
 } from "../../memory/conversation-crud.js";
@@ -14,7 +15,6 @@ import { listConversations } from "../../memory/conversation-queries.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
-import { sendOneMessage } from "../ipc-client.js";
 import { log } from "../logger.js";
 
 export function registerSessionsCommand(program: Command): void {
@@ -24,9 +24,9 @@ export function registerSessionsCommand(program: Command): void {
     "after",
     `
 Sessions represent conversation threads with the assistant. Each session has a
-unique ID and a title. The assistant must be running for "list" and "new" (they
-communicate via IPC), while "export" and "clear" operate on the local SQLite
-database directly.
+unique ID and a title. The assistant must be running for "new" (it communicates
+via the HTTP API), while "list", "export", and "clear" operate on the local
+SQLite database directly.
 
 Examples:
   $ assistant sessions list
@@ -44,25 +44,20 @@ Examples:
 Shows all sessions with their ID, title, and a relative timestamp (e.g.
 "3 hours ago"). Sessions are listed in order of most recently updated.
 
-Requires the assistant to be running — communicates via IPC. If auto-start is
-enabled, the assistant will be started automatically.
+Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
   $ assistant sessions list`,
     )
     .action(async () => {
-      if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-      const response = await sendOneMessage({ type: "session_list" });
-      if (response.type === "session_list_response") {
-        if (response.sessions.length === 0) {
-          log.info("No sessions");
-        } else {
-          for (const s of response.sessions) {
-            log.info(`  ${s.id}  ${s.title}  ${timeAgo(s.updatedAt)}`);
-          }
+      initializeDb();
+      const all = listConversations(Number.MAX_SAFE_INTEGER);
+      if (all.length === 0) {
+        log.info("No sessions");
+      } else {
+        for (const s of all) {
+          log.info(`  ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`);
         }
-      } else if (response.type === "error") {
-        log.error(`Error: ${response.message}`);
       }
     });
 
@@ -76,8 +71,7 @@ Arguments:
   title   Optional session title (string). If omitted, a default title is
           assigned by the assistant.
 
-Creates a new conversation session and prints its title and ID. Requires the
-assistant to be running — communicates via IPC.
+Creates a new conversation session and prints its title and ID.
 
 Examples:
   $ assistant sessions new
@@ -86,15 +80,11 @@ Examples:
     )
     .action(async (title?: string) => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-      const response = await sendOneMessage({
-        type: "session_create",
-        title,
-      });
-      if (response.type === "session_info") {
-        log.info(`Created session: ${response.title} (${response.sessionId})`);
-      } else if (response.type === "error") {
-        log.error(`Error: ${response.message}`);
-      }
+      initializeDb();
+      const conversation = createConversation(title);
+      log.info(
+        `Created session: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
+      );
     });
 
   sessions
@@ -193,11 +183,11 @@ Examples:
       `
 Permanently deletes ALL conversations, messages, and Qdrant vector data.
 Prompts for confirmation (y/N) before proceeding. After clearing the local
-database, notifies the running assistant (if any) to invalidate its in-memory
-sessions so it does not serve stale history.
+database, the running assistant (if any) will pick up the changes on the next
+request.
 
 Operates on the local SQLite database and Qdrant directly — does not require
-the assistant, but will notify it if running.
+the assistant.
 
 Intended for development use. This action cannot be undone.
 
@@ -228,14 +218,6 @@ Examples:
       log.info(
         `Cleared ${result.conversations} conversations, ${result.messages} messages`,
       );
-
-      // Notify a running daemon to drop its in-memory sessions so it
-      // doesn't keep serving stale history from deleted conversation rows.
-      try {
-        await sendOneMessage({ type: "sessions_clear" });
-      } catch {
-        // Daemon may not be running — that's fine, no sessions to invalidate.
-      }
 
       const config = getConfig();
       const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;

@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import * as net from "node:net";
 
 import { v4 as uuid } from "uuid";
@@ -21,14 +19,8 @@ import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { parseSlashCandidate } from "../../skills/slash-commands.js";
 import { classifyInteraction } from "../classifier.js";
 import { getAssistantName } from "../identity-helpers.js";
-import {
-  deleteBlob,
-  isValidBlobId,
-  resolveBlobPath,
-} from "../ipc-blob-store.js";
 import type {
   CuSessionCreate,
-  IpcBlobProbe,
   LinkOpenRequest,
   SuggestionRequest,
   TaskSubmit,
@@ -1056,78 +1048,10 @@ export function handleLinkOpenRequest(
   ctx.send(socket, { type: "open_url", url: finalUrl });
 }
 
-// ─── IPC blob probe handler ─────────────────────────────────────────────────
-
-export function handleIpcBlobProbe(
-  msg: IpcBlobProbe,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  if (!isValidBlobId(msg.probeId)) {
-    ctx.send(socket, {
-      type: "ipc_blob_probe_result",
-      probeId: msg.probeId,
-      ok: false,
-      reason: "invalid_probe_id",
-    });
-    return;
-  }
-
-  let filePath: string;
-  try {
-    filePath = resolveBlobPath(msg.probeId);
-  } catch {
-    ctx.send(socket, {
-      type: "ipc_blob_probe_result",
-      probeId: msg.probeId,
-      ok: false,
-      reason: "invalid_probe_id",
-    });
-    return;
-  }
-
-  let content: Buffer;
-  try {
-    content = readFileSync(filePath);
-  } catch {
-    ctx.send(socket, {
-      type: "ipc_blob_probe_result",
-      probeId: msg.probeId,
-      ok: false,
-      reason: "missing_probe_file",
-    });
-    return;
-  }
-
-  const observedHash = createHash("sha256").update(content).digest("hex");
-
-  // Best-effort cleanup regardless of match outcome
-  deleteBlob(msg.probeId);
-
-  if (observedHash !== msg.nonceSha256) {
-    ctx.send(socket, {
-      type: "ipc_blob_probe_result",
-      probeId: msg.probeId,
-      ok: false,
-      observedNonceSha256: observedHash,
-      reason: "hash_mismatch",
-    });
-    return;
-  }
-
-  ctx.send(socket, {
-    type: "ipc_blob_probe_result",
-    probeId: msg.probeId,
-    ok: true,
-    observedNonceSha256: observedHash,
-  });
-}
-
 export const miscHandlers = defineHandlers({
   task_submit: handleTaskSubmit,
   suggestion_request: handleSuggestionRequest,
   link_open_request: handleLinkOpenRequest,
-  ipc_blob_probe: handleIpcBlobProbe,
   ping: (_msg, socket, ctx) => {
     ctx.send(socket, { type: "pong" });
   },
