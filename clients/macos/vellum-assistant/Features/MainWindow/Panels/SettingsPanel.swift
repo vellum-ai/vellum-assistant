@@ -12,10 +12,10 @@ enum SettingsTab: String {
     case privacy = "Privacy"
     case contacts = "Contacts"
     case advanced = "Advanced"
-    case debug = "Debug"
+    case sentryTesting = "Sentry Testing"
 
     /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
-    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false) -> [SettingsTab] {
+    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
             .automation, .appearance, .permissions, .privacy
@@ -25,7 +25,9 @@ enum SettingsTab: String {
         }
         if isDevMode {
             tabs.append(.advanced)
-            tabs.append(.debug)
+        }
+        if sentryTestingEnabled {
+            tabs.append(.sentryTesting)
         }
         return tabs
     }
@@ -33,7 +35,7 @@ enum SettingsTab: String {
     /// Maps legacy tab names (from IPC or saved state) to current tabs.
     /// The `isDevMode` parameter gates dev-only tabs so external callers
     /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
-    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false) -> SettingsTab? {
+    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> SettingsTab? {
         let tab: SettingsTab?
         // Try current values first
         if let direct = SettingsTab(rawValue: value) {
@@ -54,7 +56,7 @@ enum SettingsTab: String {
         if tab == .contacts && !contactsEnabled { return nil }
         // Block dev-only tabs when dev mode is disabled
         if tab == .advanced && !isDevMode { return nil }
-        if tab == .debug && !isDevMode { return nil }
+        if tab == .sentryTesting && !sentryTestingEnabled { return nil }
         return tab
     }
 }
@@ -95,6 +97,7 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
     @State private var isContactsEnabled: Bool = false
+    @State private var isSentryTestingEnabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("sentry_testing_enabled")
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
 
     var body: some View {
@@ -156,7 +159,7 @@ struct SettingsPanel: View {
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
             if let pending = store.pendingSettingsTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(pending) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
@@ -164,7 +167,7 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
@@ -175,7 +178,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
-                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) else { return }
+                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(tab) else { return }
                 selectedTab = tab
             }
         }
@@ -233,7 +236,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -273,8 +276,8 @@ struct SettingsPanel: View {
             } else {
                 SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
             }
-        case .debug:
-            if store.isDevMode {
+        case .sentryTesting:
+            if MacOSClientFeatureFlagManager.shared.isEnabled("sentry_testing_enabled") {
                 SettingsDebugTab(store: store)
             } else {
                 SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)

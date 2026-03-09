@@ -104,6 +104,14 @@
       "label": "App Builder Multi-file",
       "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
       "defaultEnabled": false
+    },
+    {
+      "id": "sentry-testing",
+      "scope": "macos",
+      "key": "sentry_testing_enabled",
+      "label": "Sentry Testing",
+      "description": "Show the Sentry Testing tab in Settings for triggering test crash reports and error events",
+      "defaultEnabled": false
     }
   ]
 }
