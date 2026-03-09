@@ -37,8 +37,8 @@ struct OnboardingFlowView: View {
                     .background(
                         RadialGradient(
                             colors: [
-                                adaptiveColor(light: Moss._100, dark: Moss._900),
-                                adaptiveColor(light: Moss._200, dark: Moss._950)
+                                VColor.background,
+                                VColor.onboardingHatchGradientOuter
                             ],
                             center: .center,
                             startRadius: 0,
@@ -109,8 +109,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            adaptiveColor(light: Stone._100, dark: Moss._900),
-                            adaptiveColor(light: Stone._200, dark: Moss._950)
+                            VColor.onboardingGradientEdge,
+                            VColor.onboardingGradientOuter
                         ],
                         center: .center,
                         startRadius: 0,

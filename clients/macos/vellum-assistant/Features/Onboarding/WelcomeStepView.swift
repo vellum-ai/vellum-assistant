@@ -46,10 +46,7 @@ struct WelcomeStepView: View {
                 .padding(.vertical, VSpacing.lg)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(adaptiveColor(
-                            light: Stone._900,
-                            dark: Forest._600
-                        ))
+                        .fill(VColor.onboardingStepBackground)
                 )
         }
         .buttonStyle(.plain)

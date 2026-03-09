@@ -285,6 +285,14 @@ public enum VColor {
     public static let themeToggleSelected = adaptiveColor(light: Color(hex: 0xD3DECF), dark: Forest._800)
     public static let themeToggleBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
 
+    // Onboarding
+    public static let onboardingGradientEdge = adaptiveColor(light: Stone._100, dark: Moss._900)
+    public static let onboardingGradientOuter = adaptiveColor(light: Stone._200, dark: Moss._950)
+    public static let onboardingHatchGradientOuter = adaptiveColor(light: Moss._200, dark: Moss._950)
+    public static let onboardingStepBackground = adaptiveColor(light: Stone._900, dark: Forest._600)
+    public static let onboardingLink = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._400)
+    public static let onboardingBorderStroke = adaptiveColor(light: Stone._900.opacity(0.3), dark: Forest._600.opacity(0.3))
+
     // Onboarding code block
     public static let codeBlockBackground = adaptiveColor(light: Color(hex: 0xF2F2F7), dark: Color(hex: 0x3A3A37).opacity(0.5))
 
