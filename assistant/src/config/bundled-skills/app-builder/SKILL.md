@@ -533,12 +533,6 @@ When the user wants to triage or bulk-act on items, generate an interactive UI w
 4. Execute tools, update UI with `ui_update`, show feedback via `widgets.toast()`
 5. Use `window.vellum.confirm()` for destructive actions
 
-## Home Base
-
-Home Base starts from a prebuilt scaffold. When updating, preserve required task-lane anchors and apply changes through `app_file_edit` or `app_file_write`.
-
-Home Base buttons send prefilled natural-language prompts through `vellum.sendAction`. Treat these as normal user messages.
-
 ## External Links
 
 Use `vellum.openLink(url, metadata)` to make items clickable. Construct deep-link URLs when possible. Include `metadata.provider` and `metadata.type` for context.

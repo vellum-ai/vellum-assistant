@@ -83,14 +83,6 @@ export const sharedAppLinks = sqliteTable("shared_app_links", {
   expiresAt: integer("expires_at"),
 });
 
-export const homeBaseAppLinks = sqliteTable("home_base_app_links", {
-  id: text("id").primaryKey(),
-  appId: text("app_id").notNull(),
-  source: text("source").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 export const publishedPages = sqliteTable("published_pages", {
   id: text("id").primaryKey(),
   deploymentId: text("deployment_id").notNull().unique(),

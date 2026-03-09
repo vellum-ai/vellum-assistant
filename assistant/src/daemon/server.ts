@@ -14,7 +14,6 @@ import {
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import { bootstrapHomeBaseAppLink } from "../home-base/bootstrap.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -325,10 +324,7 @@ export class DaemonServer {
    * Publications are serialized via a promise chain so subscribers
    * always observe events in send order.
    */
-  private publishAssistantEvent(
-    msg: ServerMessage,
-    sessionId?: string,
-  ): void {
+  private publishAssistantEvent(msg: ServerMessage, sessionId?: string): void {
     const id = this.assistantId ?? "default";
     const event = buildAssistantEvent(id, msg, sessionId);
     this._hubChain = this._hubChain
@@ -372,15 +368,6 @@ export class DaemonServer {
     const config = getConfig();
     initializeProviders(config);
     this.configWatcher.initFingerprint(config);
-
-    try {
-      bootstrapHomeBaseAppLink();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to bootstrap Home Base app link at daemon startup",
-      );
-    }
 
     this.evictor.start();
 
@@ -629,10 +616,7 @@ export class DaemonServer {
       );
     }
 
-    const session = await this.getOrCreateSession(
-      conversationId,
-      options,
-    );
+    const session = await this.getOrCreateSession(conversationId, options);
 
     if (session.isProcessing()) {
       throw new Error("Session is already processing a message");

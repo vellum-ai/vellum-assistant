@@ -23,8 +23,6 @@ import { compileApp } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { defaultGallery } from "../../gallery/default-gallery.js";
-import { resolveHomeBaseAppId } from "../../home-base/bootstrap.js";
-import { isPrebuiltHomeBaseApp } from "../../home-base/prebuilt-home-base-updater.js";
 import {
   getAppDiff,
   getAppHistory,
@@ -90,45 +88,19 @@ function listAppsFiltered(): Array<{
   version: string;
   contentId: string;
 }> {
-  const allApps = listApps();
-  const homeBaseId = resolveHomeBaseAppId();
-
-  const excludeIds = new Set<string>();
-  if (homeBaseId) {
-    excludeIds.add(homeBaseId);
-  } else {
-    for (const a of allApps) {
-      if (isPrebuiltHomeBaseApp(a)) {
-        excludeIds.add(a.id);
-        continue;
-      }
-      const fullApp = getApp(a.id);
-      if (fullApp && isPrebuiltHomeBaseApp(fullApp)) {
-        excludeIds.add(a.id);
-        continue;
-      }
-    }
-  }
-
-  return allApps
-    .filter((a) => {
-      if (excludeIds.has(a.id)) return false;
-      if (isPrebuiltHomeBaseApp(a)) return false;
-      return true;
-    })
-    .map((a) => {
-      const version = a.version ?? "1.0.0";
-      const contentId = computeContentId(a.name);
-      return {
-        id: a.id,
-        name: a.name,
-        description: a.description,
-        icon: a.icon,
-        createdAt: a.createdAt,
-        version,
-        contentId,
-      };
-    });
+  return listApps().map((a) => {
+    const version = a.version ?? "1.0.0";
+    const contentId = computeContentId(a.name);
+    return {
+      id: a.id,
+      name: a.name,
+      description: a.description,
+      icon: a.icon,
+      createdAt: a.createdAt,
+      version,
+      contentId,
+    };
+  });
 }
 
 function getAppDataResult(
@@ -251,7 +223,9 @@ function listSharedApps(): Array<Record<string, unknown>> {
 
 function forkSharedApp(
   appUuid: string,
-): { success: true; appId: string; name: string } | { success: false; error: string } {
+):
+  | { success: true; appId: string; name: string }
+  | { success: false; error: string } {
   if (
     appUuid.includes("/") ||
     appUuid.includes("\\") ||
@@ -294,10 +268,11 @@ function forkSharedApp(
 
 async function installGalleryApp(
   galleryAppId: string,
-): Promise<{ success: true; appId: string; name: string } | { success: false; error: string }> {
-  const galleryApp = defaultGallery.apps.find(
-    (a) => a.id === galleryAppId,
-  );
+): Promise<
+  | { success: true; appId: string; name: string }
+  | { success: false; error: string }
+> {
+  const galleryApp = defaultGallery.apps.find((a) => a.id === galleryAppId);
   if (!galleryApp) {
     return {
       success: false,
@@ -408,7 +383,11 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log.error({ err }, "Failed to list apps");
-          return httpError("INTERNAL_ERROR", `Failed to list apps: ${message}`, 500);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to list apps: ${message}`,
+            500,
+          );
         }
       },
     },
@@ -560,15 +539,16 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
               return httpError("BAD_REQUEST", "payload is not valid JSON", 400);
             }
 
-            const signatureJson: import("../../bundler/bundle-signer.js").SignatureJson = {
-              algorithm: "ed25519",
-              signer: {
-                key_id: body.keyId,
-                display_name: "HTTP Signer",
-              },
-              content_hashes: contentHashes,
-              signature: body.signature,
-            };
+            const signatureJson: import("../../bundler/bundle-signer.js").SignatureJson =
+              {
+                algorithm: "ed25519",
+                signer: {
+                  key_id: body.keyId,
+                  display_name: "HTTP Signer",
+                },
+                content_hashes: contentHashes,
+                signature: body.signature,
+              };
             return Response.json({ signed: true, signatureJson });
           }
 
@@ -629,8 +609,14 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           return Response.json({ success: true, result });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          log.error({ err, appId: params.id }, "Error handling app data request");
-          return Response.json({ success: false, error: message }, { status: 400 });
+          log.error(
+            { err, appId: params.id },
+            "Error handling app data request",
+          );
+          return Response.json(
+            { success: false, error: message },
+            { status: 400 },
+          );
         }
       },
     },
@@ -656,8 +642,14 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           return Response.json({ success: true, result });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          log.error({ err, appId: params.id }, "Error handling app data request");
-          return Response.json({ success: false, error: message }, { status: 400 });
+          log.error(
+            { err, appId: params.id },
+            "Error handling app data request",
+          );
+          return Response.json(
+            { success: false, error: message },
+            { status: 400 },
+          );
         }
       },
     },
@@ -704,7 +696,10 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          log.error({ err, appId: params.id }, "Failed to handle app open request");
+          log.error(
+            { err, appId: params.id },
+            "Failed to handle app open request",
+          );
           return httpError(
             "INTERNAL_ERROR",
             `Failed to open app: ${message}`,
@@ -819,8 +814,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
               400,
             );
           }
-          const toCommit =
-            url.searchParams.get("toCommit") ?? undefined;
+          const toCommit = url.searchParams.get("toCommit") ?? undefined;
           const diff = await getAppDiff(params.id, fromCommit, toCommit);
           return Response.json({ appId: params.id, diff });
         } catch (err) {
@@ -898,7 +892,10 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           // endpoint independently if needed.
           const result = await packageApp(params.id);
           const bundleData = readFileSync(result.bundlePath);
-          const { shareToken } = createSharedAppLink(bundleData, result.manifest);
+          const { shareToken } = createSharedAppLink(
+            bundleData,
+            result.manifest,
+          );
 
           const shareUrl = `/v1/apps/shared/${shareToken}`;
 

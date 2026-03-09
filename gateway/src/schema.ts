@@ -194,29 +194,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/home-base-ui": {
-        get: {
-          summary: "Home base UI",
-          description:
-            "Authenticated gateway endpoint that serves the home base dashboard UI from the assistant runtime.",
-          operationId: "homeBaseUI",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "Home base UI HTML returned",
-              content: {
-                "text/html": { schema: { type: "string" } },
-              },
-            },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
       "/webhooks/telegram": {
         post: {
           summary: "Telegram webhook",

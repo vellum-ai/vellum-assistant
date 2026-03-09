@@ -203,10 +203,7 @@ graph TB
         subgraph "Onboarding Control Plane"
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
             PLAYBOOK_REG["onboarding/playbooks/registry.json<br/>started-channel index"]
-            ONBOARD_ORCH["OnboardingOrchestrator<br/>post-hatch sequence + Home Base handoff<br/>runtime onboarding-mode prompt"]
-            HOME_BASE_SEED["HomeBaseSeed<br/>prebuilt scaffold seeding<br/>idempotent bootstrap"]
-            HOME_BASE_BOOT["HomeBaseBootstrap<br/>durable app-link resolution + repair"]
-            HOME_BASE_LINK["HomeBaseAppLinkStore<br/>home_base_app_links table"]
+            ONBOARD_ORCH["OnboardingOrchestrator<br/>post-hatch sequence<br/>runtime onboarding-mode prompt"]
         end
 
         subgraph "Inference"
@@ -247,7 +244,6 @@ graph TB
             DB_REMINDERS["reminders<br/>(routing_intent, routing_hints_json)"]
             DB_SCHED_JOBS["cron_jobs (recurrence schedules)"]
             DB_SCHED_RUNS["cron_runs (schedule execution history)"]
-            DB_HOME["home_base_app_links"]
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
             DB_WORK_ITEMS["work_items"]
@@ -380,7 +376,7 @@ graph TB
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
     HTTP_RT -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
-    MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
+    MW_STATE -->|"app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
 
     %% Ride Shotgun flow
     RS_TRIGGER -->|"shouldShowInvitation"| AMBIENT
@@ -413,11 +409,6 @@ graph TB
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
     PLAYBOOK_MGR --> ONBOARD_ORCH
     ONBOARD_ORCH -->|"inject <onboarding_mode><br/>runtime context"| SESSION_MGR
-    HTTP_RT -.->|"daemon startup bootstrap + home_base_get"| HOME_BASE_BOOT
-    HOME_BASE_BOOT --> HOME_BASE_SEED
-    HOME_BASE_BOOT --> HOME_BASE_LINK
-    HOME_BASE_LINK --> DB_HOME
-    HOME_BASE_SEED --> APPS_DATA
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL

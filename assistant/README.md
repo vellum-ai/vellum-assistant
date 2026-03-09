@@ -36,15 +36,15 @@ cp .env.example .env
 
 ## Configuration
 
-| Variable               | Required | Default                     | Description                                       |
-| ---------------------- | -------- | --------------------------- | ------------------------------------------------- |
-| `ANTHROPIC_API_KEY`    | Yes      | —                           | Anthropic Claude API key                          |
-| `OPENAI_API_KEY`       | No       | —                           | OpenAI API key                                    |
-| `GEMINI_API_KEY`       | No       | —                           | Google Gemini API key                             |
-| `OLLAMA_API_KEY`       | No       | —                           | API key for authenticated Ollama deployments      |
-| `OLLAMA_BASE_URL`      | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
-| `RUNTIME_HTTP_PORT`    | No       | —                           | Enable the HTTP server (required for gateway/web) |
-| `RUNTIME_HTTP_HOST`    | No       | `127.0.0.1`                 | HTTP server bind address                          |
+| Variable            | Required | Default                     | Description                                       |
+| ------------------- | -------- | --------------------------- | ------------------------------------------------- |
+| `ANTHROPIC_API_KEY` | Yes      | —                           | Anthropic Claude API key                          |
+| `OPENAI_API_KEY`    | No       | —                           | OpenAI API key                                    |
+| `GEMINI_API_KEY`    | No       | —                           | Google Gemini API key                             |
+| `OLLAMA_API_KEY`    | No       | —                           | API key for authenticated Ollama deployments      |
+| `OLLAMA_BASE_URL`   | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
+| `RUNTIME_HTTP_PORT` | No       | —                           | Enable the HTTP server (required for gateway/web) |
+| `RUNTIME_HTTP_HOST` | No       | `127.0.0.1`                 | HTTP server bind address                          |
 
 ## Update Bulletin
 
@@ -112,7 +112,6 @@ assistant/
 │   ├── messaging/            # Message processing pipeline
 │   ├── context/              # Context assembly and compaction
 │   ├── playbooks/            # Channel onboarding playbooks
-│   ├── home-base/            # Home Base app-link bootstrap
 │   ├── hooks/                # Git-style lifecycle hooks
 │   ├── media/                # Media processing and attachments
 │   ├── schedule/             # Reminders and recurrence scheduling (cron + RRULE)

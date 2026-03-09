@@ -309,7 +309,7 @@ export function mintEdgeRelayToken(): string {
 
 /**
  * Mint a long-lived JWT for embedding in browser-served UI pages
- * (brain-graph, home-base).
+ * (brain-graph).
  *
  * These pages make API calls that route through the gateway, which validates
  * tokens with validateEdgeToken() expecting aud=vellum-gateway. A 1-hour TTL
