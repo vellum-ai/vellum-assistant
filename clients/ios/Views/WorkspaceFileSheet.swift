@@ -12,6 +12,7 @@ struct WorkspaceFileSheet: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var editableContent: String = ""
+    @State private var originalContent: String = ""
     @State private var isDirty = false
     @State private var isSaving = false
 
@@ -67,6 +68,7 @@ struct WorkspaceFileSheet: View {
             await loadContent()
             if let content = fileResponse?.content {
                 editableContent = content
+                originalContent = content
             }
         }
     }
@@ -86,7 +88,7 @@ struct WorkspaceFileSheet: View {
                 .font(VFont.mono)
                 .padding(VSpacing.sm)
                 .onChange(of: editableContent) { _, newValue in
-                    isDirty = newValue != (fileResponse?.content ?? "")
+                    isDirty = newValue != originalContent
                 }
         } else if let response = fileResponse {
             metadataView(response)
@@ -158,7 +160,10 @@ struct WorkspaceFileSheet: View {
         isSaving = true
         let data = Data(editableContent.utf8)
         let success = await client?.writeWorkspaceFile(path: path, content: data) ?? false
-        if success { isDirty = false }
+        if success {
+            originalContent = editableContent
+            isDirty = false
+        }
         isSaving = false
     }
 
