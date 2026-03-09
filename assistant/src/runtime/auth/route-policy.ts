@@ -272,6 +272,20 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "workspace/rename", scopes: ["settings.write"] },
   { endpoint: "workspace/delete", scopes: ["settings.write"] },
 
+  // Model config
+  { endpoint: "model:GET", scopes: ["settings.read"] },
+  { endpoint: "model:PUT", scopes: ["settings.write"] },
+  { endpoint: "model/image-gen", scopes: ["settings.write"] },
+
+  // Conversation search
+  { endpoint: "conversations/search", scopes: ["chat.read"] },
+
+  // Message content
+  { endpoint: "messages/content", scopes: ["chat.read"] },
+
+  // Queued message deletion
+  { endpoint: "messages/queued", scopes: ["chat.write"] },
+
   // Browser relay
   { endpoint: "browser-relay/status", scopes: ["settings.read"] },
   { endpoint: "browser-relay/command", scopes: ["settings.write"] },
