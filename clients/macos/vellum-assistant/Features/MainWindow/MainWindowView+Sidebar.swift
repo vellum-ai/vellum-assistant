@@ -337,7 +337,7 @@ extension MainWindowView {
                                     }
                                 } label: {
                                     HStack(spacing: VSpacing.xs) {
-                                        ZStack {
+                                        HStack(spacing: 2) {
                                             VIconView(.chevronRight, size: 10)
                                                 .foregroundColor(VColor.textMuted)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
@@ -346,11 +346,10 @@ extension MainWindowView {
                                                 Circle()
                                                     .fill(Color(hex: 0xE86B40))
                                                     .frame(width: 6, height: 6)
-                                                    .offset(x: 7, y: -5)
                                                     .transition(.opacity)
                                             }
                                         }
-                                        .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
+                                        .frame(height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
                                             .foregroundColor(VColor.textPrimary)
