@@ -10,6 +10,7 @@ struct SettingsDebugTab: View {
     @ObservedObject var store: SettingsStore
 
     @State private var lastStatus: String?
+    @State private var dismissTask: Task<Void, Never>?
     @State private var isSentryEnabled: Bool = true
 
     var body: some View {
@@ -148,9 +149,11 @@ struct SettingsDebugTab: View {
     // MARK: - Helpers
 
     private func showStatus(_ message: String) {
+        dismissTask?.cancel()
         withAnimation { lastStatus = message }
-        // Auto-dismiss after a few seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+        dismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
             withAnimation {
                 if lastStatus == message { lastStatus = nil }
             }
