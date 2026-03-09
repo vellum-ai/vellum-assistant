@@ -203,15 +203,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupHotKey()
 
         let hasAssistants = lockfileHasAssistants()
-        log.error("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
+        log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
         if !skipOnboarding && !hasAssistants {
-            log.error("[appLaunch] → showOnboarding()")
+            log.info("[appLaunch] → showOnboarding()")
             showOnboarding()
             return
         }
 
-        log.error("[appLaunch] → startAuthenticatedFlow()")
+        log.info("[appLaunch] → startAuthenticatedFlow()")
         startAuthenticatedFlow()
     }
 

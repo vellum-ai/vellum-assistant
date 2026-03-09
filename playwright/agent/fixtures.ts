@@ -286,13 +286,15 @@ function ensureVellumInPath(appDisplayName: string): void {
  * Ensures an assistant is hatched, the lockfile is populated, and the
  * assistant is healthy before returning.
  *
- * Checks the lockfile for an existing assistant. If none is found,
- * runs `vellum hatch` to create one. Then polls `/healthz` until
- * the assistant reports healthy.
+ * Checks the lockfile for an existing assistant and verifies the daemon
+ * is actually responding. If neither condition is met, runs `vellum hatch`
+ * to create one. Then polls `/healthz` until the assistant reports healthy.
  */
 async function ensureAssistantHatched(): Promise<void> {
   let hatchOutput = "";
-  if (!hasAssistantInLockfile()) {
+  const hasLockfileEntry = hasAssistantInLockfile();
+  const daemonAlive = hasLockfileEntry ? await isDaemonHealthy() : false;
+  if (!hasLockfileEntry || !daemonAlive) {
     try {
       hatchOutput = execSync("vellum hatch 2>&1", {
         encoding: "utf-8",
@@ -405,6 +407,28 @@ function hasAssistantInLockfile(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Checks whether a local daemon is actually responding on port 7821.
+ * Returns true only if the /healthz endpoint returns a 200 within the timeout.
+ */
+async function isDaemonHealthy(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3_000);
+    const response = await fetch("http://localhost:7821/healthz", {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (response.ok) {
+      const body = (await response.json()) as { status?: string };
+      return body.status === "healthy";
+    }
+  } catch {
+    // Daemon not reachable
+  }
+  return false;
 }
 
 /**
