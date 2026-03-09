@@ -706,15 +706,15 @@ async function handleToolPermissionSimulate(body: {
 // ---------------------------------------------------------------------------
 
 /**
- * Allowlist of env-var prefixes/names safe to expose via diagnostics.
+ * Allowlist of env-var names safe to expose via diagnostics.
  * Everything else is redacted to prevent secret leakage.
+ *
+ * IMPORTANT: Exact names use strict `===` matching so that e.g. "HOME" does
+ * not also expose "HOME_SECRET". Only entries in the *prefixes* list (which
+ * all end with `_`) use `startsWith`.
  */
-const SAFE_ENV_VAR_PREFIXES = [
-  "NODE_",
-  "BUN_",
-  "npm_",
+const SAFE_ENV_VAR_EXACT_NAMES = new Set([
   "LANG",
-  "LC_",
   "TERM",
   "SHELL",
   "HOME",
@@ -725,22 +725,30 @@ const SAFE_ENV_VAR_PREFIXES = [
   "OLDPWD",
   "HOSTNAME",
   "DISPLAY",
-  "XDG_",
   "COLORTERM",
   "EDITOR",
   "VISUAL",
   "TZ",
   "TMPDIR",
-  "VELLUM_",
   "BASE_DATA_DIR",
   "QDRANT_HTTP_PORT",
   "PORT",
   "DEBUG",
+]);
+
+const SAFE_ENV_VAR_PREFIXES = [
+  "NODE_",
+  "BUN_",
+  "npm_",
+  "LC_",
+  "XDG_",
+  "VELLUM_",
 ];
 
 function isEnvVarSafe(key: string): boolean {
-  return SAFE_ENV_VAR_PREFIXES.some(
-    (prefix) => key === prefix || key.startsWith(prefix),
+  return (
+    SAFE_ENV_VAR_EXACT_NAMES.has(key) ||
+    SAFE_ENV_VAR_PREFIXES.some((prefix) => key.startsWith(prefix))
   );
 }
 
