@@ -112,6 +112,52 @@ function writeE2EStatus(statusFilePath: string, status: E2EStatus): void {
   }
 }
 
+function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+  if (toolName === "applescript") {
+    const script = (input.script as string) ?? "";
+    const lines = script.split("\n").map((l) => l.trim()).filter(Boolean);
+    const lastLine = lines[lines.length - 1] ?? "";
+
+    if (/keystroke/.test(script)) {
+      const match = script.match(/keystroke\s+"([^"]*)"/i);
+      if (match) {
+        return `Type "${match[1].slice(0, 40)}${match[1].length > 40 ? "..." : ""}"`;
+      }
+      return "Type keystrokes";
+    }
+    if (/click\s+(button|checkbox|menu item|pop up button)/i.test(script)) {
+      const match = script.match(/click\s+(button|checkbox|menu item|pop up button)\s+"([^"]*)"/i);
+      if (match) {
+        return `Click ${match[1]} "${match[2]}"`;
+      }
+      return "Click UI element";
+    }
+    if (/click/i.test(script) && /static text/i.test(script)) {
+      const match = script.match(/click\s+static\s+text\s+"([^"]*)"/i);
+      if (match) {
+        return `Click "${match[1]}"`;
+      }
+    }
+    if (/entire contents/i.test(script)) {
+      return "Read accessibility tree";
+    }
+    if (/set value/i.test(script)) {
+      return "Set input value";
+    }
+    if (/tell application\s+"([^"]*)"/i.test(script)) {
+      const appMatch = script.match(/tell application\s+"([^"]*)"/i);
+      if (lastLine.startsWith("return") || lastLine.startsWith("get")) {
+        return `Query ${appMatch?.[1] ?? "app"}`;
+      }
+      return `Interact with ${appMatch?.[1] ?? "app"}`;
+    }
+    return script.length > 60 ? script.slice(0, 57) + "..." : script;
+  }
+
+  const inputStr = JSON.stringify(input);
+  return inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
+}
+
 function clearE2EStatus(statusFilePath: string): void {
   try {
     unlinkSync(statusFilePath);
@@ -277,8 +323,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       const seconds = elapsedSec % 60;
       const elapsedStr = `${minutes}:${String(seconds).padStart(2, "0")}`;
 
-      const inputStr = JSON.stringify(block.input);
-      const summaryText = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
+      const summaryText = summarizeToolInput(block.name, block.input as Record<string, unknown>);
 
       writeE2EStatus(statusFilePath, {
         iteration: iteration + 1,

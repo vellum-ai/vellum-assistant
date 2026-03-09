@@ -143,7 +143,7 @@ struct E2EStatusOverlayView: View {
 
                     Spacer()
 
-                    Text("\(status.iteration)/\(status.maxIterations)")
+                    Text("Step \(status.iteration)")
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.textSecondary)
                         .monospacedDigit()

@@ -40,11 +40,13 @@ export async function execute(
   const statusFile = e2eStatusFilePath(context.testName ?? "unknown");
 
   try {
-    execSync(`open -a "${appPath}" --args --skip-onboarding`, {
-      encoding: "utf-8",
-      timeout: 10_000,
-      env: { ...process.env, E2E_STATUS_FILE: statusFile },
-    });
+    execSync(
+      `open -a "${appPath}" --env E2E_STATUS_FILE "${statusFile}"`,
+      {
+        encoding: "utf-8",
+        timeout: 10_000,
+      },
+    );
     return {
       result: { success: true, data: `Launched ${appDisplayName} from ${appPath}` },
     };
