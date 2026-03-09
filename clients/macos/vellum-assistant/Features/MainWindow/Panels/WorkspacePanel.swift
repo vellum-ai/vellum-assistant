@@ -34,6 +34,7 @@ struct WorkspacePanel: View {
         .onDisappear {
             state.fileLoadTask?.cancel()
             state.fileLoadTask = nil
+            state.isLoadingFile = false
         }
     }
 
