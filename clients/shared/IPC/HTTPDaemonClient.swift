@@ -231,6 +231,16 @@ public final class HTTPTransport {
         return cs
     }()
 
+    /// A restricted character set for encoding path component values.
+    /// `.urlPathAllowed` permits `/` which must be escaped when embedding
+    /// identifiers (e.g. namespaced skill slugs like `clawhub/my-skill`)
+    /// into a single path segment so they don't create extra path components.
+    private static let pathComponentAllowed: CharacterSet = {
+        var cs = CharacterSet.urlPathAllowed
+        cs.remove(charactersIn: "/")
+        return cs
+    }()
+
     /// All HTTP endpoints used by the transport, centralized for consistent
     /// URL construction. Query parameters that are integral to the endpoint
     /// identity are modelled as associated values.
@@ -654,7 +664,7 @@ public final class HTTPTransport {
         case .modelImageGen:
             return ("/v1/model/image-gen", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
-            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             var qs = "q=\(qEncoded)"
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
@@ -674,29 +684,29 @@ public final class HTTPTransport {
         case .skillsList:
             return ("/v1/skills", nil)
         case .skillEnable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("/v1/skills/\(encoded)/enable", nil)
         case .skillDisable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("/v1/skills/\(encoded)/disable", nil)
         case .skillConfigure(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("/v1/skills/\(encoded)/config", nil)
         case .skillInstall:
             return ("/v1/skills/install", nil)
         case .skillUninstall(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("/v1/skills/\(encoded)", nil)
         case .skillUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("/v1/skills/\(encoded)/update", nil)
         case .skillsCheckUpdates:
             return ("/v1/skills/check-updates", nil)
         case .skillsSearch(let query):
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             return ("/v1/skills/search", "q=\(encoded)")
         case .skillInspect(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("/v1/skills/\(encoded)/inspect", nil)
         case .skillsDraft:
             return ("/v1/skills/draft", nil)
@@ -1037,7 +1047,7 @@ public final class HTTPTransport {
         case .modelImageGen:
             return ("\(prefix)/model/image-gen/", nil)
         case .conversationSearch(let query, let limit, let maxMessages):
-            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             var qs = "q=\(qEncoded)"
             if let limit { qs += "&limit=\(limit)" }
             if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
@@ -1057,29 +1067,29 @@ public final class HTTPTransport {
         case .skillsList:
             return ("\(prefix)/skills/", nil)
         case .skillEnable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("\(prefix)/skills/\(encoded)/enable/", nil)
         case .skillDisable(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("\(prefix)/skills/\(encoded)/disable/", nil)
         case .skillConfigure(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("\(prefix)/skills/\(encoded)/config/", nil)
         case .skillInstall:
             return ("\(prefix)/skills/install/", nil)
         case .skillUninstall(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("\(prefix)/skills/\(encoded)/", nil)
         case .skillUpdate(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("\(prefix)/skills/\(encoded)/update/", nil)
         case .skillsCheckUpdates:
             return ("\(prefix)/skills/check-updates/", nil)
         case .skillsSearch(let query):
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? query
             return ("\(prefix)/skills/search/", "q=\(encoded)")
         case .skillInspect(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: Self.pathComponentAllowed) ?? id
             return ("\(prefix)/skills/\(encoded)/inspect/", nil)
         case .skillsDraft:
             return ("\(prefix)/skills/draft/", nil)
