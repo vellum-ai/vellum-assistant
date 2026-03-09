@@ -11,6 +11,7 @@ import {
   createWriteStream,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -404,13 +405,22 @@ async function handleDiagnosticsExport(body: {
         archive.pipe(output);
         archive.directory(tempDir, false);
 
-        // Add recent crash report files under crash-reports/
+        // Add recent crash report files under crash-reports/.
+        // Text-based crash files (.crash, .ips, .diag) are redacted using the
+        // same patterns as conversation data. Binary archives (.tar.gz) are
+        // added as-is since they can't be meaningfully text-redacted.
         const crashReportFiles = findRecentCrashReports();
         for (const filePath of crashReportFiles) {
           try {
-            archive.file(filePath, {
-              name: "crash-reports/" + basename(filePath),
-            });
+            const fileName = basename(filePath);
+            if (fileName.toLowerCase().endsWith(CRASH_REPORT_TAR_GZ)) {
+              archive.file(filePath, { name: "crash-reports/" + fileName });
+            } else {
+              const content = readFileSync(filePath, "utf-8");
+              archive.append(redact(content), {
+                name: "crash-reports/" + fileName,
+              });
+            }
           } catch {
             // Skip files that can't be read
           }
