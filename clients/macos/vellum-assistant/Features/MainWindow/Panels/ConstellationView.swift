@@ -28,14 +28,14 @@ enum SkillCategory: String, CaseIterable {
 
     var color: Color {
         switch self {
-        case .communication: return Color(hex: 0x8B5DAA) // purple
-        case .productivity: return Color(hex: 0x4682B4)   // steel blue
-        case .development: return Color(hex: 0xC1421B)    // red
-        case .media: return Color(hex: 0xD4A017)          // gold
-        case .automation: return Color(hex: 0x2E8B57)     // sea green
-        case .webSocial: return Color(hex: 0xCD853F)      // peru/tan
-        case .knowledge: return Color(hex: 0x6B8E23)      // olive
-        case .integration: return Color(hex: 0x708090)    // slate gray
+        case .communication: return VColor.skillCatCommunication
+        case .productivity: return VColor.skillCatProductivity
+        case .development: return VColor.skillCatDevelopment
+        case .media: return VColor.skillCatMedia
+        case .automation: return VColor.skillCatAutomation
+        case .webSocial: return VColor.skillCatWebSocial
+        case .knowledge: return VColor.skillCatKnowledge
+        case .integration: return VColor.skillCatIntegration
         }
     }
 
