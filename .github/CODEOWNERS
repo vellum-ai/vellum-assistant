@@ -19,7 +19,7 @@ assistant/src/config/skills.ts @awlevin
 assistant/src/config/skill-state.ts @awlevin
 assistant/src/config/bundled-skills/ @awlevin
 assistant/src/daemon/handlers/skills.ts @awlevin
-assistant/src/daemon/ipc-contract/skills.ts @awlevin
+assistant/src/daemon/message-types/skills.ts @awlevin
 assistant/src/daemon/session-skill-tools.ts @awlevin
 
 # Agent-to-agent / agent-to-person interactions (Harrison)
@@ -96,8 +96,8 @@ assistant/src/daemon/approval-generators.ts @noanflaherty
 assistant/src/daemon/guardian-*.ts @noanflaherty
 assistant/src/daemon/handlers/config-trust.ts @noanflaherty
 assistant/src/daemon/handlers/guardian-actions.ts @noanflaherty
-assistant/src/daemon/ipc-contract/guardian-actions.ts @noanflaherty
-assistant/src/daemon/ipc-contract/trust.ts @noanflaherty
+assistant/src/daemon/message-types/guardian-actions.ts @noanflaherty
+assistant/src/daemon/message-types/trust.ts @noanflaherty
 assistant/src/tools/verification-control-plane-policy.ts @noanflaherty
 assistant/src/tools/tool-approval-handler.ts @noanflaherty
 assistant/src/security/tool-approval-digest.ts @noanflaherty
