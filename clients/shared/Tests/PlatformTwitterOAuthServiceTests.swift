@@ -50,10 +50,9 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
 
     func testListConnectionsSendsCorrectRequest() async throws {
         let connections = [
-            TwitterOAuthConnection(id: "conn-1", provider: "twitter", accountInfo: "@testuser")
+            TwitterOAuthConnection(provider: "twitter", status: "ACTIVE", connected: true, accountLabel: "@testuser")
         ]
-        let responseBody = ListTwitterOAuthConnectionsResponse(connections: connections)
-        mockSession.responseData = try JSONEncoder().encode(responseBody)
+        mockSession.responseData = try JSONEncoder().encode(connections)
 
         _ = try await service.listConnections(
             platformAssistantId: testPlatformAssistantId,
@@ -66,7 +65,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertEqual(
             request.url?.absoluteString,
-            "\(testBaseURL)/v1/assistants/\(testPlatformAssistantId)/twitter/connections/"
+            "\(testBaseURL)/v1/assistants/\(testPlatformAssistantId)/oauth/connections/"
         )
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Session-Token"), testSessionToken)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Vellum-Organization-Id"), testOrganizationId)
@@ -75,33 +74,31 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
 
     func testListConnectionsDecodesResponse() async throws {
         let connections = [
-            TwitterOAuthConnection(id: "conn-1", provider: "twitter", accountInfo: "@user1"),
-            TwitterOAuthConnection(id: "conn-2", provider: "twitter", accountInfo: "@user2"),
+            TwitterOAuthConnection(provider: "twitter", status: "ACTIVE", connected: true, accountLabel: "@user1"),
+            TwitterOAuthConnection(provider: "twitter", status: "ACTIVE", connected: true, accountLabel: "@user2"),
         ]
-        let responseBody = ListTwitterOAuthConnectionsResponse(connections: connections)
-        mockSession.responseData = try JSONEncoder().encode(responseBody)
+        mockSession.responseData = try JSONEncoder().encode(connections)
 
         let result = try await service.listConnections(
             platformAssistantId: testPlatformAssistantId,
             organizationId: testOrganizationId
         )
 
-        XCTAssertEqual(result.connections.count, 2)
-        XCTAssertEqual(result.connections[0].id, "conn-1")
-        XCTAssertEqual(result.connections[0].accountInfo, "@user1")
-        XCTAssertEqual(result.connections[1].id, "conn-2")
+        XCTAssertEqual(result.count, 2)
+        XCTAssertEqual(result[0].accountLabel, "@user1")
+        XCTAssertEqual(result[1].accountLabel, "@user2")
     }
 
     func testListConnectionsReturnsEmptyList() async throws {
-        let responseBody = ListTwitterOAuthConnectionsResponse(connections: [])
-        mockSession.responseData = try JSONEncoder().encode(responseBody)
+        let connections: [TwitterOAuthConnection] = []
+        mockSession.responseData = try JSONEncoder().encode(connections)
 
         let result = try await service.listConnections(
             platformAssistantId: testPlatformAssistantId,
             organizationId: testOrganizationId
         )
 
-        XCTAssertTrue(result.connections.isEmpty)
+        XCTAssertTrue(result.isEmpty)
     }
 
     func testListConnectionsThrowsOnAuthError() async throws {
@@ -144,7 +141,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
     // MARK: - startTwitterConnect
 
     func testStartConnectSendsCorrectRequest() async throws {
-        let responseBody = StartTwitterConnectResponse(authorizationUrl: "https://twitter.com/oauth/authorize?token=abc")
+        let responseBody = StartTwitterConnectResponse(success: true, deferred: false, provider: "twitter", connectUrl: "https://twitter.com/oauth/authorize?token=abc", stateId: "state-1")
         mockSession.responseData = try JSONEncoder().encode(responseBody)
 
         _ = try await service.startTwitterConnect(
@@ -158,7 +155,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(
             request.url?.absoluteString,
-            "\(testBaseURL)/v1/assistants/\(testPlatformAssistantId)/twitter/connect/"
+            "\(testBaseURL)/v1/assistants/\(testPlatformAssistantId)/oauth/twitter/start/"
         )
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Session-Token"), testSessionToken)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Vellum-Organization-Id"), testOrganizationId)
@@ -166,7 +163,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
     }
 
     func testStartConnectSendsRequestedScopes() async throws {
-        let responseBody = StartTwitterConnectResponse(authorizationUrl: "https://twitter.com/oauth/authorize")
+        let responseBody = StartTwitterConnectResponse(success: true, deferred: false, provider: "twitter", connectUrl: "https://twitter.com/oauth/authorize", stateId: "state-1")
         mockSession.responseData = try JSONEncoder().encode(responseBody)
 
         _ = try await service.startTwitterConnect(
@@ -182,7 +179,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
     }
 
     func testStartConnectSendsRedirectAfterConnect() async throws {
-        let responseBody = StartTwitterConnectResponse(authorizationUrl: "https://twitter.com/oauth/authorize")
+        let responseBody = StartTwitterConnectResponse(success: true, deferred: false, provider: "twitter", connectUrl: "https://twitter.com/oauth/authorize", stateId: "state-1")
         mockSession.responseData = try JSONEncoder().encode(responseBody)
 
         _ = try await service.startTwitterConnect(
@@ -194,12 +191,12 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
         let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
 
         let redirect = body["redirect_after_connect"] as? String
-        XCTAssertEqual(redirect, "vellum://oauth/twitter/complete")
+        XCTAssertEqual(redirect, "/")
     }
 
-    func testStartConnectDecodesAuthorizationUrl() async throws {
+    func testStartConnectDecodesConnectUrl() async throws {
         let expectedUrl = "https://twitter.com/i/oauth2/authorize?client_id=abc&scope=tweet.read"
-        let responseBody = StartTwitterConnectResponse(authorizationUrl: expectedUrl)
+        let responseBody = StartTwitterConnectResponse(success: true, deferred: false, provider: "twitter", connectUrl: expectedUrl, stateId: "state-1")
         mockSession.responseData = try JSONEncoder().encode(responseBody)
 
         let result = try await service.startTwitterConnect(
@@ -207,7 +204,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
             organizationId: testOrganizationId
         )
 
-        XCTAssertEqual(result.authorizationUrl, expectedUrl)
+        XCTAssertEqual(result.connectUrl, expectedUrl)
     }
 
     func testStartConnectThrowsOn403() async throws {
@@ -245,7 +242,7 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(
             request.url?.absoluteString,
-            "\(testBaseURL)/v1/assistants/\(testPlatformAssistantId)/twitter/disconnect/"
+            "\(testBaseURL)/v1/assistants/\(testPlatformAssistantId)/oauth/twitter/disconnect/"
         )
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Session-Token"), testSessionToken)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Vellum-Organization-Id"), testOrganizationId)
@@ -335,8 +332,8 @@ final class PlatformTwitterOAuthServiceTests: XCTestCase {
         XCTAssertEqual(scopes, ["tweet.read", "tweet.write", "users.read", "offline.access"])
     }
 
-    func testRedirectAfterConnectIsDesktopScheme() {
+    func testRedirectAfterConnectValue() {
         let redirect = PlatformTwitterOAuthService.redirectAfterConnect
-        XCTAssertTrue(redirect.hasPrefix("vellum://"))
+        XCTAssertEqual(redirect, "/")
     }
 }
