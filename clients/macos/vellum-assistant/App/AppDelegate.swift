@@ -65,6 +65,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
+    var e2eStatusOverlayWindow: E2EStatusOverlayWindow?
 
     var onboardingWindow: OnboardingWindow?
     var authWindow: NSWindow?
@@ -185,6 +186,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         #else
         let skipOnboarding = false
         #endif
+
+        if let statusFile = ProcessInfo.processInfo.environment["E2E_STATUS_FILE"] {
+            let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
+            overlay.show()
+            self.e2eStatusOverlayWindow = overlay
+        }
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
@@ -333,6 +340,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         secretPromptManager.dismissAll()
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
+        e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
         #if !DEBUG
         keychainBroker?.stop()
