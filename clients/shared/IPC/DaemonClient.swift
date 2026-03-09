@@ -1732,6 +1732,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             }
 
             if http.statusCode == 401 {
+                // If caller provided an explicit token override, 401 recovery via
+                // actor-token re-bootstrap won't help — it's a different credential.
+                if tokenOverride != nil {
+                    log.warning("Local HTTP 401 for \(path, privacy: .public) — tokenOverride set, skipping retry")
+                    return nil
+                }
                 guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
                     log.warning("Local HTTP 401 for \(path, privacy: .public) — no recovery credentials configured")
                     return nil
