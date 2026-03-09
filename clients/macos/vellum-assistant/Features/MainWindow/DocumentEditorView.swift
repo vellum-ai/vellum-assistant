@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DocumentEditor")
 
@@ -235,26 +236,7 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
   <style media="(prefers-color-scheme: light)">\(githubCSS)</style>
 
   <style>
-    :root {
-      --v-bg: #FFFFFF;
-      --v-surface: #FFFFFF;
-      --v-surface-border: #E7E5E4;
-      --v-text: #292524;
-      --v-text-secondary: #78716C;
-      --v-text-muted: #97918B;
-      --v-accent: #262624;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --v-bg: #262624;
-        --v-surface: #2F2F2D;
-        --v-surface-border: #3A3A37;
-        --v-text: #F5F3EB;
-        --v-text-secondary: #A1A096;
-        --v-text-muted: #6B6B65;
-        --v-accent: #216C37;
-      }
-    }
+    \(WebTokenInjector.cssTokenBlock())
     /* Invert toolbar icons in dark mode — target both the JS-applied class and the media query */
     .toastui-editor-dark .toastui-editor-toolbar-icons { filter: invert(1) brightness(0.85) !important; }
     @media (prefers-color-scheme: dark) {

@@ -16,9 +16,9 @@
   // ─── SVG Chart Defaults ──────────────────────────────────────
 
   var defaultColors = {
-    line: 'var(--v-accent, #8A5BE0)',
-    fill: 'var(--v-accent, #8A5BE0)',
-    bar: 'var(--v-accent, #8A5BE0)',
+    line: 'var(--v-accent, #537D53)',
+    fill: 'var(--v-accent, #537D53)',
+    bar: 'var(--v-accent, #537D53)',
     grid: 'var(--v-surface-border, #334155)',
     text: 'var(--v-text-secondary, #94A3B8)',
     bg: 'transparent'
