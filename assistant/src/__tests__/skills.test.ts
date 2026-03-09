@@ -18,7 +18,7 @@ mock.module("../util/platform.js", () => ({
   ...realPlatform,
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),

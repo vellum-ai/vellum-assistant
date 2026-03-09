@@ -62,7 +62,7 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceConfigPath: () => "",
   getWorkspaceSkillsDir: () => "",
   getWorkspaceHooksDir: () => "",
-  getIpcBlobDir: () => "",
+
   getSandboxRootDir: () => "",
   getSandboxWorkingDir: () => "",
   getInterfacesDir: () => "",

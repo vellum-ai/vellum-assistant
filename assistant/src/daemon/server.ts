@@ -482,8 +482,6 @@ export class DaemonServer {
 
   private async getOrCreateSession(
     conversationId: string,
-    _socket?: undefined,
-    _rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session> {
     let session = this.sessions.get(conversationId);
@@ -585,7 +583,7 @@ export class DaemonServer {
       broadcast: (msg) => this.broadcast(msg),
       clearAllSessions: () => this.clearAllSessions(),
       getOrCreateSession: (id, _rebind?, options?) =>
-        this.getOrCreateSession(id, undefined, undefined, options),
+        this.getOrCreateSession(id, options),
       touchSession: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,
     };
@@ -633,8 +631,6 @@ export class DaemonServer {
 
     const session = await this.getOrCreateSession(
       conversationId,
-      undefined,
-      true,
       options,
     );
 
@@ -889,7 +885,7 @@ export class DaemonServer {
    * The handler manages busy-state checking and queueing itself.
    */
   async getSessionForMessages(conversationId: string): Promise<Session> {
-    return this.getOrCreateSession(conversationId, undefined, true);
+    return this.getOrCreateSession(conversationId);
   }
 
   /**

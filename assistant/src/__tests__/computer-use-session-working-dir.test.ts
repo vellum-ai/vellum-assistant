@@ -28,7 +28,7 @@ mock.module("../util/platform.js", () => ({
   ...realPlatform,
   getRootDir: () => "/tmp",
   getDataDir: () => "/tmp/data",
-  getIpcBlobDir: () => "/tmp/data/ipc-blobs",
+
   getSandboxRootDir: () => "/tmp/sandbox",
   getSandboxWorkingDir: () => "/tmp/workspace",
   getInterfacesDir: () => "/tmp/interfaces",
