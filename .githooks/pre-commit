@@ -903,13 +903,30 @@ while IFS= read -r -d '' FILE; do
         fi
     fi
 
-    # Check for modifications to tool-manifest.ts that add new imports or tool entries
+    # Check for modifications to tool-manifest.ts that ADD new tools (not refactoring/removal)
     if [[ "$FILE" == "assistant/src/tools/tool-manifest.ts" ]]; then
-        # Get the diff and check for added lines with tool registration patterns
-        ADDED_LINES=$(git diff --cached -- "$FILE" | grep '^+' | grep -v '^+++')
-        if printf '%s\n' "$ADDED_LINES" | grep -qE '(import[[:space:]]|explicitTools|eagerModuleToolNames|lazyTools)'; then
+        # Compare tool counts between HEAD and staged version
+        # Only trigger if the count INCREASED (new tools added)
+        HEAD_CONTENT=$(git show HEAD:"$FILE" 2>/dev/null || echo "")
+        STAGED_CONTENT=$(git show ":$FILE" 2>/dev/null)
+
+        # Count side-effect imports (lines like `import "./foo/bar.js";`)
+        HEAD_IMPORTS=$(printf '%s\n' "$HEAD_CONTENT" | grep -cE '^import[[:space:]]+"\./' 2>/dev/null || echo 0)
+        STAGED_IMPORTS=$(printf '%s\n' "$STAGED_CONTENT" | grep -cE '^import[[:space:]]+"\./' 2>/dev/null || echo 0)
+
+        # Count entries in eagerModuleToolNames array
+        HEAD_EAGER=$(printf '%s\n' "$HEAD_CONTENT" | grep -cE '^[[:space:]]+"[a-z_]+",' 2>/dev/null || echo 0)
+        STAGED_EAGER=$(printf '%s\n' "$STAGED_CONTENT" | grep -cE '^[[:space:]]+"[a-z_]+",' 2>/dev/null || echo 0)
+
+        # Count tool imports (lines like `import { fooTool } from "./foo/bar.js";`)
+        HEAD_TOOL_IMPORTS=$(printf '%s\n' "$HEAD_CONTENT" | grep -cE '^import[[:space:]]+\{.*\}[[:space:]]+from' 2>/dev/null || echo 0)
+        STAGED_TOOL_IMPORTS=$(printf '%s\n' "$STAGED_CONTENT" | grep -cE '^import[[:space:]]+\{.*\}[[:space:]]+from' 2>/dev/null || echo 0)
+
+        if [ "$STAGED_IMPORTS" -gt "$HEAD_IMPORTS" ] || \
+           [ "$STAGED_EAGER" -gt "$HEAD_EAGER" ] || \
+           [ "$STAGED_TOOL_IMPORTS" -gt "$HEAD_TOOL_IMPORTS" ]; then
             TOOL_VIOLATIONS=$((TOOL_VIOLATIONS + 1))
-            TOOL_VIOLATION_FILES+=("$FILE (tool manifest modification)")
+            TOOL_VIOLATION_FILES+=("$FILE (new tool entries added)")
         fi
     fi
 done < "$STAGED_ACM_FILE"
