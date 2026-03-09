@@ -90,9 +90,14 @@ import os
                 }
             }
 
+            // Always flush when attachments are present so large files are
+            // delivered before the user quits the app. When Sentry was temporarily
+            // started (user opted out), also close it afterward.
             if wasDisabled {
                 SentrySDK.flush(timeout: 5)
                 SentrySDK.close()
+            } else if !attachments.isEmpty {
+                SentrySDK.flush(timeout: 5)
             }
             completion?()
         }
