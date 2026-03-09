@@ -53,6 +53,8 @@ import {
 } from "../security/oauth-callback-registry.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { buildAssistantEvent } from "./assistant-event.js";
+import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import { authenticateRequest } from "./auth/middleware.js";
@@ -271,6 +273,9 @@ export class RuntimeHttpServer {
             // Broadcast to all clients via the event hub so HTTP/SSE clients
             // (e.g. macOS app) receive pairing approval requests.
             ipcBroadcast(msg);
+            assistantEventHub.publish(
+              buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
+            );
           }
         : undefined,
     };
