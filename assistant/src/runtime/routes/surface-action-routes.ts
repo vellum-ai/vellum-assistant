@@ -53,6 +53,9 @@ export async function handleSurfaceAction(
   if (!actionId || typeof actionId !== "string") {
     return httpError("BAD_REQUEST", "actionId is required", 400);
   }
+  if (sessionId != null && typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId must be a string", 400);
+  }
 
   const session =
     sessionId && typeof sessionId === "string"
@@ -103,6 +106,10 @@ export async function handleSurfaceUndo(
   };
 
   const { sessionId } = body;
+
+  if (sessionId != null && typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId must be a string", 400);
+  }
 
   const session =
     sessionId && typeof sessionId === "string"
