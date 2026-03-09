@@ -520,8 +520,9 @@ struct MainWindowView: View {
                     // Preferences drawer rendered at top level so it floats above all content
                     if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let sidebarWidth = sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth
-                        let drawerX = 16 + sidebarWidth - VSpacing.xs
+                        let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
+                        // Position above the PreferencesRow: clear the row height + divider + gap
+                        let drawerY = bottomPad + 28 + 9 + VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
@@ -541,9 +542,9 @@ struct MainWindowView: View {
                             }
                         )
                         .frame(width: drawerWidth)
-                        .offset(x: drawerX, y: -28)
+                        .offset(x: 16 + VSpacing.sm, y: -drawerY)
                         .zIndex(10)
-                        .transition(.opacity)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
                 .overlay {
