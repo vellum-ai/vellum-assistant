@@ -1035,7 +1035,7 @@ public final class SettingsStore: ObservableObject {
                     platformAssistantId: ctx.platformAssistantId,
                     organizationId: ctx.organizationId
                 )
-                if let connection = connections.first(where: { $0.provider == "twitter" }), connection.connected {
+                if let connection = connections.first(where: { $0.provider == "twitter" && $0.connected }) {
                     managedTwitterConnected = true
                     managedTwitterAccountInfo = connection.accountLabel
                 } else {
