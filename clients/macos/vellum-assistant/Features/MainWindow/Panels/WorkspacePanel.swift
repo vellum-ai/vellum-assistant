@@ -38,6 +38,26 @@ final class WorkspaceBrowserState {
             directoryCache[dirPath] = response.entries
         }
     }
+
+    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
+        selectedFilePath = targetPath
+        isLoadingFile = true
+        selectedFileDetail = nil
+        isDirty = false
+        editableContent = ""
+        fileLoadTask?.cancel()
+        let task = Task {
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            guard !Task.isCancelled, selectedFilePath == targetPath else { return }
+            selectedFileDetail = detail
+            editableContent = detail?.content ?? ""
+            originalContent = detail?.content ?? ""
+            isDirty = false
+            isSaving = false
+            isLoadingFile = false
+        }
+        fileLoadTask = task
+    }
 }
 
 // MARK: - Workspace Panel
@@ -66,7 +86,7 @@ struct WorkspacePanel: View {
             Button("Discard", role: .destructive) {
                 guard let targetPath = state.pendingSwitchPath else { return }
                 state.pendingSwitchPath = nil
-                Task { await loadFile(path: targetPath) }
+                Task { await state.loadFile(path: targetPath, using: daemonClient) }
             }
             Button("Cancel", role: .cancel) {
                 state.pendingSwitchPath = nil
@@ -110,26 +130,6 @@ struct WorkspacePanel: View {
         } message: {
             Text("This cannot be undone.")
         }
-    }
-
-    private func loadFile(path targetPath: String) async {
-        state.selectedFilePath = targetPath
-        state.isLoadingFile = true
-        state.selectedFileDetail = nil
-        state.isDirty = false
-        state.editableContent = ""
-        state.fileLoadTask?.cancel()
-        let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
-            guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
-            state.selectedFileDetail = detail
-            state.editableContent = detail?.content ?? ""
-            state.originalContent = detail?.content ?? ""
-            state.isDirty = false
-            state.isSaving = false
-            state.isLoadingFile = false
-        }
-        state.fileLoadTask = task
     }
 
     private func loadRoot() async {
@@ -513,29 +513,9 @@ private struct WorkspaceTreeRow: View {
                 state.pendingSwitchPath = targetPath
                 state.showingDirtyAlert = true
             } else {
-                await loadFile(path: targetPath)
+                await state.loadFile(path: targetPath, using: daemonClient)
             }
         }
-    }
-
-    private func loadFile(path targetPath: String) async {
-        state.selectedFilePath = targetPath
-        state.isLoadingFile = true
-        state.selectedFileDetail = nil
-        state.isDirty = false
-        state.editableContent = ""
-        state.fileLoadTask?.cancel()
-        let task = Task {
-            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
-            guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
-            state.selectedFileDetail = detail
-            state.editableContent = detail?.content ?? ""
-            state.originalContent = detail?.content ?? ""
-            state.isDirty = false
-            state.isSaving = false
-            state.isLoadingFile = false
-        }
-        state.fileLoadTask = task
     }
 }
 
