@@ -75,11 +75,11 @@ public struct VInlineActionField: View {
                     .animation(VAnimation.fast, value: isHovered)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .disabled(isActionDisabled)
             .onHover { hovering in
                 isHovered = isActionDisabled ? false : hovering
             }
-            .pointerCursor()
             .padding(.trailing, VSpacing.sm)
         }
         .background(VColor.inputBackground)
