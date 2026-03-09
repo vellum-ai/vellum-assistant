@@ -596,7 +596,26 @@ export function handleSurfaceAction(
       selectedIds,
     );
   }
-  const content = prompt || fallbackContent;
+  // When a relay_prompt button also carries selection data (e.g. list/table
+  // surface with a canned prompt + user-selected rows), append the selection
+  // context so the LLM sees both the prompt and the user's selections.
+  let content = prompt || fallbackContent;
+  if (prompt && mergedData && Object.keys(mergedData).length > 1) {
+    const { prompt: _p, ...rest } = mergedData;
+    if (Object.keys(rest).length > 0) {
+      content += `\n\nAction data: ${JSON.stringify(rest)}`;
+    }
+    if (
+      selectedIds &&
+      (pending.surfaceType === "table" || pending.surfaceType === "list")
+    ) {
+      content += buildDeselectionDescription(
+        pending.surfaceType,
+        stored,
+        selectedIds,
+      );
+    }
+  }
   // Show the user plain-text instead of raw JSON action data.
   const displayContent = prompt
     ? undefined
