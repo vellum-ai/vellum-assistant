@@ -244,7 +244,6 @@ struct LockfileAssistant {
     let baseDataDir: String?
     let daemonPort: Int?
     let gatewayPort: Int?
-    let socketPath: String?
     let instanceDir: String?
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -329,7 +328,6 @@ struct LockfileAssistant {
                 baseDataDir: entry["baseDataDir"] as? String,
                 daemonPort: resources?["daemonPort"] as? Int,
                 gatewayPort: resources?["gatewayPort"] as? Int,
-                socketPath: resources?["socketPath"] as? String,
                 instanceDir: resources?["instanceDir"] as? String
             )
         }

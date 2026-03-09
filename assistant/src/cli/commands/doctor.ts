@@ -5,10 +5,7 @@ import * as net from "node:net";
 import type { Command } from "commander";
 
 import { loadRawConfig } from "../../config/loader.js";
-import {
-  hasSocketOverride,
-  shouldAutoStartDaemon,
-} from "../../daemon/connection-policy.js";
+import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { IpcError } from "../../util/errors.js";
 import {
   getDataDir,
@@ -64,13 +61,8 @@ Examples:
 
       // 0. Connection policy info
       const socketPath = getSocketPath();
-      const isOverride = hasSocketOverride();
       const autostart = shouldAutoStartDaemon();
-      log.info(
-        `  Socket:    ${socketPath}${
-          isOverride ? " (override via VELLUM_DAEMON_SOCKET)" : ""
-        }`,
-      );
+      log.info(`  Socket:    ${socketPath}`);
       log.info(`  Autostart: ${autostart ? "enabled" : "disabled"}\n`);
 
       // 1. Bun installed

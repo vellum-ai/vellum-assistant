@@ -79,7 +79,6 @@ export async function sleep(): Promise<void> {
   }
   const resources = entry.resources;
   const assistantPidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
   const vellumDir = getAssistantRootDir(entry);
   const gatewayPidFile = join(vellumDir, "gateway.pid");
 
@@ -113,7 +112,6 @@ export async function sleep(): Promise<void> {
   const assistantStopped = await stopProcessByPidFile(
     assistantPidFile,
     "assistant",
-    [socketFile],
   );
   if (!assistantStopped) {
     console.log("Assistant is not running.");

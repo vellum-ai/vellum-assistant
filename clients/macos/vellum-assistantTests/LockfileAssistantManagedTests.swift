@@ -175,7 +175,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertTrue(assistant.isManaged)
@@ -195,7 +194,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertFalse(assistant.isManaged)
@@ -215,7 +213,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertFalse(assistant.isManaged)
@@ -235,7 +232,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertTrue(assistant.isManaged, "isManaged should be case-insensitive")
@@ -257,7 +253,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertFalse(assistant.isRemote)
@@ -277,7 +272,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertTrue(assistant.isRemote)
@@ -297,7 +291,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         XCTAssertTrue(assistant.isRemote)
@@ -319,7 +312,6 @@ final class LockfileAssistantManagedTests: XCTestCase {
             baseDataDir: nil,
             daemonPort: nil,
             gatewayPort: nil,
-            socketPath: nil,
             instanceDir: nil
         )
         if case .vellum(let runtimeUrl) = assistant.home {
