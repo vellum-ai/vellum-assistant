@@ -976,6 +976,9 @@ async function sendTwitterConfigRequest(
       strategy: data.strategy ?? "auto",
       strategyConfigured: data.strategyConfigured ?? false,
       mode: data.mode,
+      managedAvailable: data.managedAvailable ?? false,
+      managedPrerequisites: data.managedPrerequisites,
+      localClientConfigured: data.localClientConfigured ?? false,
     };
   }
 
@@ -1127,9 +1130,7 @@ async function startLearnSession(
 
         if (status.bootstrapFailureReason) {
           reject(
-            new Error(
-              `Learn session failed: ${status.bootstrapFailureReason}`,
-            ),
+            new Error(`Learn session failed: ${status.bootstrapFailureReason}`),
           );
           return;
         }
@@ -1142,9 +1143,7 @@ async function startLearnSession(
             });
           } else {
             reject(
-              new Error(
-                "Learn session completed but no recording was saved.",
-              ),
+              new Error("Learn session completed but no recording was saved."),
             );
           }
           return;
