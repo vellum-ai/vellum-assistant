@@ -47,7 +47,7 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
     output({ ok: true, ...(result as Record<string, unknown>) }, getJson(cmd));
   } catch (err) {
     const meta = err as Record<string, unknown>;
-    // For routed errors with managed-path metadata, emit structured JSON
+    // For routed errors with proxy error codes, emit structured JSON
     if (err instanceof Error && meta.proxyErrorCode !== undefined) {
       const payload: Record<string, unknown> = {
         ok: false,
@@ -55,7 +55,19 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
       };
       payload.proxyErrorCode = meta.proxyErrorCode;
       if (meta.retryable !== undefined) payload.retryable = meta.retryable;
+      if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
       output(payload, getJson(cmd));
+      process.exitCode = 1;
+      return;
+    }
+    // For routed errors with pathUsed but no proxy error code (e.g. OAuth
+    // not configured, user not found, unsupported product type), preserve
+    // the pathUsed metadata in structured output.
+    if (err instanceof Error && meta.pathUsed !== undefined) {
+      output(
+        { ok: false, error: err.message, pathUsed: meta.pathUsed },
+        getJson(cmd),
+      );
       process.exitCode = 1;
       return;
     }
