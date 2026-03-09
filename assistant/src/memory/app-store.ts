@@ -30,10 +30,6 @@ import {
   resolve,
 } from "node:path";
 
-import {
-  isPrebuiltHomeBaseApp,
-  validatePrebuiltHomeBaseHtml,
-} from "../home-base/prebuilt-home-base-updater.js";
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getDataDir } from "../util/platform.js";
@@ -337,20 +333,6 @@ export function updateApp(
   validateId(id);
   const existing = getApp(id);
   if (!existing) throw new Error(`App not found: ${id}`);
-
-  if (
-    typeof updates.htmlDefinition === "string" &&
-    isPrebuiltHomeBaseApp(existing)
-  ) {
-    const validation = validatePrebuiltHomeBaseHtml(updates.htmlDefinition);
-    if (!validation.valid) {
-      throw new Error(
-        `Home Base update missing required anchors: ${validation.missingAnchors.join(
-          ", ",
-        )}`,
-      );
-    }
-  }
 
   // Extract pages, htmlDefinition, and preview before spreading into the JSON-persisted definition
   const {

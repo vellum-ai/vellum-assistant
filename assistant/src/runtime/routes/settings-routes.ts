@@ -1,13 +1,12 @@
 /**
  * HTTP route handlers for settings, identity/avatar, voice config,
- * OAuth connect, Twitter auth, home base, and workspace files.
+ * OAuth connect, Twitter auth, and workspace files.
  *
  * Migrated from IPC handlers:
  *   - handlers/config-voice.ts (voice_config_update)
  *   - handlers/avatar.ts (generate_avatar)
  *   - handlers/oauth-connect.ts (oauth_connect_start)
  *   - handlers/twitter-auth.ts (twitter_auth_start, twitter_auth_status)
- *   - handlers/home-base.ts (home_base_get)
  *   - handlers/workspace-files.ts (workspace_files_list, workspace_file_read)
  *   - handlers/config-tools.ts (tool_names_list, tool_permission_simulate, env_vars_request)
  */
@@ -25,17 +24,7 @@ import {
 } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
-import { getHomeBaseAppLink } from "../../home-base/app-link-store.js";
-import {
-  bootstrapHomeBaseAppLink,
-  resolveHomeBaseAppId,
-} from "../../home-base/bootstrap.js";
-import {
-  getPrebuiltHomeBasePreview,
-  getPrebuiltHomeBaseTaskPayload,
-} from "../../home-base/prebuilt/seed.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { getApp } from "../../memory/app-store.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   getProviderProfile,
@@ -395,11 +384,7 @@ async function handleTwitterAuthStart(): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Twitter OAuth flow failed");
-    return httpError(
-      "INTERNAL_ERROR",
-      sanitizeTwitterAuthError(message),
-      500,
-    );
+    return httpError("INTERNAL_ERROR", sanitizeTwitterAuthError(message), 500);
   }
 }
 
@@ -427,66 +412,6 @@ function handleTwitterAuthStatus(): Response {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to get Twitter auth status");
     return httpError("INTERNAL_ERROR", message, 500);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Home base
-// ---------------------------------------------------------------------------
-
-function handleHomeBaseGet(ensureLinked: boolean): Response {
-  try {
-    if (ensureLinked !== false) {
-      bootstrapHomeBaseAppLink();
-    }
-
-    const appId = resolveHomeBaseAppId();
-    if (!appId) {
-      return Response.json({ homeBase: null });
-    }
-
-    const link = getHomeBaseAppLink();
-    const source = link?.source ?? "prebuilt_seed";
-
-    let preview: {
-      title: string;
-      subtitle: string;
-      description: string;
-      icon: string;
-      metrics: Array<{ label: string; value: string }>;
-    };
-
-    if (source === "personalized") {
-      const app = getApp(appId);
-      if (app) {
-        preview = {
-          title: app.name,
-          subtitle: "Dashboard",
-          description: app.description ?? "",
-          icon: app.icon ?? "🏠",
-          metrics: [],
-        };
-      } else {
-        preview = getPrebuiltHomeBasePreview();
-      }
-    } else {
-      preview = getPrebuiltHomeBasePreview();
-    }
-
-    const tasks = getPrebuiltHomeBaseTaskPayload();
-
-    return Response.json({
-      homeBase: {
-        appId,
-        source,
-        starterTasks: tasks.starterTasks,
-        onboardingTasks: tasks.onboardingTasks,
-        preview,
-      },
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to resolve home base metadata");
-    return Response.json({ homeBase: null });
   }
 }
 
@@ -589,7 +514,8 @@ function handleToolNamesList(): Response {
         for (const entry of manifest.tools) {
           if (nameSet.has(entry.name)) continue;
           nameSet.add(entry.name);
-          schemas[entry.name] = entry.input_schema as unknown as (typeof schemas)[string];
+          schemas[entry.name] =
+            entry.input_schema as unknown as (typeof schemas)[string];
         }
       } catch {
         // Skip skills whose manifests can't be parsed
@@ -779,11 +705,7 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: async ({ req }) => {
         const body = (await req.json()) as { activationKey?: string };
         if (!body.activationKey) {
-          return httpError(
-            "BAD_REQUEST",
-            "activationKey is required",
-            400,
-          );
+          return httpError("BAD_REQUEST", "activationKey is required", 400);
         }
         return handleVoiceConfigUpdate(body.activationKey);
       },
@@ -808,11 +730,7 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: async ({ req }) => {
         const body = (await req.json()) as { key?: string; value?: string };
         if (!body.key || body.value === undefined) {
-          return httpError(
-            "BAD_REQUEST",
-            "key and value are required",
-            400,
-          );
+          return httpError("BAD_REQUEST", "key and value are required", 400);
         }
         return handleClientSettingsUpdate(body.key, body.value);
       },
@@ -846,17 +764,6 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: () => handleTwitterAuthStatus(),
     },
 
-    // Home base
-    {
-      endpoint: "home-base",
-      method: "GET",
-      policyKey: "home-base",
-      handler: ({ url }) => {
-        const ensureLinked = url.searchParams.get("ensureLinked") !== "false";
-        return handleHomeBaseGet(ensureLinked);
-      },
-    },
-
     // Workspace files (IPC-style list/read -- distinct from workspace-routes.ts tree/file)
     {
       endpoint: "workspace-files",
@@ -871,7 +778,11 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: ({ url }) => {
         const filePath = url.searchParams.get("path") ?? "";
         if (!filePath) {
-          return httpError("BAD_REQUEST", "path query parameter is required", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "path query parameter is required",
+            400,
+          );
         }
         return handleWorkspaceFileRead(filePath);
       },
