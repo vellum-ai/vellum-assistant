@@ -307,7 +307,6 @@ export function buildStarterTaskPlaybookSection(): string {
     "5. On confirmation:",
     '   - Update the `## Dashboard Color Preference` section in USER.md with `label`, `hex`, `source: "user_selected"`, and `applied: true`.',
     "   - Update the `## Onboarding Tasks` section: set `make_it_yours` to `done`.",
-    "   - Apply the color to the Home Base dashboard using `app_file_edit` to update the theme styles in the Home Base HTML with the chosen accent color.",
     "6. If the user declines or wants to skip, set `make_it_yours` to `deferred_to_dashboard` in USER.md and move on.",
     "",
     "### Playbook: research_topic",
