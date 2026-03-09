@@ -94,21 +94,22 @@ describe("multi-local", () => {
   });
 
   describe("allocateLocalResources() produces non-conflicting ports", () => {
-    test("first instance gets XDG path and default ports", async () => {
+    test("first instance gets home directory and default ports", async () => {
       // GIVEN no local assistants exist in the lockfile
 
       // WHEN we allocate resources for the first instance
       const res = await allocateLocalResources("instance-a");
 
-      // THEN it gets an XDG instance directory under the home dir
-      expect(res.instanceDir).toBe(
-        join(testDir, ".local", "share", "vellum", "assistants", "instance-a"),
-      );
+      // THEN it gets the home directory as its instance root
+      expect(res.instanceDir).toBe(testDir);
 
       // AND it gets the default ports since no other instances exist
       expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
       expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
       expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
+
+      // AND the PID file is under ~/.vellum/
+      expect(res.pidFile).toBe(join(testDir, ".vellum", "vellum.pid"));
     });
 
     test("second instance gets distinct ports and dir when first instance is saved", async () => {
