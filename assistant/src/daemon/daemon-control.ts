@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { getRuntimeHttpPort } from "../config/env.js";
+import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -133,9 +133,10 @@ function isVellumDaemonProcess(pid: number): boolean {
  *  with HTTP 200 within the timeout — false on connection refused, timeout,
  *  or any other error. */
 async function isHttpHealthy(): Promise<boolean> {
+  const host = getRuntimeHttpHost();
   const port = getRuntimeHttpPort();
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/healthz`, {
+    const response = await fetch(`http://${host}:${port}/healthz`, {
       signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
     return response.ok;
