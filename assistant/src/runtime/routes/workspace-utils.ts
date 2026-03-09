@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -32,6 +32,18 @@ export function resolveWorkspacePath(relativePath: string): string | undefined {
   } catch {
     // Path doesn't exist yet — walk up to the nearest existing ancestor and
     // verify *it* resolves inside the workspace.
+
+    // Reject dangling symlinks: if the path itself is a symlink whose target
+    // doesn't exist, a subsequent write would follow the symlink and could
+    // create files outside the workspace boundary.
+    try {
+      if (lstatSync(resolved).isSymbolicLink()) {
+        return undefined;
+      }
+    } catch {
+      // lstat failed — path truly doesn't exist (not a symlink), continue
+    }
+
     let ancestor = resolved;
     // eslint-disable-next-line no-constant-condition
     while (true) {
