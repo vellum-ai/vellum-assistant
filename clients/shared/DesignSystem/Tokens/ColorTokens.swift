@@ -315,4 +315,14 @@ public enum VColor {
 
     // Microphone icon color
     public static let micIcon = adaptiveColor(light: Forest._500, dark: Moss._400)
+
+    // Success button states
+    public static let buttonSuccessBg = adaptiveColor(light: Forest._200, dark: Forest._900)
+    public static let buttonSuccessBgHover = adaptiveColor(light: Forest._300, dark: Forest._800)
+    public static let buttonSuccessBgPressed = adaptiveColor(light: Forest._400, dark: Forest._700)
+
+    // Icon button ghost states
+    public static let iconGhostActiveBg = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let iconGhostActivePressed = adaptiveColor(light: Moss._200, dark: Moss._600)
+    public static let iconGhostActiveDisabled = adaptiveColor(light: Moss._100, dark: Moss._700)
 }

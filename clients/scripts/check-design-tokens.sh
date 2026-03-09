@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLIENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BASELINE_FILE="$SCRIPT_DIR/design-token-guard-baseline.txt"
 
-MODE=""
+MODE="strict"
 for arg in "$@"; do
   case "$arg" in
     --mode=*) MODE="${arg#--mode=}" ;;
@@ -17,8 +17,8 @@ for arg in "$@"; do
   esac
 done
 
-if [[ -z "$MODE" ]] || [[ "$MODE" != "ratchet" && "$MODE" != "strict" ]]; then
-  echo "Usage: $0 --mode=ratchet|strict"
+if [[ "$MODE" != "ratchet" && "$MODE" != "strict" ]]; then
+  echo "Usage: $0 [--mode=ratchet|strict]  (default: strict)"
   exit 1
 fi
 
