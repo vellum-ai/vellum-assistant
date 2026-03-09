@@ -158,11 +158,12 @@ struct WorkspaceFileSheet: View {
     private func saveFile() async {
         guard let path = fileResponse?.path else { return }
         isSaving = true
-        let data = Data(editableContent.utf8)
+        let snapshot = editableContent
+        let data = Data(snapshot.utf8)
         let success = await client?.writeWorkspaceFile(path: path, content: data) ?? false
         if success {
-            originalContent = editableContent
-            isDirty = false
+            originalContent = snapshot
+            isDirty = editableContent != snapshot
         }
         isSaving = false
     }
