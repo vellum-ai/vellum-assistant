@@ -19,8 +19,11 @@ extension DaemonClient {
 
         guard case .http(let baseURL, let bearerToken, let conversationKey) = config.transport else {
             isConnecting = false
+            log.info("connect: non-HTTP transport, skipping")
             return
         }
+
+        log.info("connect: establishing HTTP transport to \(baseURL, privacy: .public)")
 
         // The bearer token may be nil at config time (e.g. managed mode or
         // local HTTP where the token isn't known until bootstrap).
@@ -66,9 +69,11 @@ extension DaemonClient {
             try await transport.connect()
             isAuthenticated = true  // HTTP transport uses bearer token, no IPC auth needed
             isConnecting = false
+            log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {
             isConnecting = false
             httpTransport = nil
+            log.error("connect: transport connection failed for \(baseURL, privacy: .public): \(error)")
             throw error
         }
     }

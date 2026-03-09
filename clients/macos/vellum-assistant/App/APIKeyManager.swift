@@ -53,8 +53,14 @@ enum APIKeyManager {
         Task.detached {
             guard let token = await ActorTokenManager.waitForToken(timeout: 15),
                   !token.isEmpty else { return }
-            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-                .flatMap(Int.init) ?? 7821
+            // Resolve port from the connected assistant's lockfile entry so
+            // multi-instance switching targets the correct daemon.
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let lockfilePort = connectedId
+                .flatMap { LockfileAssistant.loadByName($0) }?.daemonPort
+            let port = lockfilePort
+                ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+                ?? 7821
             guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { return }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"

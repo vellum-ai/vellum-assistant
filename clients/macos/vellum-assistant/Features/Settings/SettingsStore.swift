@@ -1234,9 +1234,12 @@ public final class SettingsStore: ObservableObject {
             )
         }
 
-        // Local mode: direct to daemon runtime HTTP server
-        let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-            .flatMap(Int.init) ?? 7821
+        // Local mode: direct to daemon runtime HTTP server.
+        // Use the lockfile assistant's daemon port so multi-instance switching
+        // targets the correct daemon (not always the default 7821).
+        let port = assistant?.daemonPort
+            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+            ?? 7821
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return nil }
         guard let url = URL(string: "http://localhost:\(port)/\(path)") else { return nil }
         var request = URLRequest(url: url)

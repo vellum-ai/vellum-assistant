@@ -420,11 +420,15 @@ extension AppDelegate {
             // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
             if !daemonClient.isConnected && !daemonClient.isConnecting {
+                log.info("setupDaemonClient: calling connect()")
                 do {
                     try await daemonClient.connect()
+                    log.info("setupDaemonClient: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
                 } catch {
                     log.error("Failed to connect to daemon during setup: \(error)")
                 }
+            } else {
+                log.info("setupDaemonClient: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.daemonClient.isConnecting)")
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {

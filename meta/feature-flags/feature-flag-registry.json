@@ -7,7 +7,7 @@
       "key": "feature_flags.hatch-new-assistant.enabled",
       "label": "Hatch New Assistant",
       "description": "Show Hatch New Assistant action in Settings > Account",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "guardian-verify-setup",
