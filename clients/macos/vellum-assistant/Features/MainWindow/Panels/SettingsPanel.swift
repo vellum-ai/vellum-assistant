@@ -12,6 +12,7 @@ enum SettingsTab: String {
     case privacy = "Privacy"
     case contacts = "Contacts"
     case advanced = "Advanced"
+    case debug = "Debug"
 
     /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
     static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false) -> [SettingsTab] {
@@ -24,6 +25,7 @@ enum SettingsTab: String {
         }
         if isDevMode {
             tabs.append(.advanced)
+            tabs.append(.debug)
         }
         return tabs
     }
@@ -52,6 +54,7 @@ enum SettingsTab: String {
         if tab == .contacts && !contactsEnabled { return nil }
         // Block dev-only tabs when dev mode is disabled
         if tab == .advanced && !isDevMode { return nil }
+        if tab == .debug && !isDevMode { return nil }
         return tab
     }
 }
@@ -267,6 +270,12 @@ struct SettingsPanel: View {
         case .advanced:
             if store.isDevMode {
                 SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
+            } else {
+                SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            }
+        case .debug:
+            if store.isDevMode {
+                SettingsDebugTab(store: store)
             } else {
                 SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
             }
