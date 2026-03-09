@@ -328,6 +328,21 @@ extension AppDelegate {
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
                 _ = try? await URLSession.shared.data(for: request)
             }
+
+            // ElevenLabs uses the credential type, not api_key
+            if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
+                if let url = URL(string: "http://localhost:\(port)/v1/secrets") {
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.timeoutInterval = 5
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let body: [String: String] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                    _ = try? await URLSession.shared.data(for: request)
+                }
+            }
+
             log.info("syncApiKeysToAssistant: pushed API keys to daemon on port \(port)")
         }
     }
