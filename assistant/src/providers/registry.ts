@@ -1,5 +1,5 @@
 import { wrapWithLogfire } from "../logfire.js";
-import { ConfigError } from "../util/errors.js";
+import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
 import { FireworksProvider } from "./fireworks/client.js";
@@ -94,9 +94,7 @@ export function getFailoverProvider(
   const selection = resolveProviderSelection(primaryName, providerOrder);
 
   if (!selection.selectedPrimary) {
-    throw new ConfigError(
-      `No providers available. Requested: "${primaryName}". Registered: ${listProviders().join(", ") || "none"}`,
-    );
+    throw new ProviderNotConfiguredError(primaryName, listProviders());
   }
 
   const orderedProviders: Provider[] = selection.availableProviders.map(
