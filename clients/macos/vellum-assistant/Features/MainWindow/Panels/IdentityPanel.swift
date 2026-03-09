@@ -17,7 +17,9 @@ struct IdentityPanel: View {
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
 
-    private let sidebarWidth: CGFloat = 260
+    private let sidebarMinWidth: CGFloat = 200
+    private let sidebarMaxWidth: CGFloat = 280
+    private let sidebarFraction: CGFloat = 0.3
 
     private let panelPadding: CGFloat = VSpacing.xl
 
@@ -31,61 +33,64 @@ struct IdentityPanel: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Left sidebar: title, avatar, ID card — hidden in fullscreen
-            if !isFullscreen {
-                VStack(spacing: 0) {
+        GeometryReader { geo in
+            let computedSidebarWidth = min(sidebarMaxWidth, max(sidebarMinWidth, geo.size.width * sidebarFraction))
+            let avatarSize = min(180, computedSidebarWidth - VSpacing.lg * 2)
+            HStack(alignment: .top, spacing: 0) {
+                // Left sidebar: title, avatar, ID card — hidden in fullscreen
+                if !isFullscreen {
                     VStack(spacing: 0) {
-                        // "I'm [name]!" heading
-                        Text("I'm \(assistantDisplayName)!")
-                            .font(.system(size: 22, weight: .regular, design: .rounded))
-                            .foregroundColor(VColor.textPrimary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.top, VSpacing.xxl)
-                            .padding(.horizontal, VSpacing.lg)
+                        VStack(spacing: 0) {
+                            // "I'm [name]!" heading
+                            Text("I'm \(assistantDisplayName)!")
+                                .font(.system(size: 22, weight: .regular, design: .rounded))
+                                .foregroundColor(VColor.textPrimary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, VSpacing.xxl)
+                                .padding(.horizontal, VSpacing.lg)
 
-                        Spacer()
+                            Spacer()
 
-                        // Large centered avatar
-                        Image(nsImage: appearance.fullAvatarImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 180, height: 180)
-                            .clipShape(Circle())
-                            .frame(maxWidth: .infinity, alignment: .center)
+                            // Large centered avatar
+                            Image(nsImage: appearance.fullAvatarImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: avatarSize, height: avatarSize)
+                                .clipShape(Circle())
+                                .frame(maxWidth: .infinity, alignment: .center)
 
-                        Spacer()
+                            // Update Avatar button
+                            VButton(label: "Update Avatar", style: .secondary) { showAvatarSheet = true }
+                                .padding(.top, VSpacing.md)
 
-                        // Update Avatar button
-                        VButton(label: "Update Avatar", style: .primary) { showAvatarSheet = true }
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.bottom, VSpacing.xl)
+                            Spacer()
 
-                        // Divider
-                        Divider().background(adaptiveColor(light: Moss._50, dark: Moss._500))
+                            // Divider
+                            Divider().background(adaptiveColor(light: Moss._50, dark: Moss._500))
 
-                        // Role + Hatched date
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
-                            if let role, !role.isEmpty {
-                                identityInfoRow(label: "Role", value: role)
+                            // Role + Hatched date
+                            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                                let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
+                                if let role, !role.isEmpty {
+                                    identityInfoRow(label: "Role", value: role)
+                                }
+                                if let date = metadata?.createdAt {
+                                    identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
+                                }
                             }
-                            if let date = metadata?.createdAt {
-                                identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
-                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.vertical, VSpacing.lg)
                         }
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.vertical, VSpacing.lg)
+                        .frame(maxHeight: .infinity)
+                        .background(VColor.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     }
-                    .frame(maxHeight: .infinity)
-                    .background(VColor.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .frame(width: computedSidebarWidth)
+                    .padding(.trailing, VSpacing.lg)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                .frame(width: sidebarWidth)
-                .padding(.trailing, VSpacing.lg)
-                .transition(.move(edge: .leading).combined(with: .opacity))
-            }
 
             // Hex grid fills the rest of the space — card when not fullscreen
             ConstellationView(
@@ -104,56 +109,57 @@ struct IdentityPanel: View {
                 RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
                     .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
             )
-            .padding(.trailing, 0)
-        }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
-        .overlay {
-            if let path = viewingFilePath {
-                // Dismiss backdrop
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture { viewingFilePath = nil }
+                .padding(.trailing, 0)
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
+            .overlay {
+                if let path = viewingFilePath {
+                    // Dismiss backdrop
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture { viewingFilePath = nil }
 
-                WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
-                    .frame(width: 600, height: 500)
+                    WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
+                        .frame(width: 600, height: 500)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                        .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }
+            .animation(VAnimation.standard, value: viewingFilePath != nil)
+            .overlay {
+                if showAvatarSheet {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture { showAvatarSheet = false }
+
+                    AvatarManagementSheet(
+                        onClose: { showAvatarSheet = false },
+                        onEditAvatar: {
+                            showAvatarSheet = false
+                            onEditAvatar()
+                        }
+                    )
+                    .frame(width: 360)
+                    .fixedSize(horizontal: false, vertical: true)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
             }
-        }
-        .animation(VAnimation.standard, value: viewingFilePath != nil)
-        .overlay {
-            if showAvatarSheet {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture { showAvatarSheet = false }
+            .animation(VAnimation.standard, value: showAvatarSheet)
+            .onAppear {
+                identity = IdentityInfo.load()
+                metadata = AssistantMetadata.load()
+                lockfileAssistant = LockfileAssistant.loadLatest()
+                workspaceFiles = WorkspaceFileNode.scan()
+                fetchSkills()
 
-                AvatarManagementSheet(
-                    onClose: { showAvatarSheet = false },
-                    onEditAvatar: {
-                        showAvatarSheet = false
-                        onEditAvatar()
+                // For remote assistants without local IDENTITY.md, fetch from daemon
+                if identity == nil, lockfileAssistant?.isRemote == true {
+                    Task {
+                        remoteIdentity = await daemonClient.fetchRemoteIdentity()
                     }
-                )
-                .frame(width: 360)
-                .fixedSize(horizontal: false, vertical: true)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            }
-        }
-        .animation(VAnimation.standard, value: showAvatarSheet)
-        .onAppear {
-            identity = IdentityInfo.load()
-            metadata = AssistantMetadata.load()
-            lockfileAssistant = LockfileAssistant.loadLatest()
-            workspaceFiles = WorkspaceFileNode.scan()
-            fetchSkills()
-
-            // For remote assistants without local IDENTITY.md, fetch from daemon
-            if identity == nil, lockfileAssistant?.isRemote == true {
-                Task {
-                    remoteIdentity = await daemonClient.fetchRemoteIdentity()
                 }
             }
         }

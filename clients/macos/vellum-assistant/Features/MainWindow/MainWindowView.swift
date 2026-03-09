@@ -342,18 +342,6 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
-                    windowState.navigateBack()
-                }
-                .disabled(!windowState.navigationHistory.canGoBack)
-                .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
-
-                VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
-                    windowState.navigateForward()
-                }
-                .disabled(!windowState.navigationHistory.canGoForward)
-                .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
-
                 VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
@@ -362,6 +350,20 @@ struct MainWindowView: View {
 
                 VIconButton(label: "Search", icon: VIcon.search.rawValue, iconOnly: true, tooltip: "Search (\u{2318}K)") {
                     AppDelegate.shared?.toggleCommandPalette()
+                }
+
+                HStack(spacing: 0) {
+                    VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                        windowState.navigateBack()
+                    }
+                    .disabled(!windowState.navigationHistory.canGoBack)
+                    .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+
+                    VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                        windowState.navigateForward()
+                    }
+                    .disabled(!windowState.navigationHistory.canGoForward)
+                    .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
                 }
             }
             Spacer()

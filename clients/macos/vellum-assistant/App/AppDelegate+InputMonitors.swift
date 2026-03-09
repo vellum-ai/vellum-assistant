@@ -293,25 +293,25 @@ extension AppDelegate {
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.settings)
             },
-            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "App Directory", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Things", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showAppsPanel()
             },
             CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.intelligence)
             },
-            CommandPaletteAction(id: "navigate-back", icon: "chevron.left", label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
+            CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
                 self?.mainWindow?.windowState.navigateBack()
             },
-            CommandPaletteAction(id: "navigate-forward", icon: "chevron.right", label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
+            CommandPaletteAction(id: "navigate-forward", icon: VIcon.chevronRight.rawValue, label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
                 self?.mainWindow?.windowState.navigateForward()
             },
-            CommandPaletteAction(id: "zoom-in", icon: "plus.magnifyingglass", label: "Zoom In", shortcutHint: "\u{2318}+") { [weak self] in
+            CommandPaletteAction(id: "zoom-in", icon: VIcon.zoomIn.rawValue, label: "Zoom In", shortcutHint: "\u{2318}+") { [weak self] in
                 self?.zoomManager.zoomIn()
             },
-            CommandPaletteAction(id: "zoom-out", icon: "minus.magnifyingglass", label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
+            CommandPaletteAction(id: "zoom-out", icon: VIcon.zoomOut.rawValue, label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
                 self?.zoomManager.zoomOut()
             },
-            CommandPaletteAction(id: "zoom-reset", icon: "magnifyingglass", label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
+            CommandPaletteAction(id: "zoom-reset", icon: VIcon.search.rawValue, label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
                 self?.zoomManager.resetZoom()
             },
         ]
