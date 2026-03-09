@@ -636,6 +636,11 @@ private struct WorkspaceFileViewer: View {
         let snapshot = state.editableContent
         let data = Data(snapshot.utf8)
         let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
+        // Only update editor state if the user is still viewing the file that was saved
+        guard state.selectedFilePath == path else {
+            state.isSaving = false
+            return
+        }
         if success {
             state.originalContent = snapshot
             state.isDirty = state.editableContent != snapshot
