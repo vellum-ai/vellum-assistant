@@ -71,7 +71,7 @@ struct WorkspacePanel: View {
                     let success = await daemonClient.deleteWorkspaceItem(path: path)
                     if success {
                         await state.refreshDirectory(parentPath, using: daemonClient)
-                        if state.selectedFilePath == path {
+                        if state.selectedFilePath == path || state.selectedFilePath?.hasPrefix(path + "/") == true {
                             state.selectedFilePath = nil
                             state.selectedFileDetail = nil
                             state.editableContent = ""
@@ -378,8 +378,32 @@ private struct WorkspaceTreeRow: View {
             let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
             if success {
                 await state.refreshDirectory(parentPath, using: daemonClient)
+
+                // Update selectedFilePath for exact match or descendants
                 if state.selectedFilePath == oldPath {
                     state.selectedFilePath = newPath
+                } else if let selected = state.selectedFilePath, selected.hasPrefix(oldPath + "/") {
+                    state.selectedFilePath = newPath + selected.dropFirst(oldPath.count)
+                }
+
+                // Migrate expandedDirs and directoryCache for renamed directories
+                if entry.isDirectory {
+                    let oldPrefix = oldPath + "/"
+                    // Transfer expanded state
+                    if state.expandedDirs.remove(oldPath) != nil {
+                        state.expandedDirs.insert(newPath)
+                    }
+                    let descendantDirs = state.expandedDirs.filter { $0.hasPrefix(oldPrefix) }
+                    for dir in descendantDirs {
+                        state.expandedDirs.remove(dir)
+                        state.expandedDirs.insert(newPath + dir.dropFirst(oldPath.count))
+                    }
+                    // Transfer directory cache entries
+                    let cacheKeys = state.directoryCache.keys.filter { $0 == oldPath || $0.hasPrefix(oldPrefix) }
+                    for key in cacheKeys {
+                        let newKey = key == oldPath ? newPath : newPath + key.dropFirst(oldPath.count)
+                        state.directoryCache[newKey] = state.directoryCache.removeValue(forKey: key)
+                    }
                 }
             }
             state.renamingPath = nil
