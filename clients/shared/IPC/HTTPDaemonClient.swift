@@ -199,6 +199,8 @@ public final class HTTPTransport {
 
         // Register dispatchers for existing HTTP-transported message types
         registerExistingRoutes()
+        registerComputerUseRoutes()
+        registerSettingsRoutes()
         registerAppsRoutes()
         registerDocumentsRoutes()
         registerWorkItemsRoutes()
@@ -322,6 +324,82 @@ public final class HTTPTransport {
         case skillInspect(id: String)
         case skillsDraft
         case skillsCreate
+
+        // Computer Use
+        case cuSessionCreate
+        case cuSessionAbort(sessionId: String)
+        case cuObservation
+        case cuTaskSubmit
+        case rideShotgunStart
+        case rideShotgunStop
+        case cuWatch
+
+        // Recordings
+        case recordingStatus
+
+        // Settings
+        case settingsVoice
+        case settingsAvatarGenerate
+        case settingsClient
+
+        // Schedules
+        case schedules
+        case scheduleToggle(id: String)
+        case scheduleDelete(id: String)
+        case scheduleRunNow(id: String)
+
+        // Diagnostics
+        case diagnosticsExport
+        case diagnosticsEnvVars
+        case dictation
+
+        // Tools
+        case tools
+        case toolsSimulatePermission
+
+        // Integrations
+        case integrationsOAuthStart
+        case integrationsTwitterAuthStart
+        case integrationsTwitterAuthStatus
+        case integrationsSlackConfig
+        case integrationsVercelConfig
+        case integrationsTelegramConfig
+
+        // Surface Undo
+        case surfaceUndo(surfaceId: String)
+
+        // Suggestion
+        case suggestion
+
+        // Reminders
+        case reminders
+        case reminderCancel(id: String)
+
+        // Heartbeat
+        case heartbeatConfig
+        case heartbeatRuns
+        case heartbeatRunNow
+        case heartbeatChecklist
+        case heartbeatChecklistWrite
+
+        // Pairing
+        case pairingRegister
+
+        // Publishing
+        case publishPage
+        case unpublishPage
+
+        // Link Open
+        case linkOpen
+
+        // Workspace Files (legacy IPC)
+        case workspaceFiles
+        case workspaceFilesRead
+
+        // Misc
+        case homeBase
+        case channelVerificationSessions
+        case registerDeviceToken
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -614,6 +692,116 @@ public final class HTTPTransport {
             return ("/v1/skills/draft", nil)
         case .skillsCreate:
             return ("/v1/skills", nil)
+        // Computer Use
+        case .cuSessionCreate:
+            return ("/v1/computer-use/sessions", nil)
+        case .cuSessionAbort(let sessionId):
+            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
+            return ("/v1/computer-use/sessions/\(encoded)/abort", nil)
+        case .cuObservation:
+            return ("/v1/computer-use/observation", nil)
+        case .cuTaskSubmit:
+            return ("/v1/computer-use/task", nil)
+        case .rideShotgunStart:
+            return ("/v1/computer-use/ride-shotgun/start", nil)
+        case .rideShotgunStop:
+            return ("/v1/computer-use/ride-shotgun/stop", nil)
+        case .cuWatch:
+            return ("/v1/computer-use/watch", nil)
+        // Recordings
+        case .recordingStatus:
+            return ("/v1/recordings/status", nil)
+        // Settings
+        case .settingsVoice:
+            return ("/v1/settings/voice", nil)
+        case .settingsAvatarGenerate:
+            return ("/v1/settings/avatar/generate", nil)
+        case .settingsClient:
+            return ("/v1/settings/client", nil)
+        // Schedules
+        case .schedules:
+            return ("/v1/schedules", nil)
+        case .scheduleToggle(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/schedules/\(encoded)/toggle", nil)
+        case .scheduleDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/schedules/\(encoded)", nil)
+        case .scheduleRunNow(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/schedules/\(encoded)/run-now", nil)
+        // Diagnostics
+        case .diagnosticsExport:
+            return ("/v1/diagnostics/export", nil)
+        case .diagnosticsEnvVars:
+            return ("/v1/diagnostics/env-vars", nil)
+        case .dictation:
+            return ("/v1/dictation", nil)
+        // Tools
+        case .tools:
+            return ("/v1/tools", nil)
+        case .toolsSimulatePermission:
+            return ("/v1/tools/simulate-permission", nil)
+        // Integrations
+        case .integrationsOAuthStart:
+            return ("/v1/integrations/oauth/start", nil)
+        case .integrationsTwitterAuthStart:
+            return ("/v1/integrations/twitter/auth/start", nil)
+        case .integrationsTwitterAuthStatus:
+            return ("/v1/integrations/twitter/auth/status", nil)
+        case .integrationsSlackConfig:
+            return ("/v1/integrations/slack/config", nil)
+        case .integrationsVercelConfig:
+            return ("/v1/integrations/vercel/config", nil)
+        case .integrationsTelegramConfig:
+            return ("/v1/integrations/telegram/config", nil)
+        // Surface Undo
+        case .surfaceUndo(let surfaceId):
+            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            return ("/v1/surfaces/\(encoded)/undo", nil)
+        // Suggestion
+        case .suggestion:
+            return ("/v1/suggestion", nil)
+        // Reminders
+        case .reminders:
+            return ("/v1/reminders", nil)
+        case .reminderCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/reminders/\(encoded)/cancel", nil)
+        // Heartbeat
+        case .heartbeatConfig:
+            return ("/v1/heartbeat/config", nil)
+        case .heartbeatRuns:
+            return ("/v1/heartbeat/runs", nil)
+        case .heartbeatRunNow:
+            return ("/v1/heartbeat/run-now", nil)
+        case .heartbeatChecklist:
+            return ("/v1/heartbeat/checklist", nil)
+        case .heartbeatChecklistWrite:
+            return ("/v1/heartbeat/checklist", nil)
+        // Pairing
+        case .pairingRegister:
+            return ("/v1/pairing/register", nil)
+        // Publishing
+        case .publishPage:
+            return ("/v1/publish", nil)
+        case .unpublishPage:
+            return ("/v1/unpublish", nil)
+        // Link Open
+        case .linkOpen:
+            return ("/v1/link/open", nil)
+        // Workspace Files (legacy IPC)
+        case .workspaceFiles:
+            return ("/v1/workspace-files", nil)
+        case .workspaceFilesRead:
+            return ("/v1/workspace-files/read", nil)
+        // Misc
+        case .homeBase:
+            return ("/v1/home-base", nil)
+        case .channelVerificationSessions:
+            return ("/v1/channels/verification-sessions", nil)
+        case .registerDeviceToken:
+            return ("/v1/device-token", nil)
         }
     }
 
@@ -887,6 +1075,116 @@ public final class HTTPTransport {
             return ("\(prefix)/skills/draft/", nil)
         case .skillsCreate:
             return ("\(prefix)/skills/", nil)
+        // Computer Use
+        case .cuSessionCreate:
+            return ("\(prefix)/computer-use/sessions/", nil)
+        case .cuSessionAbort(let sessionId):
+            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
+            return ("\(prefix)/computer-use/sessions/\(encoded)/abort/", nil)
+        case .cuObservation:
+            return ("\(prefix)/computer-use/observation/", nil)
+        case .cuTaskSubmit:
+            return ("\(prefix)/computer-use/task/", nil)
+        case .rideShotgunStart:
+            return ("\(prefix)/computer-use/ride-shotgun/start/", nil)
+        case .rideShotgunStop:
+            return ("\(prefix)/computer-use/ride-shotgun/stop/", nil)
+        case .cuWatch:
+            return ("\(prefix)/computer-use/watch/", nil)
+        // Recordings
+        case .recordingStatus:
+            return ("\(prefix)/recordings/status/", nil)
+        // Settings
+        case .settingsVoice:
+            return ("\(prefix)/settings/voice/", nil)
+        case .settingsAvatarGenerate:
+            return ("\(prefix)/settings/avatar/generate/", nil)
+        case .settingsClient:
+            return ("\(prefix)/settings/client/", nil)
+        // Schedules
+        case .schedules:
+            return ("\(prefix)/schedules/", nil)
+        case .scheduleToggle(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/schedules/\(encoded)/toggle/", nil)
+        case .scheduleDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/schedules/\(encoded)/", nil)
+        case .scheduleRunNow(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/schedules/\(encoded)/run-now/", nil)
+        // Diagnostics
+        case .diagnosticsExport:
+            return ("\(prefix)/diagnostics/export/", nil)
+        case .diagnosticsEnvVars:
+            return ("\(prefix)/diagnostics/env-vars/", nil)
+        case .dictation:
+            return ("\(prefix)/dictation/", nil)
+        // Tools
+        case .tools:
+            return ("\(prefix)/tools/", nil)
+        case .toolsSimulatePermission:
+            return ("\(prefix)/tools/simulate-permission/", nil)
+        // Integrations
+        case .integrationsOAuthStart:
+            return ("\(prefix)/integrations/oauth/start/", nil)
+        case .integrationsTwitterAuthStart:
+            return ("\(prefix)/integrations/twitter/auth/start/", nil)
+        case .integrationsTwitterAuthStatus:
+            return ("\(prefix)/integrations/twitter/auth/status/", nil)
+        case .integrationsSlackConfig:
+            return ("\(prefix)/integrations/slack/config/", nil)
+        case .integrationsVercelConfig:
+            return ("\(prefix)/integrations/vercel/config/", nil)
+        case .integrationsTelegramConfig:
+            return ("\(prefix)/integrations/telegram/config/", nil)
+        // Surface Undo
+        case .surfaceUndo(let surfaceId):
+            let encoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            return ("\(prefix)/surfaces/\(encoded)/undo/", nil)
+        // Suggestion
+        case .suggestion:
+            return ("\(prefix)/suggestion/", nil)
+        // Reminders
+        case .reminders:
+            return ("\(prefix)/reminders/", nil)
+        case .reminderCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/reminders/\(encoded)/cancel/", nil)
+        // Heartbeat
+        case .heartbeatConfig:
+            return ("\(prefix)/heartbeat/config/", nil)
+        case .heartbeatRuns:
+            return ("\(prefix)/heartbeat/runs/", nil)
+        case .heartbeatRunNow:
+            return ("\(prefix)/heartbeat/run-now/", nil)
+        case .heartbeatChecklist:
+            return ("\(prefix)/heartbeat/checklist/", nil)
+        case .heartbeatChecklistWrite:
+            return ("\(prefix)/heartbeat/checklist/", nil)
+        // Pairing
+        case .pairingRegister:
+            return ("\(prefix)/pairing/register/", nil)
+        // Publishing
+        case .publishPage:
+            return ("\(prefix)/publish/", nil)
+        case .unpublishPage:
+            return ("\(prefix)/unpublish/", nil)
+        // Link Open
+        case .linkOpen:
+            return ("\(prefix)/link/open/", nil)
+        // Workspace Files (legacy IPC)
+        case .workspaceFiles:
+            return ("\(prefix)/workspace-files/", nil)
+        case .workspaceFilesRead:
+            return ("\(prefix)/workspace-files/read/", nil)
+        // Misc
+        case .homeBase:
+            return ("\(prefix)/home-base/", nil)
+        case .channelVerificationSessions:
+            return ("\(prefix)/channels/verification-sessions/", nil)
+        case .registerDeviceToken:
+            return ("\(prefix)/device-token/", nil)
         }
     }
 

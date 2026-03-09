@@ -56,12 +56,7 @@ struct IntegrationsSection: View {
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadIntegrations() }
         }
-        .onDisappear {
-            if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onIntegrationListResponse = nil
-                daemon.onIntegrationConnectResult = nil
-            }
-        }
+        .onDisappear {}
     }
 
     private func integrationIcon(_ id: String) -> String {
@@ -78,36 +73,9 @@ struct IntegrationsSection: View {
         }
     }
 
-    private func loadIntegrations() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        daemon.onIntegrationListResponse = { response in
-            integrations = response.integrations
-        }
-        try? daemon.sendIntegrationList()
-    }
-
-    private func connectIntegration(_ id: String) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        connectingIntegrationId = id
-        daemon.onIntegrationConnectResult = { result in
-            connectingIntegrationId = nil
-            if result.success {
-                loadIntegrations()
-            }
-        }
-        do {
-            try daemon.sendIntegrationConnect(integrationId: id)
-        } catch {
-            connectingIntegrationId = nil
-        }
-    }
-
-    private func disconnectIntegration(_ id: String) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.sendIntegrationDisconnect(integrationId: id)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            loadIntegrations()
-        }
-    }
+    // Integration registry was removed server-side; these are no-ops.
+    private func loadIntegrations() {}
+    private func connectIntegration(_ id: String) {}
+    private func disconnectIntegration(_ id: String) {}
 }
 #endif

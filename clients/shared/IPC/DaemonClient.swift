@@ -568,12 +568,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `ui_layout_config` message.
     public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
 
-    /// Called when the daemon sends an `integration_list_response` message.
-    public var onIntegrationListResponse: ((IPCIntegrationListResponse) -> Void)?
-
-    /// Called when the daemon sends an `integration_connect_result` message.
-    public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
-
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
 
@@ -1719,23 +1713,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Set the image generation model on the daemon.
     public func sendImageGenModelSet(model: String) throws {
         try send(ImageGenModelSetRequestMessage(model: model))
-    }
-
-    // MARK: - Integrations
-
-    /// Request the list of registered integrations and their connection status.
-    public func sendIntegrationList() throws {
-        try send(IPCIntegrationListRequest(type: "integration_list"))
-    }
-
-    /// Initiate an OAuth2 connection flow for an integration.
-    public func sendIntegrationConnect(integrationId: String) throws {
-        try send(IPCIntegrationConnectRequest(type: "integration_connect", integrationId: integrationId))
-    }
-
-    /// Disconnect an integration (revoke tokens + remove from vault).
-    public func sendIntegrationDisconnect(integrationId: String) throws {
-        try send(IPCIntegrationDisconnectRequest(type: "integration_disconnect", integrationId: integrationId))
     }
 
     // MARK: - Diagnostics Export

@@ -221,10 +221,9 @@ extension DaemonClient {
         case .signBundlePayload, .getSigningIdentity:
             log.error("Signing operations are not supported on this platform")
         #endif
-        case .integrationListResponse(let msg):
-            onIntegrationListResponse?(msg)
-        case .integrationConnectResult(let msg):
-            onIntegrationConnectResult?(msg)
+        // Integration stub responses — server-side handlers are no-ops; ignore.
+        case .integrationListResponse, .integrationConnectResult:
+            break
         case .diagnosticsExportResponse(let msg):
             onDiagnosticsExportResponse?(msg)
         case .envVarsResponse(let msg):
