@@ -13,8 +13,8 @@ import { Command } from "commander";
 
 const execFileAsync = promisify(execFile);
 
-import { httpSend } from "../../http-client.js";
 import { listRecordingFiles } from "../../../tools/browser/recording-store.js";
+import { httpSend } from "../../http-client.js";
 import {
   getBookmarks,
   getFollowers,
