@@ -241,4 +241,54 @@ public enum VColor {
     public static let buttonDanger = Color(hex: 0xC1421B)
     public static let buttonDangerHover = Color(hex: 0xD4582F)
     public static let buttonDangerPressed = Color(hex: 0xE0745A)
+
+    // Tag & shortcut
+    public static let tagText = Moss._400
+    public static let tagBorder = Moss._100
+
+    // Unread indicator
+    public static let unreadIndicator = Danger._600
+
+    // Skill type pill colors
+    public static let skillCoreForeground = adaptiveColor(light: Color(hex: 0x2A2A28), dark: Moss._200)
+    public static let skillCoreBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let skillInstalledForeground = adaptiveColor(light: Color(hex: 0x3A6B3A), dark: Forest._400)
+    public static let skillInstalledBackground = adaptiveColor(light: Color(hex: 0xD4E8D4), dark: Forest._900)
+    public static let skillCreatedForeground = adaptiveColor(light: Color(hex: 0x3A4A6B), dark: Color(hex: 0x8AAED4))
+    public static let skillCreatedBackground = adaptiveColor(light: Color(hex: 0xD4DCE8), dark: Color(hex: 0x2A3A4E))
+    public static let skillExtraForeground = adaptiveColor(light: Color(hex: 0x6B6B5E), dark: Moss._400)
+    public static let skillExtraBackground = adaptiveColor(light: Color(hex: 0xDDDBCE), dark: Moss._700)
+
+    // Skill category colors (constellation)
+    public static let skillCatCommunication = Color(hex: 0x8B5DAA)
+    public static let skillCatProductivity = Color(hex: 0x4682B4)
+    public static let skillCatDevelopment = Danger._700
+    public static let skillCatMedia = Color(hex: 0xD4A017)
+    public static let skillCatAutomation = Color(hex: 0x2E8B57)
+    public static let skillCatWebSocial = Color(hex: 0xCD853F)
+    public static let skillCatKnowledge = Color(hex: 0x6B8E23)
+    public static let skillCatIntegration = Color(hex: 0x708090)
+
+    // Thread icon backgrounds
+    public static let threadIconBackgrounds: [Color] = [
+        Color(hex: 0x4B6845), // forest green
+        Color(hex: 0x4A5568), // slate blue-gray
+        Color(hex: 0x5B4E3A), // warm brown
+        Color(hex: 0x3D5A5B), // teal
+        Color(hex: 0x6B4C5A), // muted mauve
+        Color(hex: 0x4E5D3E), // olive
+        Color(hex: 0x5A4A6B), // dusty purple
+        Color(hex: 0x5C6B4A), // sage
+    ]
+
+    // Theme toggle
+    public static let themeToggleSelected = adaptiveColor(light: Color(hex: 0xD3DECF), dark: Forest._800)
+    public static let themeToggleBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
+
+    // Onboarding code block
+    public static let codeBlockBackground = adaptiveColor(light: Color(hex: 0xF2F2F7), dark: Color(hex: 0x3A3A37).opacity(0.5))
+
+    // Slider
+    public static let sliderTrack = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let sliderFill = adaptiveColor(light: Forest._300, dark: Forest._500)
 }
