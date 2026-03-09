@@ -108,8 +108,6 @@ extension DaemonClient {
             onSkillsDraftResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
-        case .homeBaseGetResponse(let msg):
-            onHomeBaseGetResponse?(msg)
         case .appUpdatePreviewResponse:
             break // Fire-and-forget; no callback needed
         case .appPreviewResponse(let msg):
