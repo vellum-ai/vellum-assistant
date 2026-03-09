@@ -637,27 +637,26 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("host_bash rm is always high risk → prompt", async () => {
+    test("host_bash rm is always prompted via default ask rule", async () => {
       const result = await check(
         "host_bash",
         { command: "rm file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
+      expect(result.reason).toContain("ask rule");
     });
 
-    test("plain rm (without -rf) is high risk and prompts despite default allow rule", async () => {
-      // Validates that ALL rm commands are escalated to High risk, not just rm -rf.
-      // The default ask rule for host_bash prompts regardless of risk level.
-      // High risk also prompts.
+    test("plain rm (without -rf) prompts via default ask rule", async () => {
+      // The default ask rule for host_bash prompts ALL commands regardless
+      // of risk level — rm commands are no exception.
       const result = await check(
         "host_bash",
         { command: "rm single-file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
+      expect(result.reason).toContain("ask rule");
 
       // Also verify rm -rf still prompts
       const rfResult = await check(
@@ -666,7 +665,7 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(rfResult.decision).toBe("prompt");
-      expect(rfResult.reason).toContain("High risk");
+      expect(rfResult.reason).toContain("ask rule");
     });
 
     test("rm is high risk even with matching trust rule → prompt", async () => {
@@ -3743,7 +3742,7 @@ describe("Permission Checker", () => {
         expect(matchResult.matchedRule?.id).toBe("inv4-target-scoped");
 
         // Different target — the target-scoped rule should NOT match;
-        // falls back to the default host_bash ask rule (prompts medium risk)
+        // falls back to the default host_bash ask rule (prompts)
         const noMatchResult = await check(
           "host_bash",
           { command: "run script.js" },
@@ -3752,8 +3751,9 @@ describe("Permission Checker", () => {
             executionTarget: "/usr/local/bin/bun",
           },
         );
-        expect(noMatchResult.decision).toBe("allow");
-        expect(noMatchResult.matchedRule?.id).not.toBe("inv4-target-scoped");
+        expect(noMatchResult.decision).toBe("prompt");
+        expect(noMatchResult.reason).toContain("ask rule");
+        expect(noMatchResult.matchedRule?.id).toBe("default:ask-host_bash-global");
       });
     });
 
