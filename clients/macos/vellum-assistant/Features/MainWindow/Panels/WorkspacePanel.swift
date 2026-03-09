@@ -452,8 +452,7 @@ private struct WorkspaceVideoPlayer: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task { await loadVideo() }
-        .onChange(of: url) { _, _ in
+        .task(id: url) {
             player?.pause()
             player = nil
             failed = false
@@ -461,7 +460,7 @@ private struct WorkspaceVideoPlayer: View {
                 try? FileManager.default.removeItem(at: tempFileURL)
             }
             tempFileURL = nil
-            Task { await loadVideo() }
+            await loadVideo()
         }
         .onDisappear {
             player?.pause()
@@ -475,6 +474,13 @@ private struct WorkspaceVideoPlayer: View {
     private func loadVideo() async {
         do {
             let result = try await downloadVideo(url: url)
+            guard !Task.isCancelled else {
+                // Clean up downloaded file if task was cancelled during download
+                if let localURL = result {
+                    try? FileManager.default.removeItem(at: localURL)
+                }
+                return
+            }
             guard let localURL = result else {
                 failed = true
                 return
@@ -482,7 +488,9 @@ private struct WorkspaceVideoPlayer: View {
             tempFileURL = localURL
             player = AVPlayer(url: localURL)
         } catch {
-            failed = true
+            if !Task.isCancelled {
+                failed = true
+            }
         }
     }
 
