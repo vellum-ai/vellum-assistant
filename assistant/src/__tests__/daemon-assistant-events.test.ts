@@ -39,7 +39,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";

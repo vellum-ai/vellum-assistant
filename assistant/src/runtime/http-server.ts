@@ -33,7 +33,7 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type Confidence,

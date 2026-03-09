@@ -16,7 +16,7 @@ import type {
   CuSessionCreate,
   ServerMessage,
   SessionTransportMetadata,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { Session } from "../session.js";
 import type { TrustContext } from "../session-runtime-assembly.js";
 

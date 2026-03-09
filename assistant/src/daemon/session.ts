@@ -49,14 +49,14 @@ import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type {
   AssistantActivityState,
   ConfirmationStateChanged,
-} from "./ipc-contract/messages.js";
+} from "./message-types/messages.js";
 import type {
   ServerMessage,
   SurfaceData,
   SurfaceType,
   UsageStats,
   UserMessageAttachment,
-} from "./ipc-protocol.js";
+} from "./message-protocol.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
 import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";

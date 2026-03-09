@@ -34,8 +34,8 @@ import type {
   SurfaceData,
   SurfaceType,
   UiSurfaceShow,
-} from "./ipc-protocol.js";
-import { INTERACTIVE_SURFACE_TYPES } from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,

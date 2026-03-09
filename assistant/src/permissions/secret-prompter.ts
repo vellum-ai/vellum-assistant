@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 

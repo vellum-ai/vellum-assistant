@@ -1,7 +1,7 @@
 /**
  * IPC Protocol -- message types and serialization.
  *
- * All message types are defined in domain files under ./ipc-contract/.
+ * All message types are defined in domain files under ./message-types/.
  * Each domain file exports `_<Domain>ClientMessages` and/or
  * `_<Domain>ServerMessages` type aliases. This file composes those
  * into the aggregate ClientMessage and ServerMessage unions, and provides
@@ -14,117 +14,117 @@
  */
 
 // Re-export domain modules (all individual types remain importable)
-export * from "./ipc-contract/apps.js";
-export * from "./ipc-contract/browser.js";
-export * from "./ipc-contract/computer-use.js";
-export * from "./ipc-contract/contacts.js";
-export * from "./ipc-contract/diagnostics.js";
-export * from "./ipc-contract/documents.js";
-export * from "./ipc-contract/guardian-actions.js";
-export * from "./ipc-contract/inbox.js";
-export * from "./ipc-contract/integrations.js";
-export * from "./ipc-contract/memory.js";
-export * from "./ipc-contract/messages.js";
-export * from "./ipc-contract/notifications.js";
-export * from "./ipc-contract/pairing.js";
-export * from "./ipc-contract/schedules.js";
-export * from "./ipc-contract/sessions.js";
-export * from "./ipc-contract/settings.js";
-export * from "./ipc-contract/shared.js";
-export * from "./ipc-contract/skills.js";
-export * from "./ipc-contract/subagents.js";
-export * from "./ipc-contract/surfaces.js";
-export * from "./ipc-contract/trust.js";
-export * from "./ipc-contract/work-items.js";
-export * from "./ipc-contract/workspace.js";
+export * from "./message-types/apps.js";
+export * from "./message-types/browser.js";
+export * from "./message-types/computer-use.js";
+export * from "./message-types/contacts.js";
+export * from "./message-types/diagnostics.js";
+export * from "./message-types/documents.js";
+export * from "./message-types/guardian-actions.js";
+export * from "./message-types/inbox.js";
+export * from "./message-types/integrations.js";
+export * from "./message-types/memory.js";
+export * from "./message-types/messages.js";
+export * from "./message-types/notifications.js";
+export * from "./message-types/pairing.js";
+export * from "./message-types/schedules.js";
+export * from "./message-types/sessions.js";
+export * from "./message-types/settings.js";
+export * from "./message-types/shared.js";
+export * from "./message-types/skills.js";
+export * from "./message-types/subagents.js";
+export * from "./message-types/surfaces.js";
+export * from "./message-types/trust.js";
+export * from "./message-types/work-items.js";
+export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
 import { getLogger } from "../util/logger.js";
 import type {
   _AppsClientMessages,
   _AppsServerMessages,
-} from "./ipc-contract/apps.js";
+} from "./message-types/apps.js";
 import type {
   _BrowserClientMessages,
   _BrowserServerMessages,
-} from "./ipc-contract/browser.js";
+} from "./message-types/browser.js";
 import type {
   _ComputerUseClientMessages,
   _ComputerUseServerMessages,
-} from "./ipc-contract/computer-use.js";
+} from "./message-types/computer-use.js";
 import type {
   _ContactsClientMessages,
   _ContactsServerMessages,
-} from "./ipc-contract/contacts.js";
+} from "./message-types/contacts.js";
 import type {
   _DiagnosticsClientMessages,
   _DiagnosticsServerMessages,
-} from "./ipc-contract/diagnostics.js";
+} from "./message-types/diagnostics.js";
 import type {
   _DocumentsClientMessages,
   _DocumentsServerMessages,
-} from "./ipc-contract/documents.js";
+} from "./message-types/documents.js";
 import type {
   _GuardianActionsClientMessages,
   _GuardianActionsServerMessages,
-} from "./ipc-contract/guardian-actions.js";
+} from "./message-types/guardian-actions.js";
 import type {
   _InboxClientMessages,
   _InboxServerMessages,
-} from "./ipc-contract/inbox.js";
+} from "./message-types/inbox.js";
 import type {
   _IntegrationsClientMessages,
   _IntegrationsServerMessages,
-} from "./ipc-contract/integrations.js";
-import type { _MemoryServerMessages } from "./ipc-contract/memory.js";
+} from "./message-types/integrations.js";
+import type { _MemoryServerMessages } from "./message-types/memory.js";
 import type {
   _MessagesClientMessages,
   _MessagesServerMessages,
-} from "./ipc-contract/messages.js";
+} from "./message-types/messages.js";
 import type {
   _NotificationsClientMessages,
   _NotificationsServerMessages,
-} from "./ipc-contract/notifications.js";
+} from "./message-types/notifications.js";
 import type {
   _PairingClientMessages,
   _PairingServerMessages,
-} from "./ipc-contract/pairing.js";
+} from "./message-types/pairing.js";
 import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
-} from "./ipc-contract/schedules.js";
+} from "./message-types/schedules.js";
 import type {
   _SessionsClientMessages,
   _SessionsServerMessages,
-} from "./ipc-contract/sessions.js";
+} from "./message-types/sessions.js";
 import type {
   _SettingsClientMessages,
   _SettingsServerMessages,
-} from "./ipc-contract/settings.js";
+} from "./message-types/settings.js";
 import type {
   _SkillsClientMessages,
   _SkillsServerMessages,
-} from "./ipc-contract/skills.js";
+} from "./message-types/skills.js";
 import type {
   _SubagentsClientMessages,
   _SubagentsServerMessages,
-} from "./ipc-contract/subagents.js";
+} from "./message-types/subagents.js";
 import type {
   _SurfacesClientMessages,
   _SurfacesServerMessages,
-} from "./ipc-contract/surfaces.js";
+} from "./message-types/surfaces.js";
 import type {
   _TrustClientMessages,
   _TrustServerMessages,
-} from "./ipc-contract/trust.js";
+} from "./message-types/trust.js";
 import type {
   _WorkItemsClientMessages,
   _WorkItemsServerMessages,
-} from "./ipc-contract/work-items.js";
+} from "./message-types/work-items.js";
 import type {
   _WorkspaceClientMessages,
   _WorkspaceServerMessages,
-} from "./ipc-contract/workspace.js";
+} from "./message-types/workspace.js";
 
 // === SubagentEvent -- defined here because it references ServerMessage ===
 
@@ -194,7 +194,7 @@ export interface IPCContractSchema {
   server: ServerMessage;
 }
 
-const log = getLogger("ipc-protocol");
+const log = getLogger("message-protocol");
 
 // === Serialization ===
 

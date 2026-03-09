@@ -36,7 +36,7 @@ import type {
   ServerMessage,
   UserMessage,
   UserMessageAttachment,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { executeRecordingIntent } from "../recording-executor.js";
 import { resolveRecordingIntent } from "../recording-intent.js";
 import {

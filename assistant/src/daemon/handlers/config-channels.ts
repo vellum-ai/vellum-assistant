@@ -49,7 +49,7 @@ import { normalizePhoneNumber } from "../../util/phone.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --

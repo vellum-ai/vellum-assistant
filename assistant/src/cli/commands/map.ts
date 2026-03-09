@@ -10,7 +10,7 @@ import * as net from "node:net";
 import { Command } from "commander";
 import { parse as parseTld } from "tldts";
 
-import { createMessageParser, serialize } from "../../daemon/ipc-protocol.js";
+import { createMessageParser, serialize } from "../../daemon/message-protocol.js";
 import {
   analyzeApiMap,
   printApiMapTable,
@@ -201,7 +201,7 @@ async function startLearnSession(
           targetDomain: recordDomain,
           navigateDomain,
           autoNavigate,
-        } as unknown as import("../../daemon/ipc-protocol.js").ClientMessage),
+        } as unknown as import("../../daemon/message-protocol.js").ClientMessage),
       );
     };
 
@@ -256,7 +256,7 @@ async function startLearnSession(
           serialize({
             type: "auth",
             token: sessionToken,
-          } as unknown as import("../../daemon/ipc-protocol.js").ClientMessage),
+          } as unknown as import("../../daemon/message-protocol.js").ClientMessage),
         );
       } else {
         sendStartCommand();

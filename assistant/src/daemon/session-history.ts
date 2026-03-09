@@ -14,7 +14,7 @@ import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../memory/qdrant-client.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-history");

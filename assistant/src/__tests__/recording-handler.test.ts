@@ -158,7 +158,7 @@ import {
   recordingHandlers,
 } from "../daemon/handlers/recording.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
-import type { RecordingStatus } from "../daemon/ipc-contract/computer-use.js";
+import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────

@@ -86,7 +86,7 @@ import {
   undoLastMessage,
 } from "./handlers/sessions.js";
 import { installCliLaunchers } from "./install-cli-launchers.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
   registerMessagingProviders,

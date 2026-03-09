@@ -18,7 +18,7 @@ import {
   isRecordingIdle,
 } from "../../daemon/handlers/recording.js";
 import type { HandlerContext } from "../../daemon/handlers/shared.js";
-import type { RecordingOptions } from "../../daemon/ipc-protocol.js";
+import type { RecordingOptions } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
