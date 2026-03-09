@@ -40,8 +40,12 @@ export async function execute(
   const statusFile = e2eStatusFilePath(context.testName ?? "unknown");
 
   try {
+    const envArgs = [`--env "E2E_STATUS_FILE=${statusFile}"`];
+    if (process.env.VELLUM_ASSISTANT_PLATFORM_URL) {
+      envArgs.push(`--env "VELLUM_ASSISTANT_PLATFORM_URL=${process.env.VELLUM_ASSISTANT_PLATFORM_URL}"`);
+    }
     execSync(
-      `open -a "${appPath}" --env "E2E_STATUS_FILE=${statusFile}"`,
+      `open -a "${appPath}" ${envArgs.join(" ")}`,
       {
         encoding: "utf-8",
         timeout: 10_000,

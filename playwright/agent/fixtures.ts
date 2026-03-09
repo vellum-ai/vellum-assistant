@@ -61,6 +61,7 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
 
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
+  ensurePlatformUrl();
   logVellumPs();
 
   // Clear any previous onboarding state
@@ -97,6 +98,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
+  ensurePlatformUrl();
   ensureVellumInPath(appDisplayName);
   await ensureAssistantHatched();
   skipAssistantOnboarding();
@@ -185,6 +187,16 @@ function preApproveScreenCapture(): void {
     } catch {
       // May fail without Full Disk Access — CI workflow handles this via sudo
     }
+  }
+}
+
+/**
+ * Sets the VELLUM_ASSISTANT_PLATFORM_URL environment variable so the
+ * desktop app targets the dev platform instance during tests.
+ */
+function ensurePlatformUrl(): void {
+  if (!process.env.VELLUM_ASSISTANT_PLATFORM_URL) {
+    process.env.VELLUM_ASSISTANT_PLATFORM_URL = "https://dev-platform.vellum.ai";
   }
 }
 

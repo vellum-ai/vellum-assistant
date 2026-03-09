@@ -1,5 +1,5 @@
 ---
-fixture: desktop-app
+fixture: desktop-app-hatched
 status: stable
 ---
 
@@ -12,12 +12,11 @@ Verify that when a user clicks "Don't Allow" on a tool permission prompt, the as
 ## Steps
 
 1. Launch the App
-2. Open a chat thread
-3. Send a message that triggers a tool requiring permission, such as "create a file called test.txt on my Desktop"
-4. Wait for a permission prompt to appear **inline in the chat** — it will show buttons like "Allow Once", "Always Allow", and "Don't Allow" directly within the conversation
-5. Click the "Don't Allow" button on the inline permission prompt. Do NOT navigate to Settings or any other panel — the button is right there in the chat
-6. Verify that the assistant acknowledges the denial and continues operating normally
-7. Send a follow-up message like "hello" to confirm the chat is still responsive
+2. In the existing chat thread, send a message that triggers a tool requiring permission, such as "create a file called test.txt on my Desktop"
+3. Wait for a permission prompt to appear **inline in the chat** — it will show buttons like "Allow Once", "Always Allow", and "Don't Allow" directly within the conversation
+4. Click the "Don't Allow" button on the inline permission prompt. Do NOT navigate to Settings or any other panel — the button is right there in the chat
+5. Verify that the assistant acknowledges the denial and continues operating normally
+6. Send a follow-up message like "hello" to confirm the chat is still responsive
 
 ## Expected
 
