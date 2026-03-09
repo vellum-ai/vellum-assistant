@@ -58,6 +58,16 @@ Many Amazon products (clothing, electronics) have variations (size, color, style
 
 Alternatively, run `assistant amazon variations <asin> --json` to list just the variations.
 
+## Session Storage
+
+Session cookies are stored in the encrypted credential store under the key `amazon:session:cookies`. You can inspect the stored session with:
+
+```bash
+assistant credentials inspect amazon:session:cookies
+```
+
+Session capture (`assistant amazon refresh`) and session checks (`assistant amazon status`) use the credential store automatically — no manual file management is needed.
+
 ## Important Behavior
 
 - **Chrome extension relay required.** The Amazon CLI uses `assistant browser chrome relay` internally for browser automation. The Chrome extension must be connected before Amazon commands will work. If a command fails with a connection error, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry."

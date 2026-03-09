@@ -27,6 +27,7 @@ The browser path is quick to start and useful when the user does not have X deve
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
 - Setup: Run `assistant x refresh` to open Chrome and capture session cookies automatically.
 - Set the strategy: `assistant config set twitter.operationStrategy browser`
+- **Session storage**: Session cookies are stored in the encrypted credential store under the key `twitter:session:cookies`. You can inspect the stored session with `assistant credentials inspect twitter:session:cookies`.
 
 ### Auto mode (default)
 
