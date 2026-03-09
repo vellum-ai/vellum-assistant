@@ -1065,7 +1065,7 @@ jobs:
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
-          curl -sL https://sentry.io/get-cli/ | bash
+          npm install -g @sentry/cli@2.42.2
           sentry-cli debug-files upload --org vellum-ai --project vellum-macos dist/*.dSYM
 
       - name: Free disk space
