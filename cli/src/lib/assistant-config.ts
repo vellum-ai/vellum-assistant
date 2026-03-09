@@ -26,6 +26,8 @@ export interface LocalInstanceResources {
   gatewayPort: number;
   /** HTTP port for the Qdrant vector store */
   qdrantPort: number;
+  /** Absolute path to the Unix domain socket for IPC */
+  socketPath: string;
   /** Absolute path to the daemon PID file */
   pidFile: string;
 }
@@ -61,8 +63,13 @@ function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || homedir();
 }
 
+/** The lockfile always lives under the home directory. */
+function getLockfileDir(): string {
+  return process.env.VELLUM_LOCKFILE_DIR?.trim() || homedir();
+}
+
 function readLockfile(): LockfileData {
-  const base = getBaseDir();
+  const base = getLockfileDir();
   const candidates = [
     join(base, ".vellum.lock.json"),
     join(base, ".vellum.lockfile.json"),
@@ -83,7 +90,7 @@ function readLockfile(): LockfileData {
 }
 
 function writeLockfile(data: LockfileData): void {
-  const lockfilePath = join(getBaseDir(), ".vellum.lock.json");
+  const lockfilePath = join(getLockfileDir(), ".vellum.lock.json");
   writeFileSync(lockfilePath, JSON.stringify(data, null, 2) + "\n");
 }
 
@@ -271,6 +278,7 @@ export async function allocateLocalResources(
     daemonPort,
     gatewayPort,
     qdrantPort,
+    socketPath: join(instanceDir, ".vellum", "vellum.sock"),
     pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
