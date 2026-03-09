@@ -60,4 +60,4 @@ tools/
 
 ## Questions?
 
-Contact Team Jarvis before starting work on a new tool.
+Contact Team Jarvis before shipping a new tool.
