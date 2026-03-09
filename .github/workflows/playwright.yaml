@@ -455,17 +455,12 @@ jobs:
           fi
 
           if [ "${{ inputs.use_xcode }}" = "true" ]; then
-            unset TEST_FILTER
             XCODE_ARGS=""
             if [ -n "${{ inputs.test_case }}" ]; then
               XCODE_ARGS="${{ inputs.test_case }}"
             fi
-            if [ "${{ inputs.test_filter }}" = "experimental" ]; then
-              XCODE_ARGS="$XCODE_ARGS --experimental"
-            fi
             cd agent-xcode && ./.build/release/agent-xcode $XCODE_ARGS
           elif [ -n "${{ inputs.test_case }}" ]; then
-            unset TEST_FILTER
             bun run test -g "${{ inputs.test_case }}" $SHARD_ARGS
           else
             bun run test $SHARD_ARGS

@@ -1,14 +1,16 @@
 /**
  * Twitter session persistence.
- * Delegates to the shared cookie-session primitive for CRUD;
+ * Delegates to the `assistant credentials` CLI for CRUD;
  * keeps Twitter-specific cookie validation and CSRF extraction.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
 import type { CookieSession } from "../../../util/cookie-session.js";
-import {
-  createSessionStore,
-  importFromRecordingBase,
-} from "../../../util/cookie-session.js";
+import { importFromRecordingBase } from "../../../util/cookie-session.js";
 
 class ConfigError extends Error {
   constructor(message: string) {
@@ -19,16 +21,63 @@ class ConfigError extends Error {
 
 export type TwitterSession = CookieSession;
 
-const store = createSessionStore("twitter");
+interface ExtractedCredential {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  httpOnly: boolean;
+  secure: boolean;
+  expires?: number;
+}
 
-export const loadSession: () => TwitterSession | null = store.loadSession;
-export const saveSession: (session: TwitterSession) => void = store.saveSession;
-export const clearSession: () => void = store.clearSession;
+export async function loadSession(): Promise<TwitterSession | null> {
+  try {
+    const { stdout } = await execFileAsync("assistant", [
+      "credentials",
+      "reveal",
+      "twitter:session:cookies",
+    ]);
+    const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+    return { cookies };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveSession(session: TwitterSession): Promise<void> {
+  try {
+    await execFileAsync("assistant", [
+      "credentials",
+      "set",
+      "twitter:session:cookies",
+      JSON.stringify(session.cookies),
+    ]);
+  } catch (err) {
+    throw new ConfigError(
+      `Failed to save Twitter session: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+export async function clearSession(): Promise<void> {
+  try {
+    await execFileAsync("assistant", [
+      "credentials",
+      "delete",
+      "twitter:session:cookies",
+    ]);
+  } catch {
+    // Clearing a non-existent session is fine — no-op
+  }
+}
 
 /**
  * Import cookies from a Ride Shotgun recording file.
  */
-export function importFromRecording(recordingPath: string): TwitterSession {
+export async function importFromRecording(
+  recordingPath: string,
+): Promise<TwitterSession> {
   try {
     const session = importFromRecordingBase(recordingPath, (cookieNames) => {
       // Require the two cookies that prove a logged-in Twitter session:
@@ -40,7 +89,7 @@ export function importFromRecording(recordingPath: string): TwitterSession {
         );
       }
     });
-    saveSession(session);
+    await saveSession(session);
     return session;
   } catch (error) {
     if (error instanceof ConfigError) throw error;

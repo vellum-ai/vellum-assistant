@@ -134,9 +134,14 @@ export function removeAssistantEntry(assistantId: string): void {
     (e: AssistantEntry) => e.assistantId !== assistantId,
   );
   data.assistants = entries;
-  // Clear active assistant if it matches the removed entry
+  // Reassign active assistant if it matches the removed entry
   if (data.activeAssistant === assistantId) {
-    delete data.activeAssistant;
+    const remaining = entries[0];
+    if (remaining) {
+      data.activeAssistant = remaining.assistantId;
+    } else {
+      delete data.activeAssistant;
+    }
   }
   writeLockfile(data);
 }

@@ -1,26 +1,70 @@
 /**
  * Amazon session persistence.
- * Delegates cookie CRUD to the shared cookie-session primitive;
+ * Delegates cookie CRUD to the `assistant credentials` CLI subprocess;
  * keeps Amazon-specific cookie validation and CSRF extraction.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import {
   type CookieSession,
-  createSessionStore,
   importFromRecordingBase,
 } from "../../../util/cookie-session.js";
+import type { ExtractedCredential } from "./client.js";
+
+const execFileAsync = promisify(execFile);
 
 export type AmazonSession = CookieSession;
 
-const store = createSessionStore("amazon");
+export async function loadSession(): Promise<AmazonSession | null> {
+  try {
+    const { stdout } = await execFileAsync("assistant", [
+      "credentials",
+      "reveal",
+      "amazon:session:cookies",
+    ]);
+    const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+    return { cookies };
+  } catch {
+    return null;
+  }
+}
 
-export const { loadSession, saveSession, clearSession } = store;
+export async function saveSession(session: AmazonSession): Promise<void> {
+  try {
+    await execFileAsync("assistant", [
+      "credentials",
+      "set",
+      "amazon:session:cookies",
+      JSON.stringify(session.cookies),
+    ]);
+  } catch (err) {
+    throw new Error(
+      `Failed to save Amazon session: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+export async function clearSession(): Promise<void> {
+  try {
+    await execFileAsync("assistant", [
+      "credentials",
+      "delete",
+      "amazon:session:cookies",
+    ]);
+  } catch {
+    // Clearing a non-existent session is fine — no-op
+  }
+}
 
 /**
  * Import cookies from a Ride Shotgun recording file.
  * Validates that the recording contains Amazon's required auth cookies.
  */
-export function importFromRecording(recordingPath: string): AmazonSession {
+export async function importFromRecording(
+  recordingPath: string,
+): Promise<AmazonSession> {
   const session = importFromRecordingBase(recordingPath, (cookieNames) => {
     if (!cookieNames.has("session-id")) {
       throw new Error(
@@ -41,7 +85,7 @@ export function importFromRecording(recordingPath: string): AmazonSession {
       );
     }
   });
-  saveSession(session);
+  await saveSession(session);
   return session;
 }
 
