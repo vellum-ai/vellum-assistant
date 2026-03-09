@@ -415,7 +415,7 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                VButton(label: "Retire...", style: .danger) {
+                VButton(label: "Retire", style: .danger) {
                     showingRetireConfirmation = true
                 }
             }
