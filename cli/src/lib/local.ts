@@ -229,10 +229,12 @@ async function startDaemonFromSource(
 
   // PID file was stale or missing — check if daemon is responding via HTTP
   if (await isDaemonResponsive(resources.daemonPort)) {
-    const ownerPid = readPidFromFile(pidFile);
-    if (ownerPid) {
+    // Recover PID tracking so lifecycle commands (sleep, retire,
+    // stopLocalProcesses) can manage this daemon process.
+    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
+    if (recoveredPid) {
       console.log(
-        `   Assistant is responsive (pid ${ownerPid}) — skipping restart\n`,
+        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
       );
     } else {
       console.log("   Assistant is responsive — skipping restart\n");
@@ -319,10 +321,12 @@ async function startDaemonWatchFromSource(
 
   // PID file was stale or missing — check if daemon is responding via HTTP
   if (await isDaemonResponsive(resources.daemonPort)) {
-    const ownerPid = readPidFromFile(pidFile);
-    if (ownerPid) {
+    // Recover PID tracking so lifecycle commands (sleep, retire,
+    // stopLocalProcesses) can manage this daemon process.
+    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
+    if (recoveredPid) {
       console.log(
-        `   Assistant is responsive (pid ${ownerPid}) — skipping restart\n`,
+        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
       );
     } else {
       console.log("   Assistant is responsive — skipping restart\n");
@@ -433,12 +437,28 @@ function readWorkspaceIngressPublicBaseUrl(
   }
 }
 
-/** Read the PID from a PID file. Returns the PID if the file exists and
- *  contains a valid number, undefined otherwise. */
-function readPidFromFile(pidFile: string): number | undefined {
+/**
+ * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
+ * This replaces the socket-based `isSocketResponsive()` check.
+ */
+async function isDaemonResponsive(daemonPort: number): Promise<boolean> {
+  return httpHealthCheck(daemonPort);
+}
+
+/**
+ * Find the PID of the process listening on the given TCP port.
+ * Uses `lsof` on macOS/Linux. Returns undefined if no listener is found
+ * or the command fails.
+ */
+function findPidListeningOnPort(port: number): number | undefined {
   try {
-    const raw = readFileSync(pidFile, "utf-8").trim();
-    const pid = parseInt(raw, 10);
+    const output = execFileSync(
+      "lsof",
+      ["-iTCP:" + port, "-sTCP:LISTEN", "-t"],
+      { encoding: "utf-8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    // lsof -t may return multiple PIDs (one per line); take the first.
+    const pid = parseInt(output.split("\n")[0], 10);
     return isNaN(pid) ? undefined : pid;
   } catch {
     return undefined;
@@ -446,11 +466,23 @@ function readPidFromFile(pidFile: string): number | undefined {
 }
 
 /**
- * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
- * This replaces the socket-based `isSocketResponsive()` check.
+ * Recover PID tracking for a daemon that is already responsive on its HTTP
+ * port but whose PID file is stale or missing. Looks up the listener PID
+ * via `lsof` and writes it to `pidFile` so lifecycle commands (sleep, retire,
+ * wake) can target the running process.
+ *
+ * Returns the recovered PID, or undefined if recovery failed.
  */
-async function isDaemonResponsive(daemonPort: number): Promise<boolean> {
-  return httpHealthCheck(daemonPort);
+function recoverPidFile(
+  pidFile: string,
+  daemonPort: number,
+): number | undefined {
+  const pid = findPidListeningOnPort(daemonPort);
+  if (pid) {
+    mkdirSync(dirname(pidFile), { recursive: true });
+    writeFileSync(pidFile, String(pid), "utf-8");
+  }
+  return pid;
 }
 
 export async function discoverPublicUrl(port?: number): Promise<string | undefined> {
@@ -632,10 +664,10 @@ export async function startLocalDaemon(
       if (await isDaemonResponsive(resources.daemonPort)) {
         // Restore PID tracking so lifecycle commands (sleep, retire,
         // stopLocalProcesses) can manage this daemon process.
-        const ownerPid = readPidFromFile(pidFile);
-        if (ownerPid) {
+        const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
+        if (recoveredPid) {
           console.log(
-            `   Assistant is responsive (pid ${ownerPid}) — skipping restart\n`,
+            `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
           );
         } else {
           console.log("   Assistant is responsive — skipping restart\n");
