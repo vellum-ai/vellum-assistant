@@ -11,7 +11,6 @@ struct WorkspaceFileSheet: View {
     @State private var fileResponse: WorkspaceFileResponse?
     @State private var isLoading = true
     @State private var error: String?
-    @State private var videoPlayer: AVPlayer?
 
     var displayName: String {
         let trimmed = filePath.hasSuffix("/") ? String(filePath.dropLast()) : filePath
@@ -65,38 +64,9 @@ struct WorkspaceFileSheet: View {
         let resolvedMime = fileResponse?.mimeType ?? mimeType ?? ""
 
         if resolvedMime.hasPrefix("image/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
-            // TODO: AsyncImage uses bare URL without auth headers. Acceptable for local daemon; add auth for remote/cloud support.
-            ScrollView {
-                AsyncImage(url: contentURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                    case .failure:
-                        VStack(spacing: VSpacing.md) {
-                            VIconView(.image, size: 36)
-                                .foregroundColor(VColor.textMuted)
-                                .accessibilityHidden(true)
-                            Text("Unable to load image")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .empty:
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                .padding(VSpacing.lg)
-            }
-        } else if resolvedMime.hasPrefix("video/"), let player = videoPlayer {
-            // TODO: VideoPlayer uses bare URL without auth headers. Acceptable for local daemon; add auth for remote/cloud support.
-            VideoPlayer(player: player)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            AuthenticatedImageView(url: contentURL)
+        } else if resolvedMime.hasPrefix("video/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
+            WorkspaceVideoPlayer(url: contentURL)
         } else if let response = fileResponse, !response.isBinary, let content = response.content {
             ScrollView {
                 markdownContent(content)
@@ -180,11 +150,6 @@ struct WorkspaceFileSheet: View {
 
         if let response = await client.fetchWorkspaceFile(path: filePath) {
             fileResponse = response
-
-            let resolvedMime = response.mimeType ?? mimeType ?? ""
-            if resolvedMime.hasPrefix("video/"), let contentURL = client.workspaceFileContentURL(path: filePath) {
-                videoPlayer = AVPlayer(url: contentURL)
-            }
         } else {
             error = "Unable to read file."
         }
@@ -221,6 +186,179 @@ struct WorkspaceFileSheet: View {
         display.dateStyle = .medium
         display.timeStyle = .short
         return display.string(from: date)
+    }
+}
+
+// MARK: - Authenticated Image View
+
+private struct AuthenticatedImageView: View {
+    let url: URL
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                ScrollView {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .padding(VSpacing.lg)
+                }
+            } else if failed {
+                VStack(spacing: VSpacing.md) {
+                    VIconView(.image, size: 36)
+                        .foregroundColor(VColor.textMuted)
+                        .accessibilityHidden(true)
+                    Text("Unable to load image")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: url) {
+            failed = false
+            image = nil
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        var request = URLRequest(url: url)
+        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                failed = true
+                return
+            }
+            // 401 retry: clear stale credentials and retry once with refreshed token
+            if http.statusCode == 401 {
+                ActorTokenManager.deleteAllCredentials()
+                var retryRequest = URLRequest(url: url)
+                if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
+                    retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+                }
+                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                    failed = true
+                    return
+                }
+                image = UIImage(data: retryData)
+                if image == nil { failed = true }
+                return
+            }
+            guard (200...299).contains(http.statusCode) else {
+                failed = true
+                return
+            }
+            image = UIImage(data: data)
+            if image == nil { failed = true }
+        } catch {
+            failed = true
+        }
+    }
+}
+
+// MARK: - Authenticated Video Player
+
+private struct WorkspaceVideoPlayer: View {
+    let url: URL
+    @State private var player: AVPlayer?
+    @State private var tempFileURL: URL?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if failed {
+                VStack(spacing: VSpacing.md) {
+                    VIconView(.triangleAlert, size: 36)
+                        .foregroundColor(VColor.textMuted)
+                        .accessibilityHidden(true)
+                    Text("Unable to load video")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: url) {
+            failed = false
+            player?.pause()
+            player = nil
+            cleanupTempFile()
+            await loadVideo()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+            cleanupTempFile()
+        }
+    }
+
+    private func loadVideo() async {
+        var request = URLRequest(url: url)
+        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        do {
+            let (localURL, response) = try await URLSession.shared.download(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                failed = true
+                return
+            }
+            // 401 retry: clear stale credentials and retry once with refreshed token
+            if http.statusCode == 401 {
+                try? FileManager.default.removeItem(at: localURL)
+                ActorTokenManager.deleteAllCredentials()
+                var retryRequest = URLRequest(url: url)
+                if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
+                    retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+                }
+                let (retryLocalURL, retryResponse) = try await URLSession.shared.download(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                    try? FileManager.default.removeItem(at: retryLocalURL)
+                    failed = true
+                    return
+                }
+                let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+                try FileManager.default.moveItem(at: retryLocalURL, to: tmpFile)
+                tempFileURL = tmpFile
+                player = AVPlayer(url: tmpFile)
+                return
+            }
+            guard (200...299).contains(http.statusCode) else {
+                try? FileManager.default.removeItem(at: localURL)
+                failed = true
+                return
+            }
+            let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+            try FileManager.default.moveItem(at: localURL, to: tmpFile)
+            tempFileURL = tmpFile
+            player = AVPlayer(url: tmpFile)
+        } catch {
+            failed = true
+        }
+    }
+
+    private func cleanupTempFile() {
+        if let tempFileURL {
+            try? FileManager.default.removeItem(at: tempFileURL)
+        }
+        tempFileURL = nil
     }
 }
 #endif
