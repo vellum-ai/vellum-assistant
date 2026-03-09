@@ -613,7 +613,7 @@ private struct StepDetailRow: View {
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered && hasDetails ? Moss._100 : .clear)
+                    .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
             )
             .padding(.horizontal, VSpacing.sm)
             .onHover { isHovered = $0 }
