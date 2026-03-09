@@ -191,10 +191,15 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       policyKey: "skills",
       handler: async ({ req }) => {
         const body = (await req.json()) as CreateSkillParams;
-        if (!body.skillId || !body.name || !body.bodyMarkdown) {
+        if (
+          !body.skillId ||
+          !body.name ||
+          !body.description ||
+          !body.bodyMarkdown
+        ) {
           return httpError(
             "BAD_REQUEST",
-            "skillId, name, and bodyMarkdown are required",
+            "skillId, name, description, and bodyMarkdown are required",
             400,
           );
         }
@@ -228,7 +233,17 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       handler: async ({ params }) => {
         const result = await inspectSkill(params.id, ctx());
         if (result.error && !result.data) {
-          return httpError("NOT_FOUND", result.error, 404);
+          if (result.error.startsWith("Invalid skill slug:")) {
+            return httpError("BAD_REQUEST", result.error, 400);
+          }
+          if (
+            /not found|does not exist|no such skill|unknown skill/i.test(
+              result.error,
+            )
+          ) {
+            return httpError("NOT_FOUND", result.error, 404);
+          }
+          return httpError("INTERNAL_ERROR", result.error, 500);
         }
         return Response.json(result);
       },
