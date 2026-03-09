@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 import {
   createMessageParser,
   serialize,
-} from "../../../daemon/ipc-protocol.js";
+} from "../../../daemon/message-protocol.js";
 import { getSocketPath, readSessionToken } from "../../../util/platform.js";
 import {
   getBookmarks,
@@ -312,7 +312,7 @@ Examples:
           {
             type: "twitter_integration_config",
             action: "get",
-          } as import("../../../daemon/ipc-protocol.js").ClientMessage,
+          } as import("../../../daemon/message-protocol.js").ClientMessage,
           "twitter_integration_config_response",
         );
         const r = daemonResponse as Record<string, unknown>;
@@ -378,7 +378,7 @@ Examples:
           {
             type: "twitter_integration_config",
             action: "get_strategy",
-          } as import("../../../daemon/ipc-protocol.js").ClientMessage,
+          } as import("../../../daemon/message-protocol.js").ClientMessage,
           "twitter_integration_config_response",
         );
         const r = daemonResponse as Record<string, unknown>;
@@ -415,7 +415,7 @@ Examples:
             type: "twitter_integration_config",
             action: "set_strategy",
             strategy: value,
-          } as import("../../../daemon/ipc-protocol.js").ClientMessage,
+          } as import("../../../daemon/message-protocol.js").ClientMessage,
           "twitter_integration_config_response",
         );
         const r = daemonResponse as Record<string, unknown>;
@@ -882,7 +882,7 @@ Examples:
 // ---------------------------------------------------------------------------
 
 function sendDaemonMessage(
-  message: import("../../../daemon/ipc-protocol.js").ClientMessage,
+  message: import("../../../daemon/message-protocol.js").ClientMessage,
   expectedResponseType: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -963,7 +963,7 @@ function sendDaemonMessage(
           serialize({
             type: "auth",
             token: sessionToken,
-          } as unknown as import("../../../daemon/ipc-protocol.js").ClientMessage),
+          } as unknown as import("../../../daemon/message-protocol.js").ClientMessage),
         );
       } else {
         sendPayload();
@@ -1073,7 +1073,7 @@ async function startLearnSession(
           intervalSeconds: 5,
           mode: "learn",
           targetDomain: "x.com",
-        } as unknown as import("../../../daemon/ipc-protocol.js").ClientMessage),
+        } as unknown as import("../../../daemon/message-protocol.js").ClientMessage),
       );
     };
 
@@ -1122,7 +1122,7 @@ async function startLearnSession(
           serialize({
             type: "auth",
             token: sessionToken,
-          } as unknown as import("../../../daemon/ipc-protocol.js").ClientMessage),
+          } as unknown as import("../../../daemon/message-protocol.js").ClientMessage),
         );
       } else {
         sendStartCommand();

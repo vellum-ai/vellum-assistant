@@ -21,7 +21,7 @@ import {
 } from "../tools/watch/watch-state.js";
 import { getLogger } from "../util/logger.js";
 import type { HandlerContext } from "./handlers/shared.js";
-import type { RideShotgunStart, RideShotgunStop } from "./ipc-protocol.js";
+import type { RideShotgunStart, RideShotgunStop } from "./message-protocol.js";
 import { generateSummary, lastSummaryBySession } from "./watch-handler.js";
 
 const log = getLogger("ride-shotgun-handler");

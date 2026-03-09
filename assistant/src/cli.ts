@@ -17,7 +17,7 @@ import {
   createMessageParser,
   serialize,
   type ServerMessage,
-} from "./daemon/ipc-protocol.js";
+} from "./daemon/message-protocol.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import {
   copyToClipboard,

@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

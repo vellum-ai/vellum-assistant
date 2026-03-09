@@ -330,7 +330,7 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
         const ipcSrc = readFileSync(
-          resolve(thisDir, "../daemon/ipc-protocol.ts"),
+          resolve(thisDir, "../daemon/message-protocol.ts"),
           "utf-8",
         );
         // Verify log calls never include raw content fields — only safe

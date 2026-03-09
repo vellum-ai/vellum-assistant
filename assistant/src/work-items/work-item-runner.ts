@@ -6,7 +6,7 @@
  * work item execution without needing direct access to HandlerContext.
  */
 
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Session } from "../daemon/session.js";
 import { runTask } from "../tasks/task-runner.js";
 import { getTask } from "../tasks/task-store.js";

@@ -9,7 +9,7 @@ import { initializeProviders } from "../../providers/registry.js";
 import type {
   ImageGenModelSetRequest,
   ModelSetRequest,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { MODEL_TO_PROVIDER } from "../session-slash.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,

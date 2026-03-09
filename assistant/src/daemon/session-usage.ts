@@ -9,7 +9,7 @@ import type {
 } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
-import type { ServerMessage, UsageStats } from "./ipc-protocol.js";
+import type { ServerMessage, UsageStats } from "./message-protocol.js";
 
 const log = getLogger("session-usage");
 

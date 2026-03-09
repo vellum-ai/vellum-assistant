@@ -77,7 +77,7 @@ import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
-} from "./ipc-protocol.js";
+} from "./message-protocol.js";
 import {
   createEventHandlerState,
   dispatchAgentEvent,
@@ -237,11 +237,11 @@ export interface AgentLoopSessionContext {
     statusText?: string,
   ): void;
   emitConfirmationStateChanged(
-    params: import("./ipc-contract/messages.js").ConfirmationStateChanged extends {
+    params: import("./message-types/messages.js").ConfirmationStateChanged extends {
       type: infer _;
     }
       ? Omit<
-          import("./ipc-contract/messages.js").ConfirmationStateChanged,
+          import("./message-types/messages.js").ConfirmationStateChanged,
           "type"
         >
       : never,

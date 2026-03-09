@@ -7,8 +7,8 @@ import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ConfirmationResponse,
   UserMessage,
-} from "../daemon/ipc-protocol.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+} from "../daemon/message-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 const routeGuardianReplyMock = mock(async () => ({

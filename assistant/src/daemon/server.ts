@@ -57,7 +57,7 @@ import type {
   SessionCreateOptions,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import {
   DEFAULT_MEMORY_POLICY,
   Session,

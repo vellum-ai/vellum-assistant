@@ -23,8 +23,8 @@ import {
   expandSnippets,
 } from "../../daemon/dictation-text-processing.js";
 import { detectDictationModeHeuristic } from "../../daemon/handlers/dictation.js";
-import type { DictationRequest } from "../../daemon/ipc-contract/diagnostics.js";
-import type { DictationContext } from "../../daemon/ipc-contract/shared.js";
+import type { DictationRequest } from "../../daemon/message-types/diagnostics.js";
+import type { DictationContext } from "../../daemon/message-types/shared.js";
 import { getDb } from "../../memory/db.js";
 import {
   llmRequestLogs,

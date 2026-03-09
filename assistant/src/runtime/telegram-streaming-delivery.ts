@@ -1,4 +1,4 @@
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getLogger } from "../util/logger.js";
 import type { ApprovalUIMetadata } from "./channel-approval-types.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";

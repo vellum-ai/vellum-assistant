@@ -1,6 +1,6 @@
 /**
  * Minimal IPC serialization/parsing for daemon communication.
- * Inlined from assistant/src/daemon/ipc-protocol.ts (stripped of type dependencies).
+ * Inlined from assistant/src/daemon/message-protocol.ts (stripped of type dependencies).
  */
 
 export function serialize(msg: Record<string, unknown>): string {

@@ -12,7 +12,7 @@ import {
 import type { ScopePolicyOverride } from "../memory/search/types.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { ConflictGate } from "./session-conflict-gate.js";
 import { injectDynamicProfileIntoUserMessage } from "./session-dynamic-profile.js";
 

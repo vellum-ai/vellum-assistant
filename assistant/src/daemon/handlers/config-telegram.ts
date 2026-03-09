@@ -23,7 +23,7 @@ import {
 import type {
   TelegramConfigRequest,
   TelegramConfigResponse,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =

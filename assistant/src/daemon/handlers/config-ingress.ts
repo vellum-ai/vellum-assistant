@@ -21,7 +21,7 @@ import {
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
-import type { IngressConfigRequest } from "../ipc-protocol.js";
+import type { IngressConfigRequest } from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   defineHandlers,

@@ -49,7 +49,7 @@ import type {
   SkillsSearchRequest,
   SkillsUninstallRequest,
   SkillsUpdateRequest,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   defineHandlers,

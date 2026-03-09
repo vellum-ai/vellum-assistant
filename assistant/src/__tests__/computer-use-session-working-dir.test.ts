@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { CuObservation } from "../daemon/ipc-protocol.js";
+import type { CuObservation } from "../daemon/message-protocol.js";
 import type { Provider } from "../providers/types.js";
 
 let capturedWorkingDir: string | undefined;

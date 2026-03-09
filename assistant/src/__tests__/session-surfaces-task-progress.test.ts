@@ -8,7 +8,7 @@ import type {
   SurfaceType,
   UiSurfaceShow,
   UiSurfaceUpdate,
-} from "../daemon/ipc-protocol.js";
+} from "../daemon/message-protocol.js";
 import {
   createSurfaceMutex,
   surfaceProxyResolver,

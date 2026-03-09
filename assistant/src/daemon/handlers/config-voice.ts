@@ -1,6 +1,6 @@
 import * as net from "node:net";
 
-import type { VoiceConfigUpdateRequest } from "../ipc-contract/settings.js";
+import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 /**

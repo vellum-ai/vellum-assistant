@@ -24,7 +24,7 @@ import {
   resolveDirectives,
   validateDrafts,
 } from "./assistant-attachments.js";
-import type { UserMessageAttachment } from "./ipc-protocol.js";
+import type { UserMessageAttachment } from "./message-protocol.js";
 import { generateVideoThumbnail } from "./video-thumbnail.js";
 
 const log = getLogger("session-attachments");

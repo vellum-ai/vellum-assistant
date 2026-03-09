@@ -9,7 +9,7 @@ import {
   uploadFileBackedAttachment,
 } from "../../memory/attachments-store.js";
 import { addMessage } from "../../memory/conversation-crud.js";
-import type { RecordingOptions, RecordingStatus } from "../ipc-protocol.js";
+import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import {
   defineHandlers,
   type HandlerContext,

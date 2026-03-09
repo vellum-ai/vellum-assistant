@@ -10,7 +10,7 @@ import {
 import type {
   ApprovedDeviceRemove,
   PairingApprovalResponse,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import type { PairingStore } from "../pairing-store.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 

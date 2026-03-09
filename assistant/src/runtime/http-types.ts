@@ -6,8 +6,8 @@ import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type {
   SurfaceData,
   SurfaceType,
-} from "../daemon/ipc-contract/surfaces.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+} from "../daemon/message-types/surfaces.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {

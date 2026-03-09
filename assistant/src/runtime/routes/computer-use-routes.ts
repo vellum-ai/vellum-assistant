@@ -11,8 +11,8 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { ComputerUseSession } from "../../daemon/computer-use-session.js";
-import type { CuObservation } from "../../daemon/ipc-protocol.js";
-import type { ServerMessage } from "../../daemon/ipc-protocol.js";
+import type { CuObservation } from "../../daemon/message-protocol.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { RateLimitProvider } from "../../providers/ratelimit.js";
 import { getFailoverProvider } from "../../providers/registry.js";
 import { getLogger } from "../../util/logger.js";

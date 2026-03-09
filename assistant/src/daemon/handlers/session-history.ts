@@ -17,7 +17,7 @@ import type {
   HistoryRequest,
   MessageContentRequest,
   UserMessageAttachment,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { generateVideoThumbnail } from "../video-thumbnail.js";
 import {
   type HandlerContext,

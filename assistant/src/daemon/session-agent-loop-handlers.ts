@@ -26,7 +26,7 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { AgentLoopSessionContext } from "./session-agent-loop.js";
 import {
   buildSessionErrorMessage,

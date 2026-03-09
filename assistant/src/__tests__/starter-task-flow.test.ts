@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage, SurfaceType } from "../daemon/ipc-protocol.js";
+import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
 
 mock.module("../memory/app-store.js", () => ({
   getApp: (id: string) => {

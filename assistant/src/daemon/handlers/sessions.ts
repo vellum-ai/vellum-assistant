@@ -49,8 +49,8 @@ import type {
   SessionSwitchRequest,
   UndoRequest,
   UsageRequest,
-} from "../ipc-protocol.js";
-import { normalizeThreadType } from "../ipc-protocol.js";
+} from "../message-protocol.js";
+import { normalizeThreadType } from "../message-protocol.js";
 import type { Session } from "../session.js";
 import {
   buildSessionErrorMessage,
