@@ -470,6 +470,9 @@ public extension Surface {
         guard let surfaceType = SurfaceType(rawValue: message.surfaceType) else {
             return nil
         }
+        guard let sessionId = message.sessionId else {
+            return nil
+        }
 
         let dict = message.data.value as? [String: Any?] ?? [:]
 
@@ -488,7 +491,7 @@ public extension Surface {
 
         return Surface(
             id: message.surfaceId,
-            sessionId: message.sessionId,
+            sessionId: sessionId,
             type: surfaceType,
             title: message.title,
             data: surfaceData,
