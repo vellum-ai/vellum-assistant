@@ -47,16 +47,16 @@ import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type {
-  AssistantActivityState,
-  ConfirmationStateChanged,
-} from "./message-types/messages.js";
-import type {
   ServerMessage,
   SurfaceData,
   SurfaceType,
   UsageStats,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type {
+  AssistantActivityState,
+  ConfirmationStateChanged,
+} from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
 import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";

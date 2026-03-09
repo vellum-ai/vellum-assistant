@@ -92,9 +92,9 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
+import { handleRideShotgunStart, handleRideShotgunStop } from "./ride-shotgun-handler.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
-import { handleRideShotgunStart, handleRideShotgunStop } from "./ride-shotgun-handler.js";
 import { initSlashPairingContext } from "./session-slash.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { handleWatchObservation } from "./watch-handler.js";

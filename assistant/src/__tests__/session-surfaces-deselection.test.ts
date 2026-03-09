@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type {
   ListSurfaceData,
   TableColumn,
   TableRow,
   TableSurfaceData,
 } from "../daemon/message-types/surfaces.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import {
   buildDeselectionDescription,
   describeTableRow,
