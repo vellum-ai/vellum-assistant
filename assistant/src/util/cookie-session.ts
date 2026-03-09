@@ -1,85 +1,71 @@
 /**
  * Shared cookie-session persistence primitive.
- * Provides session CRUD, cookie header building, and recording import
- * logic reusable across providers (Amazon, Twitter, etc.).
+ * Provides session CRUD and recording import logic reusable across
+ * providers (Amazon, Twitter, etc.).
+ *
+ * Sessions are stored in the encrypted credential store under keys of the
+ * form `credential:<providerKey>:session:cookies`.
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 
+import {
+  deleteSecureKey,
+  getSecureKey,
+  setSecureKey,
+} from "../security/secure-keys.js";
 import type {
   ExtractedCredential,
   SessionRecording,
 } from "../tools/browser/network-recording-types.js";
 import { ConfigError } from "./errors.js";
-import { getDataDir } from "./platform.js";
 
 export interface CookieSession {
   cookies: ExtractedCredential[];
-  importedAt: string;
-  recordingId?: string;
-}
-
-export interface CookieSessionStore {
-  loadSession(): CookieSession | null;
-  saveSession(session: CookieSession): void;
-  clearSession(): void;
-  getCookieHeader(session: CookieSession): string;
 }
 
 /**
  * Factory that returns session CRUD operations scoped to a provider-specific
- * data directory (e.g. `~/.vellum/workspace/data/<providerKey>/session.json`).
+ * credential store key (`credential:<providerKey>:session:cookies`).
  */
-export function createSessionStore(providerKey: string): CookieSessionStore {
-  function getSessionDir(): string {
-    return join(getDataDir(), providerKey);
-  }
-
-  function getSessionPath(): string {
-    return join(getSessionDir(), "session.json");
-  }
+export function createSessionStore(providerKey: string): {
+  loadSession(): CookieSession | null;
+  saveSession(session: CookieSession): void;
+  clearSession(): void;
+} {
+  const credentialKey = `credential:${providerKey}:session:cookies`;
 
   function loadSession(): CookieSession | null {
-    const path = getSessionPath();
-    if (!existsSync(path)) return null;
+    const raw = getSecureKey(credentialKey);
+    if (raw === undefined) return null;
     try {
-      return JSON.parse(readFileSync(path, "utf-8")) as CookieSession;
+      const parsed = JSON.parse(raw) as ExtractedCredential[];
+      return { cookies: parsed };
     } catch {
       return null;
     }
   }
 
   function saveSession(session: CookieSession): void {
-    const dir = getSessionDir();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const path = getSessionPath();
-    writeFileSync(path, JSON.stringify(session, null, 2), {
-      mode: 0o600,
-    });
-    // writeFileSync mode only applies to newly created files; enforce on existing ones too
-    chmodSync(path, 0o600);
-  }
-
-  function clearSession(): void {
-    const path = getSessionPath();
-    if (existsSync(path)) {
-      unlinkSync(path);
+    const ok = setSecureKey(credentialKey, JSON.stringify(session.cookies));
+    if (!ok) {
+      throw new ConfigError(
+        `Failed to save session for provider "${providerKey}"`,
+      );
     }
   }
 
-  function getCookieHeader(session: CookieSession): string {
-    return session.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+  function clearSession(): void {
+    const result = deleteSecureKey(credentialKey);
+    // No-op if result is "not-found" — clearing a non-existent session is fine
+    if (result === "error") {
+      throw new ConfigError(
+        `Failed to clear session for provider "${providerKey}"`,
+      );
+    }
   }
 
-  return { loadSession, saveSession, clearSession, getCookieHeader };
+  return { loadSession, saveSession, clearSession };
 }
 
 /**
@@ -108,7 +94,5 @@ export function importFromRecordingBase(
 
   return {
     cookies: recording.cookies,
-    importedAt: new Date().toISOString(),
-    recordingId: recording.id,
   };
 }
