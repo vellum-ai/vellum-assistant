@@ -171,11 +171,6 @@ struct AssistantProgressView: View {
             if isExpanded {
                 expandedContent
                     .padding(.bottom, VSpacing.xs)
-
-                // Permission chips at bottom of expanded list
-                permissionChips
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.sm)
             }
 
             // Code preview (streaming code phase)
@@ -382,20 +377,6 @@ struct AssistantProgressView: View {
                         .padding(.horizontal, VSpacing.lg)
                 } else {
                     StepDetailRow(toolCall: toolCall, phase: phase, onRehydrate: onRehydrate)
-                }
-            }
-        }
-    }
-
-    // MARK: - Permission Chips
-
-    @ViewBuilder
-    private var permissionChips: some View {
-        let resolved = decidedConfirmations.filter { $0.state != .pending }
-        if !resolved.isEmpty {
-            FlowLayout(spacing: VSpacing.xs) {
-                ForEach(Array(resolved.enumerated()), id: \.offset) { _, confirmation in
-                    compactPermissionChip(confirmation)
                 }
             }
         }
@@ -923,64 +904,6 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
                 value: isPulsing
             )
             .onAppear { isPulsing = true }
-    }
-}
-
-// MARK: - Flow Layout
-
-/// A simple wrapping layout that arranges children left-to-right and wraps
-/// to the next row when the available width is exceeded.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = VSpacing.xs
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
-        let height = rows.enumerated().reduce(CGFloat.zero) { total, pair in
-            let rowHeight = pair.element.map(\.size.height).max() ?? 0
-            return total + rowHeight + (pair.offset > 0 ? spacing : 0)
-        }
-        let width: CGFloat = proposal.width ?? rows.map { row in
-            row.enumerated().reduce(CGFloat.zero) { total, pair in
-                total + pair.element.size.width + (pair.offset > 0 ? spacing : 0)
-            }
-        }.max() ?? 0
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
-        var y = bounds.minY
-        for row in rows {
-            let rowHeight = row.map(\.size.height).max() ?? 0
-            var x = bounds.minX
-            for item in row {
-                item.subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
-                x += item.size.width + spacing
-            }
-            y += rowHeight + spacing
-        }
-    }
-
-    private struct LayoutItem {
-        let subview: LayoutSubview
-        let size: CGSize
-    }
-
-    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutItem]] {
-        let maxWidth = proposal.width ?? .infinity
-        var rows: [[LayoutItem]] = [[]]
-        var rowWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            let needed = rowWidth > 0 ? size.width + spacing : size.width
-            if rowWidth + needed > maxWidth && !rows[rows.count - 1].isEmpty {
-                rows.append([])
-                rowWidth = 0
-            }
-            rows[rows.count - 1].append(LayoutItem(subview: subview, size: size))
-            rowWidth += rowWidth > 0 ? size.width + spacing : size.width
-        }
-        return rows
     }
 }
 
