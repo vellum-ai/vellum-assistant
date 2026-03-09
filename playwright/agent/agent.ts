@@ -46,6 +46,9 @@ Rules:
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
 - You have a strict 5-minute time limit and a limited iteration budget. Work efficiently.
 
+Status overlay:
+- Every tool call includes an optional "summary" field. ALWAYS provide a short, human-readable summary of what the tool call does (e.g. "Click Sign In button", "Dump accessibility tree", "Wait 3s for app to load"). This is displayed in a status overlay during test runs.
+
 Efficiency guidelines (CRITICAL — work as fast as possible):
 - Combine multiple actions in a single applescript call when possible (e.g., dump the tree AND click a button in one script).
 - Do NOT dump the full accessibility tree every single time. Dump it once when you first encounter a new screen, then reference the elements you found. Only re-dump if your element reference fails.
@@ -277,8 +280,11 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       const seconds = elapsedSec % 60;
       const elapsedStr = `${minutes}:${String(seconds).padStart(2, "0")}`;
 
-      const inputStr = JSON.stringify(block.input);
-      const summaryText = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
+      const toolInput = block.input as Record<string, unknown>;
+      const summaryText =
+        typeof toolInput.summary === "string" && toolInput.summary
+          ? toolInput.summary
+          : block.name;
 
       writeE2EStatus(statusFilePath, {
         iteration: iteration + 1,
