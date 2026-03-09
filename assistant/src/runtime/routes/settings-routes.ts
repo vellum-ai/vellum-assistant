@@ -122,14 +122,17 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
 // Client settings update (generic)
 // ---------------------------------------------------------------------------
 
+const SUPPORTED_CLIENT_SETTINGS_KEYS = new Set(["activationKey"]);
+
 function handleClientSettingsUpdate(key: string, value: string): Response {
-  // The HTTP route accepts key/value pairs for client settings.
-  // Validation is key-specific.
   if (key === "activationKey") {
     return handleVoiceConfigUpdate(value);
   }
-  // For other keys, accept as-is
-  return Response.json({ ok: true, key, value });
+  return httpError(
+    "BAD_REQUEST",
+    `Unsupported client setting key: "${key}". Supported keys: ${[...SUPPORTED_CLIENT_SETTINGS_KEYS].join(", ")}`,
+    400,
+  );
 }
 
 // ---------------------------------------------------------------------------
