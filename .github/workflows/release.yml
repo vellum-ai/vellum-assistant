@@ -1018,9 +1018,6 @@ jobs:
           cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" daemon-bin/templates
           rm -rf daemon-bin/hook-templates
           cp -R "$ASSISTANT_SRC_DIR/hook-templates" daemon-bin/hook-templates
-          rm -rf daemon-bin/prebuilt
-          mkdir -p daemon-bin/prebuilt
-          cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" daemon-bin/prebuilt/
 
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)

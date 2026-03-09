@@ -394,9 +394,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `app_preview_response` message.
     public var onAppPreviewResponse: ((AppPreviewResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `home_base_get_response` message.
-    public var onHomeBaseGetResponse: ((HomeBaseGetResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `shared_apps_list_response` message.
     public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
@@ -1417,11 +1414,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Restore an app to a previous version.
     public func sendAppRestore(appId: String, commitHash: String) throws {
         try send(IPCAppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
-    }
-
-    /// Request Home Base metadata from the daemon.
-    public func sendHomeBaseGet(ensureLinked: Bool = true) throws {
-        try send(HomeBaseGetRequestMessage(ensureLinked: ensureLinked))
     }
 
     /// Request bundling an app for sharing.

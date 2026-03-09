@@ -31,29 +31,6 @@ extension MainWindowView {
                 activeSessionId: threadManager.activeViewModel?.sessionId,
                 onClose: { windowState.selection = nil }
             )
-        case .directory:
-            HomeBaseContainerView(
-                daemonClient: daemonClient,
-                onBack: { windowState.selection = nil },
-                onOpenApp: { surfaceMsg in
-                    windowState.activeDynamicSurface = surfaceMsg
-                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                    if let surface = windowState.activeDynamicParsedSurface,
-                       case .dynamicPage(let dpData) = surface.data,
-                       let appId = dpData.appId {
-                        windowState.selection = .app(appId)
-                    } else {
-                        windowState.selection = .app(surfaceMsg.surfaceId)
-                    }
-                },
-                onRecordAppOpen: { id, name, icon, appType in
-                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                },
-                onPinApp: { id, name, icon, appType in
-                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                    appListManager.pinApp(id: id)
-                }
-            )
         case .generated:
             GeneratedPanel(
                 onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
@@ -147,7 +124,7 @@ extension MainWindowView {
                     }
                     // Route relay_prompt actions directly as chat messages so they
                     // reach the active session instead of being lost when the surface
-                    // was opened outside a session context (e.g. home base via app_open).
+                    // was opened outside a session context (e.g. via app_open).
                     if actionId == "relay_prompt" || actionId == "agent_prompt",
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
@@ -285,74 +262,7 @@ extension MainWindowView {
                 .id(appId)
             }
         case .panel(let panelType):
-            if panelType == .directory {
-                if isAppChatOpen {
-                    // VSplitView: ChatView (left) + Home Base (right)
-                    VSplitView(
-                        panelWidth: clampedPanelWidth(geometry: geometry),
-                        showPanel: true,
-                        mainBackground: VColor.chatBackground,
-                        mainCornerRadius: 0,
-                        main: {
-                            chatView
-                        },
-                        panel: {
-                            HomeBaseContainerView(
-                                daemonClient: daemonClient,
-                                onBack: { windowState.dismissOverlay() },
-                                onOpenApp: { surfaceMsg in
-                                    windowState.activeDynamicSurface = surfaceMsg
-                                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                                    if let surface = windowState.activeDynamicParsedSurface,
-                                       case .dynamicPage(let dpData) = surface.data,
-                                       let appId = dpData.appId {
-                                        windowState.selection = .app(appId)
-                                    } else {
-                                        windowState.selection = .app(surfaceMsg.surfaceId)
-                                    }
-                                },
-                                onRecordAppOpen: { id, name, icon, appType in
-                                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                                },
-                                onPinApp: { id, name, icon, appType in
-                                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                                    appListManager.pinApp(id: id)
-                                }
-                            )
-                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
-                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
-                        }
-                    )
-                    .onAppear {
-                        threadManager.ensureActiveThread()
-                    }
-                } else {
-                    HomeBaseContainerView(
-                        daemonClient: daemonClient,
-                        onBack: { windowState.dismissOverlay() },
-                        onOpenApp: { surfaceMsg in
-                            windowState.activeDynamicSurface = surfaceMsg
-                            windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                            if let surface = windowState.activeDynamicParsedSurface,
-                               case .dynamicPage(let dpData) = surface.data,
-                               let appId = dpData.appId {
-                                windowState.selection = .app(appId)
-                            } else {
-                                windowState.selection = .app(surfaceMsg.surfaceId)
-                            }
-                        },
-                        onRecordAppOpen: { id, name, icon, appType in
-                            appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                        },
-                        onPinApp: { id, name, icon, appType in
-                            appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                            appListManager.pinApp(id: id)
-                        }
-                    )
-                    .overlay(alignment: .topTrailing) { panelDismissButton }
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
-                }
-            } else if panelType == .apps {
+            if panelType == .apps {
                 AppsGridView(
                     appListManager: appListManager,
                     daemonClient: daemonClient,
@@ -1001,7 +911,7 @@ struct DynamicWorkspaceWrapper: View {
                             }
                             // Route relay_prompt actions directly as chat messages so they
                             // reach the active session instead of being lost when the surface
-                            // was opened outside a session context (e.g. home base via app_open).
+                            // was opened outside a session context (e.g. via app_open).
                             if actionId == "relay_prompt" || actionId == "agent_prompt",
                                let dataDict = actionData as? [String: Any],
                                let prompt = dataDict["prompt"] as? String,

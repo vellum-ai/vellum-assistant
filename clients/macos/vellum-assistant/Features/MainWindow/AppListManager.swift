@@ -194,7 +194,7 @@ final class AppListManager: ObservableObject {
 
     /// Sync apps from the daemon's authoritative list into the local sidebar list.
     /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
-    /// Removes local apps the daemon no longer reports (e.g. filtered Home Base).
+    /// Removes local apps the daemon no longer reports.
     /// Always propagates daemon descriptions to existing apps when they differ.
     func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
         let existingIds = Set(apps.map(\.id))

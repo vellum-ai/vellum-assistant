@@ -170,7 +170,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "brain-graph", scopes: ["settings.read"] },
   { endpoint: "brain-graph-ui", scopes: ["settings.read"] },
-  { endpoint: "home-base-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },
   { endpoint: "contacts:POST", scopes: ["settings.write"] },
   { endpoint: "contacts:DELETE", scopes: ["settings.write"] },
@@ -408,9 +407,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
   { endpoint: "integrations/twitter/auth/start", scopes: ["settings.write"] },
   { endpoint: "integrations/twitter/auth/status", scopes: ["settings.read"] },
-
-  // Home base
-  { endpoint: "home-base", scopes: ["settings.read"] },
 
   // Workspace files (IPC-migrated)
   { endpoint: "workspace-files", scopes: ["settings.read"] },

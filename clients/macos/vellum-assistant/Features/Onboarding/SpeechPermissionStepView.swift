@@ -15,7 +15,7 @@ struct SpeechPermissionStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
-                Text("Skip microphone setup during first-run. You can enable voice mode later from the Home Base task card when you want it.")
+                Text("Skip microphone setup during first-run. You can enable voice mode later from the Settings panel when you want it.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
@@ -31,7 +31,7 @@ struct SpeechPermissionStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
-                Text("Home Base task: Enable voice mode. Permission requests happen only after you explicitly choose that task.")
+                Text("Permission requests happen only after you explicitly enable voice mode in Settings.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)
