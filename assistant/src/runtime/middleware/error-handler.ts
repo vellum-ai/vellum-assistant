@@ -32,9 +32,10 @@ export async function withErrorHandling(
     }
     if (err instanceof ProviderNotConfiguredError) {
       log.warn({ err, endpoint }, "No LLM provider configured");
+      const envVar = `${err.requestedProvider.toUpperCase()}_API_KEY`;
       return httpError(
         "UNPROCESSABLE_ENTITY",
-        "No API key configured. Add ANTHROPIC_API_KEY to ~/.vellum/.env or run `vellum hatch` to set up your assistant.",
+        `No API key configured. Set ${envVar} in your environment or run \`vellum hatch\` to set up your assistant.`,
         422,
       );
     }
