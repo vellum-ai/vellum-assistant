@@ -234,14 +234,14 @@ describe("multi-local", () => {
     });
   });
 
-  describe("removeAssistantEntry() clears matching activeAssistant", () => {
-    test("set active to foo, remove foo, verify active is null", () => {
+  describe("removeAssistantEntry() reassigns activeAssistant on removal", () => {
+    test("set active to foo, remove foo, verify active is reassigned to bar", () => {
       writeLockfile({
         assistants: [makeEntry("foo"), makeEntry("bar")],
         activeAssistant: "foo",
       });
       removeAssistantEntry("foo");
-      expect(getActiveAssistant()).toBeNull();
+      expect(getActiveAssistant()).toBe("bar");
     });
 
     test("set active to foo, remove bar, verify active is still foo", () => {
