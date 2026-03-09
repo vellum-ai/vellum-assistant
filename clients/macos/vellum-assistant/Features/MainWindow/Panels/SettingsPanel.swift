@@ -282,11 +282,7 @@ struct SettingsPanel: View {
                 SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
             }
         case .sentryTesting:
-            if MacOSClientFeatureFlagManager.shared.isEnabled("sentry_testing_enabled") {
-                SettingsDebugTab(store: store)
-            } else {
-                SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
-            }
+            SettingsDebugTab()
         }
     }
 

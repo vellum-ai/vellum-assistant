@@ -2,13 +2,11 @@ import SwiftUI
 @preconcurrency import Sentry
 import VellumAssistantShared
 
-/// Debug settings tab — provides buttons to trigger various Sentry event types
+/// Sentry testing tab — provides buttons to trigger various Sentry event types
 /// for validating that the Sentry DSN is receiving reports correctly.
-/// Only visible when dev mode is enabled.
+/// Only visible when the `sentry_testing_enabled` feature flag is on.
 @MainActor
 struct SettingsDebugTab: View {
-    @ObservedObject var store: SettingsStore
-
     @State private var lastStatus: String?
     @State private var dismissTask: Task<Void, Never>?
     @State private var isSentryEnabled: Bool = true
@@ -112,6 +110,10 @@ struct SettingsDebugTab: View {
                 // Performance transaction
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Test Performance Transaction", style: .secondary) {
+                        guard isSentryEnabled else {
+                            showStatus("Sentry is disabled — transaction not sent.")
+                            return
+                        }
                         MetricKitManager.sentrySerialQueue.async {
                             guard SentrySDK.isEnabled else {
                                 Task { @MainActor in showStatus("Sentry is disabled — transaction not sent.") }
@@ -122,10 +124,12 @@ struct SettingsDebugTab: View {
                                 operation: "test.transaction"
                             )
                             transaction.finish()
-                            Task { @MainActor in showStatus("Performance transaction sent!") }
+                            Task { @MainActor in
+                                showStatus("Transaction finished (10% sample rate — may not appear in Sentry).")
+                            }
                         }
                     }
-                    Text("Starts and finishes a Sentry transaction to validate tracing.")
+                    Text("Starts and finishes a Sentry transaction. Only ~10% are sampled and sent.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
@@ -167,7 +171,7 @@ struct SettingsDebugTab: View {
 #Preview("SettingsDebugTab") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        SettingsDebugTab(store: SettingsStore())
+        SettingsDebugTab()
             .frame(width: 480)
             .padding()
     }
