@@ -32,31 +32,6 @@ If Team Jarvis has approved your new tool:
 2. Use `git commit --no-verify` to bypass the hook
 3. Include the approval context in your PR description
 
-## Directory Structure
-
-```
-tools/
-├── AGENTS.md              # This file
-├── types.ts               # Tool interface definitions
-├── registry.ts            # Tool registration machinery
-├── tool-manifest.ts       # Declarative list of registered tools
-├── shared/                # Shared utilities (not tools)
-└── <category>/            # Tool implementations by category
-    └── <tool>.ts          # Individual tool files
-```
-
-## Existing Tool Categories
-
-- `apps/` — App proxy tools
-- `assets/` — Asset management
-- `browser/` — Headless browser tools
-- `credentials/` — Credential management
-- `filesystem/` — File read/write/edit
-- `memory/` — Memory operations
-- `network/` — Web fetch and search
-- `skills/` — Skill management
-- `system/` — System settings and permissions
-- `terminal/` — Shell operations
 
 ## Questions?
 
