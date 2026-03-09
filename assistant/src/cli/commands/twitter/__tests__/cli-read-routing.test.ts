@@ -76,10 +76,6 @@ mock.module("../../../../twitter/platform-proxy-client.js", () => ({
   TwitterProxyError: MockTwitterProxyError,
 }));
 
-mock.module("../client.js", () => ({
-  // No browser functions needed — router no longer imports them
-}));
-
 mock.module("../oauth-client.js", () => ({
   oauthIsAvailable: () => false,
   oauthPostTweet: async () => {
