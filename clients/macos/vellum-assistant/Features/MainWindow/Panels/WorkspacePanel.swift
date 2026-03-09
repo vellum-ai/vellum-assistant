@@ -26,6 +26,8 @@ final class WorkspaceBrowserState {
     var showingNewFolderAlert = false
     var newItemName: String = ""
     var newItemParentPath: String = ""
+    var deleteConfirmPath: String?
+    var deleteConfirmName: String = ""
     var renamingPath: String? = nil
     var renamingText: String = ""
 
@@ -55,6 +57,34 @@ struct WorkspacePanel: View {
             state.fileLoadTask = nil
             state.isLoadingFile = false
         }
+        .alert(
+            "Delete \"\(state.deleteConfirmName)\"?",
+            isPresented: Binding(
+                get: { state.deleteConfirmPath != nil },
+                set: { if !$0 { state.deleteConfirmPath = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let path = state.deleteConfirmPath else { return }
+                let parentPath = parentDirectory(of: path)
+                Task {
+                    let success = await daemonClient.deleteWorkspaceItem(path: path)
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if state.selectedFilePath == path {
+                            state.selectedFilePath = nil
+                            state.selectedFileDetail = nil
+                            state.editableContent = ""
+                            state.originalContent = ""
+                            state.isDirty = false
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
+        }
     }
 
     private func loadRoot() async {
@@ -63,6 +93,12 @@ struct WorkspacePanel: View {
             state.directoryCache[""] = response.entries
         }
         state.isLoadingTree = false
+    }
+
+    private func parentDirectory(of path: String) -> String {
+        let components = path.split(separator: "/")
+        guard components.count > 1 else { return "" }
+        return components.dropLast().joined(separator: "/")
     }
 }
 
@@ -317,6 +353,13 @@ private struct WorkspaceTreeRow: View {
                 } label: {
                     Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
                 }
+                Divider()
+            }
+            Button(role: .destructive) {
+                state.deleteConfirmPath = entry.path
+                state.deleteConfirmName = entry.name
+            } label: {
+                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
             }
             Button {
                 state.renamingPath = entry.path
