@@ -17,8 +17,76 @@ final class AppListManager: ObservableObject {
         var lastOpenedAt: Date
         var isPinned: Bool = false
         var pinnedOrder: Int? = nil
-        /// SF Symbol name for the generated app icon (e.g., "chart.line.uptrend.xyaxis")
-        var sfSymbol: String? = nil
+        /// Lucide icon raw value for the generated app icon (e.g., "lucide-globe")
+        var lucideIcon: String? = nil
+
+        private enum CodingKeys: String, CodingKey {
+            case id, name, description, icon, previewBase64, appType, lastOpenedAt, isPinned, pinnedOrder
+            case lucideIcon
+            // Legacy key for backwards compatibility
+            case sfSymbol
+        }
+
+        init(
+            id: String,
+            name: String,
+            description: String? = nil,
+            icon: String? = nil,
+            previewBase64: String? = nil,
+            appType: String? = nil,
+            lastOpenedAt: Date,
+            isPinned: Bool = false,
+            pinnedOrder: Int? = nil,
+            lucideIcon: String? = nil
+        ) {
+            self.id = id
+            self.name = name
+            self.description = description
+            self.icon = icon
+            self.previewBase64 = previewBase64
+            self.appType = appType
+            self.lastOpenedAt = lastOpenedAt
+            self.isPinned = isPinned
+            self.pinnedOrder = pinnedOrder
+            self.lucideIcon = lucideIcon
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+            description = try container.decodeIfPresent(String.self, forKey: .description)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon)
+            previewBase64 = try container.decodeIfPresent(String.self, forKey: .previewBase64)
+            appType = try container.decodeIfPresent(String.self, forKey: .appType)
+            lastOpenedAt = try container.decode(Date.self, forKey: .lastOpenedAt)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+            pinnedOrder = try container.decodeIfPresent(Int.self, forKey: .pinnedOrder)
+
+            // Read new key first, fall back to legacy sfSymbol key
+            if let lucide = try container.decodeIfPresent(String.self, forKey: .lucideIcon) {
+                lucideIcon = lucide
+            } else if let legacy = try container.decodeIfPresent(String.self, forKey: .sfSymbol) {
+                // Migrate SF Symbol name → VIcon raw value
+                lucideIcon = SFSymbolMapping.icon(forSFSymbol: legacy)?.rawValue
+            } else {
+                lucideIcon = nil
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(name, forKey: .name)
+            try container.encodeIfPresent(description, forKey: .description)
+            try container.encodeIfPresent(icon, forKey: .icon)
+            try container.encodeIfPresent(previewBase64, forKey: .previewBase64)
+            try container.encodeIfPresent(appType, forKey: .appType)
+            try container.encode(lastOpenedAt, forKey: .lastOpenedAt)
+            try container.encode(isPinned, forKey: .isPinned)
+            try container.encodeIfPresent(pinnedOrder, forKey: .pinnedOrder)
+            try container.encodeIfPresent(lucideIcon, forKey: .lucideIcon)
+        }
     }
 
     @Published var apps: [AppItem] = []
@@ -78,8 +146,8 @@ final class AppListManager: ObservableObject {
             if let appType { apps[index].appType = appType }
             if let description { apps[index].description = description }
             // Auto-assign icon if this app doesn't have one yet
-            if apps[index].sfSymbol == nil {
-                apps[index].sfSymbol = VAppIconGenerator.generate(from: name, type: appType ?? apps[index].appType)
+            if apps[index].lucideIcon == nil {
+                apps[index].lucideIcon = VAppIconGenerator.generate(from: name, type: appType ?? apps[index].appType).rawValue
             }
         } else {
             var item = AppItem(
@@ -91,7 +159,7 @@ final class AppListManager: ObservableObject {
                 appType: appType,
                 lastOpenedAt: Date()
             )
-            item.sfSymbol = VAppIconGenerator.generate(from: name, type: appType)
+            item.lucideIcon = VAppIconGenerator.generate(from: name, type: appType).rawValue
             apps.append(item)
         }
         save()
@@ -157,7 +225,7 @@ final class AppListManager: ObservableObject {
                 appType: daemonApp.appType,
                 lastOpenedAt: Date(timeIntervalSince1970: TimeInterval(daemonApp.createdAt) / 1000.0)
             )
-            item.sfSymbol = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType)
+            item.lucideIcon = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType).rawValue
             apps.append(item)
             newCount += 1
         }
@@ -183,9 +251,9 @@ final class AppListManager: ObservableObject {
         save()
     }
 
-    func updateAppIcon(id: String, sfSymbol: String) {
+    func updateAppIcon(id: String, icon: VIcon) {
         guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
-        apps[index].sfSymbol = sfSymbol
+        apps[index].lucideIcon = icon.rawValue
         save()
     }
 
@@ -254,8 +322,8 @@ final class AppListManager: ObservableObject {
 
             // Migrate existing apps that don't have icons assigned yet
             var didMigrate = false
-            for index in apps.indices where apps[index].sfSymbol == nil {
-                apps[index].sfSymbol = VAppIconGenerator.generate(from: apps[index].name, type: apps[index].appType)
+            for index in apps.indices where apps[index].lucideIcon == nil {
+                apps[index].lucideIcon = VAppIconGenerator.generate(from: apps[index].name, type: apps[index].appType).rawValue
                 didMigrate = true
             }
             if didMigrate {

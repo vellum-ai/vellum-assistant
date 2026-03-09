@@ -139,7 +139,7 @@ extension MainWindowView {
     @ViewBuilder
     func sidebarPinnedAppRow(_ app: AppListManager.AppItem, isExpanded: Bool = true) -> some View {
         SidebarPrimaryRow(
-            icon: app.sfSymbol ?? "square.grid.2x2",
+            icon: app.lucideIcon ?? VIcon.layoutGrid.rawValue,
             label: app.name,
             isActive: isAppSurfaceActive(appId: app.id),
             isExpanded: isExpanded

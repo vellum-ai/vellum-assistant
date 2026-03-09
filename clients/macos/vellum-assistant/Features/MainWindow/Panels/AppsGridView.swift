@@ -69,9 +69,9 @@ struct AppsGridView: View {
         .sheet(item: $editingApp) { app in
             AppIconPickerSheet(
                 appName: app.name,
-                currentSymbol: resolvedIcon(for: app),
-                onSave: { symbol in
-                    appListManager.updateAppIcon(id: app.id, sfSymbol: symbol)
+                currentIcon: resolvedIcon(for: app),
+                onSave: { icon in
+                    appListManager.updateAppIcon(id: app.id, icon: icon)
                 }
             )
         }
@@ -151,7 +151,7 @@ struct AppsGridView: View {
 
     private func appCard(_ app: AppListManager.AppItem) -> some View {
         let isHovered = hoveredAppId == app.id
-        let iconSymbol = resolvedIcon(for: app)
+        let appIcon = resolvedIcon(for: app)
         let rawPreview = app.previewBase64 ?? previewCache[app.id]
         let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
@@ -179,8 +179,7 @@ struct AppsGridView: View {
                         ZStack {
                             Moss._100
 
-                            Image(systemName: iconSymbol)
-                                .font(.system(size: 32, weight: .medium))
+                            VIconView(appIcon, size: 32)
                                 .foregroundColor(VColor.textMuted)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
@@ -532,9 +531,9 @@ struct AppsGridView: View {
 
     // MARK: - Helpers
 
-    private func resolvedIcon(for app: AppListManager.AppItem) -> String {
-        if let symbol = app.sfSymbol {
-            return symbol
+    private func resolvedIcon(for app: AppListManager.AppItem) -> VIcon {
+        if let rawValue = app.lucideIcon, let icon = VIcon(rawValue: rawValue) {
+            return icon
         }
         return VAppIconGenerator.generate(from: app.name, type: app.appType)
     }
