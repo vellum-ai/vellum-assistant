@@ -816,6 +816,16 @@ export async function startGateway(
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
+  // Kill any existing gateway process before spawning a new one.
+  // Without this, crashed/stale gateways accumulate as zombies — the old
+  // process holds the port (or lingers after losing it), and every restart
+  // attempt spawns yet another process that fails with EADDRINUSE.
+  const gwPidDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  const gwPidFile = join(gwPidDir, "gateway.pid");
+  await stopProcessByPidFile(gwPidFile, "gateway");
+
   const publicUrl = await discoverPublicUrl(effectiveGatewayPort);
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
