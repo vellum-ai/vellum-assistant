@@ -3,8 +3,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  statSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -225,14 +223,6 @@ export function getEmbeddingModelsDir(): string {
 }
 
 /**
- * Returns the IPC blob directory (~/.vellum/workspace/data/ipc-blobs).
- * Temporary blob files for zero-copy IPC payloads live here.
- */
-export function getIpcBlobDir(): string {
-  return join(getDataDir(), "ipc-blobs");
-}
-
-/**
  * Returns the sandbox root directory (~/.vellum/data/sandbox).
  * Global sandbox state lives under this directory.
  */
@@ -351,28 +341,6 @@ export function readSessionToken(): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Remove a socket file only if it is actually a Unix socket.
- * Refuses to delete regular files, directories, etc. to prevent
- * accidental data loss.
- */
-export function removeSocketFile(socketPath: string): void {
-  if (!existsSync(socketPath)) return;
-  const stat = statSync(socketPath);
-  if (!stat.isSocket()) {
-    throw new Error(
-      `Refusing to remove ${socketPath}: not a Unix socket (found ${
-        stat.isFile()
-          ? "regular file"
-          : stat.isDirectory()
-            ? "directory"
-            : "non-socket"
-      })`,
-    );
-  }
-  unlinkSync(socketPath);
 }
 
 export function getPidPath(): string {
