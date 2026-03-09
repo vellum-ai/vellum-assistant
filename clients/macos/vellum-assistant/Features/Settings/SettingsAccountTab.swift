@@ -304,12 +304,11 @@ struct SettingsAccountTab: View {
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Picker("", selection: $selectedAssistantId) {
-                        ForEach(awakeAssistants, id: \.assistantId) { assistant in
-                            Text(assistant.assistantId).tag(assistant.assistantId)
-                        }
-                    }
-                    .labelsHidden()
+                    VDropdown(
+                        placeholder: "",
+                        selection: $selectedAssistantId,
+                        options: awakeAssistants.map { (label: $0.assistantId, value: $0.assistantId) }
+                    )
                     .frame(maxWidth: 200)
                 }
             }
