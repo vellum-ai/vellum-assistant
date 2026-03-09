@@ -52,6 +52,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { watchSessions } from "../tools/watch/watch-state.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -93,7 +94,6 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { handleRideShotgunStart, handleRideShotgunStop } from "./ride-shotgun-handler.js";
-import { watchSessions } from "../tools/watch/watch-state.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { initSlashPairingContext } from "./session-slash.js";
