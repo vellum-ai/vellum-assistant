@@ -893,7 +893,7 @@ while IFS= read -r -d '' FILE; do
         esac
 
         # Check if this is a new file (not a modification)
-        if ! git ls-files --error-unmatch "$FILE" >/dev/null 2>&1; then
+        if ! git cat-file -e HEAD:"$FILE" 2>/dev/null; then
             # New file — check if it contains tool registration patterns
             STAGED_CONTENT=$(git show ":$FILE" 2>/dev/null)
             if printf '%s\n' "$STAGED_CONTENT" | grep -qE '(implements[[:space:]]+Tool[^a-zA-Z]|registerTool\()'; then
