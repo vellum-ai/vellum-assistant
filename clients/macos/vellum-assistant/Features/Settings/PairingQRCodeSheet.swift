@@ -5,13 +5,13 @@ import VellumAssistantShared
 /// Displays a QR code containing the v4 connection payload for iOS pairing.
 ///
 /// v4 payload:
-/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","pairingSecret":"<32-byte-hex>","localLanUrl":"http://<lan-ip>:<gateway-port>"}`
+/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","<redacted>":"<redacted>"}`
 ///
 /// Key differences from v3:
 /// - No bearer token in QR code (secured by pairing secret + Mac approval)
 /// - Includes pairingRequestId + pairingSecret for the handshake
 /// - Pre-registers the pairing request with the daemon via local HTTP
-/// - localLanUrl is nullable (omitted when no LAN IP available)
+/// - localLanUrl is opt-in for explicit development/testing only
 @MainActor
 struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
@@ -131,7 +131,7 @@ struct PairingQRCodeSheet: View {
         .frame(width: 380)
         .onAppear {
             hostId = Self.computeHostId()
-            localLanUrl = computeLocalLanUrl()
+            localLanUrl = shouldAdvertiseLocalLanUrl ? computeLocalLanUrl() : nil
             guard daemonClient != nil else { return }
             registerWithDaemon()
             startRefreshTimer()
@@ -277,6 +277,16 @@ struct PairingQRCodeSheet: View {
     private func computeLocalLanUrl() -> String? {
         guard let lanIP = LANIPHelper.currentLANAddress() else { return nil }
         return "http://\(lanIP):\(LockfilePaths.resolveGatewayPort())"
+    }
+
+    /// LAN pairing uses plaintext HTTP and can expose bearer tokens on a local
+    /// network. Keep this disabled by default and only allow explicit opt-in
+    /// for development/testing via environment variable.
+    private var shouldAdvertiseLocalLanUrl: Bool {
+        let value = ProcessInfo.processInfo.environment["VELLUM_ENABLE_INSECURE_LAN_PAIRING"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "yes"
     }
 
     // MARK: - QR Generation
