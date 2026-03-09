@@ -590,6 +590,7 @@ private struct StepDetailRow: View {
                                 state: decision,
                                 label: toolCall.confirmationLabel ?? toolCall.friendlyName
                             )
+                            .padding(.trailing, VSpacing.xs)
                         }
 
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
