@@ -1,6 +1,6 @@
 /**
  * DoorDash session persistence.
- * Stores/loads auth cookies from a recording or manual login.
+ * Stores/loads auth cookies via the credential store.
  */
 
 import { execFile } from "node:child_process";

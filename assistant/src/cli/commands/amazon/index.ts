@@ -77,7 +77,7 @@ export function registerAmazonCommand(program: Command): void {
   const amz = program
     .command("amazon")
     .description(
-      "Shop on Amazon and Amazon Fresh. Requires a session imported from a Ride Shotgun recording.",
+      'Shop on Amazon and Amazon Fresh. Requires an active session (use "refresh" to authenticate).',
     )
     .option("--json", "Machine-readable JSON output");
 

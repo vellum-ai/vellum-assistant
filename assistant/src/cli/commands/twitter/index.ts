@@ -171,7 +171,7 @@ Examples:
       "after",
       `
 Deletes all saved browser session cookies. After logout, browser-path commands
-will fail until a new session is imported via "login" or captured via "refresh".
+will fail until a new session is captured via "refresh".
 OAuth credentials are not affected.
 
 Examples:

@@ -24,7 +24,7 @@ Commands:
   email [options]                          Email operations (provider-agnostic)
   contacts [options]                       Manage and query the contact graph
   channel-verification-sessions [options]  Manage channel verification sessions
-  amazon [options]                         Shop on Amazon and Amazon Fresh. Requires a session imported from a Ride Shotgun recording.
+  amazon [options]                         Shop on Amazon and Amazon Fresh. Requires an active session (use "refresh" to authenticate).
   autonomy [options]                       View and configure autonomy tiers
   completions <shell>                      Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)
   notifications [options]                  Send and inspect notifications through the unified notification router

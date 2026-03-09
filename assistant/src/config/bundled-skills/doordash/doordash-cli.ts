@@ -99,7 +99,7 @@ export function registerDoordashCommand(program: Command): void {
   const dd = program
     .command("doordash")
     .description(
-      "Order food from DoorDash. Requires a session imported from a Ride Shotgun recording.",
+      'Order food from DoorDash. Requires an active session (use "refresh" to authenticate).',
     )
     .option("--json", "Machine-readable JSON output");
 
