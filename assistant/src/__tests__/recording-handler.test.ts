@@ -210,7 +210,7 @@ describe("handleRecordingStart", () => {
   });
 
   test("sends recording_start IPC and returns a UUID", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-1";
 
     const recordingId = handleRecordingStart(
@@ -232,7 +232,7 @@ describe("handleRecordingStart", () => {
   });
 
   test("passes recording options through", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const options = { captureScope: "window" as const, includeAudio: true };
 
     handleRecordingStart("conv-2", options, ctx);
@@ -241,7 +241,7 @@ describe("handleRecordingStart", () => {
   });
 
   test("returns null when recording already active and sends no messages", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
 
     const id1 = handleRecordingStart("conv-3", undefined, ctx);
     expect(id1).toBeTruthy();
@@ -257,7 +257,7 @@ describe("handleRecordingStart", () => {
   });
 
   test("returns null when a different conversation already has an active recording (global guard)", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
 
     const id1 = handleRecordingStart(
       "conv-global-a",
@@ -293,7 +293,7 @@ describe("handleRecordingStop", () => {
   });
 
   test("sends recording_stop for an active recording", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-stop-1";
 
     // Start a recording first
@@ -322,7 +322,7 @@ describe("handleRecordingStop", () => {
   });
 
   test("resolves to globally active recording from a different conversation", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const convA = "conv-owner";
     const convB = "conv-stopper";
 

@@ -227,7 +227,7 @@ describe("handleRecordingRestart", () => {
   });
 
   test('returns "no active recording" with reason when nothing is recording', () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
 
     const result = handleRecordingRestart("conv-no-rec", ctx);
 
@@ -562,7 +562,7 @@ describe("handleRecordingPause", () => {
   });
 
   test("sends recording_pause for active recording", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-pause-1";
 
     const recordingId = handleRecordingStart(
@@ -589,7 +589,7 @@ describe("handleRecordingPause", () => {
   });
 
   test("resolves to globally active recording from different conversation", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const convA = "conv-owner-pause";
 
     const recordingId = handleRecordingStart(convA, undefined, ctx);
@@ -606,7 +606,7 @@ describe("handleRecordingResume", () => {
   });
 
   test("sends recording_resume for active recording", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-resume-1";
 
     const recordingId = handleRecordingStart(
@@ -645,13 +645,13 @@ describe("isRecordingIdle", () => {
   });
 
   test("returns false when recording is active", () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     handleRecordingStart("conv-idle-1", undefined, ctx);
     expect(isRecordingIdle()).toBe(false);
   });
 
   test("returns false when mid-restart (between stop-ack and start confirmation)", () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     const conversationId = "conv-idle-restart";
 
     handleRecordingStart(conversationId, undefined, ctx);
@@ -750,7 +750,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   });
 
   test('restart_only returns "no active recording" when idle', () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
 
     const result = executeRecordingIntent(
       { kind: "restart_only" },
@@ -762,7 +762,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   });
 
   test("restart_with_remainder returns deferred restart", () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
 
     const result = executeRecordingIntent(
       { kind: "restart_with_remainder", remainder: "do something else" },
@@ -775,7 +775,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   });
 
   test("pause_only executes actual pause", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-exec-pause";
 
     handleRecordingStart(conversationId, undefined, ctx);
@@ -794,7 +794,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   });
 
   test('pause_only returns "no active recording" when idle', () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
 
     const result = executeRecordingIntent(
       { kind: "pause_only" },
@@ -806,7 +806,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   });
 
   test("resume_only executes actual resume", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-exec-resume";
 
     handleRecordingStart(conversationId, undefined, ctx);
@@ -825,7 +825,7 @@ describe("executeRecordingIntent — restart/pause/resume", () => {
   });
 
   test('resume_only returns "no active recording" when idle', () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
 
     const result = executeRecordingIntent(
       { kind: "resume_only" },
@@ -976,7 +976,7 @@ describe("start_and_stop_only fallback to plain start when idle", () => {
   });
 
   test("falls back to handleRecordingStart when no active recording", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-stop-start-idle";
 
     // No recording is active — start_and_stop_only should fall back to a
@@ -1051,7 +1051,7 @@ describe("start_and_stop_with_remainder fallback to plain start when idle", () =
   });
 
   test("sets pendingStart (not pendingRestart) when no active recording", () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     const conversationId = "conv-rem-idle";
 
     const result = executeRecordingIntent(
@@ -1066,7 +1066,7 @@ describe("start_and_stop_with_remainder fallback to plain start when idle", () =
   });
 
   test("sets pendingRestart when a recording is active", () => {
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     const conversationId = "conv-rem-active";
 
     // Start a recording first
@@ -1094,7 +1094,7 @@ describe("deferred restart prevents race condition", () => {
   });
 
   test("recording_start is NOT sent until client acks the stop", () => {
-    const { ctx, sent, _fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-deferred-race";
 
     handleRecordingStart(conversationId, undefined, ctx);
@@ -1112,7 +1112,7 @@ describe("deferred restart prevents race condition", () => {
 
   test("stop-ack timeout cleans up deferred restart state", () => {
     // This test uses a real timer via bun's jest-compatible API
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     const conversationId = "conv-deferred-timeout";
 
     handleRecordingStart(conversationId, undefined, ctx);
@@ -1559,7 +1559,7 @@ describe("restart finalization", () => {
     expect(getActiveRestartToken()).toBeNull();
 
     // Start a recording, verify not idle
-    const { ctx, _fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     const conversationId = "conv-fin-sanity";
 
     handleRecordingStart(conversationId, undefined, ctx);
