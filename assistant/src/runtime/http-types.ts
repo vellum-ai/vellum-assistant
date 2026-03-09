@@ -197,6 +197,10 @@ export interface RuntimeHttpServerOptions {
         }>;
       }
     | undefined;
+  /** Provider for computer-use session dependencies (CU routes). */
+  getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
+  /** Provider for recording dependencies (recording routes). */
+  getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
 }
 
 export interface RuntimeAttachmentMetadata {
