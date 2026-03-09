@@ -18,7 +18,7 @@ The tool registration system (`class ... implements Tool` + `registerTool()`) is
 
 Instead of creating a new tool, consider:
 
-1. **Create a bundled skill** in `assistant/src/config/bundled-skills/` — Skills teach the assistant to use existing CLI tools and are the preferred approach for new functionality.
+1. **Create a skill**
 
 2. **Use existing tools** — Many capabilities can be achieved by combining existing tools (bash, file operations, network tools) with skill instructions.
 
