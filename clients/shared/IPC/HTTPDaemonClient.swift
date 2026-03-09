@@ -171,8 +171,8 @@ public final class HTTPTransport {
     /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
     var remoteSessionId: String?
 
-    private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    let encoder = JSONEncoder()
 
     /// Registered domain dispatchers. Each handler receives the message as `Any`
     /// and returns `true` if it handled the message, `false` otherwise.
@@ -199,6 +199,10 @@ public final class HTTPTransport {
 
         // Register dispatchers for existing HTTP-transported message types
         registerExistingRoutes()
+        registerAppsRoutes()
+        registerDocumentsRoutes()
+        registerWorkItemsRoutes()
+        registerSubagentsRoutes()
     }
 
     // MARK: - Endpoint Builder
@@ -253,11 +257,49 @@ public final class HTTPTransport {
         case workspaceMkdir
         case workspaceRename
         case workspaceDelete
+        // Apps
+        case appsList
+        case appData(id: String)
+        case appOpen(id: String)
+        case appDelete(id: String)
+        case appPreview(id: String)
+        case appHistory(id: String)
+        case appDiff(id: String)
+        case appRestore(id: String)
+        case appBundle(id: String)
+        case appsOpenBundle
+        case appsShared
+        case appsSharedDelete(uuid: String)
+        case appsFork
+        case appsShareCloud(id: String)
+        case appsGallery
+        case appsGalleryInstall
+        case appsSignBundle
+        case appsSigningIdentity
+        // Documents
+        case documentsList
+        case documentLoad(id: String)
+        case documentSave
+        // Work Items
+        case workItemsList
+        case workItemGet(id: String)
+        case workItemUpdate(id: String)
+        case workItemComplete(id: String)
+        case workItemDelete(id: String)
+        case workItemCancel(id: String)
+        case workItemApprovePermissions(id: String)
+        case workItemPreflight(id: String)
+        case workItemRun(id: String)
+        case workItemOutput(id: String)
+        // Subagents
+        case subagentDetail(id: String)
+        case subagentAbort(id: String)
+        case subagentMessage(id: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
     /// Returns nil if the URL string is malformed.
-    private func buildURL(for endpoint: Endpoint) -> URL? {
+    func buildURL(for endpoint: Endpoint) -> URL? {
         let path: String
         let query: String?
 
@@ -380,6 +422,101 @@ public final class HTTPTransport {
             return ("/v1/workspace/rename", nil)
         case .workspaceDelete:
             return ("/v1/workspace/delete", nil)
+        // Apps
+        case .appsList:
+            return ("/v1/apps", nil)
+        case .appData(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/data", nil)
+        case .appOpen(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/open", nil)
+        case .appDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/delete", nil)
+        case .appPreview(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/preview", nil)
+        case .appHistory(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/history", nil)
+        case .appDiff(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/diff", nil)
+        case .appRestore(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/restore", nil)
+        case .appBundle(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/bundle", nil)
+        case .appsOpenBundle:
+            return ("/v1/apps/open-bundle", nil)
+        case .appsShared:
+            return ("/v1/apps/shared", nil)
+        case .appsSharedDelete(let uuid):
+            let encoded = uuid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? uuid
+            return ("/v1/apps/shared/\(encoded)", nil)
+        case .appsFork:
+            return ("/v1/apps/fork", nil)
+        case .appsShareCloud(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/apps/\(encoded)/share-cloud", nil)
+        case .appsGallery:
+            return ("/v1/apps/gallery", nil)
+        case .appsGalleryInstall:
+            return ("/v1/apps/gallery/install", nil)
+        case .appsSignBundle:
+            return ("/v1/apps/sign-bundle", nil)
+        case .appsSigningIdentity:
+            return ("/v1/apps/signing-identity", nil)
+        // Documents
+        case .documentsList:
+            return ("/v1/documents", nil)
+        case .documentLoad(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/documents/\(encoded)", nil)
+        case .documentSave:
+            return ("/v1/documents", nil)
+        // Work Items
+        case .workItemsList:
+            return ("/v1/work-items", nil)
+        case .workItemGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)", nil)
+        case .workItemUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)", nil)
+        case .workItemComplete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)/complete", nil)
+        case .workItemDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)", nil)
+        case .workItemCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)/cancel", nil)
+        case .workItemApprovePermissions(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)/approve-permissions", nil)
+        case .workItemPreflight(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)/preflight", nil)
+        case .workItemRun(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)/run", nil)
+        case .workItemOutput(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/work-items/\(encoded)/output", nil)
+        // Subagents
+        case .subagentDetail(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/subagents/\(encoded)", nil)
+        case .subagentAbort(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/subagents/\(encoded)/abort", nil)
+        case .subagentMessage(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/subagents/\(encoded)/message", nil)
         }
     }
 
@@ -488,6 +625,101 @@ public final class HTTPTransport {
             return ("\(prefix)/workspace/rename/", nil)
         case .workspaceDelete:
             return ("\(prefix)/workspace/delete/", nil)
+        // Apps
+        case .appsList:
+            return ("\(prefix)/apps/", nil)
+        case .appData(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/data/", nil)
+        case .appOpen(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/open/", nil)
+        case .appDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/delete/", nil)
+        case .appPreview(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/preview/", nil)
+        case .appHistory(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/history/", nil)
+        case .appDiff(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/diff/", nil)
+        case .appRestore(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/restore/", nil)
+        case .appBundle(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/bundle/", nil)
+        case .appsOpenBundle:
+            return ("\(prefix)/apps/open-bundle/", nil)
+        case .appsShared:
+            return ("\(prefix)/apps/shared/", nil)
+        case .appsSharedDelete(let uuid):
+            let encoded = uuid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? uuid
+            return ("\(prefix)/apps/shared/\(encoded)/", nil)
+        case .appsFork:
+            return ("\(prefix)/apps/fork/", nil)
+        case .appsShareCloud(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/apps/\(encoded)/share-cloud/", nil)
+        case .appsGallery:
+            return ("\(prefix)/apps/gallery/", nil)
+        case .appsGalleryInstall:
+            return ("\(prefix)/apps/gallery/install/", nil)
+        case .appsSignBundle:
+            return ("\(prefix)/apps/sign-bundle/", nil)
+        case .appsSigningIdentity:
+            return ("\(prefix)/apps/signing-identity/", nil)
+        // Documents
+        case .documentsList:
+            return ("\(prefix)/documents/", nil)
+        case .documentLoad(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/documents/\(encoded)/", nil)
+        case .documentSave:
+            return ("\(prefix)/documents/", nil)
+        // Work Items
+        case .workItemsList:
+            return ("\(prefix)/work-items/", nil)
+        case .workItemGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/", nil)
+        case .workItemUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/", nil)
+        case .workItemComplete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/complete/", nil)
+        case .workItemDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/", nil)
+        case .workItemCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/cancel/", nil)
+        case .workItemApprovePermissions(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/approve-permissions/", nil)
+        case .workItemPreflight(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/preflight/", nil)
+        case .workItemRun(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/run/", nil)
+        case .workItemOutput(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/work-items/\(encoded)/output/", nil)
+        // Subagents
+        case .subagentDetail(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/subagents/\(encoded)/", nil)
+        case .subagentAbort(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/subagents/\(encoded)/abort/", nil)
+        case .subagentMessage(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/subagents/\(encoded)/message/", nil)
         }
     }
 
@@ -1010,7 +1242,7 @@ public final class HTTPTransport {
 
     /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
     /// them before inserting arbitrary payloads into request bodies.
-    private func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
+    func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
         var jsonCompatible: [String: Any] = [:]
         for (key, value) in values {
             jsonCompatible[key] = value.value
@@ -2364,7 +2596,7 @@ public final class HTTPTransport {
     /// skip refresh and force re-pairing. All other 401 codes — including
     /// `refresh_required`, `UNAUTHORIZED` (expired JWT), and unknown codes —
     /// are treated as refreshable.
-    private func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
+    func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
         // Managed mode: no bearer refresh — emit session-expired, disconnect to
         // stop loops, and return terminal so callers don't retry.
         if isManagedMode {
@@ -2490,7 +2722,7 @@ public final class HTTPTransport {
 
     // MARK: - Helpers
 
-    private func applyAuth(_ request: inout URLRequest) {
+    func applyAuth(_ request: inout URLRequest) {
         switch transportMetadata.authMode {
         case .bearerToken:
             // The JWT access token is the sole auth credential — it serves as
