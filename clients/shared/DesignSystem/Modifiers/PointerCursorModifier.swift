@@ -8,7 +8,12 @@ import AppKit
 ///
 /// On macOS 15+ this uses the native `.pointerStyle(.link)` SwiftUI modifier.
 /// On macOS 14 it falls back to `NSCursor.pointingHand.push()` / `NSCursor.pop()`.
+///
+/// Respects the SwiftUI disabled state: when the view is disabled via `.disabled(true)`,
+/// the pointer cursor is suppressed.
 struct PointerCursorModifier: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
     #if os(macOS)
     @State private var isHovered = false
     #endif
@@ -17,11 +22,12 @@ struct PointerCursorModifier: ViewModifier {
         #if os(macOS)
         if #available(macOS 15.0, *) {
             content
-                .pointerStyle(.link)
+                .pointerStyle(isEnabled ? .link : nil)
         } else {
             content
                 .onHover { hovering in
                     isHovered = hovering
+                    guard isEnabled else { return }
                     if hovering {
                         NSCursor.pointingHand.push()
                     } else {

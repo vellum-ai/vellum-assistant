@@ -49,8 +49,8 @@ public struct VButton: View {
         .onHover { hovering in
             isHovered = isDisabled ? false : hovering
         }
-        .pointerCursor()
         .disabled(isDisabled)
+        .pointerCursor()
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
         .optionalAccessibilityIdentifier(accessibilityID)
