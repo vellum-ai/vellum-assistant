@@ -75,9 +75,9 @@ const cuObservationSequenceBySession = new Map<string, number>();
 // ---------------------------------------------------------------------------
 
 /** Publish a server message to the SSE event hub for HTTP clients. */
-function publishEvent(msg: ServerMessage): void {
+function publishEvent(msg: ServerMessage, sessionId?: string): void {
   void assistantEventHub.publish(
-    buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
+    buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, sessionId),
   );
 }
 
@@ -150,7 +150,7 @@ async function handleCreateSession(
   }
 
   const sendToClient = (serverMsg: ServerMessage) => {
-    publishEvent(serverMsg);
+    publishEvent(serverMsg, sessionId);
   };
 
   const sessionRef: { current?: ComputerUseSession } = {};
@@ -262,11 +262,14 @@ async function handleObservation(
 
   const session = deps.cuSessions.get(msg.sessionId);
   if (!session) {
-    publishEvent({
-      type: "cu_error",
-      sessionId: msg.sessionId,
-      message: `No computer-use session found for id ${msg.sessionId}`,
-    });
+    publishEvent(
+      {
+        type: "cu_error",
+        sessionId: msg.sessionId,
+        message: `No computer-use session found for id ${msg.sessionId}`,
+      },
+      msg.sessionId,
+    );
     return httpError(
       "NOT_FOUND",
       `No computer-use session found for id ${msg.sessionId}`,
@@ -332,7 +335,7 @@ async function handleTaskSubmit(
   }
 
   const sendToClient = (serverMsg: ServerMessage) => {
-    publishEvent(serverMsg);
+    publishEvent(serverMsg, sessionId);
   };
 
   const sessionRef: { current?: ComputerUseSession } = {};

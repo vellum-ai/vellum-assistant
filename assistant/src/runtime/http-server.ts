@@ -953,12 +953,16 @@ export class RuntimeHttpServer {
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
-      ...computerUseRouteDefinitions({
-        getComputerUseDeps: this.getComputerUseDeps,
-      }),
-      ...recordingRouteDefinitions({
-        getRecordingDeps: this.getRecordingDeps,
-      }),
+      ...(this.getComputerUseDeps
+        ? computerUseRouteDefinitions({
+            getComputerUseDeps: this.getComputerUseDeps,
+          })
+        : []),
+      ...(this.getRecordingDeps
+        ? recordingRouteDefinitions({
+            getRecordingDeps: this.getRecordingDeps,
+          })
+        : []),
 
       {
         endpoint: "interfaces/:path*",
