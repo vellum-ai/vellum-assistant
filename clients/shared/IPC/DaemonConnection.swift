@@ -90,6 +90,15 @@ extension DaemonClient {
         httpTransport?.stopSSE()
     }
 
+    // MARK: - Token Update
+
+    /// Push a new bearer token to the active HTTP transport. If SSE is currently
+    /// disconnected (e.g. due to 403 errors with an older token), this restarts
+    /// the SSE stream so it can authenticate with the updated token.
+    public func updateTransportBearerToken(_ token: String) {
+        httpTransport?.updateBearerToken(token)
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon.
