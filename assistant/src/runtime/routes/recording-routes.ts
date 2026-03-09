@@ -207,7 +207,7 @@ function handleRecordingStatus(): Response {
 
   return Response.json({
     idle,
-    restartInProgress: activeRestartToken !== undefined,
+    restartInProgress: activeRestartToken !== null,
   });
 }
 
