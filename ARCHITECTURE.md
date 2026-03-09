@@ -23,7 +23,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Bundled-skill outbound API calls that require credentials default to proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) rather than manual token plumbing.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
-- Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` IPC is emitted only on actual creation, not on reuse.
+- Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
 - macOS managed sign-in connects the desktop app to a platform-hosted assistant via Django assistant-scoped proxy endpoints (`/v1/assistants/{id}/...`). The `HTTPDaemonClient` operates in `platformAssistantProxy` route mode with `X-Session-Token` auth. Managed lockfile entries have `cloud: "vellum"`. Startup guardrails skip local daemon hatching and actor credential bootstrap. See [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) for the full flow.
@@ -44,7 +44,6 @@ Each named instance gets its own directory tree under `~/.vellum/instances/<name
 ├── instances/
 │   ├── alice/                     # Instance root (= BASE_DATA_DIR for this daemon)
 │   │   └── .vellum/              # Runtime dir (getRootDir() resolves here)
-│   │       ├── vellum.sock       # Unix domain socket
 │   │       ├── vellum.pid        # Daemon PID
 │   │       ├── gateway.pid       # Gateway PID
 │   │       ├── outbound-proxy.pid
@@ -71,7 +70,6 @@ Each instance gets its own:
 - **Daemon port** (`RUNTIME_HTTP_PORT`): Allocated by scanning from base port 7821.
 - **Gateway port** (`GATEWAY_PORT`): Allocated by scanning from base port 7830.
 - **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning from base port 6333.
-- **Unix socket**: `<instanceDir>/.vellum/vellum.sock`
 - **PID file**: `<instanceDir>/.vellum/vellum.pid`
 - **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`
 
@@ -102,7 +100,6 @@ The global lockfile (`~/.vellum.lock.json`) tracks all instances:
         "daemonPort": 7821,
         "gatewayPort": 7830,
         "qdrantPort": 6333,
-        "socketPath": "~/.vellum/instances/alice/.vellum/vellum.sock",
         "pidFile": "~/.vellum/instances/alice/.vellum/vellum.pid"
       }
     },
@@ -117,7 +114,7 @@ The global lockfile (`~/.vellum.lock.json`) tracks all instances:
 }
 ```
 
-- `resources` (`LocalInstanceResources`): Present on all local entries. Contains per-instance ports, paths, and socket locations.
+- `resources` (`LocalInstanceResources`): Present on all local entries. Contains per-instance ports and paths.
 - `activeAssistant`: Determines which instance CLI commands target by default.
 - Remote assistants (`cloud: "gcp"`, `"aws"`, etc.) are unaffected and have no `resources` field.
 
@@ -161,7 +158,7 @@ graph TB
 
         subgraph "Ride Shotgun (Ambient Agent)"
             RS_TRIGGER["RideShotgunTrigger<br/>timer-based auto-invitation<br/>eligibility checks"]
-            RS_SESSION["RideShotgunSession<br/>time-boxed observation<br/>daemon IPC + WatchSession"]
+            RS_SESSION["RideShotgunSession<br/>time-boxed observation<br/>HTTP + WatchSession"]
             RS_INVITE["RideShotgunInvitationWindow"]
             RS_PROGRESS["RideShotgunProgressWindow"]
             RS_SUMMARY["RideShotgunSummaryWindow"]
@@ -199,8 +196,8 @@ graph TB
     end
 
     subgraph "Daemon (Bun + TypeScript)"
-        IPC_SERVER["DaemonServer<br/>Unix socket IPC<br/>~/.vellum/vellum.sock"]
-        HANDLERS["Message Handlers<br/>session routing"]
+        HTTP_RT["RuntimeHttpServer<br/>HTTP + SSE"]
+        HANDLERS["Route Handlers<br/>session routing"]
         SESSION_MGR["Session Manager<br/>in-memory pool<br/>stale eviction"]
 
         subgraph "Onboarding Control Plane"
@@ -305,7 +302,6 @@ graph TB
             VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private thread gate"]
         end
 
-        HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
     subgraph "Gateway (Bun + TypeScript)"
@@ -345,7 +341,6 @@ graph TB
             PG_APIKEYS["api_keys"]
         end
 
-        LOCAL_IPC["LocalDaemonClient<br/>Unix socket proxy"]
         RUNTIME_CLIENT["RuntimeClient<br/>HTTP proxy"]
     end
 
@@ -368,8 +363,8 @@ graph TB
     TEXT_SESS -.->|"computer_use_request_control<br/>(explicit user request)"| PERCEIVE
 
     %% Computer Use loop
-    PERCEIVE -->|"CuObservationMessage"| IPC_SERVER
-    IPC_SERVER -->|"CuActionMessage"| VERIFY
+    PERCEIVE -->|"CuObservationMessage<br/>(HTTP POST)"| HTTP_RT
+    HTTP_RT -->|"CuActionMessage<br/>(SSE)"| VERIFY
     VERIFY -->|"allowed"| EXECUTE
     VERIFY -->|"needsConfirmation"| UI
     UI -->|"approved"| EXECUTE
@@ -378,14 +373,14 @@ graph TB
     WAIT --> PERCEIVE
 
     %% Text Q&A flow
-    TEXT_SESS -->|"SessionCreate +<br/>UserMessage"| IPC_SERVER
-    IPC_SERVER -->|"AssistantTextDelta<br/>stream"| TEXT_WIN
+    TEXT_SESS -->|"SessionCreate +<br/>UserMessage<br/>(HTTP POST)"| HTTP_RT
+    HTTP_RT -->|"AssistantTextDelta<br/>(SSE stream)"| TEXT_WIN
 
     %% Main Window Chat flow
-    CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
-    IPC_SERVER -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
+    CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
+    HTTP_RT -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
-    MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| IPC_SERVER
+    MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
 
     %% Ride Shotgun flow
     RS_TRIGGER -->|"shouldShowInvitation"| AMBIENT
@@ -394,18 +389,18 @@ graph TB
     RS_SESSION --> WATCH
     WATCH --> AX_CAP
     WATCH -.->|"fallback"| OCR_CAP
-    RS_SESSION -->|"observations via<br/>daemon IPC"| IPC_SERVER
+    RS_SESSION -->|"observations via<br/>HTTP POST"| HTTP_RT
     RS_SESSION -->|"progress"| RS_PROGRESS
     RS_SESSION -->|"summary"| RS_SUMMARY
 
     %% Dynamic Workspace flow
-    IPC_SERVER -->|"ui_surface_show"| SURFACE_MGR
+    HTTP_RT -->|"ui_surface_show"| SURFACE_MGR
     SURFACE_MGR -->|"display != inline<br/>.openDynamicWorkspace"| WORKSPACE
     WORKSPACE --> DYN_PAGE
-    DYN_PAGE -->|"vellumBridge<br/>actions + data RPC"| IPC_SERVER
+    DYN_PAGE -->|"vellumBridge<br/>actions + data RPC<br/>(HTTP)"| HTTP_RT
 
     %% Daemon internals
-    IPC_SERVER --> HANDLERS
+    HTTP_RT --> HANDLERS
     HANDLERS --> SESSION_MGR
     SESSION_MGR --> ANTHROPIC
     SESSION_MGR --> OPENAI
@@ -418,7 +413,7 @@ graph TB
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
     PLAYBOOK_MGR --> ONBOARD_ORCH
     ONBOARD_ORCH -->|"inject <onboarding_mode><br/>runtime context"| SESSION_MGR
-    IPC_SERVER -.->|"daemon startup bootstrap + home_base_get"| HOME_BASE_BOOT
+    HTTP_RT -.->|"daemon startup bootstrap + home_base_get"| HOME_BASE_BOOT
     HOME_BASE_BOOT --> HOME_BASE_SEED
     HOME_BASE_BOOT --> HOME_BASE_LINK
     HOME_BASE_LINK --> DB_HOME
@@ -447,45 +442,43 @@ graph TB
     GW_VERIFY --> GW_NORMALIZE
     GW_NORMALIZE --> GW_ROUTE
     GW_ROUTE --> GW_FORWARD
-    GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_SERVER
-    HTTP_SERVER -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
+    GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_RT
+    HTTP_RT -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
     %% replyCallbackUrl is built from gatewayInternalBaseUrl (GATEWAY_INTERNAL_BASE_URL env var)
-    HTTP_SERVER -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
+    HTTP_RT -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
     GW_TG_DELIVER --> GW_REPLY
     GW_TG_DELIVER --> GW_ATTACH
 
     %% Gateway flow — Twilio voice webhooks
-    GW_TWILIO_VOICE -->|"HTTP"| HTTP_SERVER
-    GW_TWILIO_STATUS -->|"HTTP"| HTTP_SERVER
-    GW_TWILIO_CONNECT -->|"HTTP"| HTTP_SERVER
-    GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_SERVER
+    GW_TWILIO_VOICE -->|"HTTP"| HTTP_RT
+    GW_TWILIO_STATUS -->|"HTTP"| HTTP_RT
+    GW_TWILIO_CONNECT -->|"HTTP"| HTTP_RT
+    GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_RT
 
     %% Gateway flow — WhatsApp channel (Meta Cloud API)
     GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
-    HTTP_SERVER -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
+    HTTP_RT -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
     GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
 
     %% Gateway flow — Slack channel (Socket Mode WebSocket)
     GW_SLACK_SOCKET -->|"app_mention events<br/>ACK + dedup"| GW_SLACK_NORMALIZE
     GW_SLACK_NORMALIZE -->|"normalize + route resolver"| GW_FORWARD
-    HTTP_SERVER -->|"POST /deliver/slack<br/>(via gatewayInternalBaseUrl)"| GW_SLACK_DELIVER
+    HTTP_RT -->|"POST /deliver/slack<br/>(via gatewayInternalBaseUrl)"| GW_SLACK_DELIVER
     GW_SLACK_DELIVER -->|"Slack API<br/>chat.postMessage"| GW_SLACK_SOCKET
 
     %% Gateway flow — OAuth callback
-    GW_OAUTH -->|"forward code + state"| HTTP_SERVER
+    GW_OAUTH -->|"forward code + state"| HTTP_RT
 
     %% Gateway flow — Runtime proxy path (optional)
-    GW_PROXY -->|"HTTP (forwarded)"| HTTP_SERVER
+    GW_PROXY -->|"HTTP (forwarded)"| HTTP_RT
 
     %% Web server
-    WEB_API -->|"local mode"| LOCAL_IPC
-    LOCAL_IPC -->|"Unix socket"| IPC_SERVER
-    WEB_API -->|"cloud mode"| RUNTIME_CLIENT
-    RUNTIME_CLIENT -->|"HTTP"| HTTP_SERVER
+    WEB_API -->|"HTTP"| RUNTIME_CLIENT
+    RUNTIME_CLIENT -->|"HTTP"| HTTP_RT
 
     %% Swarm data flow
     SESSION_MGR -->|"swarm_delegate<br/>tool_use"| SWARM_TOOL
@@ -500,14 +493,13 @@ graph TB
     SESSION_MGR --> TRACE_EMITTER
     EVENT_BUS --> TOOL_TRACE
     TOOL_TRACE --> TRACE_EMITTER
-    TRACE_EMITTER -->|"trace_event"| IPC_SERVER
-    IPC_SERVER -->|"trace_event"| TRACE_STORE
+    TRACE_EMITTER -->|"trace_event<br/>(SSE)"| TRACE_STORE
     TRACE_STORE --> DEBUG_PANEL
 
     %% Integration data flow
     HANDLERS -->|"integration_connect"| INT_REGISTRY
     INT_REGISTRY --> INT_OAUTH
-    INT_OAUTH -->|"open_url"| IPC_SERVER
+    INT_OAUTH -->|"open_url<br/>(SSE event)"| UI
     INT_OAUTH -->|"store tokens"| ENC_STORE
     GMAIL_TOOLS --> INT_TOKEN
     INT_TOKEN -->|"auto-refresh"| ENC_STORE

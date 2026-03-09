@@ -9,7 +9,7 @@ The integration framework lets Vellum connect to third-party services via OAuth2
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
 - **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh. Twitter uses PKCE with an optional client secret in `local_byo` mode.
 - **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
-- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow and IPC handlers (`twitter_auth_start`, `twitter_auth_status`) separate from the unified messaging layer.
+- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow and HTTP handlers (`twitter_auth_start`, `twitter_auth_status`) separate from the unified messaging layer.
 - **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
 
 ### Unified Messaging Architecture
@@ -223,7 +223,7 @@ The strategy is persisted in the Vellum config file as `twitter.operationStrateg
 | Default scopes        | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile)                                |
 | Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token                         |
 | Credential names      | `client_id`, `client_secret`                                                                                       |
-| IPC messages          | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
+| HTTP endpoints        | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
 
 #### Twitter Credential Metadata Structure
 
@@ -308,7 +308,7 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/oauth/scope-policy.ts`                  | Deterministic scope resolution and policy enforcement                                                     |
 | `assistant/src/oauth/connect-types.ts`                 | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                            |
 | `assistant/src/oauth/token-persistence.ts`             | Token storage helper: persists tokens, metadata, and runs post-connect hooks                              |
-| `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect IPC handler (`oauth_connect_start` / `oauth_connect_result`)                        |
+| `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                            |
 | `assistant/src/daemon/handlers/twitter-auth.ts`        | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`)                         |
 | `assistant/src/cli/commands/twitter/client.ts`         | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol                                |
 | `assistant/src/cli/commands/twitter/oauth-client.ts`   | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()`               |
@@ -375,7 +375,7 @@ Result is a discriminated union: `{ success, deferred, grantedScopes, accountInf
 3. Delegates to `orchestrateOAuthConnect()`.
 4. Sends `oauth_connect_result` back to the client.
 
-This replaces provider-specific IPC handlers — any provider in the registry can be connected through the same message pair.
+This replaces provider-specific handlers — any provider in the registry can be connected through the same message pair.
 
 ### Adding a New OAuth Provider
 
@@ -385,7 +385,7 @@ This replaces provider-specific IPC handlers — any provider in the registry ca
 2. **Optional: add an identity verifier** — an async function on the profile that fetches the user's account info from the provider's API.
 3. **Optional: add setup metadata** — `setup.displayName`, `setup.dashboardUrl`, `setup.appType` enable the generic OAuth setup skill to guide users through app creation.
 4. **Optional: add injection templates** — for providers whose tokens should be auto-injected by the script proxy.
-5. **No handler code needed** — the generic `oauth_connect_start` IPC handler and the connect orchestrator handle the flow automatically.
+5. **No handler code needed** — the generic `oauth_connect_start` handler and the connect orchestrator handle the flow automatically.
 
 ### Key Source Files
 
@@ -396,7 +396,7 @@ This replaces provider-specific IPC handlers — any provider in the registry ca
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                  |
 | `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`) |
 | `assistant/src/oauth/token-persistence.ts`       | Token storage: keychain writes, metadata upsert, post-connect hooks             |
-| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` IPC handler              |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler                  |
 
 ---
 
