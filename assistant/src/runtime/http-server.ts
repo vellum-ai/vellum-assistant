@@ -135,6 +135,7 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
+import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
@@ -195,6 +196,7 @@ export class RuntimeHttpServer {
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
+  private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -210,6 +212,7 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
+    this.sessionManagementDeps = options.sessionManagementDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -795,6 +798,10 @@ export class RuntimeHttpServer {
       },
 
       ...conversationAttentionRouteDefinitions(),
+
+      ...(this.sessionManagementDeps
+        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
+        : []),
 
       {
         endpoint: "conversations/seen",
