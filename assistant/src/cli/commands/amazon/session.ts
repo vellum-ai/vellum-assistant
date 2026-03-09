@@ -5,7 +5,6 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 import type { ExtractedCredential } from "./client.js";
@@ -14,11 +13,6 @@ const execFileAsync = promisify(execFile);
 
 export interface AmazonSession {
   cookies: ExtractedCredential[];
-}
-
-interface SessionRecording {
-  cookies?: ExtractedCredential[];
-  targetDomain?: string;
 }
 
 export async function loadSession(): Promise<AmazonSession | null> {
@@ -60,52 +54,6 @@ export async function clearSession(): Promise<void> {
   } catch {
     // Clearing a non-existent session is fine — no-op
   }
-}
-
-/**
- * Import cookies from a Ride Shotgun recording file.
- * Validates that the recording contains Amazon's required auth cookies.
- */
-export async function importFromRecording(
-  recordingPath: string,
-): Promise<AmazonSession> {
-  if (!existsSync(recordingPath)) {
-    throw new Error(`Recording not found: ${recordingPath}`);
-  }
-  const recording = JSON.parse(
-    readFileSync(recordingPath, "utf-8"),
-  ) as SessionRecording;
-  if (!recording.cookies?.length) {
-    if (recording.targetDomain) {
-      return importFromCredentialStore(recording.targetDomain);
-    }
-    throw new Error("Recording contains no cookies");
-  }
-
-  const cookieNames = new Set(recording.cookies.map((c) => c.name));
-
-  if (!cookieNames.has("session-id")) {
-    throw new Error(
-      "Recording is missing required Amazon cookie: session-id. " +
-        "Make sure you are logged in to Amazon.",
-    );
-  }
-  if (!cookieNames.has("ubid-main")) {
-    throw new Error(
-      "Recording is missing required Amazon cookie: ubid-main. " +
-        "Make sure you are logged in to Amazon.",
-    );
-  }
-  if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
-    throw new Error(
-      "Recording is missing required Amazon auth cookie (at-main or x-main). " +
-        "Make sure you are fully logged in to Amazon.",
-    );
-  }
-
-  const session: AmazonSession = { cookies: recording.cookies };
-  await saveSession(session);
-  return session;
 }
 
 /**

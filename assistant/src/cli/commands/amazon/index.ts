@@ -22,12 +22,7 @@ import {
   SessionExpiredError,
   viewCart,
 } from "./client.js";
-import {
-  clearSession,
-  importFromRecording,
-  loadSession,
-  saveSession,
-} from "./session.js";
+import { clearSession, loadSession, saveSession } from "./session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,8 +93,7 @@ Session lifecycle:
   2. "refresh-headless" reads cookies directly from Chrome's local SQLite database.
      No visible browser window is needed, but Chrome must already be signed into Amazon.
   3. "status" checks whether a valid session exists.
-  4. "login" imports a session from a previously saved Ride Shotgun recording file.
-  5. "logout" clears the saved session.
+  4. "logout" clears the saved session.
 
 Product workflow: search for products, view details/variations by ASIN, then add
 to cart. Use --fresh flag for Amazon Fresh grocery items throughout the workflow.
@@ -119,35 +113,6 @@ Examples:
   );
 
   // =========================================================================
-  // login — import session from a recording
-  // =========================================================================
-  amz
-    .command("login")
-    .description("Import an Amazon session from a Ride Shotgun recording")
-    .requiredOption("--recording <path>", "Path to the recording JSON file")
-    .addHelpText(
-      "after",
-      `
-Imports Amazon session cookies from a previously saved Ride Shotgun recording
-file. The recording must contain captured cookies from an authenticated Amazon
-session. Typically used to restore a session from a saved recording rather than
-re-authenticating via "refresh".
-
-Examples:
-  $ assistant amazon login --recording /path/to/recording.json
-  $ assistant amazon login --recording ~/recordings/amazon-2024-01-15.json`,
-    )
-    .action(async (opts: { recording: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const session = await importFromRecording(opts.recording);
-        return {
-          message: "Session imported successfully",
-          cookieCount: session.cookies.length,
-        };
-      });
-    });
-
-  // =========================================================================
   // logout — clear saved session
   // =========================================================================
   amz
@@ -158,7 +123,7 @@ Examples:
       `
 Removes all saved Amazon session cookies from local storage. After logout,
 all shopping commands will fail until a new session is established via
-"refresh", "refresh-headless", or "login".
+"refresh" or "refresh-headless".
 
 Examples:
   $ assistant amazon logout`,

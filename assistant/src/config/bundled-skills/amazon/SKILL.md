@@ -86,7 +86,6 @@ Session capture (`assistant amazon refresh`) and session checks (`assistant amaz
 ```
 assistant amazon status --json                     # Check if logged in
 assistant amazon refresh --json                    # Capture fresh session via Ride Shotgun
-assistant amazon login --recording <path>          # Import session from a recording file
 assistant amazon logout                            # Clear session
 
 assistant amazon search "<query>" [--fresh] [--limit <n>] --json
