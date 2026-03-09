@@ -167,15 +167,15 @@ public struct VIconButtonStyle: ButtonStyle {
 
         case .ghost:
             guard isEnabled else {
-                return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
+                return isActive ? VColor.iconGhostActiveDisabled.opacity(0.5) : .clear
             }
             if isActive {
-                if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-                if isHovered { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-                return adaptiveColor(light: Moss._100, dark: Moss._700)
+                if isPressed { return VColor.iconGhostActivePressed }
+                if isHovered { return VColor.iconGhostActivePressed }
+                return VColor.iconGhostActiveBg
             } else {
-                if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-                if isHovered { return adaptiveColor(light: Moss._100, dark: Moss._700) }
+                if isPressed { return VColor.iconGhostActivePressed }
+                if isHovered { return VColor.iconGhostActiveBg }
                 return .clear
             }
         }

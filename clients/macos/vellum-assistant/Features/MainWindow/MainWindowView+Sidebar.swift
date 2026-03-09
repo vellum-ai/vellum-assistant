@@ -109,7 +109,7 @@ extension MainWindowView {
         .padding(.top, VSpacing.md)
         .padding(.bottom, sidebarExpanded ? VSpacing.md : VSpacing.sm)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
         .alert("Rename Thread", isPresented: Binding(
