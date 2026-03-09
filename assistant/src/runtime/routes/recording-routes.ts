@@ -14,11 +14,15 @@ import {
   handleRecordingPause,
   handleRecordingResume,
   handleRecordingStart,
+  handleRecordingStatusCore,
   handleRecordingStop,
   isRecordingIdle,
 } from "../../daemon/handlers/recording.js";
 import type { HandlerContext } from "../../daemon/handlers/shared.js";
-import type { RecordingOptions } from "../../daemon/message-protocol.js";
+import type {
+  RecordingOptions,
+  RecordingStatus,
+} from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -201,7 +205,7 @@ async function handleResumeRecording(
 /**
  * GET /v1/recordings/status — get current recording status.
  */
-function handleRecordingStatus(): Response {
+function handleGetRecordingStatus(): Response {
   const idle = isRecordingIdle();
   const activeRestartToken = getActiveRestartToken();
 
@@ -209,6 +213,68 @@ function handleRecordingStatus(): Response {
     idle,
     restartInProgress: Boolean(activeRestartToken),
   });
+}
+
+/**
+ * POST /v1/recordings/status — recording lifecycle callback from the client.
+ *
+ * Body: RecordingStatus fields (sessionId, status, filePath?, durationMs?,
+ *       error?, attachToConversationId?, operationToken?)
+ *
+ * The client sends this when a recording transitions state (started, stopped,
+ * paused, resumed, failed, restart_cancelled). The handler performs conversation
+ * ID resolution, operation token validation, file attachment after stop,
+ * broadcasting lifecycle events, and triggering deferred recording restarts.
+ */
+async function handlePostRecordingStatus(
+  req: Request,
+  deps: RecordingDeps,
+): Promise<Response> {
+  const body = (await req.json()) as Omit<RecordingStatus, "type">;
+
+  if (!body.sessionId || typeof body.sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId is required", 400);
+  }
+
+  if (!body.status || typeof body.status !== "string") {
+    return httpError("BAD_REQUEST", "status is required", 400);
+  }
+
+  const validStatuses = [
+    "started",
+    "stopped",
+    "failed",
+    "restart_cancelled",
+    "paused",
+    "resumed",
+  ];
+  if (!validStatuses.includes(body.status)) {
+    return httpError("BAD_REQUEST", `Invalid status: ${body.status}`, 400);
+  }
+
+  const msg: RecordingStatus = {
+    type: "recording_status",
+    ...body,
+  };
+
+  const ctx = deps.getHandlerContext();
+
+  try {
+    await handleRecordingStatusCore(msg, ctx);
+  } catch (err) {
+    log.error(
+      { err, sessionId: body.sessionId, status: body.status },
+      "Recording status handler failed",
+    );
+    return httpError("INTERNAL_ERROR", "Recording status processing failed", 500);
+  }
+
+  log.info(
+    { sessionId: body.sessionId, status: body.status },
+    "Recording status processed via HTTP",
+  );
+
+  return Response.json({ ok: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +320,13 @@ export function recordingRouteDefinitions(deps: {
       endpoint: "recordings/status",
       method: "GET",
       policyKey: "recordings/status",
-      handler: () => handleRecordingStatus(),
+      handler: () => handleGetRecordingStatus(),
+    },
+    {
+      endpoint: "recordings/status",
+      method: "POST",
+      policyKey: "recordings/status",
+      handler: async ({ req }) => handlePostRecordingStatus(req, getDeps()),
     },
   ];
 }

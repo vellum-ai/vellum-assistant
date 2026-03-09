@@ -720,9 +720,16 @@ export async function finalizeAndPublishRecording(params: {
 
 // ─── Status (client → server lifecycle updates) ─────────────────────────────
 
-async function handleRecordingStatus(
+/**
+ * Core recording-status business logic. Handles conversation ID resolution,
+ * operation token validation for restart race hardening, file attachment
+ * after recording stops, broadcasting recording lifecycle events, and
+ * triggering deferred recording restarts.
+ *
+ * Shared by both the IPC handler and the HTTP POST route.
+ */
+export async function handleRecordingStatusCore(
   msg: RecordingStatus,
-  reportingSocket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const recordingId = msg.sessionId;
@@ -1044,8 +1051,19 @@ export function __resetRecordingState(): void {
   activeRestartToken = null;
 }
 
+// ─── IPC handler wrapper ─────────────────────────────────────────────────────
+
+/** IPC-compatible wrapper: ignores the socket (unused) and delegates to core. */
+async function handleRecordingStatusIpc(
+  msg: RecordingStatus,
+  _reportingSocket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  return handleRecordingStatusCore(msg, ctx);
+}
+
 // ─── Export handler group ────────────────────────────────────────────────────
 
 export const recordingHandlers = defineHandlers({
-  recording_status: handleRecordingStatus,
+  recording_status: handleRecordingStatusIpc,
 });
