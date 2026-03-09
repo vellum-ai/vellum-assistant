@@ -522,7 +522,8 @@ struct MainWindowView: View {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
                         let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
                         // Position above the PreferencesRow: clear the row height + divider + gap
-                        let drawerY = bottomPad + 28 + 9 + VSpacing.xs
+                        let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
+                        let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
