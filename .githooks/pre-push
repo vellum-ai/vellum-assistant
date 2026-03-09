@@ -180,6 +180,31 @@ if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_IOS_BUILD" != "1" ]; then
     fi
 fi
 
+# --- Design token guard for clients/ ---
+# When Swift files under clients/ are changed, verify design tokens are
+# consolidated (strict mode: no raw color usage outside token files).
+if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
+    if [ -x "${REPO_ROOT}/clients/scripts/check-design-tokens.sh" ]; then
+        echo ""
+        echo "🔍 Checking design tokens in clients/..."
+        _debug_log "design token guard start"
+        if ! "${REPO_ROOT}/clients/scripts/check-design-tokens.sh" --mode=strict 2>&1; then
+            echo ""
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}Design token violations in clients/ — push blocked${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Fix the design token violations or push with --no-verify to skip."
+            _debug_log "design token guard done (FAILED)"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✅ Design token guard OK${NC}"
+        _debug_log "design token guard done (passed)"
+    else
+        _debug_log "clients/scripts/check-design-tokens.sh not found — skipping design token guard"
+    fi
+fi
+
 if [ -n "$CHANGED_FILES" ]; then
     _debug_log "scanning for assistant/ TS changes"
 
@@ -244,31 +269,6 @@ if [ -n "$CHANGED_FILES" ]; then
         echo -e "  ${GREEN}✅ Lint OK in ${lint_pkg}/${NC}"
         _debug_log "$lint_pkg: lint done (passed)"
     done
-
-    # --- Design token guard for clients/ ---
-    # When Swift files under clients/ are changed, verify design tokens are
-    # consolidated (strict mode: no raw color usage outside token files).
-    if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
-        if [ -x "${REPO_ROOT}/clients/scripts/check-design-tokens.sh" ]; then
-            echo ""
-            echo "🔍 Checking design tokens in clients/..."
-            _debug_log "design token guard start"
-            if ! "${REPO_ROOT}/clients/scripts/check-design-tokens.sh" --mode=strict 2>&1; then
-                echo ""
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "${RED}Design token violations in clients/ — push blocked${NC}"
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                echo "Fix the design token violations or push with --no-verify to skip."
-                _debug_log "design token guard done (FAILED)"
-                exit 1
-            fi
-            echo -e "  ${GREEN}✅ Design token guard OK${NC}"
-            _debug_log "design token guard done (passed)"
-        else
-            _debug_log "clients/scripts/check-design-tokens.sh not found — skipping design token guard"
-        fi
-    fi
 
     # Temp dir for capturing test output
     RESULTS_DIR="$(mktemp -d)"
