@@ -125,7 +125,6 @@ doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "Lat
 ```
 doordash status --json              # Check if logged in
 doordash refresh --json             # Capture fresh session via Ride Shotgun (auto-stops after login)
-doordash login --recording <path>   # Import session from a recording file manually
 doordash logout --json              # Clear session
 doordash search "<query>" --json    # Search restaurants
 doordash menu <storeId> --json      # Get store menu (auto-detects retail stores)

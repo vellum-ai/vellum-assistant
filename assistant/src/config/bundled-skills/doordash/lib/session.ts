@@ -15,10 +15,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { ConfigError } from "./shared/errors.js";
-import type {
-  ExtractedCredential,
-  SessionRecording,
-} from "./shared/recording-types.js";
+import type { ExtractedCredential } from "./shared/recording-types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,33 +54,6 @@ export function clearSession(): void {
   if (existsSync(path)) {
     unlinkSync(path);
   }
-}
-
-/**
- * Import cookies from a Ride Shotgun recording file.
- */
-export async function importFromRecording(
-  recordingPath: string,
-): Promise<DoorDashSession> {
-  if (!existsSync(recordingPath)) {
-    throw new ConfigError(`Recording not found: ${recordingPath}`);
-  }
-  const recording = JSON.parse(
-    readFileSync(recordingPath, "utf-8"),
-  ) as SessionRecording;
-  if (!recording.cookies?.length) {
-    if (recording.targetDomain) {
-      return importFromCredentialStore(recording.targetDomain);
-    }
-    throw new ConfigError("Recording contains no cookies");
-  }
-  const session: DoorDashSession = {
-    cookies: recording.cookies,
-    importedAt: new Date().toISOString(),
-    recordingId: recording.id,
-  };
-  saveSession(session);
-  return session;
 }
 
 /**

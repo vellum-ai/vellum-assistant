@@ -34,7 +34,6 @@ import { extractQueries, saveQueries } from "./lib/query-extractor.js";
 import {
   clearSession,
   importFromCredentialStore,
-  importFromRecording,
   loadSession,
 } from "./lib/session.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
@@ -103,23 +102,6 @@ export function registerDoordashCommand(program: Command): void {
       "Order food from DoorDash. Requires a session imported from a Ride Shotgun recording.",
     )
     .option("--json", "Machine-readable JSON output");
-
-  // =========================================================================
-  // login — import session from a recording
-  // =========================================================================
-  dd.command("login")
-    .description("Import a DoorDash session from a Ride Shotgun recording")
-    .requiredOption("--recording <path>", "Path to the recording JSON file")
-    .action(async (opts: { recording: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const session = await importFromRecording(opts.recording);
-        return {
-          message: "Session imported successfully",
-          cookieCount: session.cookies.length,
-          recordingId: session.recordingId,
-        };
-      });
-    });
 
   // =========================================================================
   // logout — clear saved session
