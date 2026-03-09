@@ -394,8 +394,17 @@ extension AppDelegate {
 
             // If we have no actor token at all, check the lockfile for a
             // bearer token before falling back to the full bootstrap flow.
+            // Resolve the connected assistant the same way loadAssistantFromLockfile()
+            // does so we don't accidentally seed a token from the wrong entry.
             if !ActorTokenManager.hasToken {
-                if let lockfileToken = LockfileAssistant.loadLatest()?.bearerToken,
+                let connectedAssistant: LockfileAssistant? = {
+                    if let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                       let found = LockfileAssistant.loadByName(storedId) {
+                        return found
+                    }
+                    return LockfileAssistant.loadLatest()
+                }()
+                if let lockfileToken = connectedAssistant?.bearerToken,
                    !lockfileToken.isEmpty {
                     ActorTokenManager.setToken(lockfileToken)
                     log.info("Seeded actor token from lockfile bearer token")
