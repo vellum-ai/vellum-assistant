@@ -1,9 +1,11 @@
 import { eq } from "drizzle-orm";
 
+import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb, rawExec } from "../db.js";
 import { asString, BackendUnavailableError } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { extractMediaBlocks } from "../message-content.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
@@ -12,6 +14,7 @@ import {
   memoryItems,
   memorySegments,
   memorySummaries,
+  messages,
 } from "../schema.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -57,6 +60,31 @@ export function rebuildIndexJob(): void {
     .all();
   for (const asset of assets) {
     enqueueMemoryJob("embed_media", { assetId: asset.id });
+  }
+
+  // Re-enqueue embed_attachment jobs for messages with image content.
+  // Only when the embedding provider supports multimodal (Gemini).
+  const fullConfig = getConfig();
+  const embeddingProvider = fullConfig.memory.embeddings.provider;
+  const supportsMultimodal =
+    embeddingProvider === "gemini" ||
+    (embeddingProvider === "auto" && !!fullConfig.apiKeys.gemini);
+
+  if (supportsMultimodal) {
+    const allMessages = db
+      .select({ id: messages.id, content: messages.content })
+      .from(messages)
+      .all();
+    for (const msg of allMessages) {
+      const blocks = extractMediaBlocks(msg.content);
+      const imageBlocks = blocks.filter((b) => b.type === "image");
+      for (const block of imageBlocks) {
+        enqueueMemoryJob("embed_attachment", {
+          messageId: msg.id,
+          blockIndex: block.index,
+        });
+      }
+    }
   }
 }
 
