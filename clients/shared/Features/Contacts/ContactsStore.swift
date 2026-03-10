@@ -61,16 +61,14 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await Self.raceWithTimeout(stream: stream) { message -> [ContactPayload]? in
                 if case .contactsResponse(let response) = message {
-                    // Only handle list responses (contacts array present);
-                    // skip unrelated get/update/delete responses and their errors.
-                    guard response.contacts != nil else { continue }
-                    self.contacts = response.contacts ?? []
-                    isLoading = false
-                    return
+                    guard response.contacts != nil else { return nil }
+                    return response.contacts ?? []
                 }
+                return nil
             }
+            self.contacts = result ?? self.contacts
             isLoading = false
         }
     }
@@ -86,19 +84,15 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let contact = await Self.raceWithTimeout(stream: stream) { message -> ContactPayload? in
                 if case .contactsResponse(let response) = message {
-                    // Only handle single-contact responses (contact field present);
-                    // skip unrelated list/update/delete responses and their errors.
-                    guard response.contact != nil else { continue }
-                    if let contact = response.contact {
-                        // Update the contact in-place if it exists
-                        if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
-                            contacts[index] = contact
-                        }
-                    }
-                    return
+                    guard response.contact != nil else { return nil }
+                    return response.contact
                 }
+                return nil
+            }
+            if let contact, let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+                contacts[index] = contact
             }
         }
     }
@@ -114,17 +108,15 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let success = await Self.raceWithTimeout(stream: stream) { message -> Bool? in
                 if case .contactsResponse(let response) = message {
-                    // Only handle single-contact responses (update returns contact);
-                    // skip unrelated list/get/delete responses.
-                    guard response.contact != nil || !response.success else { continue }
-                    if response.success {
-                        // Reload contacts to reflect the update
-                        loadContacts()
-                    }
-                    return
+                    guard response.contact != nil || !response.success else { return nil }
+                    return response.success
                 }
+                return nil
+            }
+            if success == true {
+                loadContacts()
             }
         }
     }
@@ -140,21 +132,44 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let success = await Self.raceWithTimeout(stream: stream) { message -> Bool? in
                 if case .contactsResponse(let response) = message {
-                    // Only handle delete acknowledgements (no contact/contacts fields);
-                    // skip unrelated list/get/update responses.
-                    guard response.contact == nil && response.contacts == nil else { continue }
-                    if response.success {
-                        contacts.removeAll { $0.id == id }
-                    }
-                    return
+                    guard response.contact == nil && response.contacts == nil else { return nil }
+                    return response.success
                 }
+                return nil
+            }
+            if success == true {
+                contacts.removeAll { $0.id == id }
             }
         }
     }
 
     // MARK: - Private
+
+    /// Race a stream listener against a 15-second timeout.
+    /// Returns `nil` on timeout. The `extract` closure returns `nil` to skip
+    /// non-matching messages, or a value to resolve the race.
+    private static func raceWithTimeout<T: Sendable>(
+        stream: AsyncStream<ServerMessage>,
+        extract: @Sendable @escaping (ServerMessage) -> T?
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if let value = extract(message) { return value }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
 
     /// Subscribe to contactsChanged broadcasts with 500ms debounce.
     private func subscribeToContactsChanged() {
