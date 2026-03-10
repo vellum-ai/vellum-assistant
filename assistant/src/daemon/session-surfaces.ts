@@ -572,16 +572,19 @@ export function handleSurfaceAction(
       requestId,
       surfaceId,
     );
+
+    if (result.rejected) {
+      ctx.surfaceActionRequestIds.delete(requestId);
+      return;
+    }
+
     // Echo the prompt to the client so it appears in the chat UI.
+    // Deferred until after rejection check to avoid ghost messages.
     ctx.sendToClient({
       type: "user_message_echo",
       text: prompt,
       sessionId: ctx.conversationId,
     });
-
-    if (result.rejected) {
-      return;
-    }
 
     if (result.queued) {
       log.info(
@@ -702,15 +705,6 @@ export function handleSurfaceAction(
   ctx.surfaceActionRequestIds.add(requestId);
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
-  // Echo the user's prompt to the client so it appears in the chat UI
-  if (shouldRelayPrompt && prompt) {
-    ctx.sendToClient({
-      type: "user_message_echo",
-      text: prompt,
-      sessionId: ctx.conversationId,
-    });
-  }
-
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
     status: "info",
@@ -729,7 +723,18 @@ export function handleSurfaceAction(
     displayContent,
   );
   if (result.rejected) {
+    ctx.surfaceActionRequestIds.delete(requestId);
     return;
+  }
+
+  // Echo the user's prompt to the client so it appears in the chat UI.
+  // Deferred until after rejection check to avoid ghost messages.
+  if (shouldRelayPrompt && prompt) {
+    ctx.sendToClient({
+      type: "user_message_echo",
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
   }
   if (result.queued) {
     const position = ctx.getQueueDepth();
