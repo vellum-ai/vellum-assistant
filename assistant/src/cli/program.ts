@@ -3,7 +3,6 @@ import { createRequire } from "node:module";
 import { Command } from "commander";
 
 import { registerHooksCommand } from "../hooks/cli.js";
-import { registerAmazonCommand } from "./commands/amazon/index.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerBrowserRelayCommand } from "./commands/browser-relay.js";
@@ -52,7 +51,6 @@ export function buildCliProgram(): Command {
   registerEmailCommand(program);
   registerContactsCommand(program);
   registerChannelVerificationSessionsCommand(program);
-  registerAmazonCommand(program);
   registerAutonomyCommand(program);
   registerCompletionsCommand(program);
   registerNotificationsCommand(program);
