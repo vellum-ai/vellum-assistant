@@ -8,7 +8,7 @@ import { preprocessForAsset } from "../../config/bundled-skills/media-processing
 import { reduceForAsset } from "../../config/bundled-skills/media-processing/tools/query-media-events.js";
 import { getLogger } from "../../util/logger.js";
 import { asString } from "../job-utils.js";
-import type { MemoryJob } from "../jobs-store.js";
+import { type MemoryJob, enqueueMemoryJob } from "../jobs-store.js";
 import { getMediaAssetById, updateMediaAssetStatus } from "../media-store.js";
 
 const log = getLogger("media-processing-job");
@@ -32,6 +32,7 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
       "Skipping media processing pipeline — only video assets are supported",
     );
     updateMediaAssetStatus(mediaAssetId, "indexed");
+    enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
     return;
   }
 
@@ -107,4 +108,7 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   if (result.cancelled) {
     throw new Error(`Media processing cancelled for asset ${mediaAssetId}`);
   }
+
+  updateMediaAssetStatus(mediaAssetId, "indexed");
+  enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
 }
