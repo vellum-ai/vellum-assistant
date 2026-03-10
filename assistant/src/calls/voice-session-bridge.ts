@@ -513,6 +513,8 @@ export async function startVoiceTurn(
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input);
           }
+          // Note: tool_use_preview_start is intentionally not handled here.
+          // Voice only reacts to the definitive tool_use_start event.
         },
       );
       if (lastError) {
