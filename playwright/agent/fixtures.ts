@@ -77,6 +77,7 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
 
   return {
     teardown: async () => {
+      retireAssistant();
       quitApp(appDisplayName);
       cleanupTestDataDir(baseDataDir);
     },
@@ -651,6 +652,8 @@ function logFixtureState(): void {
 }
 
 function retireAssistant(): void {
+  if (!hasAssistantInLockfile()) return;
+
   try {
     const psOutput = execSync("vellum ps", {
       encoding: "utf-8",

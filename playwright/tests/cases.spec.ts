@@ -69,6 +69,13 @@ function checkRequiredEnv(requiredEnv: string[] | undefined): void {
 // `screencapture -V <seconds>` only writes the file when the timer
 // expires naturally — killing it with any signal produces no output.
 
+type LogSeverity = "warn" | "error";
+
+function logRecording(severity: LogSeverity, testName: string, message: string): void {
+  const ts = new Date().toISOString();
+  process.stdout.write(`[${ts}] [screen-recording] [${severity}] [${testName}] ${message}\n`);
+}
+
 interface ScreenRecorder {
   proc: ChildProcess;
   videoPath: string;
@@ -100,7 +107,7 @@ function detectScreenDevice(): string | undefined {
   }
 }
 
-function startScreenRecording(videoPath: string): ScreenRecorder | undefined {
+function startScreenRecording(videoPath: string, testName: string): ScreenRecorder | undefined {
   try {
     mkdirSync(path.dirname(videoPath), { recursive: true });
 
@@ -145,19 +152,22 @@ function startScreenRecording(videoPath: string): ScreenRecorder | undefined {
       logStream.write(chunk);
     });
 
-    proc.on("error", () => {});
+    proc.on("error", (err) => {
+      logRecording("error", testName, `ffmpeg spawn error: ${err.message}`);
+    });
 
     proc.on("exit", () => {
       logStream.end();
     });
 
     return { proc, videoPath, logPath };
-  } catch {
+  } catch (e) {
+    logRecording("error", testName, `startScreenRecording exception: ${e}`);
     return undefined;
   }
 }
 
-async function stopScreenRecording(recorder: ScreenRecorder | undefined): Promise<void> {
+async function stopScreenRecording(recorder: ScreenRecorder | undefined, testName: string): Promise<void> {
   if (!recorder) return;
   const { proc } = recorder;
   if (proc.killed || proc.exitCode !== null) {
@@ -184,6 +194,7 @@ async function stopScreenRecording(recorder: ScreenRecorder | undefined): Promis
   });
 
   if (exitResult.timedOut) {
+    logRecording("warn", testName, "ffmpeg did not exit within 10s after SIGINT, sending SIGKILL");
     proc.kill("SIGKILL");
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
@@ -227,7 +238,7 @@ for (const file of caseFiles) {
         testName,
       );
       const videoPath = path.join(videoDir, "screen-recording.webm");
-      recorder = startScreenRecording(videoPath);
+      recorder = startScreenRecording(videoPath, testName);
 
       const screenshotDir = path.resolve(
         __dirname,
@@ -252,7 +263,7 @@ for (const file of caseFiles) {
       });
 
       // Stop the screen recording BEFORE attaching so the file is finalized
-      await stopScreenRecording(recorder);
+      await stopScreenRecording(recorder, testName);
       const stoppedVideoPath = recorder?.videoPath;
       recorder = undefined;
 
@@ -328,7 +339,7 @@ for (const file of caseFiles) {
       ].join("");
       expect(result.passed, failureDetails).toBe(true);
     } finally {
-      await stopScreenRecording(recorder);
+      await stopScreenRecording(recorder, testName);
       if (fixtureCtx) await fixtureCtx.teardown().catch(() => {});
     }
   });
