@@ -100,21 +100,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 1000,
   }));
 
-  // Managed skill authoring tools — scaffold and delete modify ~/.vellum/workspace/skills/
-  // and should require explicit user approval.
-  const MANAGED_SKILL_TOOLS = [
-    "scaffold_managed_skill",
-    "delete_managed_skill",
-  ] as const;
-  const managedSkillRules = MANAGED_SKILL_TOOLS.map((tool) => ({
-    id: `default:ask-${tool}-global`,
-    tool,
-    pattern: `${tool}:*`,
-    scope: "everywhere",
-    decision: "ask" as const,
-    priority: 1000,
-  }));
-
   // Workspace prompt files — the agent should always be able to read, edit,
   // and write these without prompting.  Also allow `rm BOOTSTRAP.md` so the
   // agent can delete it at the end of the onboarding ritual.
@@ -293,7 +278,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     hostShellRule,
     ...(sandboxShellRule ? [sandboxShellRule] : []),
     ...computerUseRules,
-    ...managedSkillRules,
     ...workspacePromptRules,
     bootstrapDeleteRule,
     updatesDeleteRule,

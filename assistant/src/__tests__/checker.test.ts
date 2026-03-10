@@ -98,12 +98,6 @@ import { RiskLevel } from "../permissions/types.js";
 import { getTool, registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 
-// Import managed skill tools so they register in the tool registry.
-// Without this, classifyRisk falls through to RiskLevel.Medium (unknown tool)
-// instead of the declared RiskLevel.High — producing wrong test behavior.
-import "../tools/skills/scaffold-managed.js";
-import "../tools/skills/delete-managed.js";
-
 // Register a mock skill-origin tool for testing default-ask policy.
 const mockSkillTool: Tool = {
   name: "skill_test_tool",
@@ -811,84 +805,6 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("ask rule");
       expect(result.matchedRule?.id).toBe("default:ask-host_bash-global");
-    });
-
-    test("scaffold_managed_skill prompts by default via managed skill ask rule", async () => {
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("ask rule");
-      expect(result.matchedRule?.id).toBe(
-        "default:ask-scaffold_managed_skill-global",
-      );
-    });
-
-    test("delete_managed_skill prompts by default via managed skill ask rule", async () => {
-      const result = await check(
-        "delete_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("ask rule");
-      expect(result.matchedRule?.id).toBe(
-        "default:ask-delete_managed_skill-global",
-      );
-    });
-
-    test("allow rule for scaffold_managed_skill still prompts (High risk)", async () => {
-      addRule(
-        "scaffold_managed_skill",
-        "scaffold_managed_skill:my-skill",
-        "everywhere",
-        "allow",
-        2000,
-      );
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      // High-risk tools always prompt even with allow rules
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
-    });
-
-    test("allow rule for scaffold_managed_skill does not match other skill ids", async () => {
-      addRule(
-        "scaffold_managed_skill",
-        "scaffold_managed_skill:my-skill",
-        "everywhere",
-        "allow",
-        2000,
-      );
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "other-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("prompt");
-    });
-
-    test("wildcard allow rule for delete_managed_skill still prompts (High risk)", async () => {
-      addRule(
-        "delete_managed_skill",
-        "delete_managed_skill:*",
-        "everywhere",
-        "allow",
-        2000,
-      );
-      const result = await check(
-        "delete_managed_skill",
-        { skill_id: "any-skill" },
-        "/tmp",
-      );
-      // High-risk tools always prompt even with allow rules
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
     });
 
     test("computer_use_click prompts by default via computer-use ask rule", async () => {
@@ -1756,37 +1672,6 @@ describe("Permission Checker", () => {
       expect(options[1].pattern).toBe("**");
     });
 
-    test("scaffold_managed_skill: generates per-skill and wildcard options", async () => {
-      const options = await generateAllowlistOptions("scaffold_managed_skill", {
-        skill_id: "my-tool",
-      });
-      expect(options).toHaveLength(2);
-      expect(options[0].label).toBe("my-tool");
-      expect(options[0].pattern).toBe("scaffold_managed_skill:my-tool");
-      expect(options[0].description).toBe("This skill only");
-      expect(options[1].label).toBe("scaffold_managed_skill:*");
-      expect(options[1].pattern).toBe("scaffold_managed_skill:*");
-      expect(options[1].description).toBe("All managed skill scaffolds");
-    });
-
-    test("delete_managed_skill: generates per-skill and wildcard options", async () => {
-      const options = await generateAllowlistOptions("delete_managed_skill", {
-        skill_id: "doomed",
-      });
-      expect(options).toHaveLength(2);
-      expect(options[0].pattern).toBe("delete_managed_skill:doomed");
-      expect(options[1].pattern).toBe("delete_managed_skill:*");
-      expect(options[1].description).toBe("All managed skill deletes");
-    });
-
-    test("scaffold_managed_skill with empty skill_id: only wildcard option", async () => {
-      const options = await generateAllowlistOptions("scaffold_managed_skill", {
-        skill_id: "",
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe("scaffold_managed_skill:*");
-    });
-
     test("web_fetch: escapes minimatch metacharacters in generated exact and origin patterns", async () => {
       const options = await generateAllowlistOptions("web_fetch", {
         url: "https://[2001:db8::1]/search?q=test",
@@ -2368,42 +2253,6 @@ describe("Permission Checker", () => {
       expect(result.reason).not.toContain("high-risk");
     });
 
-    test("high-risk scaffold_managed_skill with allowHighRisk: true returns allow", async () => {
-      addRule(
-        "scaffold_managed_skill",
-        "scaffold_managed_skill:my-skill",
-        "everywhere",
-        "allow",
-        2000,
-        { allowHighRisk: true },
-      );
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-    });
-
-    test("high-risk delete_managed_skill with allowHighRisk: true returns allow", async () => {
-      addRule(
-        "delete_managed_skill",
-        "delete_managed_skill:*",
-        "everywhere",
-        "allow",
-        2000,
-        { allowHighRisk: true },
-      );
-      const result = await check(
-        "delete_managed_skill",
-        { skill_id: "any-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-    });
-
     test("deny rule still takes precedence over allowHighRisk allow rule", async () => {
       addRule("bash", "kill *", "everywhere", "allow", 100, {
         allowHighRisk: true,
@@ -2482,43 +2331,6 @@ describe("Permission Checker", () => {
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
-    });
-
-    test("strict mode: scaffold_managed_skill with allowHighRisk auto-allows", async () => {
-      testConfig.permissions.mode = "strict";
-      addRule(
-        "scaffold_managed_skill",
-        "scaffold_managed_skill:my-skill",
-        "everywhere",
-        "allow",
-        2000,
-        { allowHighRisk: true },
-      );
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-    });
-
-    test("strict mode: scaffold_managed_skill without allowHighRisk still prompts", async () => {
-      testConfig.permissions.mode = "strict";
-      addRule(
-        "scaffold_managed_skill",
-        "scaffold_managed_skill:my-skill",
-        "everywhere",
-        "allow",
-        2000,
-      );
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
     });
   });
 
@@ -3753,7 +3565,9 @@ describe("Permission Checker", () => {
         );
         expect(noMatchResult.decision).toBe("prompt");
         expect(noMatchResult.reason).toContain("ask rule");
-        expect(noMatchResult.matchedRule?.id).toBe("default:ask-host_bash-global");
+        expect(noMatchResult.matchedRule?.id).toBe(
+          "default:ask-host_bash-global",
+        );
       });
     });
 

@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -70,20 +76,14 @@ mock.module("../tools/terminal/sandbox.js", () => ({
   }),
 }));
 
+import {
+  createSkillLocally,
+  uninstallSkillLocally,
+} from "../cli/commands/skills.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { DeleteManagedSkillTool } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";
-import { ScaffoldManagedSkillTool } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
-
-const scaffoldTool = new (ScaffoldManagedSkillTool as any)() as InstanceType<
-  typeof ScaffoldManagedSkillTool
->;
-
-const deleteTool = new (DeleteManagedSkillTool as any)() as InstanceType<
-  typeof DeleteManagedSkillTool
->;
 
 function makeContext(): ToolContext {
   return {
@@ -92,6 +92,12 @@ function makeContext(): ToolContext {
     conversationId: "test-conversation",
     trustClass: "guardian",
   };
+}
+
+function writeBodyFile(name: string, content: string): string {
+  const bodyPath = join(TEST_DIR, name);
+  writeFileSync(bodyPath, content);
+  return bodyPath;
 }
 
 beforeEach(() => {
@@ -103,65 +109,45 @@ afterEach(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
-describe("managed skill lifecycle: scaffold → catalog → prompt → delete", () => {
-  test("full lifecycle: create skill, verify in catalog and prompt, then delete", async () => {
-    // Step 1: Scaffold a managed skill
-    const scaffoldResult = await scaffoldTool.execute(
-      {
-        skill_id: "lifecycle-test",
-        name: "Lifecycle Test",
-        description: "Integration test skill.",
-        body_markdown: "Run the lifecycle test procedure.",
-        emoji: "🧪",
-      },
-      makeContext(),
-    );
-
-    expect(scaffoldResult.isError).not.toBe(true);
-    const scaffoldData = JSON.parse(scaffoldResult.content as string);
-    expect(scaffoldData.created).toBe(true);
-
-    // Step 2: Verify SKILL.md was written
+describe("managed skill lifecycle: create -> catalog -> prompt -> delete", () => {
+  test("full lifecycle: create skill, verify in catalog and prompt, then delete", () => {
     const skillMdPath = join(TEST_DIR, "skills", "lifecycle-test", "SKILL.md");
+    const createdPath = createSkillLocally({
+      skillId: "lifecycle-test",
+      name: "Lifecycle Test",
+      description: "Integration test skill.",
+      bodyFile: writeBodyFile(
+        "lifecycle-test.md",
+        "Run the lifecycle test procedure.\n",
+      ),
+      emoji: "🧪",
+    });
+
+    expect(createdPath).toBe(skillMdPath);
     expect(existsSync(skillMdPath)).toBe(true);
     const skillContent = readFileSync(skillMdPath, "utf-8");
     expect(skillContent).toContain('name: "Lifecycle Test"');
     expect(skillContent).toContain('description: "Integration test skill."');
     expect(skillContent).toContain("Run the lifecycle test procedure.");
 
-    // Step 3: Verify skill appears in catalog
     const catalog = loadSkillCatalog();
     const found = catalog.find((s) => s.id === "lifecycle-test");
     expect(found).toBeDefined();
     expect(found!.name).toBe("Lifecycle Test");
     expect(found!.description).toBe("Integration test skill.");
 
-    // Step 4: Verify skill appears in system prompt
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("lifecycle-test");
     expect(prompt).toContain("Lifecycle Test");
     expect(prompt).toContain("## Dynamic Skill Authoring Workflow");
 
-    // Step 5: Delete the skill
-    const deleteResult = await deleteTool.execute(
-      {
-        skill_id: "lifecycle-test",
-      },
-      makeContext(),
-    );
+    uninstallSkillLocally("lifecycle-test");
 
-    expect(deleteResult.isError).not.toBe(true);
-    const deleteData = JSON.parse(deleteResult.content as string);
-    expect(deleteData.deleted).toBe(true);
-
-    // Step 6: Verify skill is gone from filesystem
     expect(existsSync(skillMdPath)).toBe(false);
 
-    // Step 7: Verify skill no longer in catalog
     const catalogAfter = loadSkillCatalog();
     expect(catalogAfter.find((s) => s.id === "lifecycle-test")).toBeUndefined();
 
-    // Step 8: Verify SKILLS.md index no longer has the entry
     const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
     if (existsSync(indexPath)) {
       const indexContent = readFileSync(indexPath, "utf-8");
@@ -169,33 +155,21 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     }
   });
 
-  test("scaffold with overwrite replaces existing skill", async () => {
-    const ctx = makeContext();
+  test("create with overwrite replaces existing skill", () => {
+    createSkillLocally({
+      skillId: "overwrite-test",
+      name: "V1",
+      description: "Version 1.",
+      bodyFile: writeBodyFile("overwrite-v1.md", "Original body.\n"),
+    });
 
-    // Create initial skill
-    await scaffoldTool.execute(
-      {
-        skill_id: "overwrite-test",
-        name: "V1",
-        description: "Version 1.",
-        body_markdown: "Original body.",
-      },
-      ctx,
-    );
-
-    // Overwrite with updated content
-    const result = await scaffoldTool.execute(
-      {
-        skill_id: "overwrite-test",
-        name: "V2",
-        description: "Version 2.",
-        body_markdown: "Updated body.",
-        overwrite: true,
-      },
-      ctx,
-    );
-
-    expect(result.isError).not.toBe(true);
+    createSkillLocally({
+      skillId: "overwrite-test",
+      name: "V2",
+      description: "Version 2.",
+      bodyFile: writeBodyFile("overwrite-v2.md", "Updated body.\n"),
+      overwrite: true,
+    });
 
     const skillContent = readFileSync(
       join(TEST_DIR, "skills", "overwrite-test", "SKILL.md"),
@@ -205,7 +179,6 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(skillContent).toContain("Updated body.");
     expect(skillContent).not.toContain("Original body.");
 
-    // Index should still have exactly one entry
     const indexContent = readFileSync(
       join(TEST_DIR, "skills", "SKILLS.md"),
       "utf-8",
@@ -214,64 +187,44 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(matches?.length).toBe(1);
   });
 
-  test("delete non-existent skill returns error", async () => {
-    const result = await deleteTool.execute(
-      {
-        skill_id: "does-not-exist",
-      },
-      makeContext(),
+  test("delete non-existent skill returns error", () => {
+    expect(() => uninstallSkillLocally("does-not-exist")).toThrow(
+      'Skill "does-not-exist" is not installed.',
     );
-
-    expect(result.isError).toBe(true);
   });
 
-  test("scaffold → skill_load chain: literal tool execution", async () => {
-    const ctx = makeContext();
-
+  test("create -> skill_load chain: literal tool execution", async () => {
     const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<
       typeof SkillLoadTool
     >;
 
-    // Step 1: Scaffold a skill directly
-    const scaffoldResult = await scaffoldTool.execute(
-      {
-        skill_id: "chain-test",
-        name: "Chain Test",
-        description: "Created from scaffold.",
-        body_markdown:
-          "This skill was dynamically created.\n\nRun: `echo chain-test-ok`",
-      },
-      ctx,
-    );
+    createSkillLocally({
+      skillId: "chain-test",
+      name: "Chain Test",
+      description: "Created from local CLI.",
+      bodyFile: writeBodyFile(
+        "chain-test.md",
+        "This skill was dynamically created.\n\nRun: `echo chain-test-ok`\n",
+      ),
+    });
 
-    expect(scaffoldResult.isError).not.toBe(true);
-    const scaffoldData = JSON.parse(scaffoldResult.content as string);
-    expect(scaffoldData.created).toBe(true);
-
-    // Step 2: Call skill_load tool to load the created skill
     const loadResult = await skillLoadTool.execute(
       { skill: "chain-test" },
-      ctx,
+      makeContext(),
     );
     expect(loadResult.isError).not.toBe(true);
     const loadContent = loadResult.content as string;
     expect(loadContent).toContain("Skill: Chain Test");
     expect(loadContent).toContain("ID: chain-test");
-    expect(loadContent).toContain("Description: Created from scaffold.");
+    expect(loadContent).toContain("Description: Created from local CLI.");
     expect(loadContent).toContain("dynamically created");
     expect(loadContent).toContain("echo chain-test-ok");
 
-    // Step 3: Clean up
-    const deleteResult = await deleteTool.execute(
-      { skill_id: "chain-test" },
-      ctx,
-    );
-    expect(deleteResult.isError).not.toBe(true);
+    uninstallSkillLocally("chain-test");
 
-    // Step 4: Verify skill_load returns error for deleted skill
     const loadAfterDelete = await skillLoadTool.execute(
       { skill: "chain-test" },
-      ctx,
+      makeContext(),
     );
     expect(loadAfterDelete.isError).toBe(true);
   });
