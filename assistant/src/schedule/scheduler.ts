@@ -120,7 +120,7 @@ async function runScheduleOnce(
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
   const jobs = claimDueSchedules(now);
   for (const job of jobs) {
-    const isOneShot = job.expression === null;
+    const isOneShot = job.expression == null;
 
     // ── Notify mode (one-shot or recurring) ─────────────────────────
     if (job.mode === "notify") {
