@@ -557,11 +557,18 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+  // Desktop/CLI interfaces have an SSE client that can display permission
+  // prompts. Channel interfaces (telegram, slack, etc.) route approvals
+  // through the guardian system and have no interactive prompter UI.
+  const isInteractiveInterface =
+    sourceInterface === "macos" ||
+    sourceInterface === "ios" ||
+    sourceInterface === "cli";
   // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
   // resolver, notifiers, trace emitter) can reach the HTTP client.  The
   // IPC socket removal (PR #14431) left sendToClient as a no-op; this
   // restores the delivery path using the SSE hub instead.
-  session.updateClient(onEvent, true);
+  session.updateClient(onEvent, !isInteractiveInterface);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -648,7 +655,7 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       },
-      { isInteractive: false },
+      { isInteractive: isInteractiveInterface },
     );
     if (result.rejected) {
       return httpError(
@@ -677,10 +684,9 @@ export async function handleSendMessage(
   );
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  // Mark non-interactive so conflict clarification doesn't block the turn.
   session
     .runAgentLoop(content ?? "", messageId, onEvent, {
-      isInteractive: false,
+      isInteractive: isInteractiveInterface,
       isUserMessage: true,
     })
     .catch((err) => {
