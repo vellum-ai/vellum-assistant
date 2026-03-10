@@ -271,11 +271,13 @@ public final class AuthService {
 
         log.debug("Platform request GET assistants/\(id)/ -> \(statusCode)")
 
-        if statusCode == 404 {
+        // 404 = deleted, 403 = access revoked. Both mean this specific
+        // assistant is no longer available to the current user.
+        if statusCode == 404 || statusCode == 403 {
             return .notFound
         }
 
-        if statusCode == 401 || statusCode == 403 {
+        if statusCode == 401 {
             throw PlatformAPIError.authenticationRequired
         }
 

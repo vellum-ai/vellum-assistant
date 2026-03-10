@@ -80,7 +80,10 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                log.error("Connected assistant \(connectedId, privacy: .public) not found (404)")
+                // Clear the stale ID so retries fall through to current/ + hatch
+                // instead of hitting the same 404 in a loop.
+                log.error("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
+                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
                 throw ManagedBootstrapError.assistantUnavailable(connectedId)
             }
         }
