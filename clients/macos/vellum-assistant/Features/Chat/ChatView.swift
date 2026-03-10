@@ -111,6 +111,8 @@ struct ChatView: View {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
                     // During first-launch bootstrap, suppress the empty state
                     // and show a simple loading panel until the first assistant
@@ -402,6 +404,8 @@ private struct ChatBootstrapLoadingView: View {
         ChatLoadingSkeleton()
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Getting ready")
             .opacity(visible ? 1 : 0)
             .onAppear {
                 withAnimation(VAnimation.standard) {
