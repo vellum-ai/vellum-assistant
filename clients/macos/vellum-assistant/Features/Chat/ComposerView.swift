@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
@@ -73,6 +74,10 @@ struct ComposerView: View {
     @State var slashSelectedIndex = 0
     @State var suppressSlashReopen = false
     @State private var avatarSeed: String = "default"
+    /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
+    @State private var preDictationText: String = ""
+    /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
+    @State private var liveAmplitude: Float = 0
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -127,6 +132,9 @@ struct ComposerView: View {
         }
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
+            if currentMode == .dictationInline {
+                preDictationText = inputText
+            }
         }
     }
 
@@ -466,13 +474,9 @@ struct ComposerView: View {
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
 
-                    VIconButton(
-                        label: "Voice mode",
-                        icon: VIcon.audioWaveform.rawValue,
-                        iconOnly: true,
-                        size: composerActionButtonSize,
-                        action: { onVoiceModeToggle?() }
-                    )
+                    VoiceModeButton(size: composerActionButtonSize) {
+                        onVoiceModeToggle?()
+                    }
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
                 } else {
@@ -492,7 +496,6 @@ struct ComposerView: View {
 
     // MARK: - Dictation Inline Mode
 
-    @State private var dictationPulse = false
 
     @ViewBuilder
     private var dictationInlineComposer: some View {
@@ -503,34 +506,49 @@ struct ComposerView: View {
                     .frame(minHeight: composerCompactHeight)
 
                 // Inline recording strip
-                HStack(spacing: VSpacing.sm) {
-                    Text("Listening\u{2026}")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .opacity(dictationPulse ? 0.4 : 1.0)
-                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: dictationPulse)
-                        .onAppear { dictationPulse = true }
-                        .onDisappear { dictationPulse = false }
-
-                    VStreamingWaveform(
-                        amplitude: recordingAmplitude,
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+VStreamingWaveform(
+                        amplitude: liveAmplitude,
                         isActive: true,
-                        style: .dictation,
-                        foregroundColor: VColor.accent
+                        style: .scrolling,
+                        foregroundColor: VColor.textMuted,
+                        lineWidth: 2
                     )
-                    .frame(height: 24)
+                    .padding(.trailing, VSpacing.lg)
+                    .frame(height: 44)
                     .frame(maxWidth: .infinity)
 
+                    // Cancel: stop dictation and discard transcribed text
                     VIconButton(
-                        label: "Stop dictation",
-                        icon: VIcon.square.rawValue,
+                        label: "Cancel dictation",
+                        icon: VIcon.x.rawValue,
                         iconOnly: true,
-                        variant: .neutral,
+                        variant: .danger,
                         size: composerActionButtonSize,
-                        action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                        action: {
+                            inputText = preDictationText
+                            preDictationText = ""
+                            (onDictateToggle ?? onMicrophoneToggle)()
+                        }
+                    )
+
+                    // Accept: stop dictation and keep transcribed text
+                    VIconButton(
+                        label: "Accept dictation",
+                        icon: VIcon.check.rawValue,
+                        iconOnly: true,
+                        variant: .primary,
+                        size: composerActionButtonSize,
+                        action: {
+                            preDictationText = ""
+                            (onDictateToggle ?? onMicrophoneToggle)()
+                        }
                     )
                 }
             }
+        }
+        .onReceive(VoiceInputManager.amplitudeSubject.receive(on: RunLoop.main)) { amp in
+            liveAmplitude = amp
         }
     }
 
@@ -544,38 +562,26 @@ struct ComposerView: View {
                     attachmentStrip
                 }
 
-            HStack(spacing: VSpacing.md) {
-                // Left section: state label + live transcription
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(manager.stateLabel)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.voiceComposerTextSecondary)
-
-                    if manager.state == .listening, !manager.liveTranscription.isEmpty {
-                        Text(manager.liveTranscription)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.voiceComposerTextPrimary)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Center: streaming waveform
+            HStack(spacing: VSpacing.sm) {
+                // Scrolling waveform — full width, inverse color
                 VStreamingWaveform(
                     amplitude: voiceConversationAmplitude(manager),
                     isActive: manager.state == .listening || manager.state == .speaking,
-                    style: .conversation,
-                    foregroundColor: voiceConversationWaveformColor(manager)
+                    style: .scrolling,
+                    foregroundColor: VColor.voiceComposerTextPrimary,
+                    lineWidth: 2
                 )
-                .frame(width: 60, height: 32)
+                .padding(.trailing, VSpacing.lg)
+                .frame(height: 44)
+                .frame(maxWidth: .infinity)
 
                 // Right: mute/unmute + end button
-                HStack(spacing: 2) {
+                HStack(spacing: VSpacing.xs) {
                     VIconButton(
                         label: manager.state == .listening ? "Mute" : "Unmute",
                         icon: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
                         iconOnly: true,
+                        variant: .neutral,
                         size: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
@@ -583,7 +589,7 @@ struct ComposerView: View {
 
                     VIconButton(
                         label: "End voice mode",
-                        icon: VIcon.x.rawValue,
+                        icon: VIcon.phoneCall.rawValue,
                         iconOnly: true,
                         variant: .danger,
                         size: composerActionButtonSize,
@@ -603,11 +609,14 @@ struct ComposerView: View {
     }
 
     private func voiceConversationAmplitude(_ manager: VoiceModeManager) -> Float {
+        let raw: Float
         switch manager.state {
-        case .listening: return voiceService?.amplitude ?? 0
-        case .speaking: return voiceService?.speakingAmplitude ?? 0
-        default: return 0
+        case .listening: raw = voiceService?.amplitude ?? 0
+        case .speaking: raw = voiceService?.speakingAmplitude ?? 0
+        default: raw = 0
         }
+        // Amplify for more visible waveform spikes
+        return min(raw * 2.5, 1.0)
     }
 
     private func voiceConversationWaveformColor(_ manager: VoiceModeManager) -> Color {
@@ -627,4 +636,30 @@ struct ComposerView: View {
             && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
     }
 
+}
+
+// MARK: - Voice Mode Button
+
+/// Circle button with inverse colors for voice mode entry.
+private struct VoiceModeButton: View {
+    let size: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VIconView(.audioWaveform, size: 13)
+                .frame(width: 20, height: 20)
+                .foregroundColor(VColor.voiceComposerTextPrimary)
+        }
+        .buttonStyle(.plain)
+        .frame(width: size, height: size)
+        .background(
+            Circle()
+                .fill(VColor.voiceComposerBackground)
+                .frame(width: 28, height: 28)
+        )
+        .contentShape(Circle().size(width: size, height: size))
+        .pointerCursor()
+        .accessibilityLabel("Voice mode")
+    }
 }

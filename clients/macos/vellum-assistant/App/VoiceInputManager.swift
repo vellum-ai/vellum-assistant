@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Combine
 import CoreGraphics
 import Speech
 import AVFoundation
@@ -48,6 +49,10 @@ final class VoiceInputManager {
 
     /// Callback fired with smoothed amplitude values (~50ms intervals) during recording.
     var onAmplitudeChanged: ((Float) -> Void)?
+
+    /// Direct amplitude publisher that bypasses ChatViewModel's 100ms coalescing.
+    /// Views can subscribe via `onReceive` for real-time waveform updates.
+    static let amplitudeSubject = CurrentValueSubject<Float, Never>(0)
 
     /// Mutable state for amplitude smoothing/throttling, captured by the audio tap closure
     /// so reads and writes happen entirely on the audio thread (no cross-thread races).
@@ -213,6 +218,7 @@ final class VoiceInputManager {
 
         activeOrigin = .hotkey
         amplitudeState.reset()
+        Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
 
         audioEngine.stop()
@@ -543,8 +549,11 @@ final class VoiceInputManager {
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
 
         if micStatus == .notDetermined || speechStatus == .notDetermined {
-            showPermissionPrompt(kind: .notDetermined)
+            // Skip custom overlay — go straight to the native system permission dialogs.
             currentDictationContext = nil
+            Task { @MainActor [weak self] in
+                await self?.requestPermissionsAndRecord()
+            }
             return
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
@@ -558,7 +567,7 @@ final class VoiceInputManager {
             } else {
                 deniedPermission = .speechRecognition
             }
-            showPermissionPrompt(kind: .denied, deniedPermission: deniedPermission)
+            showDeniedPermissionPrompt(deniedPermission: deniedPermission)
             currentDictationContext = nil
             return
         }
@@ -606,15 +615,20 @@ final class VoiceInputManager {
             let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
             let rawRMS = vDSP.rootMeanSquare(channelDataArray)
 
-            let smoothed = 0.3 * rawRMS + 0.7 * ampState.previousSmoothed
+            let smoothed = 0.5 * rawRMS + 0.5 * ampState.previousSmoothed
             ampState.previousSmoothed = smoothed
 
+            // Scale amplitude to 0-1 range for waveform visualization.
+            // Speech RMS is typically 0.01-0.1; multiply to fill the visual range.
+            let scaled = min(smoothed * 14.0, 1.0)
+
             let now = CFAbsoluteTimeGetCurrent()
-            guard now - ampState.lastEmissionTime >= 0.05 else { return }
+            guard now - ampState.lastEmissionTime >= 0.033 else { return }
             ampState.lastEmissionTime = now
 
+            VoiceInputManager.amplitudeSubject.send(scaled)
             DispatchQueue.main.async { [weak self] in
-                self?.onAmplitudeChanged?(smoothed)
+                self?.onAmplitudeChanged?(scaled)
             }
         }
 
@@ -673,12 +687,6 @@ final class VoiceInputManager {
 
     // MARK: - Permission Prompt
 
-    /// Possible permission states that trigger a prompt overlay.
-    private enum PermissionPromptKind {
-        case notDetermined
-        case denied
-    }
-
     /// Display name for the currently configured activation key, for use in user-facing copy.
     private var activationKeyDisplayName: String {
         let current = activator
@@ -686,39 +694,16 @@ final class VoiceInputManager {
         return current.displayName
     }
 
-    /// Show the permission prompt overlay explaining why access is needed and providing
-    /// action buttons. After the user grants access, recording starts automatically.
-    private func showPermissionPrompt(
-        kind: PermissionPromptKind,
-        deniedPermission: PermissionPromptOverlay.DeniedPermission = .both
-    ) {
+    /// Show the denied-permission overlay directing the user to System Settings.
+    private func showDeniedPermissionPrompt(deniedPermission: PermissionPromptOverlay.DeniedPermission) {
         let keyName = activationKeyDisplayName
-
-        switch kind {
-        case .notDetermined:
-            permissionOverlay.show(
-                kind: .notDetermined(keyName: keyName),
-                onGrantAccess: { [weak self] in
-                    Task { @MainActor [weak self] in
-                        guard let self = self else { return }
-                        await self.requestPermissionsAndRecord()
-                    }
-                },
-                onDismiss: { [weak self] in
-                    log.info("User dismissed permission prompt")
-                    self?.permissionOverlay.dismiss()
-                }
-            )
-
-        case .denied:
-            permissionOverlay.show(
-                kind: .denied(keyName: keyName, deniedPermission: deniedPermission),
-                onGrantAccess: { },
-                onDismiss: { [weak self] in
-                    self?.permissionOverlay.dismiss()
-                }
-            )
-        }
+        permissionOverlay.show(
+            kind: deniedPermission,
+            keyName: keyName,
+            onDismiss: { [weak self] in
+                self?.permissionOverlay.dismiss()
+            }
+        )
     }
 
     /// Request both microphone and speech recognition permissions sequentially,
@@ -727,7 +712,7 @@ final class VoiceInputManager {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
         guard micGranted else {
             log.warning("Microphone access denied by user")
-            showPermissionPrompt(kind: .denied, deniedPermission: .microphone)
+            showDeniedPermissionPrompt(deniedPermission: .microphone)
             return
         }
 
@@ -738,7 +723,7 @@ final class VoiceInputManager {
         }
         guard speechGranted else {
             log.warning("Speech recognition access denied by user")
-            showPermissionPrompt(kind: .denied, deniedPermission: .speechRecognition)
+            showDeniedPermissionPrompt(deniedPermission: .speechRecognition)
             return
         }
 
@@ -842,6 +827,7 @@ final class VoiceInputManager {
         currentDictationContext = nil
         activeOrigin = .hotkey
         amplitudeState.reset()
+        Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
         // Overlay stays visible if we're transitioning to processing state (dictation sent
         // to daemon). Otherwise dismiss it — recording stopped without producing a result.

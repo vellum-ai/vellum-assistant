@@ -384,7 +384,7 @@ extension MainWindowView {
                     voiceModeManager.deactivate()
                 },
                 onDictateToggle: {
-                    (NSApp.delegate as? AppDelegate)?.voiceInput?.toggleRecording(origin: .chatComposer)
+                    AppDelegate.shared?.voiceInput?.toggleRecording(origin: .chatComposer)
                 },
                 onVoiceModeToggle: {
                     toggleVoiceMode()
