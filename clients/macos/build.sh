@@ -913,6 +913,13 @@ if [ "$CONFIG" = "release" ]; then
     # Note: Sentry.framework is a pre-built binary from SPM and does not contain
     # the .o object files needed by dsymutil. Sentry distributes their own dSYMs
     # separately via their SDK integration — no need to run dsymutil on it.
+
+    # Upload dSYMs to Sentry when auth token is available (local dev & CI)
+    if [ -n "${SENTRY_AUTH_TOKEN:-}" ] && command -v sentry-cli &>/dev/null; then
+        echo "Uploading dSYMs to Sentry..."
+        sentry-cli debug-files upload --org vellum --project vellum-assistant-macos "$SCRIPT_DIR/dist/"*.dSYM || echo "warning: dSYM upload failed (non-fatal)"
+        sentry-cli debug-files upload --org vellum --project vellum-assistant-brain "$SCRIPT_DIR/dist/"*.dSYM || echo "warning: dSYM upload failed (non-fatal)"
+    fi
 fi
 
 # 7. Run if requested
