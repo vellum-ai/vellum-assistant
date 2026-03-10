@@ -3,6 +3,7 @@ import AppKit
 import CoreGraphics
 import Speech
 import AVFoundation
+import Accelerate
 import os
 import VellumAssistantShared
 
@@ -13,6 +14,13 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 enum VoiceInputMode {
     case conversation  // existing behavior — transcription goes to chat
     case dictation     // transcription goes to daemon for cleanup, then inserted at cursor
+}
+
+/// Tracks the UI surface that initiated a voice recording session.
+enum VoiceInputOrigin {
+    case chatComposer
+    case quickInput
+    case hotkey
 }
 
 @MainActor
@@ -34,6 +42,21 @@ final class VoiceInputManager {
     /// Called when the daemon classifies dictation as an action (e.g. "Slack Alex about the standup").
     /// The callback receives the original transcription text for routing to a full agent session.
     var onActionModeTriggered: ((String) -> Void)?
+
+    /// Tracks which UI surface initiated the current recording session.
+    var activeOrigin: VoiceInputOrigin = .hotkey
+
+    /// Callback fired with smoothed amplitude values (~50ms intervals) during recording.
+    var onAmplitudeChanged: ((Float) -> Void)?
+
+    /// Mutable state for amplitude smoothing/throttling, captured by the audio tap closure
+    /// so reads and writes happen entirely on the audio thread (no cross-thread races).
+    private final class AmplitudeState {
+        var previousSmoothed: Float = 0
+        var lastEmissionTime: CFAbsoluteTime = 0
+        func reset() { previousSmoothed = 0; lastEmissionTime = 0 }
+    }
+    private let amplitudeState = AmplitudeState()
 
     /// Context captured at activation time, describing the frontmost app state.
     var currentDictationContext: DictationContext?
@@ -161,10 +184,12 @@ final class VoiceInputManager {
     }
 
     /// Directly toggle recording on/off — used by UI mic buttons that bypass the Fn-key hold flow.
-    func toggleRecording() {
+    /// The `origin` parameter tracks which UI surface initiated the recording.
+    func toggleRecording(origin: VoiceInputOrigin = .hotkey) {
         if isRecording {
             stopRecording()
         } else {
+            activeOrigin = origin
             beginRecording()
         }
     }
@@ -184,6 +209,10 @@ final class VoiceInputManager {
     func stopContinuousRecording() {
         guard isRecording else { return }
         log.info("Stopping continuous recording — waiting for final transcription")
+
+        activeOrigin = .hotkey
+        amplitudeState.reset()
+        onAmplitudeChanged?(0)
 
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
@@ -557,8 +586,31 @@ final class VoiceInputManager {
             return
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+        let ampState = amplitudeState
+        ampState.reset()
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             request.append(buffer)
+
+            // Compute amplitude from the audio buffer for visual feedback.
+            // All smoothing/throttling state lives in ampState (a reference type
+            // captured by this closure) so reads and writes stay on the audio thread.
+            guard let channelData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
+
+            let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
+            let rawRMS = vDSP.rootMeanSquare(channelDataArray)
+
+            let smoothed = 0.3 * rawRMS + 0.7 * ampState.previousSmoothed
+            ampState.previousSmoothed = smoothed
+
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - ampState.lastEmissionTime >= 0.05 else { return }
+            ampState.lastEmissionTime = now
+
+            DispatchQueue.main.async { [weak self] in
+                self?.onAmplitudeChanged?(smoothed)
+            }
         }
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -783,6 +835,9 @@ final class VoiceInputManager {
         isRecording = false
         onRecordingStateChanged?(false)
         currentDictationContext = nil
+        activeOrigin = .hotkey
+        amplitudeState.reset()
+        onAmplitudeChanged?(0)
         // Overlay stays visible if we're transitioning to processing state (dictation sent
         // to daemon). Otherwise dismiss it — recording stopped without producing a result.
         if !awaitingDaemonResponse {
