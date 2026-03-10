@@ -566,9 +566,7 @@ export async function handleSendMessage(
     sourceInterface === "cli" ||
     sourceInterface === "vellum";
   // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
-  // resolver, notifiers, trace emitter) can reach the HTTP client.  The
-  // IPC socket removal (PR #14431) left sendToClient as a no-op; this
-  // restores the delivery path using the SSE hub instead.
+  // resolver, notifiers, trace emitter) can reach the HTTP client.
   session.updateClient(onEvent, !isInteractiveInterface);
 
   const attachments = hasAttachments

@@ -730,7 +730,6 @@ describe("Session message queue", () => {
     // msg-3 should have completed successfully
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
-
 });
 
 // ---------------------------------------------------------------------------

@@ -129,6 +129,17 @@ async function exchangeCodeForTokens(
     }
   }
 
+  log.info(
+    {
+      tokenUrl: config.tokenUrl,
+      hasClientId: !!tokenBody.client_id,
+      hasSecret: !!config.clientSecret,
+      redirectUri: tokenBody.redirect_uri,
+      authMethod,
+    },
+    "Token exchange: sending request to token endpoint",
+  );
+
   const tokenResp = await fetch(config.tokenUrl, {
     method: "POST",
     headers,

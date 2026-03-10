@@ -10,7 +10,10 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage, UserMessageAttachment } from "./message-protocol.js";
+import type {
+  ServerMessage,
+  UserMessageAttachment,
+} from "./message-protocol.js";
 
 const log = getLogger("session-queue");
 

@@ -152,6 +152,17 @@ export async function orchestrateOAuthConnect(
     wellKnownInjectionTemplates: profile?.injectionTemplates,
   };
 
+  log.info(
+    {
+      service: resolvedService,
+      isInteractive: options.isInteractive,
+      hasOpenUrl: !!options.openUrl,
+      hasSendToClient: !!options.sendToClient,
+      callbackTransport: profile?.callbackTransport ?? "gateway",
+    },
+    "OAuth connect orchestrator: routing decision",
+  );
+
   // -----------------------------------------------------------------------
   // Deferred (non-interactive) path
   // -----------------------------------------------------------------------
