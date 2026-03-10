@@ -49,11 +49,14 @@ final class VoiceInputManager {
     /// Callback fired with smoothed amplitude values (~50ms intervals) during recording.
     var onAmplitudeChanged: ((Float) -> Void)?
 
-    /// EMA-smoothed amplitude from the previous emission, used for exponential moving average.
-    private var previousSmoothedAmplitude: Float = 0
-
-    /// Timestamp of the last amplitude callback emission, used for ~50ms throttling.
-    private var lastAmplitudeEmissionTime: CFAbsoluteTime = 0
+    /// Mutable state for amplitude smoothing/throttling, captured by the audio tap closure
+    /// so reads and writes happen entirely on the audio thread (no cross-thread races).
+    private final class AmplitudeState {
+        var previousSmoothed: Float = 0
+        var lastEmissionTime: CFAbsoluteTime = 0
+        func reset() { previousSmoothed = 0; lastEmissionTime = 0 }
+    }
+    private let amplitudeState = AmplitudeState()
 
     /// Context captured at activation time, describing the frontmost app state.
     var currentDictationContext: DictationContext?
@@ -208,8 +211,7 @@ final class VoiceInputManager {
         log.info("Stopping continuous recording — waiting for final transcription")
 
         activeOrigin = .hotkey
-        previousSmoothedAmplitude = 0
-        lastAmplitudeEmissionTime = 0
+        amplitudeState.reset()
         onAmplitudeChanged?(0)
 
         audioEngine.stop()
@@ -584,10 +586,14 @@ final class VoiceInputManager {
             return
         }
 
+        let ampState = amplitudeState
+        ampState.reset()
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             request.append(buffer)
 
-            // Compute amplitude from the audio buffer for visual feedback
+            // Compute amplitude from the audio buffer for visual feedback.
+            // All smoothing/throttling state lives in ampState (a reference type
+            // captured by this closure) so reads and writes stay on the audio thread.
             guard let channelData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             guard frameLength > 0 else { return }
@@ -595,20 +601,15 @@ final class VoiceInputManager {
             let channelDataArray = Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
             let rawRMS = vDSP.rootMeanSquare(channelDataArray)
 
-            // Read previous state — these are only written from the main thread,
-            // so reading here is safe for EMA approximation.
-            let previousSmoothed = self?.previousSmoothedAmplitude ?? 0
-            let smoothed = 0.3 * rawRMS + 0.7 * previousSmoothed
+            let smoothed = 0.3 * rawRMS + 0.7 * ampState.previousSmoothed
+            ampState.previousSmoothed = smoothed
 
             let now = CFAbsoluteTimeGetCurrent()
-            let lastEmission = self?.lastAmplitudeEmissionTime ?? 0
-            guard now - lastEmission >= 0.05 else { return }
+            guard now - ampState.lastEmissionTime >= 0.05 else { return }
+            ampState.lastEmissionTime = now
 
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.previousSmoothedAmplitude = smoothed
-                self.lastAmplitudeEmissionTime = now
-                self.onAmplitudeChanged?(smoothed)
+                self?.onAmplitudeChanged?(smoothed)
             }
         }
 
@@ -835,8 +836,7 @@ final class VoiceInputManager {
         onRecordingStateChanged?(false)
         currentDictationContext = nil
         activeOrigin = .hotkey
-        previousSmoothedAmplitude = 0
-        lastAmplitudeEmissionTime = 0
+        amplitudeState.reset()
         onAmplitudeChanged?(0)
         // Overlay stays visible if we're transitioning to processing state (dictation sent
         // to daemon). Otherwise dismiss it — recording stopped without producing a result.
