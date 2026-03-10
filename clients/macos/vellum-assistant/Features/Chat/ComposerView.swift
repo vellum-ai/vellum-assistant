@@ -455,7 +455,7 @@ struct ComposerView: View {
                         icon: VIcon.mic.rawValue,
                         iconOnly: true,
                         size: composerActionButtonSize,
-                        action: { onDictateToggle?() }
+                        action: { (onDictateToggle ?? onMicrophoneToggle)() }
                     )
                     .disabled(!hasAPIKey)
                     .transition(.scale.combined(with: .opacity))
@@ -521,7 +521,7 @@ struct ComposerView: View {
                         iconOnly: true,
                         variant: .neutral,
                         size: composerActionButtonSize,
-                        action: { onDictateToggle?() }
+                        action: { (onDictateToggle ?? onMicrophoneToggle)() }
                     )
                 }
             }
