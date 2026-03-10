@@ -296,7 +296,7 @@ struct AssistantProgressView: View {
                 processingLabel
             } else {
                 Text(headlineText)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
             }
@@ -322,7 +322,7 @@ struct AssistantProgressView: View {
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
-                    .font(VFont.bodyMedium)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
@@ -543,7 +543,7 @@ private struct StepDetailRow: View {
                                 }
                                 return toolCall.actionDescription
                             }())
-                                .font(VFont.bodyMedium)
+                                .font(VFont.caption)
                                 .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -558,7 +558,7 @@ private struct StepDetailRow: View {
                                     buildingStatus: toolCall.buildingStatus
                                 )
                             }())
-                            .font(VFont.bodyMedium)
+                            .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -573,7 +573,7 @@ private struct StepDetailRow: View {
                                     buildingStatus: toolCall.buildingStatus
                                 )
                             }())
-                            .font(VFont.bodyMedium)
+                            .font(VFont.caption)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -608,13 +608,15 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.sm)
+            .padding(.leading, VSpacing.sm)
+            .padding(.trailing, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
             )
-            .padding(.horizontal, VSpacing.sm)
+            .padding(.leading, VSpacing.sm)
+            .padding(.trailing, VSpacing.xs)
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -865,8 +867,7 @@ private struct StepDetailRow: View {
                 }
             }
 
-            Text(isApproved ? "\(label) Allowed" :
-                 isDenied ? "\(label) Denied" : "Timed Out")
+            Text(isApproved || isDenied ? "\(label)" : "Timed Out")
                 .font(VFont.small)
                 .foregroundColor(chipColor)
         }
