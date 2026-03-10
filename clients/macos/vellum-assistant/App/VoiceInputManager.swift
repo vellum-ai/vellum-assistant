@@ -190,6 +190,7 @@ final class VoiceInputManager {
             stopRecording()
         } else {
             activeOrigin = origin
+            log.debug("Dictation started (origin: \(String(describing: origin)))")
             beginRecording()
         }
     }
@@ -565,7 +566,11 @@ final class VoiceInputManager {
         isRecording = true
         onRecordingStateChanged?(true)
         if currentMode == .dictation {
-            overlayWindow.show(state: .recording)
+            if activeOrigin == .chatComposer {
+                log.debug("Overlay suppressed for chatComposer origin")
+            } else {
+                overlayWindow.show(state: .recording)
+            }
         }
         log.info("Voice recording started")
 
