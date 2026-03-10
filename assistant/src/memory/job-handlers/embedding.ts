@@ -1,10 +1,18 @@
+import { readFile } from "node:fs/promises";
+
 import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../db.js";
+import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { memoryItems, memorySegments, memorySummaries } from "../schema.js";
+import {
+  mediaAssets,
+  memoryItems,
+  memorySegments,
+  memorySummaries,
+} from "../schema.js";
 
 export async function embedSegmentJob(
   job: MemoryJob,
@@ -74,4 +82,36 @@ export async function embedSummaryJob(
       last_seen_at: summary.endAt,
     },
   );
+}
+
+export async function embedMediaJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const assetId = asString(job.payload.assetId);
+  if (!assetId) return;
+
+  const db = getDb();
+  const asset = db
+    .select()
+    .from(mediaAssets)
+    .where(eq(mediaAssets.id, assetId))
+    .get();
+  if (!asset || asset.status !== "indexed") return;
+
+  // Read the media file from disk
+  const fileData = await readFile(asset.filePath);
+
+  // Determine modality from mediaType
+  const input: EmbeddingInput = {
+    type: asset.mediaType as "image" | "audio" | "video",
+    data: fileData,
+    mimeType: asset.mimeType,
+  };
+
+  await embedAndUpsert(config, "media", asset.id, input, {
+    created_at: asset.createdAt,
+    kind: asset.mediaType,
+    subject: asset.title,
+  });
 }
