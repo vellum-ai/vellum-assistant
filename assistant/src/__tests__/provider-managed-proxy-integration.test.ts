@@ -162,12 +162,9 @@ describe("managed proxy integration — credential precedence", () => {
       // Unwrap RetryProvider → LogfireProvider → AnthropicProvider to inspect
       // the Anthropic SDK client's baseURL. The wrappers use private `inner`
       // and AnthropicProvider stores the SDK client as private `client`.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const retryInner = (provider as any).inner;
       // retryInner is the logfire wrapper; it also has an `inner` property
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const logfireInner = (retryInner as any).inner ?? retryInner;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const anthropicClient = (logfireInner as any).client;
 
       expect(anthropicClient).toBeDefined();
