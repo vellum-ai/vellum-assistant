@@ -64,7 +64,7 @@ export const QdrantConfigSchema = z.object({
     .number({ error: "memory.qdrant.vectorSize must be a number" })
     .int("memory.qdrant.vectorSize must be an integer")
     .positive("memory.qdrant.vectorSize must be a positive integer")
-    .default(768),
+    .default(384),
   onDisk: z
     .boolean({ error: "memory.qdrant.onDisk must be a boolean" })
     .default(true),
