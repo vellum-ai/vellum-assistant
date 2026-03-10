@@ -620,7 +620,7 @@ describe("skill_load tool", () => {
     expect(result.content).not.toContain("--- Reference:");
   });
 
-  test("references/ directory skips symlinked markdown files", async () => {
+  test("references/ directory skips symlinked markdown files that escape the skill directory", async () => {
     if (process.platform === "win32") {
       // Symlink creation is not consistently available in Windows test environments.
       return;

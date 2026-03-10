@@ -1100,19 +1100,41 @@ function applyFeatureGatedSections(body: string): string {
 }
 
 /**
+ * Returns true if `filePath` is a symlink whose resolved real path escapes
+ * `rootDir`. Symlinks that stay within `rootDir` are allowed; only those that
+ * point outside are considered unsafe.
+ */
+function isEscapingSymlink(filePath: string, rootDir: string): boolean {
+  try {
+    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    const real = realpathSync(filePath);
+    const normalizedRoot = resolve(rootDir);
+    return (
+      real !== normalizedRoot &&
+      !real.startsWith(normalizedRoot + "/") &&
+      !real.startsWith(normalizedRoot + "\\")
+    );
+  } catch {
+    // If we can't resolve (e.g. dangling symlink), treat as escaping.
+    return true;
+  }
+}
+
+/**
  * Scan for a `references/` subdirectory within a skill directory and append
  * the contents of any `.md` files found there to the skill body. Each
  * reference file is labeled with a `--- Reference: <Name> ---` header.
  * Files are appended in alphabetical order for deterministic output.
- * Non-`.md` files and symlinks are ignored. Errors are logged as warnings and the
- * original body is returned unchanged.
+ * Non-`.md` files are ignored. Symlinks that resolve outside the skill
+ * directory are skipped. Errors are logged as warnings and the original body
+ * is returned unchanged.
  */
 function appendReferenceFiles(body: string, directoryPath: string): string {
   try {
     const refsDir = join(directoryPath, "references");
     if (
       !existsSync(refsDir) ||
-      lstatSync(refsDir).isSymbolicLink() ||
+      isEscapingSymlink(refsDir, directoryPath) ||
       !statSync(refsDir).isDirectory()
     ) {
       return body;
@@ -1121,7 +1143,7 @@ function appendReferenceFiles(body: string, directoryPath: string): string {
     const entries = readdirSync(refsDir);
     const mdFiles = entries
       .filter((f) => f.toLowerCase().endsWith(".md"))
-      .filter((f) => !lstatSync(join(refsDir, f)).isSymbolicLink())
+      .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
       .sort((a, b) => a.localeCompare(b));
 
     if (mdFiles.length === 0) return body;
