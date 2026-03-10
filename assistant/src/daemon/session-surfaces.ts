@@ -214,7 +214,7 @@ export interface SurfaceSessionContext {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; rejected?: boolean; requestId: string };
+  ): { queued: boolean; requestId: string };
   getQueueDepth(): number;
   processMessage(
     content: string,
