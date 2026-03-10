@@ -92,10 +92,6 @@ struct AssistantProgressView: View {
         toolCalls.first(where: { !$0.isComplete })
     }
 
-    private var completedCount: Int {
-        toolCalls.filter(\.isComplete).count
-    }
-
     /// Single source of truth for denied state — used for both `.denied` phase gating
     /// and `.complete` warning styling/copy. Checks live confirmations and persisted per-tool data.
     private var hasDeniedTools: Bool {
