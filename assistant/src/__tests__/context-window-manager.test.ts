@@ -260,11 +260,11 @@ describe("ContextWindowManager", () => {
       provider,
       systemPrompt: "system prompt",
       config: makeConfig({
-        maxInputTokens: 280,
+        maxInputTokens: 550,
         targetBudgetRatio: 0.59,
       }),
     });
-    const long = "f".repeat(220);
+    const long = "f".repeat(500);
     const history: Message[] = [
       {
         role: "user",
