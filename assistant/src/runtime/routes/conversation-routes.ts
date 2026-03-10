@@ -21,7 +21,11 @@ import {
   buildModelInfoEvent,
   isModelSlashCommand,
 } from "../../daemon/session-process.js";
-import { resolveSlash, type SlashContext } from "../../daemon/session-slash.js";
+import {
+  isProviderShortcut,
+  resolveSlash,
+  type SlashContext,
+} from "../../daemon/session-slash.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -733,8 +737,9 @@ export async function handleSendMessage(
     );
 
     // Emit fresh model info before the text delta so the client has
-    // up-to-date configuredProviders when rendering /model or /models UI.
-    if (isModelSlashCommand(rawContent)) {
+    // up-to-date configuredProviders when rendering /model, /models,
+    // and provider shortcut commands (/gpt4, /opus, etc.).
+    if (isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)) {
       onEvent(buildModelInfoEvent());
     }
 
