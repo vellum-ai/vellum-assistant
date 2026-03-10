@@ -190,7 +190,7 @@ describe("notifications send", () => {
       "--source-channel",
       "scheduler",
       "--source-event-name",
-      "reminder.fired",
+      "schedule.notify",
       "--message",
       "Test",
       "--urgency",
@@ -269,7 +269,7 @@ describe("notifications send", () => {
     expect(parsed.error).toContain("bogus.event");
     // Should list valid event names from the registry
     expect(parsed.error).toContain("user.send_notification");
-    expect(parsed.error).toContain("reminder.fired");
+    expect(parsed.error).toContain("schedule.notify");
   });
 
   test("send rejects invalid urgency", async () => {
@@ -399,7 +399,7 @@ describe("notifications list", () => {
 
     createEvent({
       id: `evt-filter-reminder-${Date.now()}`,
-      sourceEventName: "reminder.fired",
+      sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
       sourceSessionId: "session-filter-2",
       attentionHints: {

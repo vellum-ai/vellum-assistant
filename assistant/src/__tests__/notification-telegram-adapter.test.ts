@@ -38,7 +38,7 @@ function makePayload(
   overrides?: Partial<ChannelDeliveryPayload>,
 ): ChannelDeliveryPayload {
   return {
-    sourceEventName: "reminder.fired",
+    sourceEventName: "schedule.notify",
     copy: {
       title: "Reminder",
       body: "Check the oven now!",
