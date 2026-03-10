@@ -2,7 +2,10 @@ import { createUserMessage } from "../agent/message-types.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { ContentBlock, Message, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import { estimatePromptTokens } from "./token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateTextTokens,
+} from "./token-estimator.js";
 import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 
 const log = getLogger("context-window");
@@ -335,7 +338,10 @@ export class ContextWindowManager {
       };
     }
 
-    const transcript = serializeMessages(compactableMessages);
+    const transcript = this.capTranscriptToTokenBudget(
+      serializeMessages(compactableMessages),
+      existingSummary ?? "No previous summary.",
+    );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
       transcript,
@@ -467,9 +473,55 @@ export class ContextWindowManager {
   }
 
   private get summaryMaxTokens(): number {
-    return Math.floor(
-      this.config.maxInputTokens * this.config.summaryBudgetRatio,
+    return Math.max(
+      1,
+      Math.floor(
+        this.config.maxInputTokens * this.config.summaryBudgetRatio,
+      ),
     );
+  }
+
+  /**
+   * Trim the serialized transcript so that the summary prompt (system prompt +
+   * existing summary + transcript + scaffolding) fits within the provider's
+   * input token limit, minus the output budget reserved for the summary itself.
+   * This prevents the summarizer LLM call from exceeding its context window
+   * during forced compaction of very large histories.
+   */
+  private capTranscriptToTokenBudget(
+    transcript: string,
+    currentSummary: string,
+  ): string {
+    // Reserve tokens for: system prompt, summary prompt scaffolding, existing
+    // summary, message overhead, and the output (summaryMaxTokens).
+    const overheadTokens =
+      estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
+      estimateTextTokens(currentSummary) +
+      // Scaffolding text in buildSummaryPrompt ("Update the summary...",
+      // section headers, etc.) — generous fixed estimate.
+      200 +
+      this.summaryMaxTokens;
+
+    const maxTranscriptTokens = Math.max(
+      0,
+      this.config.maxInputTokens - overheadTokens,
+    );
+
+    const transcriptTokens = estimateTextTokens(transcript);
+    if (transcriptTokens <= maxTranscriptTokens) return transcript;
+
+    // Truncate from the beginning (older messages) to preserve recent context.
+    const maxChars = maxTranscriptTokens * 4; // inverse of estimateTextTokens
+    const truncated = transcript.slice(transcript.length - maxChars);
+    log.info(
+      {
+        originalTokens: transcriptTokens,
+        cappedTokens: maxTranscriptTokens,
+        droppedTokens: transcriptTokens - maxTranscriptTokens,
+      },
+      "Capped summary transcript to fit provider input limit",
+    );
+    return `[earlier messages truncated]\n${truncated}`;
   }
 
   private async updateSummary(
