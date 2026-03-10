@@ -16,11 +16,10 @@ You are helping your user set up Google Cloud OAuth credentials so Gmail and Goo
 
 Determine which path applies before taking action:
 
-- **macOS desktop app with foreground computer use available:** Follow **Path A: Automated Setup in Real Chrome**.
-- **macOS desktop app without computer use** (or the user declines computer control, or Path A needs too many manual handoffs): Follow **Path B: Manual Desktop Setup**.
+- **macOS desktop app:** Start with **Path A: Automated Setup in Real Chrome**. Do not ask whether computer use is available — just attempt it. If `computer_use_request_control` fails or the user declines, fall back to **Path B: Manual Desktop Setup**.
 - **Telegram, SMS, Slack, or any non-interactive channel:** Follow **Path C: Manual Channel Setup**.
 
-If the interface is ambiguous, ask one short clarifying question before proceeding.
+When in doubt, default to Path A and let the computer-use request itself determine whether it can proceed.
 
 ---
 
@@ -441,7 +440,7 @@ Tell the user:
 Before sending the next step, resolve the concrete callback URL:
 
 - Read the configured public gateway URL from `ingress.publicBaseUrl`.
-- If it is missing, run the `public-ingress` skill first.
+- If it is missing, load and run the `public-ingress` skill first: call `skill_load` with `skill: "public-ingress"`, then follow its instructions to set up the ngrok tunnel.
 - Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
 - Replace `OAUTH_CALLBACK_URL` below with that concrete value. Never send the placeholder literally.
 
