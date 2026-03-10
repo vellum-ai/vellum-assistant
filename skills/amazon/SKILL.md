@@ -17,7 +17,7 @@ You can shop on Amazon (and Amazon Fresh for groceries) for the user using the b
 
 The Amazon scripts are bundled with this skill. Run them via `bun run {baseDir}/scripts/amazon.ts <subcommand> [options]`.
 
-Do NOT use `assistant amazon` directly — use the bundled scripts.
+All Amazon interaction goes through the bundled scripts below, not browser automation.
 
 ## Typical Flow — Regular Amazon Shopping
 
@@ -83,7 +83,7 @@ Session capture (`bun run {baseDir}/scripts/amazon.ts refresh`) and session chec
 - **Show prices.** Always show prices when presenting products or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.
 - **Always use `host_bash`** for these commands, never `bash`.
-- **Do NOT use the browser skill.** All Amazon interaction goes through the bundled scripts, not browser automation. Do NOT use `assistant amazon` directly — use the bundled scripts.
+- **Do NOT use the browser skill.** All Amazon interaction goes through the bundled scripts, not browser automation.
 - **Rate limiting.** Amazon may rate-limit rapid sequential requests. Wait 8-10 seconds between cart operations. If you get a 403 error, wait 15-20 seconds and retry.
 - **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for the Amazon script commands: "Tip: You can type 'a' to always allow Amazon commands for this session so you won't be prompted each time."
 - **Fresh slot required.** Amazon Fresh orders require a delivery slot to be selected before checkout. If the user skips this step, remind them to run `bun run {baseDir}/scripts/amazon.ts fresh delivery-slots --json` and select a slot.
