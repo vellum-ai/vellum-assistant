@@ -34,19 +34,13 @@ struct OnboardingButton: View {
                 )
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .disabled(disabled)
         .opacity(opacity)
         .scaleEffect(isHovered && !disabled ? 1.03 : 1.0)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) {
                 isHovered = hovering
-            }
-            if !disabled {
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
             }
         }
         .onAppear {

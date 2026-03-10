@@ -282,6 +282,11 @@ jobs:
         working-directory: playwright/agent-xcode
         run: swift build -c release
 
+      - name: Build ax-helper binary
+        if: ${{ !inputs.use_xcode }}
+        working-directory: playwright/ax-helper
+        run: swift build -c release
+
       - name: Grant screen recording permission
         run: |
           # On macOS 15+ (Sequoia), screencapture triggers a "requesting to
@@ -307,8 +312,9 @@ jobs:
               || echo "TCC system ScreenCapture: FAILED for $client"
           done
 
-          # Grant Accessibility for osascript so the auto-click fallback works
-          ACCESSIBILITY_CLIENTS="/usr/bin/osascript /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          # Grant Accessibility for osascript and ax-helper so UI automation works
+          AX_HELPER="$(pwd)/playwright/ax-helper/.build/release/ax-helper"
+          ACCESSIBILITY_CLIENTS="/usr/bin/osascript /bin/bash /bin/zsh /opt/homebrew/bin/bun $AX_HELPER"
           for client in $ACCESSIBILITY_CLIENTS; do
             sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
               "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceAccessibility','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \

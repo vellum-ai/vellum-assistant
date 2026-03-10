@@ -2,7 +2,11 @@
  * Centralized error handling for runtime HTTP request dispatch.
  */
 
-import { ConfigError, IngressBlockedError } from "../../util/errors.js";
+import {
+  ConfigError,
+  IngressBlockedError,
+  ProviderNotConfiguredError,
+} from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 
@@ -25,6 +29,15 @@ export async function withErrorHandling(
         "Blocked HTTP request containing secrets",
       );
       return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+    }
+    if (err instanceof ProviderNotConfiguredError) {
+      log.warn({ err, endpoint }, "No LLM provider configured");
+      const envVar = `${err.requestedProvider.toUpperCase()}_API_KEY`;
+      return httpError(
+        "UNPROCESSABLE_ENTITY",
+        `No API key configured. Set ${envVar} in your environment or run \`vellum hatch\` to set up your assistant.`,
+        422,
+      );
     }
     if (err instanceof ConfigError) {
       log.warn({ err, endpoint }, "Runtime HTTP config error");

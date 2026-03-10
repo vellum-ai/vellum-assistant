@@ -5,7 +5,7 @@ import type { DrizzleDb } from "../db-connection.js";
  * memory_items, memory_item_sources, memory_item_conflicts, memory_summaries,
  * memory_embeddings, memory_jobs, memory_checkpoints, attachments,
  * message_attachments, message_surfaces, channel_inbound_events,
- * message_runs, reminders, cron_jobs, cron_runs, accounts, documents,
+ * message_runs, reminders, cron_jobs, cron_runs, documents,
  * published_pages, shared_app_links, home_base_app_links.
  */
 export function createCoreTables(database: DrizzleDb): void {
@@ -274,21 +274,6 @@ export function createCoreTables(database: DrizzleDb): void {
       error TEXT,
       conversation_id TEXT,
       created_at INTEGER NOT NULL
-    )
-  `);
-
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY,
-      service TEXT NOT NULL,
-      username TEXT,
-      email TEXT,
-      display_name TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      credential_ref TEXT,
-      metadata_json TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
     )
   `);
 

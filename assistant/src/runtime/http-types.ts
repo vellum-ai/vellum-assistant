@@ -247,4 +247,14 @@ export interface RuntimeMessagePayload {
     isError?: boolean;
   }>;
   interfaces?: string[];
+  surfaces?: Array<{
+    surfaceId: string;
+    surfaceType: string;
+    title?: string;
+    data: Record<string, unknown>;
+    actions?: unknown[];
+    display?: string;
+  }>;
+  textSegments?: string[];
+  contentOrder?: string[];
 }

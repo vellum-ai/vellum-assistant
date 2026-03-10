@@ -213,15 +213,6 @@ export class Session {
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
   /** @internal */ activityVersion = 0;
-  /**
-   * Optional callback invoked whenever a server-authoritative state signal
-   * (confirmation_state_changed or assistant_activity_state) is emitted.
-   *
-   * HTTP/SSE sessions set this so the hub publisher receives these events —
-   * without it, the signals only travel through `sendToClient`, which is a
-   * no-op for socketless sessions.
-   */
-  private onStateSignal?: (msg: ServerMessage) => void;
   /** Set by the agent loop to track confirmation outcomes for persistence. */
   onConfirmationOutcome?: (
     requestId: string,
@@ -251,8 +242,8 @@ export class Session {
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
-      // Route through emitConfirmationStateChanged so the onStateSignal
-      // listener publishes to the SSE hub for HTTP/SSE consumers.
+      // Route through emitConfirmationStateChanged so the event reaches
+      // the client via sendToClient (wired to the SSE hub for HTTP sessions).
       this.emitConfirmationStateChanged({
         sessionId: this.conversationId,
         requestId,
@@ -390,21 +381,6 @@ export class Session {
   /** Returns the current sendToClient reference for identity comparison. */
   getCurrentSender(): (msg: ServerMessage) => void {
     return this.sendToClient;
-  }
-
-  /**
-   * Register a callback for server-authoritative state signals
-   * (confirmation_state_changed, assistant_activity_state).
-   *
-   * This enables HTTP/SSE sessions to receive these events through the
-   * hub publisher, since `sendToClient` is a no-op for socketless sessions.
-   */
-  setStateSignalListener(listener: (msg: ServerMessage) => void): void {
-    this.onStateSignal = listener;
-  }
-
-  get hasStateSignalListener(): boolean {
-    return this.onStateSignal !== undefined;
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
@@ -607,7 +583,6 @@ export class Session {
       ...params,
     } as ServerMessage;
     this.sendToClient(msg);
-    this.onStateSignal?.(msg);
   }
 
   emitActivityState(
@@ -629,7 +604,6 @@ export class Session {
       ...(statusText ? { statusText } : {}),
     } as ServerMessage;
     this.sendToClient(msg);
-    this.onStateSignal?.(msg);
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

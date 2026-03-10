@@ -112,7 +112,6 @@ function makeCompletingSession(): Session {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -165,7 +164,6 @@ function makeHangingSession(): Session {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -246,7 +244,6 @@ function makePendingApprovalSession(
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>

@@ -153,9 +153,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
             options.debug = false
             options.tracesSampleRate = 0.1
-            // Only profile sampled transactions when user opted into both
-            // usage-data collection and performance metrics.
-            options.profilesSampleRate = perfOptIn ? 1.0 : 0
+            options.configureProfiling = { profilingOptions in
+                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+            }
             options.sendDefaultPii = false
         }
 

@@ -44,7 +44,7 @@ struct DaemonLoadingThreadsSkeleton: View {
 
 #Preview("DaemonLoadingThreadsSkeleton") {
     ZStack {
-        adaptiveColor(light: Moss._50, dark: Moss._950).ignoresSafeArea()
+        VColor.backgroundSubtle.ignoresSafeArea()
         DaemonLoadingThreadsSkeleton()
     }
     .frame(width: 240, height: 300)

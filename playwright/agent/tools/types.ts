@@ -8,6 +8,8 @@ import type { Page } from "playwright";
 export interface ToolResult {
   success: boolean;
   data?: string;
+  /** Base64-encoded PNG image data (e.g. from screenshot tool). */
+  imageBase64?: string;
 }
 
 export interface TestResult {

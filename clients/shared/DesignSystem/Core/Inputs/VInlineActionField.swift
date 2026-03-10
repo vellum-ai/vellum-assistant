@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 /// An input field with an inline action button (e.g., Save, Send) inside a shared container.
 /// The button sits on the right edge of the field, creating a cohesive input-action group.
@@ -28,9 +25,6 @@ public struct VInlineActionField: View {
 
     @FocusState private var fieldFocused: Bool
     @State private var isHovered = false
-    #if os(macOS)
-    @State private var cursorPushed = false
-    #endif
 
     public init(
         text: Binding<String>,
@@ -81,31 +75,11 @@ public struct VInlineActionField: View {
                     .animation(VAnimation.fast, value: isHovered)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
             .disabled(isActionDisabled)
             .onHover { hovering in
                 isHovered = isActionDisabled ? false : hovering
-                #if os(macOS)
-                if hovering && !isActionDisabled {
-                    if !cursorPushed {
-                        NSCursor.pointingHand.push()
-                        cursorPushed = true
-                    }
-                } else {
-                    if cursorPushed {
-                        NSCursor.pop()
-                        cursorPushed = false
-                    }
-                }
-                #endif
             }
-            #if os(macOS)
-            .onDisappear {
-                if cursorPushed {
-                    NSCursor.pop()
-                    cursorPushed = false
-                }
-            }
-            #endif
             .padding(.trailing, VSpacing.sm)
         }
         .background(VColor.inputBackground)

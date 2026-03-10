@@ -183,6 +183,9 @@ public enum VColor {
     // Icon & button accent
     public static let iconAccent = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
 
+    // Active/highlighted icon foreground — lighter green in dark mode for better contrast
+    public static let activeIconForeground = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
+
     // Send button — always green
     public static let sendButton = Color(hex: 0x216C37)
     public static let accentSubtle = adaptiveColor(light: Forest._100, dark: Forest._900)
@@ -241,4 +244,98 @@ public enum VColor {
     public static let buttonDanger = Color(hex: 0xC1421B)
     public static let buttonDangerHover = Color(hex: 0xD4582F)
     public static let buttonDangerPressed = Color(hex: 0xE0745A)
+
+    // Tag & shortcut
+    public static let tagText = Moss._400
+    public static let tagBorder = Moss._100
+
+    // Unread indicator
+    public static let unreadIndicator = Danger._600
+
+    // Skill type pill colors
+    public static let skillCoreForeground = adaptiveColor(light: Color(hex: 0x2A2A28), dark: Moss._200)
+    public static let skillCoreBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let skillInstalledForeground = adaptiveColor(light: Color(hex: 0x3A6B3A), dark: Forest._400)
+    public static let skillInstalledBackground = adaptiveColor(light: Color(hex: 0xD4E8D4), dark: Forest._900)
+    public static let skillCreatedForeground = adaptiveColor(light: Color(hex: 0x3A4A6B), dark: Color(hex: 0x8AAED4))
+    public static let skillCreatedBackground = adaptiveColor(light: Color(hex: 0xD4DCE8), dark: Color(hex: 0x2A3A4E))
+    public static let skillExtraForeground = adaptiveColor(light: Color(hex: 0x6B6B5E), dark: Moss._400)
+    public static let skillExtraBackground = adaptiveColor(light: Color(hex: 0xDDDBCE), dark: Moss._700)
+
+    // Skill category colors (constellation)
+    public static let skillCatCommunication = Color(hex: 0x8B5DAA)
+    public static let skillCatProductivity = Color(hex: 0x4682B4)
+    public static let skillCatDevelopment = Color(hex: 0xC1421B)
+    public static let skillCatMedia = Color(hex: 0xD4A017)
+    public static let skillCatAutomation = Color(hex: 0x2E8B57)
+    public static let skillCatWebSocial = Color(hex: 0xCD853F)
+    public static let skillCatKnowledge = Color(hex: 0x6B8E23)
+    public static let skillCatIntegration = Color(hex: 0x708090)
+
+    // Thread icon backgrounds
+    public static let threadIconBackgrounds: [Color] = [
+        Color(hex: 0x4B6845), // forest green
+        Color(hex: 0x4A5568), // slate blue-gray
+        Color(hex: 0x5B4E3A), // warm brown
+        Color(hex: 0x3D5A5B), // teal
+        Color(hex: 0x6B4C5A), // muted mauve
+        Color(hex: 0x4E5D3E), // olive
+        Color(hex: 0x5A4A6B), // dusty purple
+        Color(hex: 0x5C6B4A), // sage
+    ]
+
+    // Theme toggle
+    public static let themeToggleSelected = adaptiveColor(light: Color(hex: 0xD3DECF), dark: Forest._800)
+    public static let themeToggleBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
+
+    // Onboarding
+    public static let onboardingGradientEdge = adaptiveColor(light: Stone._100, dark: Moss._900)
+    public static let onboardingGradientOuter = adaptiveColor(light: Stone._200, dark: Moss._950)
+    public static let onboardingHatchGradientOuter = adaptiveColor(light: Moss._200, dark: Moss._950)
+    public static let onboardingStepBackground = adaptiveColor(light: Stone._900, dark: Forest._600)
+    public static let onboardingFileIcon = adaptiveColor(light: Stone._900, dark: Forest._600)
+    public static let onboardingLink = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._400)
+    public static let onboardingBorderStroke = adaptiveColor(light: Stone._900.opacity(0.3), dark: Forest._600.opacity(0.3))
+
+    // Onboarding code block
+    public static let codeBlockBackground = adaptiveColor(light: Color(hex: 0xF2F2F7), dark: Color(hex: 0x3A3A37).opacity(0.5))
+
+    // Slider
+    public static let sliderTrack = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let sliderFill = adaptiveColor(light: Forest._300, dark: Forest._500)
+
+    // App card (inline chat widget)
+    public static let appCardBackground = adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Color(hex: 0x20201E))
+
+    // Subagent / skill chip
+    public static let statusRunning = adaptiveColor(light: Forest._600, dark: Forest._400)
+    public static let skillChipBorder = adaptiveColor(light: Amber._400, dark: Amber._600)
+
+    // Contextual text — primary in light, secondary in dark
+    public static let contextualText = adaptiveColor(light: Stone._900, dark: Moss._400)
+
+    // Panel divider — used in identity panel sidebar
+    public static let panelDivider = adaptiveColor(light: Moss._50, dark: Moss._500)
+
+    // Composer background fill
+    public static let composerBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
+
+    // Microphone icon color
+    public static let micIcon = adaptiveColor(light: Forest._500, dark: Moss._400)
+
+    // Success button states
+    public static let buttonSuccessBg = adaptiveColor(light: Forest._200, dark: Forest._900)
+    public static let buttonSuccessBgHover = adaptiveColor(light: Forest._300, dark: Forest._800)
+    public static let buttonSuccessBgPressed = adaptiveColor(light: Forest._400, dark: Forest._700)
+
+    // Icon button ghost states
+    public static let iconGhostActiveBg = adaptiveColor(light: Moss._100, dark: Moss._700)
+    public static let iconGhostActivePressed = adaptiveColor(light: Moss._200, dark: Moss._600)
+    public static let iconGhostActiveDisabled = adaptiveColor(light: Moss._100, dark: Moss._700)
+
+    // Sidebar drop indicator
+    public static let dropIndicator = adaptiveColor(light: Forest._500, dark: Forest._400)
+
+    // Sidebar action text (Show more / Show less)
+    public static let sidebarActionText = adaptiveColor(light: Forest._600, dark: Forest._400)
 }

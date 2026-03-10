@@ -23,10 +23,7 @@ struct AppSharePanelView: View {
         }
         .frame(width: 240)
         .onDisappear {
-            if hoveredServiceIndex != nil {
-                NSCursor.pop()
-                hoveredServiceIndex = nil
-            }
+            hoveredServiceIndex = nil
         }
         .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
@@ -169,8 +166,8 @@ struct AppSharePanelView: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredServiceIndex = hovering ? index : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 
     // MARK: - Helpers

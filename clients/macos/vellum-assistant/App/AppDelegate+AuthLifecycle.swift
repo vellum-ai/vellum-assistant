@@ -291,7 +291,60 @@ extension AppDelegate {
             ensureActorCredentials()
         }
         ensureLocalAssistantApiKey()
+
+        // 7. Sync locally-stored API keys to the new daemon. The daemon may
+        //    have started without ANTHROPIC_API_KEY in its environment (e.g.
+        //    when the app was launched via Finder/open). Push keys from
+        //    UserDefaults so the daemon can initialize its LLM providers.
+        syncApiKeysToAssistant(assistant)
+
         showMainWindow()
+    }
+
+    /// Push all locally-stored API keys to a specific assistant's daemon.
+    /// Waits for the actor token, then POSTs each key to /v1/secrets.
+    private func syncApiKeysToAssistant(_ assistant: LockfileAssistant) {
+        let port = assistant.daemonPort
+            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+            ?? 7821
+
+        Task {
+            // Wait for the actor token (new daemon needs time to bootstrap).
+            guard let token = await ActorTokenManager.waitForToken(timeout: 30),
+                  !token.isEmpty else {
+                log.warning("syncApiKeysToAssistant: no actor token after 30s, skipping key sync")
+                return
+            }
+
+            for name in APIKeyManager.allSyncableProviders {
+                guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
+                guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { continue }
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 5
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let body: [String: String] = ["type": "api_key", "name": name, "value": key]
+                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                _ = try? await URLSession.shared.data(for: request)
+            }
+
+            // ElevenLabs uses the credential type, not api_key
+            if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
+                if let url = URL(string: "http://localhost:\(port)/v1/secrets") {
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.timeoutInterval = 5
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let body: [String: String] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                    _ = try? await URLSession.shared.data(for: request)
+                }
+            }
+
+            log.info("syncApiKeysToAssistant: pushed API keys to daemon on port \(port)")
+        }
     }
 
     @objc func performRetire() {

@@ -23,7 +23,7 @@
       '.vellum-cursor {',
       '  display: inline;',
       '  animation: vellum-blink 0.6s step-end infinite;',
-      '  color: var(--v-accent, #6366f1);',
+      '  color: var(--v-accent, #537D53);',
       '}',
       '@keyframes vellum-blink { 50% { opacity: 0; } }'
     ].join('\n');

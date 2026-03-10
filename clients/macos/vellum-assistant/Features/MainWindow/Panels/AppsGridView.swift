@@ -24,6 +24,8 @@ struct AppsGridView: View {
     @State private var sharedApps: [SharedAppItem] = []
     @State private var isLoadingShared = false
     @State private var hasFetchedShared = false
+    @State private var sharedAppsTask: Task<Void, Never>?
+    @State private var sharedAppsTaskGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -63,6 +65,8 @@ struct AppsGridView: View {
             if !hasFetchedShared { fetchSharedApps() }
         }
         .onDisappear {
+            sharedAppsTask?.cancel()
+            sharedAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -221,10 +225,7 @@ struct AppsGridView: View {
                                 Label { Text("Change Icon") } icon: { VIconView(.paintbrush, size: 14) }
                             }
                             Button(role: .destructive) {
-                                if hoveredAppId != nil {
                                     hoveredAppId = nil
-                                    NSCursor.pop()
-                                }
                                 try? daemonClient.sendAppDelete(appId: app.id)
                                 appListManager.removeApp(id: app.id)
                                 AppPreviewImageStore.remove(appId: app.id)
@@ -286,8 +287,8 @@ struct AppsGridView: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredAppId = hovering ? app.id : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
         .contextMenu {
             Button("Open") {
                 appListManager.recordAppOpen(
@@ -376,8 +377,8 @@ struct AppsGridView: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredAppId = hovering ? "shared-\(app.uuid)" : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 
     private func openSharedApp(_ app: SharedAppItem) {
@@ -481,21 +482,37 @@ struct AppsGridView: View {
     // MARK: - Daemon Data Fetching
 
     private func fetchSharedApps() {
+        guard sharedAppsTask == nil else { return }
+
         isLoadingShared = true
-        let previousHandler = daemonClient.onSharedAppsListResponse
-        daemonClient.onSharedAppsListResponse = { response in
-            daemonClient.onSharedAppsListResponse = previousHandler
-            self.sharedApps = response.apps
-            self.isLoadingShared = false
-            self.hasFetchedShared = true
+        sharedAppsTaskGeneration += 1
+        let generation = sharedAppsTaskGeneration
+
+        let task = Task { @MainActor in
+            // Ignore cleanup from cancelled predecessors once a newer load starts.
+            defer {
+                if sharedAppsTaskGeneration == generation {
+                    sharedAppsTask = nil
+                }
+            }
+
+            do {
+                let apps = try await SharedAppsLoader.load(using: daemonClient)
+                guard sharedAppsTaskGeneration == generation else { return }
+                sharedApps = apps
+                hasFetchedShared = true
+                isLoadingShared = false
+            } catch is CancellationError {
+                guard sharedAppsTaskGeneration == generation else { return }
+                isLoadingShared = false
+            } catch {
+                guard sharedAppsTaskGeneration == generation else { return }
+                sharedApps = []
+                hasFetchedShared = true
+                isLoadingShared = false
+            }
         }
-        do {
-            try daemonClient.sendSharedAppsList()
-        } catch {
-            isLoadingShared = false
-            hasFetchedShared = true
-            daemonClient.onSharedAppsListResponse = previousHandler
-        }
+        sharedAppsTask = task
     }
 
     // MARK: - Sections

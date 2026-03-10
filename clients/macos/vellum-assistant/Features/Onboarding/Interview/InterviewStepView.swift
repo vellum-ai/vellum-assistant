@@ -76,10 +76,7 @@ struct InterviewStepView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    NSCursor.pointingHand.set()
-                    if !hovering { NSCursor.arrow.set() }
-                }
+                .pointerCursor()
                 .transition(.opacity)
                 .padding(.vertical, VSpacing.md)
             }

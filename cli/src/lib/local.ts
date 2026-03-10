@@ -17,7 +17,7 @@ import {
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
-import { openLogFile, openLogPipe, pipeToLogFile } from "./xdg-log.js";
+import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
 
@@ -257,13 +257,13 @@ async function startDaemonFromSource(
     delete env.QDRANT_URL;
   }
 
-  const logPipe = openLogPipe("hatch.log", "daemon");
+  const daemonLogFd = openLogFile("hatch.log");
   const child = spawn("bun", ["run", daemonMainPath], {
     detached: true,
-    stdio: ["ignore", logPipe.stdio, logPipe.stdio],
+    stdio: ["ignore", "pipe", "pipe"],
     env,
   });
-  logPipe.detach();
+  pipeToLogFile(child, daemonLogFd, "daemon");
   child.unref();
 
   if (child.pid) {
@@ -468,7 +468,9 @@ function recoverPidFile(
   return pid;
 }
 
-export async function discoverPublicUrl(port?: number): Promise<string | undefined> {
+export async function discoverPublicUrl(
+  port?: number,
+): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
   const cloud = process.env.VELLUM_CLOUD;
 
@@ -710,14 +712,14 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
-      const daemonLogPipe = openLogPipe("hatch.log", "daemon");
+      const daemonLogFd = openLogFile("hatch.log");
       const child = spawn(daemonBinary, [], {
         cwd: dirname(daemonBinary),
         detached: true,
-        stdio: ["ignore", daemonLogPipe.stdio, daemonLogPipe.stdio],
+        stdio: ["ignore", "pipe", "pipe"],
         env: daemonEnv,
       });
-      daemonLogPipe.detach();
+      pipeToLogFile(child, daemonLogFd, "daemon");
       child.unref();
       const daemonPid = child.pid;
 
@@ -954,27 +956,27 @@ export async function startGateway(
       );
     }
 
-    const gatewayLogPipe = openLogPipe("hatch.log", "gateway");
+    const gatewayLogFd = openLogFile("hatch.log");
     gateway = spawn(gatewayBinary, [], {
       detached: true,
-      stdio: ["ignore", gatewayLogPipe.stdio, gatewayLogPipe.stdio],
+      stdio: ["ignore", "pipe", "pipe"],
       env: gatewayEnv,
     });
-    gatewayLogPipe.detach();
+    pipeToLogFile(gateway, gatewayLogFd, "gateway");
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
     const bunArgs = watch
       ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
       : ["run", "src/index.ts", "--vellum-gateway"];
-    const gwLogPipe = openLogPipe("hatch.log", "gateway");
+    const gwLogFd = openLogFile("hatch.log");
     gateway = spawn("bun", bunArgs, {
       cwd: gatewayDir,
       detached: true,
-      stdio: ["ignore", gwLogPipe.stdio, gwLogPipe.stdio],
+      stdio: ["ignore", "pipe", "pipe"],
       env: gatewayEnv,
     });
-    gwLogPipe.detach();
+    pipeToLogFile(gateway, gwLogFd, "gateway");
     if (watch) {
       console.log("   Gateway started in watch mode (bun --watch)");
     }

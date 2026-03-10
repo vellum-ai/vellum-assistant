@@ -1,4 +1,5 @@
 import AppKit
+import AuthenticationServices
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -1060,8 +1061,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Starts the managed Twitter OAuth connect flow: calls the platform to get
-    /// an authorization URL and opens it in the default browser.
+    /// Holds the active web auth session to prevent deallocation.
+    private var twitterWebAuthSession: ASWebAuthenticationSession?
+
+    /// Starts the managed Twitter OAuth connect flow using ASWebAuthenticationSession.
+    /// The platform redirects back to vellum-assistant://oauth/twitter/callback after
+    /// authorization, which ASWebAuthenticationSession intercepts and returns to the app.
     func connectManagedTwitter() {
         managedTwitterConnectInProgress = true
         managedTwitterError = nil
@@ -1079,14 +1084,64 @@ public final class SettingsStore: ObservableObject {
                     platformAssistantId: ctx.platformAssistantId,
                     organizationId: ctx.organizationId
                 )
-                if let url = URL(string: response.connectUrl) {
-                    NSWorkspace.shared.open(url)
-                } else {
+                guard let authURL = URL(string: response.connectUrl) else {
                     managedTwitterError = "Invalid authorization URL received."
+                    return
                 }
+
+                let callbackURL = try await performManagedTwitterWebAuth(url: authURL)
+
+                // Parse oauth_status from the callback URL
+                let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+                let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
+
+                if oauthStatus == "connected" {
+                    log.info("Managed Twitter OAuth completed successfully")
+                    refreshManagedTwitterStatus()
+                } else {
+                    let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
+                    managedTwitterError = "Twitter connection failed\(errorCode.map { ": \($0)" } ?? "")."
+                }
+            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+                log.info("User cancelled managed Twitter OAuth")
+                // No error — user intentionally dismissed
             } catch {
                 log.error("Failed to start managed Twitter connect: \(error)")
                 managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Presents an ASWebAuthenticationSession for managed Twitter OAuth and waits for the callback.
+    private func performManagedTwitterWebAuth(url: URL) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: PlatformTwitterOAuthService.callbackURLScheme
+            ) { [weak self] callbackURL, error in
+                self?.twitterWebAuthSession = nil
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let callbackURL {
+                    continuation.resume(returning: callbackURL)
+                } else {
+                    continuation.resume(throwing: NSError(
+                        domain: "ManagedTwitterOAuth",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "No callback URL received."]
+                    ))
+                }
+            }
+            session.prefersEphemeralWebBrowserSession = false
+            session.presentationContextProvider = WebAuthPresentationContext.shared
+            self.twitterWebAuthSession = session
+            if !session.start() {
+                self.twitterWebAuthSession = nil
+                continuation.resume(throwing: NSError(
+                    domain: "ManagedTwitterOAuth",
+                    code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to start the authentication session."]
+                ))
             }
         }
     }
@@ -1179,9 +1234,12 @@ public final class SettingsStore: ObservableObject {
             )
         }
 
-        // Local mode: direct to daemon runtime HTTP server
-        let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-            .flatMap(Int.init) ?? 7821
+        // Local mode: direct to daemon runtime HTTP server.
+        // Use the lockfile assistant's daemon port so multi-instance switching
+        // targets the correct daemon (not always the default 7821).
+        let port = assistant?.daemonPort
+            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+            ?? 7821
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return nil }
         guard let url = URL(string: "http://localhost:\(port)/\(path)") else { return nil }
         var request = URLRequest(url: url)
@@ -1340,14 +1398,8 @@ public final class SettingsStore: ObservableObject {
                 guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
             }
 
-            let apiKeyProviders: [(String, String?)] = [
-                ("anthropic", APIKeyManager.getKey(for: "anthropic")),
-                ("brave", APIKeyManager.getKey(for: "brave")),
-                ("perplexity", APIKeyManager.getKey(for: "perplexity")),
-                ("gemini", APIKeyManager.getKey(for: "gemini")),
-            ]
-            for (provider, value) in apiKeyProviders {
-                if let key = value {
+            for provider in APIKeyManager.allSyncableProviders {
+                if let key = APIKeyManager.getKey(for: provider) {
                     syncKeyToDaemon(provider: provider, value: key)
                 }
             }

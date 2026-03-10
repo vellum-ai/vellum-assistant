@@ -83,18 +83,13 @@ struct AvatarRevealStepView: View {
                         .padding(.vertical, VSpacing.lg)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
-                                .fill(adaptiveColor(
-                                    light: Stone._900,
-                                    dark: Forest._600
-                                ))
+                                .fill(VColor.onboardingStepBackground)
                         )
                 }
                 .buttonStyle(.plain)
                 .opacity(showButton ? 1 : 0)
                 .offset(y: showButton ? 0 : 12)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
             }
 
             Spacer()

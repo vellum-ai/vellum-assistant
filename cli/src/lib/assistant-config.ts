@@ -16,7 +16,9 @@ import { probePort } from "./port-probe.js";
  */
 export interface LocalInstanceResources {
   /**
-   * Instance-specific data root at `~/.local/share/vellum/assistants/<name>/`.
+   * Instance-specific data root. The first local assistant uses `~` (home
+   * directory) with default ports. Subsequent instances are placed under
+   * `~/.local/share/vellum/assistants/<name>/`.
    * The daemon's `.vellum/` directory lives inside it.
    */
   instanceDir: string;
@@ -349,12 +351,28 @@ async function findAvailablePort(
 
 /**
  * Allocate an isolated set of resources for a named local instance.
- * Each assistant is placed under
+ * The first local assistant uses the home directory with default ports.
+ * Subsequent assistants are placed under
  * `~/.local/share/vellum/assistants/<name>/` with scanned ports.
  */
 export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
+  // First local assistant gets the home directory with default ports.
+  const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
+  if (existingLocals.length === 0) {
+    const home = homedir();
+    const vellumDir = join(home, ".vellum");
+    mkdirSync(vellumDir, { recursive: true });
+    return {
+      instanceDir: home,
+      daemonPort: DEFAULT_DAEMON_PORT,
+      gatewayPort: DEFAULT_GATEWAY_PORT,
+      qdrantPort: DEFAULT_QDRANT_PORT,
+      pidFile: join(vellumDir, "vellum.pid"),
+    };
+  }
+
   const instanceDir = join(
     homedir(),
     ".local",

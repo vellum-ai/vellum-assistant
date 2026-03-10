@@ -23,7 +23,7 @@ struct OnboardingFlowView: View {
     }()
 
     private var maxOnboardingStep: Int {
-        state.userHostedEnabled ? 2 : 1
+        state.userHostedEnabled ? 3 : 2
     }
 
     var body: some View {
@@ -37,8 +37,8 @@ struct OnboardingFlowView: View {
                     .background(
                         RadialGradient(
                             colors: [
-                                adaptiveColor(light: Moss._100, dark: Moss._900),
-                                adaptiveColor(light: Moss._200, dark: Moss._950)
+                                VColor.background,
+                                VColor.onboardingHatchGradientOuter
                             ],
                             center: .center,
                             startRadius: 0,
@@ -48,8 +48,8 @@ struct OnboardingFlowView: View {
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials (steps 0–2)
-                // Otherwise: WakeUp → APIKey (steps 0–1)
+                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials → ImproveExperience (steps 0–3)
+                // Otherwise: WakeUp → APIKey → ImproveExperience (steps 0–2)
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -91,7 +91,13 @@ struct OnboardingFlowView: View {
                             case 1:
                                 APIKeyStepView(state: state)
                             case 2:
-                                CloudCredentialsStepView(state: state)
+                                if state.needsCloudCredentials {
+                                    CloudCredentialsStepView(state: state)
+                                } else {
+                                    ImproveExperienceStepView(state: state)
+                                }
+                            case 3:
+                                ImproveExperienceStepView(state: state)
                             default:
                                 EmptyView()
                             }
@@ -109,8 +115,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            adaptiveColor(light: Stone._100, dark: Moss._900),
-                            adaptiveColor(light: Stone._200, dark: Moss._950)
+                            VColor.onboardingGradientEdge,
+                            VColor.onboardingGradientOuter
                         ],
                         center: .center,
                         startRadius: 0,

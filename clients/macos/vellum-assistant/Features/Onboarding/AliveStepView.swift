@@ -66,10 +66,7 @@ struct AliveStepView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    NSCursor.pointingHand.set()
-                    if !hovering { NSCursor.arrow.set() }
-                }
+                .pointerCursor()
             }
             .opacity(showButtons ? 1 : 0)
 

@@ -289,6 +289,7 @@ describe("scope profile contract", () => {
     ],
     gateway_ingress_v1: ["ingress.write", "internal.write"],
     gateway_service_v1: [
+      "chat.read",
       "chat.write",
       "settings.read",
       "settings.write",

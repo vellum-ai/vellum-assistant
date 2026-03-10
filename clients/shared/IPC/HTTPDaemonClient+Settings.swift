@@ -66,7 +66,7 @@ extension HTTPTransport {
 
             // --- Diagnostics ---
             if let msg = message as? DiagnosticsExportRequestMessage {
-                Task { await self.sendEncodablePost(.diagnosticsExport, body: msg, label: "diagnostics_export") }
+                Task { await self.sendDiagnosticsExport(msg) }
                 return true
             }
             if message is EnvVarsRequestMessage {
@@ -275,6 +275,68 @@ extension HTTPTransport {
             self.onMessage?(.twitterIntegrationConfigResponse(message))
         } catch {
             log.error("twitter_auth_status error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Diagnostics Export
+
+    /// Send a diagnostics export request and route the response through the message router.
+    func sendDiagnosticsExport(_ msg: DiagnosticsExportRequestMessage) async {
+        guard let url = buildURL(for: .diagnosticsExport) else {
+            log.error("Failed to build URL for diagnostics_export")
+            self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
+                success: false,
+                filePath: nil,
+                error: "Failed to build URL"
+            )))
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            request.httpBody = try encoder.encode(msg)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                log.error("diagnostics_export failed: no HTTP response")
+                self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
+                    success: false,
+                    filePath: nil,
+                    error: "No HTTP response"
+                )))
+                return
+            }
+
+            if (200...299).contains(http.statusCode) {
+                // Parse successful response
+                let responseMessage = try JSONDecoder().decode(DiagnosticsExportResponseMessage.self, from: data)
+                log.debug("diagnostics_export succeeded")
+                self.onMessage?(.diagnosticsExportResponse(responseMessage))
+            } else {
+                // Try to parse error message from response
+                var errorMessage = "HTTP \(http.statusCode)"
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let message = error["message"] as? String {
+                    errorMessage = message
+                }
+                log.error("diagnostics_export failed: \(errorMessage)")
+                self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
+                    success: false,
+                    filePath: nil,
+                    error: errorMessage
+                )))
+            }
+        } catch {
+            log.error("diagnostics_export error: \(error.localizedDescription)")
+            self.onMessage?(.diagnosticsExportResponse(DiagnosticsExportResponseMessage(
+                success: false,
+                filePath: nil,
+                error: error.localizedDescription
+            )))
         }
     }
 

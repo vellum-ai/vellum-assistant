@@ -220,10 +220,10 @@ public final class AuthManager {
     }
 }
 
-final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
-    static let shared = WebAuthPresentationContext()
+public final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    public static let shared = WebAuthPresentationContext()
 
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         #if os(macOS)
         NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
         #elseif os(iOS)

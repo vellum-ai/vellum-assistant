@@ -513,7 +513,6 @@ export async function hatchAws(
     const awsEntry: AssistantEntry = {
       assistantId: instanceName,
       runtimeUrl,
-      bearerToken,
       cloud: "aws",
       instanceId,
       region,

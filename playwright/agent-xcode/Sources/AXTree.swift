@@ -46,6 +46,11 @@ final class AXTreeEnumerator {
         "AXTextField", "AXTextArea", "AXComboBox",
     ]
 
+    /// Window titles that should be excluded from enumeration (e.g. test overlays).
+    private static let ignoredWindowTitles: Set<String> = [
+        "E2E Status Overlay",
+    ]
+
     // MARK: - Enumerate by App Name
 
     func enumerateApp(named appName: String) -> (elements: [AXElement], windowTitle: String, appName: String)? {
@@ -66,18 +71,29 @@ final class AXTreeEnumerator {
 
         var windowValue: CFTypeRef?
         let windowResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
-        guard windowResult == .success, let windowRef = windowValue else {
-            // Try getting the first window instead
-            var windowsRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-                  let windows = windowsRef as? [AXUIElement],
-                  let firstWindow = windows.first else {
-                return nil
+
+        // Use the focused window if available and not in the ignore list
+        if windowResult == .success, let windowRef = windowValue,
+           CFGetTypeID(windowRef) == AXUIElementGetTypeID() {
+            let focusedTitle = getStringAttribute(windowRef as! AXUIElement, kAXTitleAttribute as CFString) ?? ""
+            if !Self.ignoredWindowTitles.contains(focusedTitle) {
+                return enumerateWindow(windowRef as! AXUIElement, appName: name)
             }
-            return enumerateWindow(firstWindow, appName: name)
         }
-        guard CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
-        return enumerateWindow(windowRef as! AXUIElement, appName: name)
+
+        // Fall back to the first non-ignored window
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement] else {
+            return nil
+        }
+        for window in windows {
+            let title = getStringAttribute(window, kAXTitleAttribute as CFString) ?? ""
+            if !Self.ignoredWindowTitles.contains(title) {
+                return enumerateWindow(window, appName: name)
+            }
+        }
+        return nil
     }
 
     private func enumerateWindow(_ windowElement: AXUIElement, appName: String) -> (elements: [AXElement], windowTitle: String, appName: String) {

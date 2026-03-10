@@ -119,6 +119,11 @@ declare -a SAFE_LINE_PATTERNS=(
     # Also covers ternary expressions with no string literals
     # (e.g. `clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret`).
     "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*([[:space:]]*$|[[:space:]]+[?][[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*$)"
+    # Swift/JS: assignment of privateKey variable to empty string
+    # (e.g. `state.sshPrivateKey = ""`)
+    "[Pp]rivate[Kk]ey[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
+    # Swift: assignment of privateKey to a variable (e.g. `state.sshPrivateKey = contents`)
+    "[Pp]rivate[Kk]ey[[:space:]]*=[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*$"
     # Swift: named argument passing a variable for privateKey (e.g. `sshPrivateKey: state.sshPrivateKey,`)
     "[Pp]rivate[Kk]ey:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*[,)][[:space:]]*$"
     # Swift/Kotlin: constant declaration whose value is a camelCase identifier
@@ -272,6 +277,10 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
     # Swift named argument passing a variable for privateKey (false positive to whitelist)
     SAFE_SWIFT_PRIVATE_KEY_ARG='            sshPrivateKey: state.sshPrivateKey,'
+    # Swift assignment of privateKey to empty string (false positive to whitelist)
+    SAFE_SWIFT_PRIVATE_KEY_EMPTY='                state.sshPrivateKey = ""'
+    # Swift assignment of privateKey to a variable (false positive to whitelist)
+    SAFE_SWIFT_PRIVATE_KEY_VAR='                state.sshPrivateKey = contents'
     # TS type assertion of clientSecret from dotted property (false positive to whitelist)
     SAFE_TS_TYPE_ASSERTION_SECRET='  const clientSecret = meta?.oauth2ClientSecret as string | undefined;'
     # AWS well-known example key (false positive to whitelist)
@@ -535,6 +544,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_ARG" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_ARG"; then
         echo -e "${RED}Self-test failed:${NC} Swift named argument sshPrivateKey false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_EMPTY" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_EMPTY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift sshPrivateKey empty string assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_VAR" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_VAR"; then
+        echo -e "${RED}Self-test failed:${NC} Swift sshPrivateKey variable assignment false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
@@ -864,6 +881,97 @@ if [ $COMMAND_VIOLATIONS -gt 0 ]; then
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
+fi
+
+# --- New tool registration check ---
+# Block creation of new tools registered on the assistant. New tools must be
+# approved by Team Jarvis. Use --no-verify to bypass if you have approval.
+#
+# Detects:
+# 1. New .ts files in assistant/src/tools/ containing `implements Tool` or `registerTool`
+# 2. Modifications to tool-manifest.ts that add new tool registrations
+
+TOOL_VIOLATIONS=0
+TOOL_VIOLATION_FILES=()
+
+while IFS= read -r -d '' FILE; do
+    # Check for new files in the tools directory
+    if [[ "$FILE" == assistant/src/tools/*.ts ]]; then
+        # Skip allowed files
+        case "$FILE" in
+            assistant/src/tools/types.ts|\
+            assistant/src/tools/registry.ts|\
+            assistant/src/tools/tool-manifest.ts|\
+            assistant/src/tools/shared/*|\
+            *.test.ts|\
+            *.spec.ts)
+                continue
+                ;;
+        esac
+
+        # Check if this is a new file (not a modification)
+        if ! git cat-file -e HEAD:"$FILE" 2>/dev/null; then
+            # New file — check if it contains tool registration patterns
+            STAGED_CONTENT=$(git show ":$FILE" 2>/dev/null)
+            if printf '%s\n' "$STAGED_CONTENT" | grep -qE '(implements[[:space:]]+Tool[^a-zA-Z]|registerTool\()'; then
+                TOOL_VIOLATIONS=$((TOOL_VIOLATIONS + 1))
+                TOOL_VIOLATION_FILES+=("$FILE (new tool file)")
+            fi
+        fi
+    fi
+
+    # Check for modifications to tool-manifest.ts that ADD new tools (not refactoring/removal)
+    if [[ "$FILE" == "assistant/src/tools/tool-manifest.ts" ]]; then
+        # Compare tool counts between HEAD and staged version
+        # Only trigger if the count INCREASED (new tools added)
+        HEAD_CONTENT=$(git show HEAD:"$FILE" 2>/dev/null || echo "")
+        STAGED_CONTENT=$(git show ":$FILE" 2>/dev/null)
+
+        # Count side-effect imports (lines like `import "./foo/bar.js";`)
+        HEAD_IMPORTS=$(printf '%s\n' "$HEAD_CONTENT" | grep -cE '^import[[:space:]]+"\./' 2>/dev/null || echo 0)
+        STAGED_IMPORTS=$(printf '%s\n' "$STAGED_CONTENT" | grep -cE '^import[[:space:]]+"\./' 2>/dev/null || echo 0)
+
+        # Count entries in eagerModuleToolNames array
+        HEAD_EAGER=$(printf '%s\n' "$HEAD_CONTENT" | grep -cE '^[[:space:]]+"[a-z_]+",' 2>/dev/null || echo 0)
+        STAGED_EAGER=$(printf '%s\n' "$STAGED_CONTENT" | grep -cE '^[[:space:]]+"[a-z_]+",' 2>/dev/null || echo 0)
+
+        # Count tool imports (lines like `import { fooTool } from "./foo/bar.js";`)
+        HEAD_TOOL_IMPORTS=$(printf '%s\n' "$HEAD_CONTENT" | grep -cE '^import[[:space:]]+\{.*\}[[:space:]]+from' 2>/dev/null || echo 0)
+        STAGED_TOOL_IMPORTS=$(printf '%s\n' "$STAGED_CONTENT" | grep -cE '^import[[:space:]]+\{.*\}[[:space:]]+from' 2>/dev/null || echo 0)
+
+        if [ "$STAGED_IMPORTS" -gt "$HEAD_IMPORTS" ] || \
+           [ "$STAGED_EAGER" -gt "$HEAD_EAGER" ] || \
+           [ "$STAGED_TOOL_IMPORTS" -gt "$HEAD_TOOL_IMPORTS" ]; then
+            TOOL_VIOLATIONS=$((TOOL_VIOLATIONS + 1))
+            TOOL_VIOLATION_FILES+=("$FILE (new tool entries added)")
+        fi
+    fi
+done < "$STAGED_ACM_FILE"
+
+if [ $TOOL_VIOLATIONS -gt 0 ]; then
+    echo ""
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}COMMIT REJECTED: New tool registration detected!${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Adding new tools to the assistant requires approval from Team Jarvis."
+    echo "The tool registration system is being phased out in favor of skills."
+    echo ""
+    echo "Detected tool registration in:"
+    for F in "${TOOL_VIOLATION_FILES[@]}"; do
+        echo "  - $F"
+    done
+    echo ""
+    echo "Instead of creating a new tool, consider:"
+    echo "  1. Creating a skill in assistant/src/config/bundled-skills/"
+    echo "  2. Teaching the assistant to use existing CLI tools via skills"
+    echo ""
+    echo "See assistant/src/tools/AGENTS.md for more information."
+    echo ""
+    echo "If you have approval from Team Jarvis, bypass with:"
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
 fi
 
 exit 0

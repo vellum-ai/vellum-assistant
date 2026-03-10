@@ -431,7 +431,7 @@ struct MainWindowView: View {
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
         .frame(height: 36)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        .background(VColor.backgroundSubtle)
     }
 
     /// Core layout extracted to break up type-checker complexity.
@@ -720,6 +720,33 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
             guard let appId = notification.userInfo?["appId"] as? String else { return }
             bundleAndShare(appId: appId)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pinApp)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            appListManager.pinApp(id: appId)
+            NotificationCenter.default.post(
+                name: Notification.Name("MainWindow.appPinStateChanged"),
+                object: nil,
+                userInfo: ["appId": appId, "isPinned": true]
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .unpinApp)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            appListManager.unpinApp(id: appId)
+            NotificationCenter.default.post(
+                name: Notification.Name("MainWindow.appPinStateChanged"),
+                object: nil,
+                userInfo: ["appId": appId, "isPinned": false]
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .queryAppPinState)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            let pinned = appListManager.apps.first(where: { $0.id == appId })?.isPinned ?? false
+            NotificationCenter.default.post(
+                name: Notification.Name("MainWindow.appPinStateChanged"),
+                object: nil,
+                userInfo: ["appId": appId, "isPinned": pinned]
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
             guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }

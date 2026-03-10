@@ -7,7 +7,6 @@ import { isPlainObject } from "../util/object.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
-  FileUploadSurfaceData,
   ListSurfaceData,
   ServerMessage,
   SurfaceData,
@@ -74,14 +73,27 @@ function normalizeCardShowData(
     normalized.templateData = input.templateData;
   }
 
-  // task_progress cards need a title for Swift parsing; fall back when missing.
+  // The LLM sometimes sends `title` or `body` at the top-level tool input
+  // instead of nesting them inside `data`. The Swift client requires `title`
+  // inside the card data dict — without it `parseCardData` returns nil and
+  // the surface is silently dropped. Copy them from input when missing.
+  if (
+    typeof normalized.title !== "string" &&
+    typeof input.title === "string" &&
+    input.title.trim().length > 0
+  ) {
+    normalized.title = input.title;
+  }
+  if (typeof normalized.body !== "string" && typeof input.body === "string") {
+    normalized.body = input.body;
+  }
+
+  // task_progress cards: additional fallbacks for title from templateData.
   if (
     normalized.template === "task_progress" &&
     typeof normalized.title !== "string"
   ) {
-    if (typeof input.title === "string" && input.title.trim().length > 0) {
-      normalized.title = input.title;
-    } else if (
+    if (
       isPlainObject(normalized.templateData) &&
       typeof normalized.templateData.title === "string"
     ) {
@@ -528,8 +540,91 @@ export function handleSurfaceAction(
   data?: Record<string, unknown>,
 ): void {
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
+
+  // When surfaces are restored from history (e.g. onboarding cards), there is
+  // no in-memory pendingSurfaceActions entry.  For relay_prompt / agent_prompt
+  // actions the client already sends the full payload (including { prompt }),
+  // so we can handle them without stored state.
   if (!pending) {
-    log.warn({ surfaceId, actionId }, "No pending surface action found");
+    const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
+    const prompt =
+      isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
+
+    if (!prompt) {
+      log.warn({ surfaceId, actionId }, "No pending surface action found");
+      return;
+    }
+
+    const requestId = uuid();
+    ctx.surfaceActionRequestIds.add(requestId);
+    const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+
+    ctx.traceEmitter.emit("request_received", "Surface action received", {
+      requestId,
+      status: "info",
+      attributes: { source: "surface_action", surfaceId, actionId },
+    });
+
+    const result = ctx.enqueueMessage(
+      prompt,
+      [],
+      onEvent,
+      requestId,
+      surfaceId,
+    );
+    if (result.rejected) {
+      log.error({ surfaceId, actionId }, "Relay prompt rejected — queue full");
+      onEvent(
+        buildSessionErrorMessage(ctx.conversationId, {
+          code: "QUEUE_FULL",
+          userMessage:
+            "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
+          retryable: true,
+          debugDetails: "Relay prompt rejected — session queue is full",
+        }),
+      );
+      return;
+    }
+
+    // Echo the prompt to the client so it appears in the chat UI.
+    // Sent after enqueue succeeds so the user doesn't see a prompt that
+    // won't be processed.
+    ctx.sendToClient({
+      type: "user_message_echo",
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+
+    if (result.queued) {
+      log.info(
+        { surfaceId, actionId, requestId },
+        "Relay prompt queued (session busy, history-restored)",
+      );
+      return;
+    }
+
+    // Session is idle — process the message immediately.
+    log.info(
+      { surfaceId, actionId, requestId },
+      "Processing relay prompt immediately (history-restored)",
+    );
+    ctx
+      .processMessage(prompt, [], onEvent, requestId, surfaceId)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          { err, surfaceId, actionId },
+          "Failed to process history-restored relay prompt",
+        );
+        onEvent(
+          buildSessionErrorMessage(ctx.conversationId, {
+            code: "SESSION_PROCESSING_FAILED",
+            userMessage: `Something went wrong: ${message}`,
+            retryable: false,
+            debugDetails: `History-restored relay prompt processing failed: ${message}`,
+          }),
+        );
+      });
     return;
   }
   const retainPending = pending.surfaceType === "dynamic_page";
@@ -863,7 +958,7 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, request_file, computer_use_request_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
@@ -882,56 +977,6 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
-  }
-
-  if (toolName === "request_file") {
-    const surfaceId = uuid();
-    const prompt =
-      typeof input.prompt === "string" ? input.prompt : "Please share a file";
-    const acceptedTypes = Array.isArray(input.accepted_types)
-      ? (input.accepted_types as string[])
-      : undefined;
-    const maxFiles = typeof input.max_files === "number" ? input.max_files : 1;
-
-    const data: FileUploadSurfaceData = {
-      prompt,
-      acceptedTypes,
-      maxFiles,
-    };
-
-    ctx.surfaceState.set(surfaceId, { surfaceType: "file_upload", data });
-
-    ctx.sendToClient({
-      type: "ui_surface_show",
-      sessionId: ctx.conversationId,
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    } as UiSurfaceShow);
-
-    // Track surface for persistence
-    ctx.currentTurnSurfaces.push({
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    });
-
-    // Non-blocking: return immediately, user action arrives as follow-up message
-    ctx.pendingSurfaceActions.set(surfaceId, {
-      surfaceType: "file_upload" as SurfaceType,
-    });
-    return {
-      content: JSON.stringify({
-        surfaceId,
-        status: "awaiting_user_action",
-        message:
-          "File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.",
-      }),
-      isError: false,
-      yieldToUser: true,
-    };
   }
 
   if (toolName === "ui_show") {
@@ -1002,6 +1047,19 @@ export async function surfaceProxyResolver(
       title,
       actions: mappedActions,
     });
+
+    log.info(
+      {
+        surfaceId,
+        surfaceType,
+        title,
+        dataKeys: Object.keys(data),
+        actionCount: mappedActions?.length ?? 0,
+        display,
+        conversationId: ctx.conversationId,
+      },
+      "Sending ui_surface_show to client",
+    );
 
     ctx.sendToClient({
       type: "ui_surface_show",

@@ -32,6 +32,7 @@ import {
   listProviders,
   resolveProviderSelection,
 } from "../providers/registry.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 
 /**
  * Tests for fail-open provider selection: when the configured primary provider
@@ -138,11 +139,20 @@ describe("getFailoverProvider (fail-open)", () => {
     expect(provider).toBeDefined();
   });
 
-  test("throws ConfigError when no providers are available", () => {
+  test("throws ProviderNotConfiguredError when no providers are available", () => {
     setupNoProviders();
     expect(() => getFailoverProvider("gemini", ["fireworks"])).toThrow(
-      /No providers available/,
+      ProviderNotConfiguredError,
     );
+    try {
+      getFailoverProvider("gemini", ["fireworks"]);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderNotConfiguredError);
+      const typed = err as ProviderNotConfiguredError;
+      expect(typed.requestedProvider).toBe("gemini");
+      expect(typed.registeredProviders).toEqual([]);
+      expect(typed.message).toMatch(/No providers available/);
+    }
   });
 
   test("single available provider returns it directly (no failover wrapper)", () => {
