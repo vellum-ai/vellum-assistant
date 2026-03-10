@@ -139,6 +139,11 @@ struct SettingsView: View {
                 DaemonConnectionSection()
             }
             .task(id: "\(clientProvider.clientGeneration)-\(clientProvider.isConnected)") {
+                guard clientProvider.isConnected else {
+                    contactsStore = nil
+                    channelTrustStore = nil
+                    return
+                }
                 if let daemon = clientProvider.client as? DaemonClient {
                     let contacts = ContactsStore(daemonClient: daemon)
                     contactsStore = contacts

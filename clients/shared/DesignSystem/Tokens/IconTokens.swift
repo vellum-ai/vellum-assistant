@@ -247,7 +247,8 @@ public enum VIcon: String, CaseIterable, Sendable {
     }
 
     /// SwiftUI `Image` resolved from the vendored PDF.
-    public var image: Image {
+    /// On iOS, pass the display size so the PDF is rasterized at the correct resolution.
+    public func image(size: CGFloat = 24) -> Image {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
         guard let url = pdfURL, let ns = NSImage(contentsOf: url) else {
             return Image(systemName: "questionmark.square")
@@ -255,7 +256,7 @@ public enum VIcon: String, CaseIterable, Sendable {
         ns.isTemplate = true
         return Image(nsImage: ns)
         #elseif canImport(UIKit)
-        guard let url = pdfURL, let ui = Self.rasterizePDF(at: url) else {
+        guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size) else {
             return Image(systemName: "questionmark.square")
         }
         return Image(uiImage: ui.withRenderingMode(.alwaysTemplate))
@@ -263,6 +264,9 @@ public enum VIcon: String, CaseIterable, Sendable {
         return Image(systemName: "questionmark.square")
         #endif
     }
+
+    /// Convenience for callers that don't specify a size.
+    public var image: Image { image() }
 
     #if canImport(AppKit) && !targetEnvironment(macCatalyst)
     /// AppKit `NSImage` resolved from the vendored PDF.
