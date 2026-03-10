@@ -1,6 +1,6 @@
 ---
 fixture: desktop-app
-status: stable
+status: experimental
 ---
 
 # Permission Denial Handling
