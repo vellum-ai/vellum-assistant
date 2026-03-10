@@ -160,7 +160,7 @@ describe("Subagent tool execute validation", () => {
       makeContext("sess-1"),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("No IPC client");
+    expect(result.content).toContain("No client connected");
   });
 
   test("spawn returns error when missing label", async () => {
