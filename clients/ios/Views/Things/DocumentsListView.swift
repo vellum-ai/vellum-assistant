@@ -57,6 +57,9 @@ struct DocumentsListView: View {
         .searchable(text: $searchText, prompt: "Search documents")
         .refreshable {
             directoryStore.fetchDocuments()
+            while directoryStore.isLoadingDocuments {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -68,7 +71,7 @@ struct DocumentsListView: View {
                             HStack {
                                 Text("Sort by \(order.rawValue)")
                                 if sortOrder == order {
-                                    Image(systemName: "checkmark")
+                                    VIconView(.check, size: 12)
                                 }
                             }
                         }

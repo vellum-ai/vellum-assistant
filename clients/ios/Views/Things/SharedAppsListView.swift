@@ -53,6 +53,9 @@ struct SharedAppsListView: View {
         .listStyle(.plain)
         .refreshable {
             directoryStore.fetchSharedApps()
+            while directoryStore.isLoadingSharedApps {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
         }
     }
 
@@ -175,13 +178,13 @@ struct SharedAppsListView: View {
                         directoryStore.forkSharedApp(uuid: app.uuid)
                         selectedApp = nil
                     } label: {
-                        Label("Fork App", systemImage: "arrow.branch")
+                        Label { Text("Fork App") } icon: { VIconView(.gitBranch, size: 14) }
                     }
 
                     Button(role: .destructive) {
                         appToDelete = app
                     } label: {
-                        Label("Delete App", systemImage: "trash")
+                        Label { Text("Delete App") } icon: { VIconView(.trash, size: 14) }
                     }
                 }
             }

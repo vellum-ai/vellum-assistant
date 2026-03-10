@@ -8,13 +8,31 @@ struct ThingsTabView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     var onConnectTapped: (() -> Void)?
 
+    /// Lazily created once by SwiftUI; survives re-renders of this view.
+    @StateObject private var directoryStore = LazyDirectoryStore()
+
     var body: some View {
         if let daemon = clientProvider.client as? DaemonClient, clientProvider.isConnected {
-            ThingsView(directoryStore: DirectoryStore(daemonClient: daemon))
+            ThingsView(directoryStore: directoryStore.resolve(daemon: daemon))
                 .environmentObject(clientProvider)
         } else {
             ThingsDisconnectedView(onConnectTapped: onConnectTapped)
         }
+    }
+}
+
+/// Wrapper that lazily creates a `DirectoryStore` once and holds onto it,
+/// avoiding repeated allocation on every SwiftUI body evaluation.
+private final class LazyDirectoryStore: ObservableObject {
+    private var store: DirectoryStore?
+    private weak var lastDaemon: DaemonClient?
+
+    func resolve(daemon: DaemonClient) -> DirectoryStore {
+        if let store, lastDaemon === daemon { return store }
+        let newStore = DirectoryStore(daemonClient: daemon)
+        self.store = newStore
+        self.lastDaemon = daemon
+        return newStore
     }
 }
 

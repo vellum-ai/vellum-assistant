@@ -54,6 +54,11 @@ struct AppsGridView: View {
         }
         .refreshable {
             directoryStore.fetchApps()
+            // fetchApps() fires an internal Task; await loading completion
+            // so the pull-to-refresh spinner stays visible until data arrives.
+            while directoryStore.isLoadingApps {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
         }
     }
 
@@ -86,24 +91,24 @@ struct AppsGridView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.md)
             .background(VColor.surface)
-            .cornerRadius(12)
+            .cornerRadius(VRadius.lg)
         }
         .contextMenu {
             Button {
                 directoryStore.openApp(id: app.id)
             } label: {
-                Label("Open", systemImage: "arrow.up.forward")
+                Label { Text("Open") } icon: { VIconView(.externalLink, size: 14) }
             }
             Button {
                 directoryStore.shareAppCloud(id: app.id)
             } label: {
-                Label("Share", systemImage: "square.and.arrow.up")
+                Label { Text("Share") } icon: { VIconView(.share, size: 14) }
             }
             Divider()
             Button(role: .destructive) {
                 appToDelete = app
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
             }
         }
     }
