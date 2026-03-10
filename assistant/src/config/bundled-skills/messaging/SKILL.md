@@ -26,9 +26,14 @@ When a platform is connected (auth test succeeds), always use the messaging API 
 
 Before using any messaging tool, verify that the platform is connected by calling `messaging_auth_test` with the appropriate `platform` parameter. If the call fails with a token/authorization error, follow the steps below.
 
-### Public Ingress (required for all platforms)
+### Public Ingress
 
-Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Each setup skill below declares `public-ingress` as a dependency and will prompt you to run it if `ingress.publicBaseUrl` is not configured.
+Slack and Telegram setup require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`.
+
+Gmail is different:
+
+- **macOS desktop app:** Gmail setup can use Desktop app credentials and the user's real browser without public ingress.
+- **Non-interactive channels:** Gmail setup uses Web application credentials and does require public ingress for the callback URL.
 
 ### Email Connection Flow
 
@@ -41,11 +46,11 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 ### Gmail
 
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
-2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
+2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill and let that skill choose the correct path for the current client:
    - Call `skill_load` with `skill: "google-oauth-setup"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Gmail?"
-     - **detail:** "I'll open a browser where you sign in to Google, then automate everything else — creating a project, enabling APIs, and connecting your account. Takes 2-3 minutes and you can watch in the browser preview panel."
+     - **detail:** "I'll use your real Chrome window to set up a Google Cloud project and connect your account. Takes 2-3 minutes."
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.

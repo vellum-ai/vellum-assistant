@@ -621,7 +621,7 @@ describe("bundled browser skill", () => {
   });
 });
 
-describe("ingress-dependent setup skills declare public-ingress", () => {
+describe("setup skill ingress metadata", () => {
   const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
   const FIRST_PARTY_SKILLS_DIR = join(
     import.meta.dir,
@@ -668,22 +668,27 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
   }
 
   test("telegram-setup includes public-ingress", () => {
-    const includes = readSkillIncludes(FIRST_PARTY_SKILLS_DIR, "telegram-setup");
-    expect(includes).toBeDefined();
-    expect(includes).toContain("public-ingress");
-  });
-
-  test("google-oauth-setup includes public-ingress", () => {
     const includes = readSkillIncludes(
       FIRST_PARTY_SKILLS_DIR,
-      "google-oauth-setup",
+      "telegram-setup",
     );
     expect(includes).toBeDefined();
     expect(includes).toContain("public-ingress");
   });
 
+  test("google-oauth-setup does not declare a global public-ingress include", () => {
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "google-oauth-setup",
+    );
+    expect(includes).toBeUndefined();
+  });
+
   test("slack-oauth-setup includes browser", () => {
-    const includes = readSkillIncludes(FIRST_PARTY_SKILLS_DIR, "slack-oauth-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "slack-oauth-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("browser");
   });

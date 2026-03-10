@@ -51,9 +51,10 @@ import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import type {
-  HandlerContext,
-  SessionCreateOptions,
+import {
+  type HandlerContext,
+  type SessionCreateOptions,
+  wireEscalationHandler,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -693,6 +694,9 @@ export class DaemonServer {
       : registrar;
     if (options?.isInteractive === true) {
       session.updateClient(onEvent, false);
+      if (!session.hasEscalationHandler()) {
+        wireEscalationHandler(session, this.handlerContext());
+      }
     }
 
     session
