@@ -96,7 +96,7 @@ export function createSchedule(params: {
   routingHints?: Record<string, unknown>;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
-  const isOneShot = expression === null;
+  const isOneShot = !expression;
   const syntax = params.syntax ?? "cron";
 
   if (isOneShot) {
@@ -240,7 +240,7 @@ export function updateSchedule(
   const newEnabled =
     updates.enabled !== undefined ? updates.enabled : existing.enabled;
 
-  const isOneShot = newExpr === null;
+  const isOneShot = !newExpr;
 
   // Validate if expression or syntax changed (only for recurring schedules)
   if (
@@ -607,7 +607,7 @@ export function formatLocalDate(timestamp: number): string {
 //   "0 9 1 * *"         -> "On the 1st of every month at 9:00 AM"
 //   "30 14 * * *"       -> "Every day at 2:30 PM"
 export function describeCronExpression(expr: string | null): string {
-  if (expr === null) return "One-time";
+  if (!expr) return "One-time";
   try {
     const cron = new Cron(expr, { maxRuns: 0 });
     // Access Croner internal state to extract the parsed cron pattern.

@@ -725,7 +725,7 @@ describe("claimDueSchedules (one-shot)", () => {
     expect(claimed.length).toBe(2);
     const expressions = claimed.map((c) => c.expression);
     expect(expressions).toContain(null); // one-shot
-    expect(expressions.some((e) => e !== null)).toBe(true); // recurring
+    expect(expressions.some(Boolean)).toBe(true); // recurring
   });
 });
 
