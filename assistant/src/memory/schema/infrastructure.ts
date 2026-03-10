@@ -7,19 +7,6 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-export const accounts = sqliteTable("accounts", {
-  id: text("id").primaryKey(),
-  service: text("service").notNull(),
-  username: text("username"),
-  email: text("email"),
-  displayName: text("display_name"),
-  status: text("status").notNull().default("active"),
-  credentialRef: text("credential_ref"),
-  metadataJson: text("metadata_json"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 export const reminders = sqliteTable("reminders", {
   id: text("id").primaryKey(),
   label: text("label").notNull(),

@@ -197,7 +197,6 @@ describe("tool manifest", () => {
     expect(names).toContain("memory_save");
     expect(names).toContain("memory_update");
     expect(names).toContain("credential_store");
-    expect(names).toContain("account_manage");
     expect(names).toContain("start_screen_watch");
   });
 

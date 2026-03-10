@@ -46,6 +46,7 @@ import {
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
+  migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
   migrateDropUsageCompositeIndexes,
@@ -323,6 +324,9 @@ export function initializeDb(): void {
 
   // 48. Rename stored "voice" channel values to "phone" across all channel text columns
   migrateRenameVoiceToPhone(database);
+
+  // 49. Drop the unused legacy accounts table after removing account_manage
+  migrateDropAccountsTable(database);
 
   validateMigrationState(database);
 

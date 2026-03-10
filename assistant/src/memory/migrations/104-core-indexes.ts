@@ -213,13 +213,6 @@ export function createCoreIndexes(database: DrizzleDb): void {
   );
 
   database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_service ON accounts(service)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)`,
-  );
-
-  database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_created_at ON llm_usage_events(created_at)`,
   );
   database.run(

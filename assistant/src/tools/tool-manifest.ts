@@ -6,7 +6,6 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
-import { accountManageTool } from "./credentials/account-registry.js";
 import { credentialStoreTool } from "./credentials/vault.js";
 import {
   memoryDeleteTool,
@@ -85,7 +84,6 @@ export const explicitTools: Tool[] = [
   memoryDeleteTool,
   memoryRecallTool,
   credentialStoreTool,
-  accountManageTool,
   screenWatchTool,
   voiceConfigUpdateTool,
   setAvatarTool,
