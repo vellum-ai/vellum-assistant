@@ -24,6 +24,7 @@ struct AppsGridView: View {
     @State private var sharedApps: [SharedAppItem] = []
     @State private var isLoadingShared = false
     @State private var hasFetchedShared = false
+    @State private var sharedAppsTask: Task<Void, Never>?
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -63,6 +64,8 @@ struct AppsGridView: View {
             if !hasFetchedShared { fetchSharedApps() }
         }
         .onDisappear {
+            sharedAppsTask?.cancel()
+            sharedAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
         }
@@ -478,20 +481,24 @@ struct AppsGridView: View {
     // MARK: - Daemon Data Fetching
 
     private func fetchSharedApps() {
+        guard sharedAppsTask == nil else { return }
+
         isLoadingShared = true
-        let previousHandler = daemonClient.onSharedAppsListResponse
-        daemonClient.onSharedAppsListResponse = { response in
-            daemonClient.onSharedAppsListResponse = previousHandler
-            self.sharedApps = response.apps
-            self.isLoadingShared = false
-            self.hasFetchedShared = true
-        }
-        do {
-            try daemonClient.sendSharedAppsList()
-        } catch {
-            isLoadingShared = false
-            hasFetchedShared = true
-            daemonClient.onSharedAppsListResponse = previousHandler
+        sharedAppsTask = Task { @MainActor in
+            do {
+                sharedApps = try await SharedAppsLoader.load(using: daemonClient)
+                hasFetchedShared = true
+                isLoadingShared = false
+                sharedAppsTask = nil
+            } catch is CancellationError {
+                isLoadingShared = false
+                sharedAppsTask = nil
+            } catch {
+                sharedApps = []
+                hasFetchedShared = true
+                isLoadingShared = false
+                sharedAppsTask = nil
+            }
         }
     }
 
