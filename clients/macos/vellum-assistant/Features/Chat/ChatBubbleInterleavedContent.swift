@@ -194,6 +194,9 @@ extension ChatBubble {
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+
+            // Inline image previews from completed tool calls (e.g. image generation)
+            inlineToolCallImages(from: groupedToolCalls)
         }
     }
 
@@ -239,8 +242,9 @@ extension ChatBubble {
         }
 
         // Attachments are not part of contentOrder but must still be rendered
+        // Skip image attachments when they're already shown inline from tool calls
         let partitioned = partitionedAttachments
-        if !partitioned.images.isEmpty {
+        if !partitioned.images.isEmpty && !hasInlineToolCallImages {
             attachmentImageGrid(partitioned.images)
         }
         if !partitioned.videos.isEmpty {

@@ -368,7 +368,8 @@ struct ChatBubble: View {
                         .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
                 }
 
-                if !partitioned.images.isEmpty {
+                // Skip image attachments when they're already shown inline from tool calls
+                if !partitioned.images.isEmpty && !hasInlineToolCallImages {
                     attachmentImageGrid(partitioned.images)
                 }
 

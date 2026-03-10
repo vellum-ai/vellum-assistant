@@ -212,4 +212,48 @@ extension ChatBubble {
         let mb = kb / 1024
         return String(format: "%.1f MB", mb)
     }
+
+    /// Whether the message has tool calls with inline images, meaning
+    /// image attachments from tool content blocks are already shown inline
+    /// and should be skipped in the attachment grid.
+    var hasInlineToolCallImages: Bool {
+        message.toolCalls.contains { $0.cachedImage != nil }
+    }
+
+    /// Renders cached images from completed tool calls inline below the
+    /// progress view. This shows generated images (e.g. from image generation)
+    /// at full width in the message flow instead of as tiny attachment thumbnails.
+    @ViewBuilder
+    func inlineToolCallImages(from toolCalls: [ToolCallData]) -> some View {
+        let imagesWithIds: [(id: UUID, image: NSImage)] = toolCalls.compactMap { tc in
+            guard let img = tc.cachedImage else { return nil }
+            return (tc.id, img)
+        }
+        if !imagesWithIds.isEmpty {
+            ForEach(imagesWithIds, id: \.id) { item in
+                let img = item.image
+                if let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    let scale: CGFloat = 2.0 // Retina
+                    let nativeWidth = CGFloat(cgImage.width) / scale
+                    let nativeHeight = CGFloat(cgImage.height) / scale
+                    let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+                    Image(decorative: cgImage, scale: scale)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(
+                            maxWidth: min(nativeWidth, maxDim),
+                            maxHeight: min(nativeHeight, maxDim)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                } else {
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                }
+            }
+        }
+    }
 }

@@ -47,6 +47,9 @@ extension ChatBubble {
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+
+            // Inline image previews from completed tool calls (e.g. image generation)
+            inlineToolCallImages(from: message.toolCalls)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
             VStack(alignment: .leading, spacing: 0) {
