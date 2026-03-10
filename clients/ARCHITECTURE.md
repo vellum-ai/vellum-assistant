@@ -608,8 +608,8 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 | `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
 | `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getCurrentAssistant`, `hatchAssistant`) |
 | `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Keychain + `~/.vellum/platform-token` file bridge) |
-| `clients/shared/IPC/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
-| `clients/shared/IPC/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
+| `clients/shared/Network/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
+| `clients/shared/Network/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
 | `clients/macos/vellum-assistant/App/AppDelegate.swift` | Transport selection (`configureDaemonTransport`) and startup guardrails |
 | `clients/macos/vellum-assistant/Features/Onboarding/OnboardingFlowView.swift` | Onboarding sign-in UI and managed bootstrap invocation |
 | `clients/macos/vellum-assistant/Features/MainWindow/Panels/IdentityData.swift` | `LockfileAssistant.isManaged` computed property and managed entry upsert |
@@ -813,7 +813,7 @@ Cross-platform `ObservableObject` stores in `clients/shared/Features/` encapsula
 | `SkillsStore` | `shared/Features/Skills/SkillsStore.swift` | Skills CRUD: list, search, inspect, install, uninstall, enable/disable, configure, draft, and create. Caches inspect results and uses generation counters to handle stale responses. |
 | `ContactsStore` | `shared/Features/Contacts/ContactsStore.swift` | Contacts CRUD: list, get, update channel policy, delete. Auto-refreshes on `contactsChanged` daemon broadcasts with 500ms debounce. |
 | `DirectoryStore` | `shared/Features/Directory/DirectoryStore.swift` | Directory data: local apps, shared apps, documents. Supports open, delete, share-to-cloud, fork, and bundle operations. Auto-refreshes on `appFilesChanged` broadcasts. |
-| `ChannelTrustStore` | `shared/Features/ChannelTrust/ChannelTrustStore.swift` | Guardian state and channel trust management. Composes `ContactsStore` for guardian contact data, manages pending guardian action prompts via daemon IPC. |
+| `ChannelTrustStore` | `shared/Features/ChannelTrust/ChannelTrustStore.swift` | Guardian state and channel trust management. Composes `ContactsStore` for guardian contact data, manages pending guardian action prompts via daemon HTTP API. |
 
 ### Store Patterns
 
