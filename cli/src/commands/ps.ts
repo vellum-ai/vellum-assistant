@@ -320,13 +320,13 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
 // ── Orphaned process detection ──────────────────────────────────
 
-interface OrphanedProcess {
+export interface OrphanedProcess {
   name: string;
   pid: string;
   source: string;
 }
 
-async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
+export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   const results: OrphanedProcess[] = [];
   const seenPids = new Set<string>();
   const vellumDir = join(homedir(), ".vellum");
