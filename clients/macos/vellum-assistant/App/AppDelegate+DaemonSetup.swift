@@ -140,8 +140,8 @@ extension AppDelegate {
         if let assistant, !assistant.isRemote {
             let port = assistant.resolvedDaemonPort(environment: launchEnvironment)
             setenv("RUNTIME_HTTP_PORT", String(port), 1)
-        } else if launchEnvironment["RUNTIME_HTTP_PORT"] == nil {
-            setenv("RUNTIME_HTTP_PORT", "7821", 0)
+        } else {
+            setenv("RUNTIME_HTTP_PORT", "7821", 1)
         }
 
         // Start the keychain broker before the daemon so it is listening
