@@ -692,6 +692,12 @@ struct MainWindowView: View {
             }
             threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
             threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
+            // Consume any buffered deep-link message now that a thread is active.
+            // Mirrors the iOS pattern (ChatTabView.onAppear, ThreadListView.onAppear)
+            // where consumeDeepLinkIfNeeded() is called when the view model becomes
+            // visible. Without this, deep links arriving before the window/thread is
+            // fully initialized are silently dropped on macOS.
+            threadManager.activeViewModel?.consumeDeepLinkIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
