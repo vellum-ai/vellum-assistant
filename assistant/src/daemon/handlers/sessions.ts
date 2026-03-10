@@ -380,7 +380,7 @@ export async function handleSessionCreate(
     if (title === GENERATING_TITLE) {
       queueGenerateConversationTitle({
         conversationId: conversation.id,
-        context: { origin: "local" },
+        context: { origin: "ipc" },
         userMessage: msg.initialMessage,
         onTitleUpdated: (newTitle) => {
           ctx.send({

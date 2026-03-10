@@ -30,7 +30,6 @@ export type TitleOrigin =
   | "voice_inbound"
   | "guardian_request"
   | "schedule"
-  | "reminder"
   | "task"
   | "watcher"
   | "subagent"
