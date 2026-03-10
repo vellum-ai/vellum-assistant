@@ -8,6 +8,7 @@ struct SharedAppsListView: View {
     @State private var selectedApp: SharedAppItem?
     @State private var appToDelete: SharedAppItem?
     @State private var isForkingApp = false
+    @State private var forkDismissTask: Task<Void, Never>?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -195,13 +196,16 @@ struct SharedAppsListView: View {
                 Section {
                     Button {
                         isForkingApp = true
-                        directoryStore.forkSharedApp(uuid: app.uuid)
-                        // Brief delay to show progress, then dismiss
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        forkDismissTask?.cancel()
+                        forkDismissTask = Task { @MainActor in
+                            let success = await directoryStore.forkSharedApp(uuid: app.uuid)
                             guard !Task.isCancelled else { return }
                             isForkingApp = false
-                            selectedApp = nil
+                            if success {
+                                selectedApp = nil
+                            } else {
+                                errorMessage = "Failed to fork app. Please try again."
+                            }
                         }
                     } label: {
                         HStack {
@@ -236,6 +240,10 @@ struct SharedAppsListView: View {
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
+            }
+            .onDisappear {
+                forkDismissTask?.cancel()
+                forkDismissTask = nil
             }
         }
     }

@@ -8,6 +8,7 @@ struct AppsGridView: View {
     @State private var appToDelete: AppItem?
     @State private var errorMessage: String?
     @State private var showShareSuccess = false
+    @State private var bannerDismissTask: Task<Void, Never>?
     @AppStorage("pinnedAppIds") private var pinnedAppIdsData: Data = Data()
 
     private let columns = [
@@ -84,7 +85,8 @@ struct AppsGridView: View {
                 shareSuccessBanner
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .onAppear {
-                        Task { @MainActor in
+                        bannerDismissTask?.cancel()
+                        bannerDismissTask = Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 2_000_000_000)
                             guard !Task.isCancelled else { return }
                             withAnimation { showShareSuccess = false }
@@ -212,8 +214,12 @@ struct AppsGridView: View {
                 }
             }
             Button {
-                directoryStore.shareAppCloud(id: app.id)
-                withAnimation { showShareSuccess = true }
+                Task {
+                    let success = await directoryStore.shareAppCloud(id: app.id)
+                    if success {
+                        withAnimation { showShareSuccess = true }
+                    }
+                }
             } label: {
                 Label { Text("Share to Cloud") } icon: { VIconView(.upload, size: 14) }
             }
@@ -228,25 +234,6 @@ struct AppsGridView: View {
             } label: {
                 Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
             }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                appToDelete = app
-            } label: {
-                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
-            }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button {
-                togglePin(for: app.id)
-            } label: {
-                Label {
-                    Text(isPinned(app.id) ? "Unpin" : "Pin")
-                } icon: {
-                    VIconView(isPinned(app.id) ? .pinOff : .pin, size: 14)
-                }
-            }
-            .tint(VColor.accent)
         }
     }
 
