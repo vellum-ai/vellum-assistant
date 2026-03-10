@@ -43,7 +43,7 @@ export async function semanticSearch(
     qdrant.searchWithFilter(
       queryVector,
       fetchLimit,
-      ["item", "summary", "segment"],
+      ["item", "summary", "segment", "media"],
       excludedMessageIds,
     ),
   );
@@ -162,6 +162,23 @@ export async function semanticSearch(
         lexical: 0,
         semantic,
         recency: computeRecencyScore(payload.last_seen_at ?? createdAt),
+        finalScore: 0,
+      });
+    } else if (payload.target_type === "media") {
+      candidates.push({
+        key: `media:${payload.target_id}`,
+        type: "media",
+        id: payload.target_id,
+        source: "semantic",
+        text: payload.text,
+        kind: payload.kind ?? "media",
+        modality: payload.modality,
+        confidence: 0.7,
+        importance: 0.6,
+        createdAt,
+        lexical: 0,
+        semantic,
+        recency: computeRecencyScore(createdAt),
         finalScore: 0,
       });
     } else {
