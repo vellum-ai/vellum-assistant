@@ -59,7 +59,8 @@ export async function semanticSearch(
       itemTargetIds.push(r.payload.target_id);
     else if (r.payload.target_type === "summary")
       summaryTargetIds.push(r.payload.target_id);
-    else segmentTargetIds.push(r.payload.target_id);
+    else if (r.payload.target_type === "segment")
+      segmentTargetIds.push(r.payload.target_id);
   }
 
   const itemsMap = new Map<string, typeof memoryItems.$inferSelect>();
