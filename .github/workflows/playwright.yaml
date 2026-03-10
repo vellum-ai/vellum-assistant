@@ -490,12 +490,38 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+      - name: Upload artifacts to QA GCS bucket
+        if: always() && steps.tests.outcome != 'skipped' && vars.QA_GCS_BUCKET
+        continue-on-error: true
+        run: |
+          BUCKET="${{ vars.QA_GCS_BUCKET }}"
+          RUN_ID="${{ github.run_id }}"
+          DEST="gs://${BUCKET}/runs/${RUN_ID}"
+
+          echo "Uploading artifacts to ${DEST}..."
+
+          if [ -d playwright/test-results ]; then
+            gcloud storage cp -r playwright/test-results "${DEST}/"
+          fi
+
+          if [ -d playwright/playwright-report ]; then
+            gcloud storage cp -r playwright/playwright-report "${DEST}/"
+          fi
+
+          echo "Upload complete: ${DEST}"
+
       - name: Output artifact URL
         if: always() && steps.upload-artifacts.outputs.artifact-id
         run: |
           ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-artifacts.outputs.artifact-id }}"
           echo "::notice title=Playwright Artifacts::$ARTIFACT_URL"
           echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
+
+          if [ -n "${{ vars.QA_APP_URL }}" ]; then
+            QA_URL="${{ vars.QA_APP_URL }}/runs/${{ github.run_id }}"
+            echo "::notice title=QA Results::$QA_URL"
+            echo "  $QA_URL"
+          fi
 
       - name: Generate GitHub App token
         if: steps.tests.outcome == 'failure'
