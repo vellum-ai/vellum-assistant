@@ -59,7 +59,6 @@ import {
   handleHistoryRequest,
   handleMessageContentRequest,
 } from "./session-history.js";
-import { handleUserMessage } from "./session-user-message.js";
 import {
   type HandlerContext,
   log,
