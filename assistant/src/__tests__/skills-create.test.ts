@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createSkillLocally } from "../cli/commands/skills.js";
+import { Command } from "commander";
+
+import {
+  createSkillLocally,
+  registerSkillsCommand,
+} from "../cli/commands/skills.js";
 
 let tempDir: string;
 let originalBaseDataDir: string | undefined;
@@ -30,6 +35,46 @@ function writeBodyFile(name: string, content: string): string {
   const bodyFile = join(tempDir, name);
   writeFileSync(bodyFile, content);
   return bodyFile;
+}
+
+async function runSkillsCli(
+  args: string[],
+): Promise<{ exitCode: number; stdout: string }> {
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const stdoutChunks: string[] = [];
+
+  process.stdout.write = ((chunk: unknown) => {
+    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  process.stderr.write = (() => true) as typeof process.stderr.write;
+  process.exitCode = 0;
+
+  try {
+    const program = new Command();
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => {},
+      writeOut: (str: string) => stdoutChunks.push(str),
+    });
+    registerSkillsCommand(program);
+    await program.parseAsync(["node", "assistant", "skills", ...args]);
+  } catch {
+    if (process.exitCode === 0) process.exitCode = 1;
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+
+  const exitCode = process.exitCode ?? 0;
+  process.exitCode = 0;
+
+  return {
+    exitCode,
+    stdout: stdoutChunks.join(""),
+  };
 }
 
 beforeEach(() => {
@@ -130,5 +175,13 @@ describe("assistant skills create", () => {
     const skill = readFileSync(getSkillPath("duplicate-test"), "utf-8");
     expect(skill).toContain("Version 2.");
     expect(skill).not.toContain("Version 1.");
+  });
+
+  test("create --help documents arguments, behavior, and the resolved workspace path", async () => {
+    const result = await runSkillsCli(["create", "--help"]);
+    expect(result.stdout).toContain("Arguments:");
+    expect(result.stdout).toContain("Behavior:");
+    expect(result.stdout).toContain(getSkillsDir());
+    expect(result.stdout).toContain("--body-file -");
   });
 });

@@ -81,6 +81,7 @@ Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTUR
 This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
 
 To manually install or update hooks:
+
 ```bash
 ./.githooks/install.sh
 ```
@@ -144,13 +145,13 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 ### Troubleshooting (Sandbox)
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
-| `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
-| `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
-| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
-| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
+| Symptom                                                                      | Cause                                                                   | Fix                                                                                                                              |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `Docker CLI is not installed or not in PATH`                                 | Docker is not installed                                                 | Install Docker: https://docs.docker.com/get-docker/                                                                              |
+| `Docker daemon is not running`                                               | Docker Desktop is not started or systemd service is stopped             | Start Docker Desktop, or run `sudo systemctl start docker` on Linux                                                              |
+| `Docker image "..." is not available locally`                                | The configured image has not been pulled                                | Run `docker pull <image>` with the full image reference including the sha256 digest                                              |
+| `Cannot bind-mount the sandbox root into a Docker container`                 | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
+| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled             | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora)                                |
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
 
@@ -163,7 +164,7 @@ The assistant can store and use credentials (API keys, tokens, passwords) withou
 
 - **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`, with an encrypted file fallback for Linux/headless environments or degraded Keychain sessions. Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/workspace/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
-- **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). When `secretDetection.blockIngress` is `true` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead. The `secretDetection.action` setting (default: `redact`) separately controls how secrets in tool *output* are handled.
+- **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). When `secretDetection.blockIngress` is `true` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead. The `secretDetection.action` setting (default: `redact`) separately controls how secrets in tool _output_ are handled.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
 - **No plaintext read API**: There is no tool-layer function that returns a stored secret as plaintext. Secrets are only consumed by the broker for scoped tool execution.
@@ -173,6 +174,7 @@ See [`assistant/docs/architecture/security.md`](assistant/docs/architecture/secu
 #### Credential References
 
 When using `credential_ids` in proxied shell commands, you can use either format:
+
 - **UUID**: The canonical credential ID (shown in `credential_store list` output and `store`/`prompt` success messages)
 - **service/field**: A human-readable reference like `fal/api_key`
 
@@ -181,6 +183,7 @@ Unknown references fail immediately with a clear error before the command execut
 #### Wildcard Host Matching
 
 Wildcard patterns like `*.fal.run` match:
+
 - Subdomains: `api.fal.run`, `queue.fal.run`
 - The bare domain: `fal.run`
 
@@ -194,7 +197,7 @@ When multiple credentials are passed to a proxied command via `credential_ids`, 
 
 2. **Cross-credential resolution**: After selecting the best template per credential, the proxy checks how many credentials produced a match. If exactly one credential matches, its header is injected. If **more than one credential** matches the same host, the request is **blocked** — the proxy cannot determine which credential to use and refuses to guess.
 
-Requests that match zero session credentials are handled in two ways: if the target host matches a known credential template in the global registry (i.e., *some* credential exists for that host, just not one bound to this session), the request is **blocked** by default. If the host is completely unknown to the credential system, the request passes through without injection.
+Requests that match zero session credentials are handled in two ways: if the target host matches a known credential template in the global registry (i.e., _some_ credential exists for that host, just not one bound to this session), the request is **blocked** by default. If the host is completely unknown to the credential system, the request passes through without injection.
 
 **Example**: If credential A has pattern `*.example.com` and credential B has pattern `api.example.com`, a request to `api.example.com` is blocked because both credentials match (even though B's match is more specific — specificity is only compared within a single credential, not across credentials).
 
@@ -215,10 +218,10 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
 
-| Mode | Default? | Behavior |
-|---|---|---|
-| `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
-| `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
+| Mode        | Default? | Behavior                                                                                                                                                                                                                                                                                   |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `workspace` | Yes      | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
+| `strict`    | No       | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level.                                                                                                                                                                 |
 
 To switch modes:
 
@@ -330,20 +333,20 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 
 ### Workflow
 
-1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
-2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/`.
+1. **Evaluate**: The assistant drafts a TypeScript snippet, writes it to a temp file with `bash`, and runs it with `bun run`. It iterates until the snippet passes or it hits the retry limit.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant runs `assistant skills create <skill-id> --name "<name>" --description "<description>" --body-file <path-or-stdin>` to write the skill into the current assistant workspace's `skills/` directory. This is typically `~/.vellum/workspace/skills/<id>/`, or `~/.vellum/instances/<assistant>/.vellum/workspace/skills/<id>/` for instance-scoped assistants.
 3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
-4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
+4. **Delete**: To remove a managed skill, run `assistant skills uninstall <skill-id>`.
 
-### Tools
+### Commands and tools
 
-| Tool | Risk Level | Description |
-|------|-----------|-------------|
-| `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter (including optional `includes` for child skills) and updates `SKILLS.md` index. |
-| `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
+| Command / tool               | Risk Level | Description                                                                                                                                                                                        |
+| ---------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bash`                       | Varies     | Writes temp snippet files and runs `bun run` during evaluation. Keep evaluation commands sandboxed when available.                                                                                 |
+| `assistant skills create`    | High       | Write a managed skill to the current assistant workspace's `skills/<id>/` directory. Creates `SKILL.md` with frontmatter (including optional `includes` for child skills) and updates `SKILLS.md`. |
+| `assistant skills uninstall` | High       | Remove a managed skill directory and its `SKILLS.md` entry.                                                                                                                                        |
 
-All three tools require explicit user approval before execution (Risk Level = High).
+The file-mutating commands require explicit user approval before execution. Evaluation should stay inside the assistant's sandboxed bash workflow when available.
 
 ### Constraints
 
@@ -362,14 +365,16 @@ name: "Parent Workflow"
 description: "Orchestrates sub-tasks"
 includes: ["data-analysis", "report-generator"]
 ---
+
 ```
 
 When a parent skill is loaded via `skill_load`:
+
 - The include graph is validated recursively (missing children and cycles are rejected).
 - Immediate child metadata (ID, name, description, path) is shown in the output.
 - Child skills are **not** automatically activated — the agent must explicitly call `skill_load` for each child it needs.
 
-The `scaffold_managed_skill` tool accepts an optional `includes` array to set this metadata when creating managed skills.
+`assistant skills create` accepts repeated `--include <skill-id>` flags to set this metadata when creating managed skills.
 
 </details>
 
@@ -387,18 +392,18 @@ There are two ways to activate browser capabilities:
 
 Once loaded, the following tools become available for the remainder of the session:
 
-| Tool | Description |
-|------|-------------|
-| `browser_navigate` | Navigate to a URL |
-| `browser_snapshot` | List interactive elements on the current page |
-| `browser_screenshot` | Take a visual screenshot |
-| `browser_close` | Close the browser page |
-| `browser_click` | Click an element |
-| `browser_type` | Type text into an input |
-| `browser_press_key` | Press a keyboard key |
-| `browser_wait_for` | Wait for a condition |
-| `browser_extract` | Extract page text content |
-| `browser_fill_credential` | Fill a stored credential into a form field |
+| Tool                      | Description                                   |
+| ------------------------- | --------------------------------------------- |
+| `browser_navigate`        | Navigate to a URL                             |
+| `browser_snapshot`        | List interactive elements on the current page |
+| `browser_screenshot`      | Take a visual screenshot                      |
+| `browser_close`           | Close the browser page                        |
+| `browser_click`           | Click an element                              |
+| `browser_type`            | Type text into an input                       |
+| `browser_press_key`       | Press a keyboard key                          |
+| `browser_wait_for`        | Wait for a condition                          |
+| `browser_extract`         | Extract page text content                     |
+| `browser_fill_credential` | Fill a stored credential into a form field    |
 
 ### Permissions
 
@@ -466,11 +471,11 @@ URLs inside code blocks and code spans are never converted to embeds.
 
 Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | `true` | Global toggle for all inline media embeds |
-| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
-| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
+| Setting                 | Default                                                | Description                                                                                                                          |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`               | `true`                                                 | Global toggle for all inline media embeds                                                                                            |
+| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds                                                                                               |
+| `enabledSince`          | _(timestamp)_                                          | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
 
 ### Security and Privacy
 
@@ -498,9 +503,9 @@ GET /v1/events?conversationKey=<key>
 
 **Query params**:
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `conversationKey` | Yes | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. |
+| Parameter         | Required | Description                                                                                              |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `conversationKey` | Yes      | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. |
 
 **Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
 
@@ -538,18 +543,18 @@ Each `data` field is a JSON-serialized `AssistantEvent`:
 
 The `message` field is the `ServerMessage` payload. All delta semantics are preserved:
 
-| Message type | Description |
-|---|---|
-| `assistant_text_delta` | Incremental text token from the model |
-| `assistant_thinking_delta` | Incremental thinking/reasoning token |
-| `tool_use_start` | Tool invocation starting |
-| `tool_input_delta` | Streaming tool input chunk |
-| `tool_output_chunk` | Streaming tool output chunk |
-| `tool_result` | Tool execution result |
-| `message_complete` | Turn complete; full message + attachments included |
-| `confirmation_request` | User approval needed before an action executes |
-| `generation_handoff` | Model handed off to a sub-agent |
-| `generation_cancelled` | Run was cancelled |
+| Message type               | Description                                        |
+| -------------------------- | -------------------------------------------------- |
+| `assistant_text_delta`     | Incremental text token from the model              |
+| `assistant_thinking_delta` | Incremental thinking/reasoning token               |
+| `tool_use_start`           | Tool invocation starting                           |
+| `tool_input_delta`         | Streaming tool input chunk                         |
+| `tool_output_chunk`        | Streaming tool output chunk                        |
+| `tool_result`              | Tool execution result                              |
+| `message_complete`         | Turn complete; full message + attachments included |
+| `confirmation_request`     | User approval needed before an action executes     |
+| `generation_handoff`       | Model handed off to a sub-agent                    |
+| `generation_cancelled`     | Run was cancelled                                  |
 
 ### Connection Management
 
@@ -562,15 +567,15 @@ The `message` field is the `ServerMessage` payload. All delta semantics are pres
 The standard browser `EventSource` API does not support custom request headers, so authenticated connections require `fetch()` with manual SSE stream parsing:
 
 ```js
-const TOKEN = '<jwt>'; // JWT obtained via the guardian bootstrap flow or assistant auth system
+const TOKEN = "<jwt>"; // JWT obtained via the guardian bootstrap flow or assistant auth system
 const res = await fetch(
-  'http://localhost:3001/v1/events?conversationKey=my-conversation',
-  { headers: { Authorization: `Bearer ${TOKEN}` } },
+  "http://localhost:3001/v1/events?conversationKey=my-conversation",
+  { headers: { Authorization: `Bearer ${TOKEN}` } }
 );
 
 const reader = res.body.getReader();
 const decoder = new TextDecoder();
-let buf = '';
+let buf = "";
 
 while (true) {
   const { done, value } = await reader.read();
@@ -578,11 +583,11 @@ while (true) {
   buf += decoder.decode(value, { stream: true });
 
   // SSE frames are separated by a blank line (\n\n).
-  const frames = buf.split('\n\n');
-  buf = frames.pop() ?? ''; // keep the incomplete trailing chunk
+  const frames = buf.split("\n\n");
+  buf = frames.pop() ?? ""; // keep the incomplete trailing chunk
 
   for (const frame of frames) {
-    const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+    const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
     if (!dataLine) continue;
     const event = JSON.parse(dataLine.slice(6));
     console.log(event.message.type, event.message);
@@ -619,12 +624,12 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 
 ### Troubleshooting
 
-| Symptom | Check |
-|---|---|
-| CLI: "could not connect to assistant" | Is the SSH port tunnel active? Check `VELLUM_DAEMON_URL` |
-| CLI: assistant starts locally despite remote override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
-| macOS: not connecting | Verify the assistant URL is reachable |
-| Any: "connection refused" | Is the remote assistant running? (`vellum ps` on remote) |
+| Symptom                                               | Check                                                    |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| CLI: "could not connect to assistant"                 | Is the SSH port tunnel active? Check `VELLUM_DAEMON_URL` |
+| CLI: assistant starts locally despite remote override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1`   |
+| macOS: not connecting                                 | Verify the assistant URL is reachable                    |
+| Any: "connection refused"                             | Is the remote assistant running? (`vellum ps` on remote) |
 
 Run `vellum doctor` for a full diagnostic check.
 
@@ -639,35 +644,35 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 
 ### Single-task commands
 
-| Command | Purpose |
-|---------|---------|
-| `/do <description>` | Implement a change in an isolated worktree, create a PR, squash-merge it to main, and clean up. |
-| `/safe-do <description>` | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree for feedback. |
-| `/mainline` | Ship uncommitted changes already in your working tree to main via a squash-merged PR. |
+| Command                   | Purpose                                                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/do <description>`       | Implement a change in an isolated worktree, create a PR, squash-merge it to main, and clean up.                                                                  |
+| `/safe-do <description>`  | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree for feedback.                                                     |
+| `/mainline`               | Ship uncommitted changes already in your working tree to main via a squash-merged PR.                                                                            |
 | `/ship-and-merge [title]` | Ship uncommitted changes via a PR with automated review feedback loop — waits for Codex/Devin reviews, fixes valid feedback (up to 3 rounds), and squash-merges. |
-| `/work` | Pick up the next task from `.private/TODO.md` (or a task you specify), implement it, PR it, and merge it. |
+| `/work`                   | Pick up the next task from `.private/TODO.md` (or a task you specify), implement it, PR it, and merge it.                                                        |
 
 ### Multi-task / parallel commands
 
-| Command | Purpose |
-|---------|---------|
-| `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
-| `/swarm [workers] [max-tasks] [--namespace NAME]` | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user. |
-| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then gates each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles). Runs a **recursive sweep loop** (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge PRs immediately without waiting for reviews (opt-in; default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then automatically runs a final sweep on the entire feature branch (no user approval prompt). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`. |
-| `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
-| `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
-| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`. |
+| Command                                                             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/brainstorm`                                                       | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `/swarm [workers] [max-tasks] [--namespace NAME]`                   | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user.                                                                                                                                                                                                                                                                                                                                         |
+| `/blitz <feature>`                                                  | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then gates each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles). Runs a **recursive sweep loop** (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge PRs immediately without waiting for reviews (opt-in; default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
+| `/safe-blitz <feature>`                                             | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then automatically runs a final sweep on the entire feature branch (no user approval prompt). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`.                                                                                                      |
+| `/safe-blitz-done [PR\|branch]`                                     | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `/execute-plan <file>`                                              | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Human-in-the-loop plan execution
 
 A three-command workflow for executing plans one PR at a time with human review between each step. Each plan gets its own state file in `.private/safe-plan-state/`, so multiple plans can run concurrently in separate sessions.
 
-| Command | Purpose |
-|---------|---------|
-| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the next PR, creates it (without merging), automatically runs an **automated review feedback loop** (up to 3 fix cycles with Codex/Devin), then auto-initiates `/safe-check-review` after 60 seconds to await human merge approval. |
+| Command                     | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the next PR, creates it (without merging), automatically runs an **automated review feedback loop** (up to 3 fix cycles with Codex/Devin), then auto-initiates `/safe-check-review` after 60 seconds to await human merge approval.                                                                                                                                                                                                                                                      |
 | `/safe-check-review [file]` | Check the active plan PR for feedback from codex/devin/humans and CI. Runs an **automated feedback loop** (up to 3 fix cycles): fetches full review data (reviews, inline comments, review threads, reactions, CI checks), determines aggregate status including CI state and human unresolved threads, addresses `changes_requested` by pushing fixes, re-requests reviews, and polls for fresh responses — only concluding approved once all reviewers (bots and humans) and CI are green. Auto-detects the plan if only one is active. |
-| `/resume-plan [file]` | Merge the current PR, implement the next one, create it, and stop again. Repeats until the plan is complete. Auto-detects the plan if only one is active. |
+| `/resume-plan [file]`       | Merge the current PR, implement the next one, create it, and stop again. Repeats until the plan is complete. Auto-detects the plan if only one is active.                                                                                                                                                                                                                                                                                                                                                                                 |
 
 **Typical flow:**
 
@@ -681,17 +686,16 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 ### Utility
 
-| Command | Purpose |
-|---------|---------|
-| `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
-| `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
-
+| Command                         | Purpose                                                                                                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists).                                              |
+| `/release [version]`            | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger.                                                                 |
+| `/update`                       | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
 ### Review
 
-| Command | Purpose |
-|---------|---------|
+| Command                             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). |
 
 ### Typical flow

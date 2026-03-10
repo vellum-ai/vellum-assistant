@@ -15,7 +15,11 @@ import { gunzipSync } from "node:zlib";
 
 import type { Command } from "commander";
 
-import { createManagedSkill } from "../../skills/managed-store.js";
+import {
+  createManagedSkill,
+  removeSkillsIndexEntry as removeManagedSkillsIndexEntry,
+  upsertSkillsIndexEntry,
+} from "../../skills/managed-store.js";
 import {
   getWorkspaceConfigPath,
   getWorkspaceSkillsDir,
@@ -242,36 +246,11 @@ function atomicWriteFile(filePath: string, content: string): void {
 }
 
 function upsertSkillsIndex(id: string): void {
-  const indexPath = getSkillsIndexPath();
-  let lines: string[] = [];
-  if (existsSync(indexPath)) {
-    lines = readFileSync(indexPath, "utf-8").split("\n");
-  }
-
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
-  if (lines.some((line) => pattern.test(line))) return;
-
-  const nonEmpty = lines.filter((l) => l.trim());
-  nonEmpty.push(`- ${id}`);
-  const content = nonEmpty.join("\n");
-  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
+  upsertSkillsIndexEntry(id);
 }
 
 function removeSkillsIndexEntry(id: string): void {
-  const indexPath = getSkillsIndexPath();
-  if (!existsSync(indexPath)) return;
-
-  const lines = readFileSync(indexPath, "utf-8").split("\n");
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
-  const filtered = lines.filter((line) => !pattern.test(line));
-
-  // If nothing changed, skip the write
-  if (filtered.length === lines.length) return;
-
-  const content = filtered.join("\n");
-  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
+  removeManagedSkillsIndexEntry(id);
 }
 
 function readSkillBody(bodyFile: string): string {
@@ -398,6 +377,9 @@ export {
 // ---------------------------------------------------------------------------
 
 export function registerSkillsCommand(program: Command): void {
+  const workspaceSkillsDir = getWorkspaceSkillsDir();
+  const skillCreateTarget = join(workspaceSkillsDir, "<skill-id>");
+  const skillsIndexPath = join(workspaceSkillsDir, "SKILLS.md");
   const skills = program
     .command("skills")
     .description("Browse, install, and create assistant skills");
@@ -406,8 +388,10 @@ export function registerSkillsCommand(program: Command): void {
     "after",
     `
 Manage assistant skills from the Vellum catalog or from local markdown you
-author yourself. Local creates write to ~/.vellum/workspace/skills/ and update
-SKILLS.md so the new skill is immediately available for skill loading.
+author yourself. Local creates write to ${workspaceSkillsDir}/ and update
+SKILLS.md so the new skill is immediately available for skill loading. The
+resolved path follows the current assistant workspace, including instance-scoped
+roots when BASE_DATA_DIR is set.
 
 Examples:
   $ assistant skills list
@@ -557,6 +541,17 @@ Examples:
     .addHelpText(
       "after",
       `
+Arguments:
+  skill-id    Unique identifier for the skill. Must start with a lowercase
+              letter or digit and contain only lowercase letters, digits,
+              dots, hyphens, and underscores.
+
+Behavior:
+  Writes ${skillCreateTarget}/SKILL.md using the provided frontmatter and
+  markdown body, then updates ${skillsIndexPath}. Use --body-file - to read
+  the body from stdin. The command fails if the skill already exists unless
+  --overwrite is passed.
+
 Examples:
   $ assistant skills create incident-helper --name "Incident Helper" --description "Guide incident response" --body-file ./incident.md
   $ assistant skills create incident-helper --name "Incident Helper" --description "Guide incident response" --body-file ./incident.md --overwrite

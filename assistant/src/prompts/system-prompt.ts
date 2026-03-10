@@ -6,7 +6,8 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
-import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
+import type { SkillSummary } from "../config/skills.js";
+import { loadSkillCatalog } from "../config/skills.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -100,14 +101,14 @@ export function isOnboardingComplete(): boolean {
 }
 
 /**
- * Build the system prompt from ~/.vellum prompt files,
+ * Build the system prompt from workspace prompt files,
  * then append a generated skills catalog (if any skills are available).
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
  *   2. Append USER.md (user profile)
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
- *   4. Append skills catalog from ~/.vellum/workspace/skills
+ *   4. Append skills catalog from the current assistant workspace skills dir
  */
 export function buildSystemPrompt(): string {
   const soulPath = getWorkspacePromptPath("SOUL.md");
@@ -898,7 +899,7 @@ function buildDynamicSkillWorkflowSection(
     "1. Validate the gap — confirm no existing tool/skill covers it.",
     "2. Draft a TypeScript snippet exporting a `default` or `run` function (`(input: unknown) => unknown | Promise<unknown>`).",
     '3. Test the snippet by writing it to a temp file with `bash` (e.g., `bash command="mkdir -p /tmp/vellum-eval && cat > /tmp/vellum-eval/snippet.ts << \'SNIPPET_EOF\'\\n...\\nSNIPPET_EOF"`) and running it with `bash command="bun run /tmp/vellum-eval/snippet.ts"`. Do not use `file_write` for temp files outside the working directory. Iterate until it passes (max 3 attempts, then ask the user). Clean up temp files after.',
-    '4. After user consent, persist the final skill body with `assistant skills create <skill-id> --name "<name>" --description "<description>" --body-file <path-or-->`.',
+    '4. After user consent, persist the final skill body with `assistant skills create <skill-id> --name "<name>" --description "<description>" --body-file <path-or-stdin>` (use `-` for stdin).',
     "5. Load with `skill_load` before use.",
     "",
     "**Never persist or delete skills without explicit user confirmation.** To remove: `assistant skills uninstall <skill-id>`.",
@@ -955,7 +956,9 @@ function getMcpSetupDescription(): string {
   }
 
   const serverNames = Object.keys(servers);
-  return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load this skill to check status, authenticate, or add/remove servers.`;
+  return `Manage MCP servers. Configured: ${serverNames.join(
+    ", ",
+  )}. Load this skill to check status, authenticate, or add/remove servers.`;
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
