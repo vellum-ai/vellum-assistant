@@ -265,8 +265,7 @@ extension AppDelegate {
 
         let onboarding = OnboardingWindow(
             daemonClient: daemonClient,
-            authManager: authManager,
-            forceCreateNewManagedAssistant: true
+            authManager: authManager
         )
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
