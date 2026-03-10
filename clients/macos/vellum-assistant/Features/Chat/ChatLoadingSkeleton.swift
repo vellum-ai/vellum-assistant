@@ -38,12 +38,6 @@ struct ChatLoadingSkeleton: View {
             chatBone(height: 14)
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.45, alignment: .trailing)
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.textMuted.opacity(0.06))
-        )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.65)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -63,12 +57,6 @@ struct ChatLoadingSkeleton: View {
                         )
                 }
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.textMuted.opacity(0.06))
-            )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
             .overlay(alignment: .topLeading) {
                 Image(nsImage: appearance.chatAvatarImage)
