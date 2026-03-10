@@ -21,6 +21,10 @@ function describeSchedule(job: {
   return describeCronExpression(job.cronExpression);
 }
 
+function isOneShot(job: { expression: string | null }): boolean {
+  return job.expression == null;
+}
+
 export async function executeScheduleList(
   input: Record<string, unknown>,
   _context: ToolContext,
@@ -35,23 +39,51 @@ export async function executeScheduleList(
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
 
+    const oneShot = isOneShot(job);
+
     const runs = getScheduleRuns(jobId, 5);
     const lines = [
       `Schedule: ${job.name}`,
       `  ID: ${job.id}`,
-      `  Syntax: ${job.syntax}`,
-      `  Expression: ${job.expression ?? "(one-time)"}`,
-      `  Schedule: ${describeSchedule(job)}${
-        job.timezone ? ` (${job.timezone})` : ""
-      }`,
+      `  Type: ${oneShot ? "one-shot" : "recurring"}`,
+      `  Mode: ${job.mode}`,
+      `  Status: ${job.status}`,
+    ];
+
+    if (oneShot) {
+      lines.push(`  Fire at: ${formatLocalDate(job.nextRunAt)}`);
+    } else {
+      lines.push(
+        `  Syntax: ${job.syntax}`,
+        `  Expression: ${job.expression ?? "(one-time)"}`,
+        `  Schedule: ${describeSchedule(job)}${
+          job.timezone ? ` (${job.timezone})` : ""
+        }`,
+      );
+    }
+
+    lines.push(
       `  Enabled: ${job.enabled}`,
       `  Message: ${job.message}`,
-      `  Next run: ${formatLocalDate(job.nextRunAt)}`,
+    );
+
+    if (!oneShot) {
+      lines.push(
+        `  Next run: ${formatLocalDate(job.nextRunAt)}`,
+      );
+    }
+
+    lines.push(
       `  Last run: ${job.lastRunAt ? formatLocalDate(job.lastRunAt) : "never"}`,
       `  Last status: ${job.lastStatus ?? "n/a"}`,
       `  Retry count: ${job.retryCount}`,
       `  Created: ${formatLocalDate(job.createdAt)}`,
-    ];
+    );
+
+    // Show routing intent in detail view when not the default
+    if (job.routingIntent !== "all_channels") {
+      lines.push(`  Routing: ${job.routingIntent}`);
+    }
 
     if (runs.length > 0) {
       lines.push("", `Recent runs (${runs.length}):`);
@@ -79,12 +111,21 @@ export async function executeScheduleList(
   const lines = [`Schedules (${jobs.length}):`];
   for (const job of jobs) {
     const status = job.enabled ? "enabled" : "disabled";
-    const next = job.enabled ? formatLocalDate(job.nextRunAt) : "n/a";
-    lines.push(
-      `  - [${status}] ${job.name} (id: ${job.id}) ([${
-        job.syntax
-      }] ${describeSchedule(job)}) — next: ${next}`,
-    );
+    const oneShot = isOneShot(job);
+
+    if (oneShot) {
+      const fireTime = formatLocalDate(job.nextRunAt);
+      lines.push(
+        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) — fire at: ${fireTime} [${job.status}]`,
+      );
+    } else {
+      const next = job.enabled ? formatLocalDate(job.nextRunAt) : "n/a";
+      lines.push(
+        `  - [${status}] ${job.name} (id: ${job.id}) ([${
+          job.syntax
+        }] ${describeSchedule(job)}, ${job.mode}) — next: ${next}`,
+      );
+    }
   }
 
   return { content: lines.join("\n"), isError: false };

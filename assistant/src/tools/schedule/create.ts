@@ -7,7 +7,10 @@ import {
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
+import type { ScheduleMode } from "../../schedule/schedule-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const VALID_MODES: ScheduleMode[] = ["notify", "execute"];
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -17,6 +20,12 @@ export async function executeScheduleCreate(
   const timezone = (input.timezone as string) ?? null;
   const message = input.message as string;
   const enabled = (input.enabled as boolean) ?? true;
+  const fireAt = input.fire_at as string | undefined;
+  const mode = (input.mode as ScheduleMode | undefined) ?? "execute";
+  const routingIntent = input.routing_intent as string | undefined;
+  const routingHints = input.routing_hints as
+    | Record<string, unknown>
+    | undefined;
 
   if (!name || typeof name !== "string") {
     return {
@@ -31,6 +40,75 @@ export async function executeScheduleCreate(
     };
   }
 
+  // Validate mode
+  if (!VALID_MODES.includes(mode)) {
+    return {
+      content: `Error: mode must be one of: ${VALID_MODES.join(", ")}`,
+      isError: true,
+    };
+  }
+
+  // ── One-shot schedule (fire_at) ──────────────────────────────────
+  if (fireAt) {
+    const fireAtMs = Date.parse(fireAt);
+    if (isNaN(fireAtMs)) {
+      return {
+        content:
+          "Error: fire_at must be a valid ISO 8601 timestamp (e.g. 2025-06-15T09:00:00Z)",
+        isError: true,
+      };
+    }
+    if (fireAtMs <= Date.now()) {
+      return {
+        content: "Error: fire_at must be in the future",
+        isError: true,
+      };
+    }
+
+    try {
+      const job = createSchedule({
+        name,
+        cronExpression: null,
+        timezone,
+        message,
+        enabled,
+        syntax: "cron",
+        expression: null,
+        nextRunAt: fireAtMs,
+        mode,
+        routingIntent: routingIntent as
+          | "single_channel"
+          | "multi_channel"
+          | "all_channels"
+          | undefined,
+        routingHints,
+      });
+
+      const fireDate = formatLocalDate(job.nextRunAt);
+      const integrations = formatIntegrationSummary();
+      return {
+        content: [
+          `One-shot schedule created successfully.`,
+          `  ID: ${job.id}`,
+          `  Name: ${job.name}`,
+          `  Type: one-shot`,
+          `  Mode: ${job.mode}`,
+          `  Fire at: ${fireDate}`,
+          `  Enabled: ${job.enabled}`,
+          `  Status: ${job.status}`,
+          ``,
+          `Integrations: ${integrations}`,
+          `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn the user about any missing capabilities before confirming the schedule is ready.`,
+        ].join("\n"),
+        isError: false,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: `Error creating schedule: ${msg}`, isError: true };
+    }
+  }
+
+  // ── Recurring schedule (expression) ──────────────────────────────
   const resolved = normalizeScheduleSyntax({
     syntax: input.syntax as "cron" | "rrule" | undefined,
     expression: input.expression as string | undefined,
@@ -38,7 +116,8 @@ export async function executeScheduleCreate(
 
   if (!resolved) {
     return {
-      content: "Error: expression is required",
+      content:
+        "Error: expression is required for recurring schedules (or provide fire_at for one-shot)",
       isError: true,
     };
   }
@@ -75,6 +154,13 @@ export async function executeScheduleCreate(
       enabled,
       syntax: resolved.syntax,
       expression: resolved.expression,
+      mode,
+      routingIntent: routingIntent as
+        | "single_channel"
+        | "multi_channel"
+        | "all_channels"
+        | undefined,
+      routingHints,
     });
 
     const scheduleDescription =
@@ -88,10 +174,11 @@ export async function executeScheduleCreate(
     const integrations = formatIntegrationSummary();
     return {
       content: [
-        `Schedule created successfully.`,
+        `Recurring schedule created successfully.`,
         `  ID: ${job.id}`,
         `  Name: ${job.name}`,
         `  Syntax: ${job.syntax}`,
+        `  Mode: ${job.mode}`,
         `  Schedule: ${scheduleDescription}${
           job.timezone ? ` (${job.timezone})` : ""
         }`,

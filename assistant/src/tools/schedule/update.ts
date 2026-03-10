@@ -7,9 +7,21 @@ import {
 import {
   describeCronExpression,
   formatLocalDate,
+  getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import type {
+  RoutingIntent,
+  ScheduleMode,
+} from "../../schedule/schedule-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const VALID_MODES: ScheduleMode[] = ["notify", "execute"];
+const VALID_ROUTING_INTENTS: RoutingIntent[] = [
+  "single_channel",
+  "multi_channel",
+  "all_channels",
+];
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
@@ -20,11 +32,63 @@ export async function executeScheduleUpdate(
     return { content: "Error: job_id is required", isError: true };
   }
 
+  // Prevent changing a one-shot to recurring or vice versa
+  if (input.expression !== undefined || input.fire_at !== undefined) {
+    const existing = getSchedule(jobId);
+    if (!existing) {
+      return { content: `Error: Schedule not found: ${jobId}`, isError: true };
+    }
+    const isExistingOneShot = existing.expression == null;
+    if (isExistingOneShot && input.expression !== undefined) {
+      return {
+        content:
+          "Error: Cannot change a one-shot schedule to recurring. Delete and recreate instead.",
+        isError: true,
+      };
+    }
+    if (!isExistingOneShot && input.fire_at !== undefined) {
+      return {
+        content:
+          "Error: Cannot change a recurring schedule to one-shot. Delete and recreate instead.",
+        isError: true,
+      };
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name;
   if (input.timezone !== undefined) updates.timezone = input.timezone;
   if (input.message !== undefined) updates.message = input.message;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
+
+  // Mode validation and pass-through
+  if (input.mode !== undefined) {
+    const mode = input.mode as ScheduleMode;
+    if (!VALID_MODES.includes(mode)) {
+      return {
+        content: `Error: mode must be one of: ${VALID_MODES.join(", ")}`,
+        isError: true,
+      };
+    }
+    updates.mode = mode;
+  }
+
+  // Routing intent validation and pass-through
+  if (input.routing_intent !== undefined) {
+    const routingIntent = input.routing_intent as RoutingIntent;
+    if (!VALID_ROUTING_INTENTS.includes(routingIntent)) {
+      return {
+        content: `Error: routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
+        isError: true,
+      };
+    }
+    updates.routingIntent = routingIntent;
+  }
+
+  // Routing hints pass-through
+  if (input.routing_hints !== undefined) {
+    updates.routingHints = input.routing_hints;
+  }
 
   // Auto-detect syntax when expression changes without explicit syntax
   if (input.expression !== undefined || input.syntax !== undefined) {
@@ -85,6 +149,9 @@ export async function executeScheduleUpdate(
         enabled?: boolean;
         syntax?: ScheduleSyntax;
         expression?: string;
+        mode?: ScheduleMode;
+        routingIntent?: RoutingIntent;
+        routingHints?: Record<string, unknown>;
       },
     );
 
@@ -104,6 +171,7 @@ export async function executeScheduleUpdate(
         `Schedule updated successfully.`,
         `  Name: ${job.name}`,
         `  Syntax: ${job.syntax}`,
+        `  Mode: ${job.mode}`,
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,

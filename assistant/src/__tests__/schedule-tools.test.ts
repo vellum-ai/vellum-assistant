@@ -81,7 +81,7 @@ describe("schedule_create tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Schedule created successfully");
+    expect(result.content).toContain("schedule created successfully");
     expect(result.content).toContain("Daily standup");
     expect(result.content).toContain("Every weekday at 9:00 AM");
     expect(result.content).toContain("Enabled: true");
@@ -130,7 +130,7 @@ describe("schedule_create tool", () => {
     expect(result.content).toContain("name is required");
   });
 
-  test("rejects missing expression", async () => {
+  test("rejects missing expression when no fire_at", async () => {
     const result = await executeScheduleCreate(
       {
         name: "Test",
@@ -169,6 +169,157 @@ describe("schedule_create tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Invalid cron expression");
+  });
+});
+
+// ── schedule_create with fire_at (one-shot) ──────────────────────────
+
+describe("schedule_create with fire_at (one-shot)", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  test("creates a one-shot schedule with fire_at", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "One-time reminder",
+        fire_at: futureDate,
+        message: "Don't forget!",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("One-shot schedule created successfully");
+    expect(result.content).toContain("Type: one-shot");
+    expect(result.content).toContain("Mode: execute");
+    expect(result.content).toContain("One-time reminder");
+    expect(result.content).toContain("Status: active");
+  });
+
+  test("rejects fire_at that is not valid ISO 8601", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad date",
+        fire_at: "not-a-date",
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("valid ISO 8601");
+  });
+
+  test("rejects fire_at that is in the past", async () => {
+    const pastDate = new Date(Date.now() - 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "Past date",
+        fire_at: pastDate,
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("must be in the future");
+  });
+
+  test("fire_at ignores expression param when provided", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "Fire at with expression",
+        fire_at: futureDate,
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("One-shot schedule created successfully");
+    expect(result.content).toContain("Type: one-shot");
+  });
+});
+
+// ── schedule_create with mode and routing ──────────────────────────
+
+describe("schedule_create with mode and routing", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  test("passes mode through to schedule", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Notify schedule",
+        expression: "0 9 * * *",
+        message: "notify test",
+        mode: "notify",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: notify");
+  });
+
+  test("defaults mode to execute", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Default mode",
+        expression: "0 9 * * *",
+        message: "default test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: execute");
+  });
+
+  test("rejects invalid mode", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad mode",
+        expression: "0 9 * * *",
+        message: "test",
+        mode: "invalid",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("mode must be one of");
+  });
+
+  test("passes routing_intent and routing_hints through", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "Routed schedule",
+        fire_at: futureDate,
+        message: "routed test",
+        routing_intent: "single_channel",
+        routing_hints: { channel: "slack" },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("One-shot schedule created successfully");
+
+    // Verify in DB
+    const row = getRawDb()
+      .query("SELECT routing_intent, routing_hints_json FROM cron_jobs LIMIT 1")
+      .get() as { routing_intent: string; routing_hints_json: string };
+    expect(row.routing_intent).toBe("single_channel");
+    expect(JSON.parse(row.routing_hints_json)).toEqual({ channel: "slack" });
   });
 });
 
@@ -268,6 +419,116 @@ describe("schedule_list tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Schedule not found");
+  });
+});
+
+// ── schedule_list with one-shot schedules ────────────────────────────
+
+describe("schedule_list with one-shot schedules", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  test("shows one-shot schedule with fire time in list mode", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await executeScheduleCreate(
+      {
+        name: "One-shot Event",
+        fire_at: futureDate,
+        message: "fire test",
+      },
+      ctx,
+    );
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("One-shot Event");
+    expect(result.content).toContain("one-shot");
+    expect(result.content).toContain("fire at:");
+    expect(result.content).toContain("active");
+  });
+
+  test("shows one-shot detail view with type and status", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await executeScheduleCreate(
+      {
+        name: "One-shot Detail",
+        fire_at: futureDate,
+        message: "detail test",
+        mode: "notify",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleList({ job_id: row.id }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Type: one-shot");
+    expect(result.content).toContain("Mode: notify");
+    expect(result.content).toContain("Status: active");
+    expect(result.content).toContain("Fire at:");
+  });
+
+  test("shows mode in list output for recurring schedules", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Recurring with mode",
+        expression: "0 9 * * *",
+        message: "test",
+        mode: "notify",
+      },
+      ctx,
+    );
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("notify");
+  });
+
+  test("shows routing intent in detail when not default", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await executeScheduleCreate(
+      {
+        name: "Routed One-shot",
+        fire_at: futureDate,
+        message: "routed test",
+        routing_intent: "single_channel",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleList({ job_id: row.id }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Routing: single_channel");
+  });
+
+  test("hides routing intent in detail when it is the default", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Default Routing",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleList({ job_id: row.id }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("Routing:");
   });
 });
 
@@ -422,6 +683,207 @@ describe("schedule_update tool", () => {
   });
 });
 
+// ── schedule_update with mode and routing ────────────────────────────
+
+describe("schedule_update with mode and routing", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  test("updates mode", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Mode update",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        mode: "notify",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: notify");
+  });
+
+  test("updates routing_intent", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Routing update",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        routing_intent: "single_channel",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Schedule updated successfully");
+
+    // Verify in DB
+    const dbRow = getRawDb()
+      .query("SELECT routing_intent FROM cron_jobs WHERE id = ?")
+      .get(row.id) as { routing_intent: string };
+    expect(dbRow.routing_intent).toBe("single_channel");
+  });
+
+  test("updates routing_hints", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Hints update",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        routing_hints: { channel: "telegram" },
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+
+    const dbRow = getRawDb()
+      .query("SELECT routing_hints_json FROM cron_jobs WHERE id = ?")
+      .get(row.id) as { routing_hints_json: string };
+    expect(JSON.parse(dbRow.routing_hints_json)).toEqual({
+      channel: "telegram",
+    });
+  });
+
+  test("rejects invalid mode", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Bad mode",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        mode: "invalid",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("mode must be one of");
+  });
+
+  test("rejects invalid routing_intent", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Bad routing",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        routing_intent: "invalid",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("routing_intent must be one of");
+  });
+
+  test("prevents changing one-shot to recurring", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await executeScheduleCreate(
+      {
+        name: "One-shot",
+        fire_at: futureDate,
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        expression: "0 9 * * *",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "Cannot change a one-shot schedule to recurring",
+    );
+  });
+
+  test("prevents changing recurring to one-shot", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Recurring",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        fire_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "Cannot change a recurring schedule to one-shot",
+    );
+  });
+});
+
 // ── RRULE support in schedule tools ─────────────────────────────────
 
 describe("schedule_create with RRULE", () => {
@@ -442,7 +904,7 @@ describe("schedule_create with RRULE", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Schedule created successfully");
+    expect(result.content).toContain("schedule created successfully");
     expect(result.content).toContain("Syntax: rrule");
     expect(result.content).toContain("RRULE:FREQ=DAILY");
   });
@@ -655,7 +1117,7 @@ describe("schedule_create with RRULE set (EXDATE)", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Schedule created successfully");
+    expect(result.content).toContain("schedule created successfully");
     expect(result.content).toContain("Syntax: rrule");
   });
 
@@ -677,7 +1139,7 @@ describe("schedule_create with RRULE set (EXDATE)", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Schedule created successfully");
+    expect(result.content).toContain("schedule created successfully");
   });
 
   test("rejects unsupported line types in RRULE set", async () => {
@@ -870,7 +1332,7 @@ describe("schedule_create with RRULE + EXRULE", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Schedule created successfully");
+    expect(result.content).toContain("schedule created successfully");
     expect(result.content).toContain("Syntax: rrule");
   });
 
