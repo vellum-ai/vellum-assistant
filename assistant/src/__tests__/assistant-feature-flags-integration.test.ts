@@ -32,7 +32,8 @@ let currentConfig: Record<string, unknown> = {
   sandbox: { enabled: false, backend: "native" },
 };
 
-const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+const DECLARED_FLAG_ID = "hatch-new-assistant";
+const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
 const DECLARED_SKILL_ID = "hatch-new-assistant";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -137,12 +138,16 @@ function createSkillOnDisk(
   id: string,
   name: string,
   description: string,
+  featureFlag?: string,
 ): void {
   const skillsDir = join(TEST_DIR, "skills");
   mkdirSync(join(skillsDir, id), { recursive: true });
+  const ffBlock = featureFlag
+    ? `\nmetadata:\n  vellum:\n    feature-flag: "${featureFlag}"`
+    : "";
   writeFileSync(
     join(skillsDir, id, "SKILL.md"),
-    `---\nname: "${name}"\ndescription: "${description}"\n---\n\nInstructions for ${id}.\n`,
+    `---\nname: "${name}"\ndescription: "${description}"${ffBlock}\n---\n\nInstructions for ${id}.\n`,
   );
   const indexPath = join(skillsDir, "SKILLS.md");
   const existing = existsSync(indexPath)
@@ -161,8 +166,9 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
       "Toggle hatch new assistant behavior",
+      DECLARED_FLAG_ID,
     );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
+    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter", "twitter");
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
@@ -184,8 +190,9 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
       "Toggle hatch new assistant behavior",
+      DECLARED_FLAG_ID,
     );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
+    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter", "twitter");
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
@@ -193,7 +200,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    // Both skills are declared in the registry with defaultEnabled: false
+    // Both skills declare feature flags with registry defaultEnabled: false
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
     expect(result).not.toContain('id="twitter"');
   });
@@ -203,8 +210,9 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
       "Toggle hatch new assistant behavior",
+      DECLARED_FLAG_ID,
     );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
+    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter", "twitter");
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
@@ -225,6 +233,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       DECLARED_SKILL_ID,
       "Hatch New Assistant",
       "Toggle hatch new assistant behavior",
+      DECLARED_FLAG_ID,
     );
 
     currentConfig = {
@@ -238,7 +247,12 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
   });
 
   test("persisted overrides for undeclared flags are respected", () => {
-    createSkillOnDisk("browser", "Browser", "Web browsing automation");
+    createSkillOnDisk(
+      "browser",
+      "Browser",
+      "Web browsing automation",
+      "browser",
+    );
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
@@ -247,13 +261,18 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     const result = buildSystemPrompt();
 
-    // Even though 'browser' is not in the defaults registry, the user
+    // browser declares featureFlag: "browser" and the user
     // explicitly disabled it — that override must be honored.
     expect(result).not.toContain('id="browser"');
   });
 
   test("declared flags with no persisted override use registry default", () => {
-    createSkillOnDisk("browser", "Browser", "Web browsing automation");
+    createSkillOnDisk(
+      "browser",
+      "Browser",
+      "Web browsing automation",
+      "browser",
+    );
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
@@ -263,6 +282,19 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     // browser is declared in the registry with defaultEnabled: true
     expect(result).toContain('id="browser"');
+  });
+
+  test("skill without featureFlag is never flag-gated", () => {
+    createSkillOnDisk("my-skill", "My Skill", "A skill without feature flag");
+
+    currentConfig = {
+      sandbox: { enabled: false, backend: "native" },
+    };
+
+    const result = buildSystemPrompt();
+
+    // Skills without featureFlag declared are never gated — always pass through
+    expect(result).toContain('id="my-skill"');
   });
 });
 
@@ -328,7 +360,10 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
     } as any;
 
     expect(
-      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+      isAssistantFeatureFlagEnabled(
+        skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
+        config,
+      ),
     ).toBe(false);
   });
 
@@ -336,7 +371,10 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
     const config = {} as any;
 
     expect(
-      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+      isAssistantFeatureFlagEnabled(
+        skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
+        config,
+      ),
     ).toBe(false);
   });
 });

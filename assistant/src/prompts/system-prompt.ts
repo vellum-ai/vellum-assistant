@@ -879,22 +879,24 @@ function appendSkillsCatalog(basePrompt: string): string {
   const config = getConfig();
 
   // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter((s) =>
-    isAssistantFeatureFlagEnabled(skillFlagKey(s.id), config),
-  );
+  const flagFiltered = skills.filter((s) => {
+    const flagKey = skillFlagKey(s);
+    return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
+  });
 
   const sections: string[] = [basePrompt];
 
   const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildDynamicSkillWorkflowSection(config));
+  sections.push(buildDynamicSkillWorkflowSection(config, flagFiltered));
 
   return sections.join("\n\n");
 }
 
 function buildDynamicSkillWorkflowSection(
-  config: import("../config/schema.js").AssistantConfig,
+  _config: import("../config/schema.js").AssistantConfig,
+  activeSkills: SkillSummary[],
 ): string {
   const lines = [
     "## Dynamic Skill Authoring Workflow",
@@ -910,7 +912,9 @@ function buildDynamicSkillWorkflowSection(
     "After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.",
   ];
 
-  if (isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config)) {
+  const activeSkillIds = new Set(activeSkills.map((s) => s.id));
+
+  if (activeSkillIds.has("browser")) {
     lines.push(
       "",
       "### Browser Skill Prerequisite",
@@ -918,7 +922,7 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
-  if (isAssistantFeatureFlagEnabled("feature_flags.twitter.enabled", config)) {
+  if (activeSkillIds.has("twitter")) {
     lines.push(
       "",
       "### X (Twitter) Skill",
@@ -926,9 +930,7 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
-  if (
-    isAssistantFeatureFlagEnabled("feature_flags.messaging.enabled", config)
-  ) {
+  if (activeSkillIds.has("messaging")) {
     lines.push(
       "",
       "### Messaging Skill",

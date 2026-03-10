@@ -68,7 +68,10 @@ mock.module("../config/skills.js", () => ({
 // Mock skill-state.js to break the transitive import chain — the benchmark
 // only needs skillFlagKey and doesn't exercise resolveSkillStates.
 mock.module("../config/skill-state.js", () => ({
-  skillFlagKey: (id: string) => `feature_flags.${id}.enabled`,
+  skillFlagKey: (skill: { featureFlag?: string }) =>
+    skill.featureFlag
+      ? `feature_flags.${skill.featureFlag}.enabled`
+      : undefined,
   resolveSkillStates: () => [],
 }));
 

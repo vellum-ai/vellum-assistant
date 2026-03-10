@@ -1,13 +1,14 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { resolveSkillStates } from "../../config/skill-state.js";
+import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import {
   ensureSkillIcon,
   loadSkillBySelector,
@@ -346,6 +347,20 @@ export async function installSkill(
   try {
     // Bundled skills are already available — no install needed
     const catalog = loadSkillCatalog();
+
+    // Feature flag gate: reject install if the skill's flag is disabled
+    const config = getConfig();
+    const flaggedSkill = catalog.find((s) => s.id === spec.slug);
+    if (flaggedSkill) {
+      const flagKey = skillFlagKey(flaggedSkill);
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
+        return {
+          success: false,
+          error: `Skill "${spec.slug}" is currently unavailable (disabled by feature flag)`,
+        };
+      }
+    }
+
     const bundled = catalog.find(
       (s) => s.id === spec.slug && s.source === "bundled",
     );

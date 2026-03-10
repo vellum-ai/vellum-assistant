@@ -14,13 +14,15 @@ export interface ResolvedSkill {
 }
 
 /**
- * Derive the feature flag key for a given skill ID.
- *
- * Exported so other modules (system-prompt, session-skill-tools, skill loader)
- * can perform the same mapping.
+ * Derive the feature flag key for a skill from its frontmatter `featureFlag` field.
+ * Returns undefined if the skill has no feature flag declared.
  */
-export function skillFlagKey(skillId: string): string {
-  return `feature_flags.${skillId}.enabled`;
+export function skillFlagKey(
+  skill: Pick<SkillSummary, "featureFlag">,
+): string | undefined {
+  return skill.featureFlag
+    ? `feature_flags.${skill.featureFlag}.enabled`
+    : undefined;
 }
 
 export function resolveSkillStates(
@@ -34,8 +36,9 @@ export function resolveSkillStates(
   };
 
   for (const skill of catalog) {
-    // Assistant feature flag gate: if the flag is explicitly OFF, skip this skill entirely
-    if (!isAssistantFeatureFlagEnabled(skillFlagKey(skill.id), config)) {
+    // Assistant feature flag gate: if the skill declares a flag and it's disabled, skip it
+    const flagKey = skillFlagKey(skill);
+    if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
       continue;
     }
 

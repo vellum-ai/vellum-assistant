@@ -58,7 +58,10 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../config/skill-state.js", () => ({
-  skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
+  skillFlagKey: (skill: { featureFlag?: string }) =>
+    skill.featureFlag
+      ? `feature_flags.${skill.featureFlag}.enabled`
+      : undefined,
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -221,7 +224,7 @@ const { projectSkillTools, resetSkillToolProjection } =
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeSkill(id: string): SkillSummary {
+function makeSkill(id: string, featureFlag?: string): SkillSummary {
   return {
     id,
     name: id,
@@ -232,6 +235,7 @@ function makeSkill(id: string): SkillSummary {
     userInvocable: true,
     disableModelInvocation: false,
     source: "managed",
+    featureFlag,
   };
 }
 
@@ -293,7 +297,7 @@ describe("projectSkillTools feature flag enforcement", () => {
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID)];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate", "browser_click"]),
     };
@@ -317,7 +321,7 @@ describe("projectSkillTools feature flag enforcement", () => {
   });
 
   test("skill tools projected normally when flag is ON", () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID)];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate", "browser_click"]),
     };
@@ -339,14 +343,14 @@ describe("projectSkillTools feature flag enforcement", () => {
     expect(result.allowedToolNames.has("browser_click")).toBe(true);
   });
 
-  test("skill tools projected normally when flag key is absent (defaults to enabled)", () => {
+  test("skill tools projected normally when no featureFlag declared (never gated)", () => {
     mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
     mockManifests = { [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]) };
 
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
-    // No overrides — should default to enabled
+    // No overrides — skill has no featureFlag so it's never gated
     currentConfig = {};
 
     const result = projectSkillTools(history, {
@@ -358,7 +362,10 @@ describe("projectSkillTools feature flag enforcement", () => {
   });
 
   test("mixed flag-on and flag-off skills — only flag-on tools projected", () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
+    mockCatalog = [
+      makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID),
+      makeSkill("twitter"),
+    ];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]),
       twitter: makeManifest(["twitter_post"]),
