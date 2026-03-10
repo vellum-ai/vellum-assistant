@@ -33,7 +33,7 @@ describe("serializeCandidatesForPrompt", () => {
           conversationId: "conv-001",
           title: "Reminder thread",
           updatedAt: 1700000000000,
-          latestSourceEventName: "reminder.fired",
+          latestSourceEventName: "schedule.notify",
           channel: "vellum" as NotificationChannel,
         },
       ],
@@ -44,7 +44,7 @@ describe("serializeCandidatesForPrompt", () => {
     expect(result).toContain("Channel: vellum");
     expect(result).toContain("id=conv-001");
     expect(result).toContain('title="Reminder thread"');
-    expect(result).toContain('lastEvent="reminder.fired"');
+    expect(result).toContain('lastEvent="schedule.notify"');
   });
 
   test("serializes untitled conversations with placeholder", () => {
@@ -90,7 +90,7 @@ describe("serializeCandidatesForPrompt", () => {
           conversationId: "conv-001",
           title: "Vellum thread",
           updatedAt: 1700000000000,
-          latestSourceEventName: "reminder.fired",
+          latestSourceEventName: "schedule.notify",
           channel: "vellum" as NotificationChannel,
         },
       ],
@@ -119,7 +119,7 @@ describe("serializeCandidatesForPrompt", () => {
           conversationId: "conv-001",
           title: "First thread",
           updatedAt: 1700000000000,
-          latestSourceEventName: "reminder.fired",
+          latestSourceEventName: "schedule.notify",
           channel: "vellum" as NotificationChannel,
         },
         {

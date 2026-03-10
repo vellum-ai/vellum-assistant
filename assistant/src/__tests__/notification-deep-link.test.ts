@@ -306,7 +306,7 @@ describe("notification deep-link metadata", () => {
       // for a newly created notification thread (start_new path)
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Take out the trash" },
           deepLinkTarget: { conversationId: "conv-new-thread-001" },
         },
@@ -326,7 +326,7 @@ describe("notification deep-link metadata", () => {
       // for a reused notification thread (reuse_existing path)
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: {
             title: "Follow-up",
             body: "Still need to take out the trash",
@@ -399,7 +399,7 @@ describe("notification deep-link metadata", () => {
 
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "First" },
           deepLinkTarget: { conversationId, messageId: "msg-a" },
         },
@@ -408,7 +408,7 @@ describe("notification deep-link metadata", () => {
 
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Second" },
           deepLinkTarget: { conversationId, messageId: "msg-b" },
         },

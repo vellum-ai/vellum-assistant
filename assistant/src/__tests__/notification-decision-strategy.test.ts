@@ -133,9 +133,9 @@ describe("notification decision strategy", () => {
       expect(copy.vellum!.body).not.toContain("<your answer>");
     });
 
-    test("reminder.fired template uses message from payload", () => {
+    test("schedule.notify template uses message from payload", () => {
       const signal = makeSignal({
-        sourceEventName: "reminder.fired",
+        sourceEventName: "schedule.notify",
         contextPayload: { message: "Take out the trash" },
       });
 
@@ -197,7 +197,7 @@ describe("notification decision strategy", () => {
 
     test("fallback copy is generated for every requested channel", () => {
       const signal = makeSignal({
-        sourceEventName: "reminder.fired",
+        sourceEventName: "schedule.notify",
         contextPayload: { message: "Test" },
       });
 
@@ -423,7 +423,7 @@ describe("notification decision strategy", () => {
           conversationId: "conv-001",
           title: "Reminder thread",
           updatedAt: Date.now(),
-          latestSourceEventName: "reminder.fired",
+          latestSourceEventName: "schedule.notify",
           channel: "vellum",
         },
         {
@@ -440,7 +440,7 @@ describe("notification decision strategy", () => {
           conversationId: "conv-003",
           title: "Telegram thread",
           updatedAt: Date.now(),
-          latestSourceEventName: "reminder.fired",
+          latestSourceEventName: "schedule.notify",
           channel: "telegram",
         },
       ],
@@ -901,7 +901,7 @@ describe("notification decision strategy", () => {
         },
       });
       const signal = makeSignal({
-        sourceEventName: "reminder.fired",
+        sourceEventName: "schedule.notify",
         contextPayload: { message: "Take out the trash" },
       });
 

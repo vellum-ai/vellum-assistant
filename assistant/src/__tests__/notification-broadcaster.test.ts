@@ -281,7 +281,7 @@ describe("notification broadcaster", () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
 
-    const signal = makeSignal({ sourceEventName: "reminder.fired" });
+    const signal = makeSignal({ sourceEventName: "schedule.notify" });
     const decision = makeDecision({
       renderedCopy: {}, // No rendered copy
       fallbackUsed: true,
