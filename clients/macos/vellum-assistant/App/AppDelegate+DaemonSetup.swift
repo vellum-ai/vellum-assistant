@@ -460,6 +460,19 @@ extension AppDelegate {
                 // UserDefaults key always non-nil and blocking daemon sync.
                 if UserDefaults.standard.bool(forKey: "collectUsageDataExplicitlySet"),
                    let onboardingValue = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool {
+                    // Clear the explicit-set flag so subsequent reconnects
+                    // resume daemon-as-source-of-truth behavior.
+                    UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+
+                    // Always apply Sentry state locally first, regardless of
+                    // whether the daemon sync succeeds — the user's explicit
+                    // choice must take effect immediately.
+                    if !onboardingValue {
+                        MetricKitManager.closeSentry()
+                    }
+
+                    // Best-effort sync to daemon; failure is tolerable because
+                    // the local preference is already applied above.
                     let flags = try await daemonClient.getFeatureFlags()
                     let daemonValue = flags
                         .first(where: { $0.key == featureFlagKey })
@@ -468,14 +481,6 @@ extension AppDelegate {
 
                     if onboardingValue != daemonValue {
                         try await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
-                    }
-
-                    // Clear the explicit-set flag so subsequent reconnects
-                    // resume daemon-as-source-of-truth behavior.
-                    UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
-
-                    if !onboardingValue {
-                        MetricKitManager.closeSentry()
                     }
                 } else {
                     // No explicit user interaction — use the daemon's value
