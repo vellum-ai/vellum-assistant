@@ -106,6 +106,11 @@ final class OnboardingWindow {
         self.window = window
     }
 
+    func bringToFront() {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func close() {
         if let observer = closeObserver {
             NotificationCenter.default.removeObserver(observer)

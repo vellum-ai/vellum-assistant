@@ -229,7 +229,10 @@ extension AppDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if onboardingWindow != nil { return false }
+        if let onboarding = onboardingWindow {
+            onboarding.bringToFront()
+            return false
+        }
 
         if authWindow != nil {
             authWindow?.makeKeyAndOrderFront(nil)
