@@ -7,7 +7,7 @@ Signal-driven notification architecture where producers emit free-form events an
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_thread_created IPC
+                                                      Preference Summary                                    notification_thread_created SSE event
                                                       Thread Candidates                                     (creation-only — not emitted on reuse)
 ```
 
@@ -71,7 +71,7 @@ Hard invariants that the LLM cannot override:
 
 ### 6. Broadcast, Conversation Pairing, and Delivery
 
-The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast IPC push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns.
+The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast SSE push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns.
 
 ## Channel Policy Registry
 
@@ -183,27 +183,27 @@ Take out the trash
 Reminder. Take out the trash. Action required.
 ```
 
-## Thread Surfacing via `notification_thread_created` IPC (Creation-Only)
+## Thread Surfacing via `notification_thread_created` Event (Creation-Only)
 
-The `notification_thread_created` IPC event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused threads do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
+The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused threads do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
 
-This is enforced in `broadcaster.ts` by gating the IPC emission on `pairing.createdNewConversation === true`:
+This is enforced in `broadcaster.ts` by gating the event emission on `pairing.createdNewConversation === true`:
 
 ```ts
 // Emit notification_thread_created only when a NEW conversation was
-// actually created. Reusing an existing thread should not fire the IPC
+// actually created. Reusing an existing thread should not fire the SSE
 // event — the client already knows about the conversation.
 if (
   pairing.createdNewConversation &&
   pairing.strategy === "start_new_conversation"
 ) {
-  // ... emit IPC event
+  // ... emit SSE event
 }
 ```
 
-When a vellum notification thread **is** newly created (strategy `start_new_conversation`), the broadcaster emits the IPC event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the IPC push past the macOS deep-link retry window.
+When a vellum notification thread **is** newly created (strategy `start_new_conversation`), the broadcaster emits the SSE event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the broadcast past the macOS deep-link retry window.
 
-The IPC event payload:
+The SSE event payload:
 
 ```ts
 {
@@ -223,7 +223,7 @@ The macOS/iOS client listens for this event and surfaces the thread in the sideb
 **Important distinction between the two callbacks:**
 
 - **Per-dispatch `options.onThreadCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
-- **Class-level `this.onThreadCreated` (IPC)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` IPC event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
+- **Class-level `this.onThreadCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` SSE event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
 
 ## Schedule Routing Metadata and Trigger-Time Enforcement
 
@@ -289,7 +289,7 @@ The notification system delivers to three channel types:
 
 ### Vellum (always connected)
 
-Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
+Local SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
 
 - `sourceEventName` -- the event that triggered the notification
 - `title` and `body` -- rendered notification copy
@@ -305,7 +305,7 @@ HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` s
 
 Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
 
-- **Vellum** is always considered connected (IPC socket is always available when the daemon is running)
+- **Vellum** is always considered connected (HTTP transport is always available when the daemon is running)
 - **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
 
 ## Conversation Materialization
@@ -320,7 +320,7 @@ Guardian dispatch follows this same path and uses the optional `onThreadCreated`
 
 ### Conversation Pairing Invariant
 
-For notification flows that create conversations, the conversation must be created **before** the IPC event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
+For notification flows that create conversations, the conversation must be created **before** the SSE event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
 
 ## Thread Decision Audit Trail
 
@@ -480,7 +480,7 @@ Three SQLite tables form the audit chain:
 
 ### Client Delivery Ack
 
-For vellum (macOS/iOS) deliveries, the audit trail now extends past the IPC broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
+For vellum (macOS/iOS) deliveries, the audit trail now extends past the SSE broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
 
 The ack populates three columns on `notification_deliveries`:
 

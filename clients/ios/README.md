@@ -122,7 +122,7 @@ Test files in `clients/ios/Tests/`:
 
 ### Shared Tests
 
-The `VellumAssistantSharedTests` target covers shared IPC logic and can be run on macOS without a simulator:
+The `VellumAssistantSharedTests` target covers shared network logic and can be run on macOS without a simulator:
 
 ```bash
 cd clients/macos
