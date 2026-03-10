@@ -60,8 +60,6 @@ mock.module("../job-utils.js", () => ({
   },
 }));
 
-import { eq } from "drizzle-orm";
-
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb, initializeDb, resetDb } from "../db.js";

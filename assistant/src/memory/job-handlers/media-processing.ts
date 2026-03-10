@@ -8,7 +8,7 @@ import { preprocessForAsset } from "../../config/bundled-skills/media-processing
 import { reduceForAsset } from "../../config/bundled-skills/media-processing/tools/query-media-events.js";
 import { getLogger } from "../../util/logger.js";
 import { asString } from "../job-utils.js";
-import { type MemoryJob, enqueueMemoryJob } from "../jobs-store.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { getMediaAssetById, updateMediaAssetStatus } from "../media-store.js";
 
 const log = getLogger("media-processing-job");
