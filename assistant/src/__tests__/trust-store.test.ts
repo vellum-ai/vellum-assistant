@@ -57,6 +57,7 @@ import {
 } from "../permissions/trust-store.js";
 
 const trustPath = join(testDir, "protected", "trust.json");
+const legacyTrustPath = join(testDir, "trust.json");
 const DEFAULT_TEMPLATES = getDefaultRuleTemplates();
 const NUM_DEFAULTS = DEFAULT_TEMPLATES.length;
 const DEFAULT_PRIORITY_BY_ID = new Map(
@@ -69,6 +70,11 @@ describe("Trust Store", () => {
     clearCache();
     try {
       rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+    try {
+      rmSync(legacyTrustPath);
     } catch {
       /* may not exist */
     }
@@ -1221,6 +1227,79 @@ describe("Trust Store", () => {
   // ── loadFromDisk resilience (misc) ──────────────────────────────
 
   describe("loadFromDisk resilience (misc)", () => {
+    test("migrates legacy root trust file to protected path", () => {
+      mkdirSync(dirname(legacyTrustPath), { recursive: true });
+      writeFileSync(
+        legacyTrustPath,
+        JSON.stringify({
+          version: 3,
+          rules: [
+            {
+              id: "legacy-deny",
+              tool: "host_bash",
+              pattern: "rm -rf *",
+              scope: "everywhere",
+              decision: "deny",
+              priority: 200,
+              createdAt: 123,
+            },
+          ],
+        }),
+      );
+
+      clearCache();
+      const rules = getAllRules();
+
+      expect(rules.find((r) => r.id === "legacy-deny")).toBeDefined();
+      expect(readFileSync(trustPath, "utf-8")).toContain("legacy-deny");
+      expect(() => readFileSync(legacyTrustPath, "utf-8")).toThrow();
+    });
+
+    test("prefers protected trust file when both protected and legacy files exist", () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(
+        trustPath,
+        JSON.stringify({
+          version: 3,
+          rules: [
+            {
+              id: "protected-rule",
+              tool: "bash",
+              pattern: "protected *",
+              scope: "/tmp",
+              decision: "allow",
+              priority: 100,
+              createdAt: 1,
+            },
+          ],
+        }),
+      );
+      writeFileSync(
+        legacyTrustPath,
+        JSON.stringify({
+          version: 3,
+          rules: [
+            {
+              id: "legacy-rule",
+              tool: "bash",
+              pattern: "legacy *",
+              scope: "/tmp",
+              decision: "deny",
+              priority: 200,
+              createdAt: 2,
+            },
+          ],
+        }),
+      );
+
+      clearCache();
+      const rules = getAllRules();
+
+      expect(rules.find((r) => r.id === "protected-rule")).toBeDefined();
+      expect(rules.find((r) => r.id === "legacy-rule")).toBeUndefined();
+      expect(readFileSync(legacyTrustPath, "utf-8")).toContain("legacy-rule");
+    });
+
     test("malformed file (valid JSON but null) is handled gracefully", () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, "null");
