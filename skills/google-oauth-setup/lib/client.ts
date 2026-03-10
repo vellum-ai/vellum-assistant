@@ -11,6 +11,7 @@
 import {
   createClientUrl,
   createProjectUrl,
+  downloadClientJsonUrl,
   enableApiUrl,
   GCP_API_KEY,
   getProjectOperationUrl,
@@ -126,13 +127,19 @@ async function cdpFetch(
 
           if (sapisid) {
             var ts = Math.floor(Date.now() / 1000);
-            var origin = window.location.origin;
+            // SAPISIDHASH must be computed against the TARGET API's origin,
+            // not window.location.origin. The GCP Console JS does the same.
+            var origin = new URL(${JSON.stringify(url)}).origin;
             var input = ts + ' ' + sapisid + ' ' + origin;
             var msgBuf = new TextEncoder().encode(input);
             var hashBuf = await crypto.subtle.digest('SHA-1', msgBuf);
             var hashArr = Array.from(new Uint8Array(hashBuf));
             var hashHex = hashArr.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
-            headers['Authorization'] = 'SAPISIDHASH ' + ts + '_' + hashHex;
+            // Include all three hash variants like the GCP Console does
+            var hash = 'SAPISIDHASH ' + ts + '_' + hashHex
+                     + ' SAPISID1PHASH ' + ts + '_' + hashHex
+                     + ' SAPISID3PHASH ' + ts + '_' + hashHex;
+            headers['Authorization'] = hash;
           }
 
           return fetch(${JSON.stringify(url)}, {
@@ -777,15 +784,22 @@ export async function createOAuthClient(opts: {
   redirectUris?: string[];
 }): Promise<CreatedClient> {
   const { projectNumber } = requireConfig();
+  const clientType = opts.type ?? "NATIVE_DESKTOP";
 
   const body: CreateClientRequest = {
-    type: opts.type ?? "WEB",
+    type: clientType,
     displayName: opts.displayName,
-    redirectUris: opts.redirectUris ?? [],
     authType: "SHARED_SECRET",
     brandId: projectNumber,
     projectNumber,
   };
+  if (
+    clientType === "WEB" &&
+    opts.redirectUris &&
+    opts.redirectUris.length > 0
+  ) {
+    body.redirectUris = opts.redirectUris;
+  }
 
   const result = await restCall<GCPOAuthClient>(
     createClientUrl(),
@@ -793,10 +807,20 @@ export async function createOAuthClient(opts: {
     body,
   );
 
-  const secret = result.clientSecrets?.[0]?.clientSecret;
+  // The creation response includes the plaintext secret for WEB clients,
+  // but NATIVE_DESKTOP clients may omit it. Fall back to the downloadJson
+  // endpoint which returns the same JSON blob as the "Download JSON" button
+  // in the GCP Console — this always contains the secret.
+  let secret = result.clientSecrets?.[0]?.clientSecret;
+  if (!secret) {
+    process.stderr.write(
+      "[gcp-oauth] Secret not in creation response, downloading client JSON...\n",
+    );
+    secret = await downloadClientSecret(result.clientId);
+  }
   if (!secret) {
     throw new GCPApiError(
-      "Client created but no secret returned. This is unexpected.",
+      "Client created but could not retrieve the secret from either the creation response or the download JSON endpoint.",
     );
   }
 
@@ -806,6 +830,38 @@ export async function createOAuthClient(opts: {
     displayName: result.displayName,
     type: result.type,
   };
+}
+
+/**
+ * Download the client credentials JSON (the "Download JSON" blob from GCP Console)
+ * and extract the client_secret. This is the only reliable way to get the secret
+ * for NATIVE_DESKTOP clients.
+ */
+async function downloadClientSecret(
+  clientId: string,
+): Promise<string | undefined> {
+  if (!GCP_API_KEY) {
+    process.stderr.write(
+      "[gcp-oauth] Cannot download client JSON: GCP_API_KEY is not set (extractApiKey() may not have been called)\n",
+    );
+    return undefined;
+  }
+  try {
+    interface ClientJson {
+      client_id: string;
+      client_secret: string;
+    }
+    const json = await restCall<{
+      installed?: ClientJson;
+      web?: ClientJson;
+    }>(downloadClientJsonUrl(clientId), "GET");
+    return json.installed?.client_secret ?? json.web?.client_secret;
+  } catch (err) {
+    process.stderr.write(
+      `[gcp-oauth] Failed to download client JSON: ${err instanceof Error ? err.message : err}\n`,
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -1045,6 +1101,47 @@ export async function fullSetup(opts: {
   );
 
   return result;
+}
+
+/**
+ * Create an OAuth client and store its credentials directly in the secure
+ * store.  The secret never appears in tool output — it goes straight from
+ * the API response into the encrypted store, bypassing the secret scanner.
+ *
+ * Returns the clientId (safe to display) and a boolean indicating success.
+ */
+export async function createAndStoreOAuthClient(opts: {
+  displayName?: string;
+  service?: string;
+  type?: "WEB" | "NATIVE_DESKTOP";
+  redirectUris?: string[];
+}): Promise<{ clientId: string; stored: boolean }> {
+  const { setSecureKey } = await import("../../../assistant/src/security/secure-keys.js");
+  const service = opts.service ?? "integration:gmail";
+
+  const client = await createOAuthClient({
+    displayName: opts.displayName ?? "Vellum Assistant",
+    type: opts.type,
+    redirectUris: opts.redirectUris,
+  });
+
+  const idOk = setSecureKey(`credential:${service}:client_id`, client.clientId);
+  const secretOk = setSecureKey(
+    `credential:${service}:client_secret`,
+    client.secret,
+  );
+
+  if (idOk && secretOk) {
+    process.stderr.write(
+      `[gcp-oauth] Credentials stored in vault for ${service}\n`,
+    );
+  } else {
+    process.stderr.write(
+      `[gcp-oauth] WARNING: Failed to store credentials (id=${idOk}, secret=${secretOk})\n`,
+    );
+  }
+
+  return { clientId: client.clientId, stored: idOk && secretOk };
 }
 
 export { REQUIRED_SCOPE_CODES } from "./queries.js";

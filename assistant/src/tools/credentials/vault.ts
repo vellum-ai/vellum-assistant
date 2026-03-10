@@ -777,9 +777,7 @@ class CredentialStoreTool implements Tool {
           {
             service,
             hasClientId: !!clientId,
-            clientIdPrefix: clientId?.substring(0, 15) ?? "(none)",
             hasSecret: !!clientSecret,
-            secretPrefix: clientSecret?.substring(0, 10) ?? "(none)",
           },
           "oauth2_connect: resolved credentials",
         );

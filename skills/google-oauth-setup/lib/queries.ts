@@ -110,6 +110,10 @@ export function createClientUrl(): string {
   return `${CLIENT_AUTH_CONFIG_BASE}/v1/clients?key=${GCP_API_KEY}`;
 }
 
+export function downloadClientJsonUrl(clientId: string): string {
+  return `${CLIENT_AUTH_CONFIG_BASE}/v1/clients/${clientId}:downloadJson?key=${GCP_API_KEY}`;
+}
+
 export function oauthEntityServiceUrl(): string {
   return `${OAUTH_ENTITY_SERVICE_BASE}?key=${GCP_API_KEY}&prettyPrint=false`;
 }

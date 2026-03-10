@@ -128,7 +128,9 @@ async function cdpFetch(
 
           if (sapisid) {
             var ts = Math.floor(Date.now() / 1000);
-            var origin = window.location.origin;
+            // SAPISIDHASH must be computed against the TARGET API's origin,
+            // not window.location.origin. The GCP Console JS does the same.
+            var origin = new URL(${JSON.stringify(url)}).origin;
             var input = ts + ' ' + sapisid + ' ' + origin;
             var msgBuf = new TextEncoder().encode(input);
             var hashBuf = await crypto.subtle.digest('SHA-1', msgBuf);
@@ -837,6 +839,12 @@ export async function createOAuthClient(opts: {
 async function downloadClientSecret(
   clientId: string,
 ): Promise<string | undefined> {
+  if (!GCP_API_KEY) {
+    process.stderr.write(
+      "[gcp-oauth] Cannot download client JSON: GCP_API_KEY is not set (extractApiKey() may not have been called)\n",
+    );
+    return undefined;
+  }
   try {
     interface ClientJson {
       client_id: string;
@@ -1092,6 +1100,47 @@ export async function fullSetup(opts: {
   );
 
   return result;
+}
+
+/**
+ * Create an OAuth client and store its credentials directly in the secure
+ * store.  The secret never appears in tool output — it goes straight from
+ * the API response into the encrypted store, bypassing the secret scanner.
+ *
+ * Returns the clientId (safe to display) and a boolean indicating success.
+ */
+export async function createAndStoreOAuthClient(opts: {
+  displayName?: string;
+  service?: string;
+  type?: "WEB" | "NATIVE_DESKTOP";
+  redirectUris?: string[];
+}): Promise<{ clientId: string; stored: boolean }> {
+  const { setSecureKey } = await import("../../../../security/secure-keys.js");
+  const service = opts.service ?? "integration:gmail";
+
+  const client = await createOAuthClient({
+    displayName: opts.displayName ?? "Vellum Assistant",
+    type: opts.type,
+    redirectUris: opts.redirectUris,
+  });
+
+  const idOk = setSecureKey(`credential:${service}:client_id`, client.clientId);
+  const secretOk = setSecureKey(
+    `credential:${service}:client_secret`,
+    client.secret,
+  );
+
+  if (idOk && secretOk) {
+    process.stderr.write(
+      `[gcp-oauth] Credentials stored in vault for ${service}\n`,
+    );
+  } else {
+    process.stderr.write(
+      `[gcp-oauth] WARNING: Failed to store credentials (id=${idOk}, secret=${secretOk})\n`,
+    );
+  }
+
+  return { clientId: client.clientId, stored: idOk && secretOk };
 }
 
 export { REQUIRED_SCOPE_CODES } from "./queries.js";

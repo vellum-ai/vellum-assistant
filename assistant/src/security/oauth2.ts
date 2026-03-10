@@ -132,9 +132,8 @@ async function exchangeCodeForTokens(
   log.info(
     {
       tokenUrl: config.tokenUrl,
-      clientId: tokenBody.client_id ?? "(in auth header)",
+      hasClientId: !!tokenBody.client_id,
       hasSecret: !!config.clientSecret,
-      clientSecretPrefix: config.clientSecret?.substring(0, 10) ?? "(none)",
       redirectUri: tokenBody.redirect_uri,
       authMethod,
     },
