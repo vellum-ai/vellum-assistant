@@ -17,8 +17,10 @@ import {
 import { hasSetConstructs } from "./recurrence-engine.js";
 import {
   claimDueSchedules,
+  completeOneShot,
   completeScheduleRun,
   createScheduleRun,
+  failOneShot,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -121,9 +123,43 @@ async function runScheduleOnce(
   const now = Date.now();
   let processed = 0;
 
-  // ── Recurrence schedules (cron + RRULE) ─────────────────────────────
+  // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
   const jobs = claimDueSchedules(now);
   for (const job of jobs) {
+    const isOneShot = job.expression === null;
+
+    // ── Notify mode (one-shot or recurring) ─────────────────────────
+    if (job.mode === "notify") {
+      try {
+        log.info(
+          { jobId: job.id, name: job.name, isOneShot },
+          "Firing schedule notification",
+        );
+        notifyReminder({
+          id: job.id,
+          label: job.name,
+          message: job.message,
+          routingIntent: job.routingIntent,
+          routingHints: job.routingHints,
+        });
+        if (isOneShot) {
+          completeOneShot(job.id);
+        }
+      } catch (err) {
+        log.warn(
+          { err, jobId: job.id, name: job.name, isOneShot },
+          "Schedule notification failed",
+        );
+        if (isOneShot) {
+          failOneShot(job.id);
+        }
+      }
+      processed += 1;
+      continue;
+    }
+
+    // ── Execute mode ────────────────────────────────────────────────
+
     // Check if message is a task invocation (run_task:<task_id>)
     const taskMatch = job.message.match(/^run_task:(\S+)$/);
     if (taskMatch) {
@@ -139,6 +175,7 @@ async function runScheduleOnce(
             syntax: job.syntax,
             expression: job.expression,
             isRruleSet,
+            isOneShot,
           },
           "Executing scheduled task",
         );
@@ -159,9 +196,11 @@ async function runScheduleOnce(
             status: "error",
             error: result.error ?? "Task run failed",
           });
+          if (isOneShot) failOneShot(job.id);
         } else {
           completeScheduleRun(runId, { status: "ok" });
           notifySchedule({ id: job.id, name: job.name });
+          if (isOneShot) completeOneShot(job.id);
         }
         processed += 1;
       } catch (err) {
@@ -175,6 +214,7 @@ async function runScheduleOnce(
             syntax: job.syntax,
             expression: job.expression,
             isRruleSet,
+            isOneShot,
           },
           "Scheduled task execution failed",
         );
@@ -192,6 +232,7 @@ async function runScheduleOnce(
         });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
+        if (isOneShot) failOneShot(job.id);
       }
       continue;
     }
@@ -200,7 +241,9 @@ async function runScheduleOnce(
       source: "schedule",
       scheduleJobId: job.id,
       origin: "schedule",
-      systemHint: `Schedule: ${job.name}`,
+      systemHint: isOneShot
+        ? `Reminder: ${job.name}`
+        : `Schedule: ${job.name}`,
     });
     onScheduleThreadCreated?.({
       conversationId: conversation.id,
@@ -219,15 +262,17 @@ async function runScheduleOnce(
           syntax: job.syntax,
           expression: job.expression,
           isRruleSet: isRruleSetMsg,
+          isOneShot,
           conversationId: conversation.id,
         },
-        "Executing schedule",
+        isOneShot ? "Executing one-shot schedule" : "Executing schedule",
       );
       await processMessage(conversation.id, job.message, {
         trustClass: "guardian",
       });
       completeScheduleRun(runId, { status: "ok" });
       notifySchedule({ id: job.id, name: job.name });
+      if (isOneShot) completeOneShot(job.id);
       processed += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -239,10 +284,14 @@ async function runScheduleOnce(
           syntax: job.syntax,
           expression: job.expression,
           isRruleSet: isRruleSetMsg,
+          isOneShot,
         },
-        "Schedule execution failed",
+        isOneShot
+          ? "One-shot schedule execution failed"
+          : "Schedule execution failed",
       );
       completeScheduleRun(runId, { status: "error", error: message });
+      if (isOneShot) failOneShot(job.id);
 
       try {
         invalidateAssistantInferredItemsForConversation(conversation.id);
