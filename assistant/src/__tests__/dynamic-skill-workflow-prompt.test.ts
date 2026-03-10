@@ -89,12 +89,12 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("## Dynamic Skill Authoring Workflow");
   });
 
-  test("workflow section mentions scaffold and delete tools and bun run workflow", () => {
+  test("workflow section mentions the skills CLI and bun run workflow", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
     expect(result).toContain("bun run /tmp/vellum-eval/snippet.ts");
-    expect(result).toContain("scaffold_managed_skill");
-    expect(result).toContain("delete_managed_skill");
+    expect(result).toContain("assistant skills create");
+    expect(result).toContain("assistant skills uninstall");
   });
 
   test("workflow section includes user confirmation warning", () => {

@@ -40,12 +40,12 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Subject patterns:**
 
-| Pattern                                  | Principal Type | Description                                 |
-| ---------------------------------------- | -------------- | ------------------------------------------- |
-| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                 |
-| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)         |
-| `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections                |
-| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)                |
+| Pattern                                  | Principal Type | Description                         |
+| ---------------------------------------- | -------------- | ----------------------------------- |
+| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client         |
+| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks) |
+| `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections        |
+| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)        |
 
 **Scope profiles:**
 
@@ -1036,9 +1036,9 @@ Key behaviors:
 
 ---
 
-## Dynamic Skill Authoring — Tool Flow
+## Dynamic Skill Authoring — CLI Flow
 
-The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `~/.vellum/workspace/skills/` (managed skills directory) and require explicit user confirmation.
+The assistant can author, test, and persist new skills at runtime through a bash + CLI workflow. All operations target `~/.vellum/workspace/skills/` (managed skills directory) and require explicit user confirmation.
 
 ```mermaid
 graph TB
@@ -1051,8 +1051,9 @@ graph TB
         RESULT["JSON result:<br/>ok, exitCode, result,<br/>stdout, stderr,<br/>durationMs, timeout"]
     end
 
-    subgraph "2. Persist (Filesystem)"
-        SCAFFOLD["scaffold_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
+    subgraph "2. Persist (CLI)"
+        CREATE["assistant skills create<br/>───────────────<br/>Requires user consent"]
+        CLI_CREATE["createSkillLocally()<br/>───────────────<br/>reads body file or stdin"]
         MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()<br/>upsertSkillsIndexEntry()"]
         SKILL_DIR["~/.vellum/workspace/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
         INDEX["~/.vellum/workspace/skills/<br/>SKILLS.md (index)"]
@@ -1064,7 +1065,8 @@ graph TB
     end
 
     subgraph "4. Delete"
-        DELETE["delete_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
+        DELETE["assistant skills uninstall<br/>───────────────<br/>Requires user consent"]
+        CLI_DELETE["uninstallSkillLocally()<br/>───────────────<br/>rmSync + removeSkillsIndexEntry()"]
         RM_DIR["rmSync skill directory"]
         RM_INDEX["removeSkillsIndexEntry()"]
     end
@@ -1079,9 +1081,10 @@ graph TB
     TEMP --> WRAPPER
     WRAPPER --> SANDBOX
     SANDBOX --> RESULT
-    RESULT -->|"ok=true + user consent"| SCAFFOLD
+    RESULT -->|"ok=true + user consent"| CREATE
 
-    SCAFFOLD --> MANAGED_STORE
+    CREATE --> CLI_CREATE
+    CLI_CREATE --> MANAGED_STORE
     MANAGED_STORE --> SKILL_DIR
     MANAGED_STORE --> INDEX
 
@@ -1092,8 +1095,9 @@ graph TB
     SKILL_DIR --> SKILL_LOAD
     SKILL_LOAD --> SESSION
 
-    DELETE --> RM_DIR
-    DELETE --> RM_INDEX
+    DELETE --> CLI_DELETE
+    CLI_DELETE --> RM_DIR
+    CLI_DELETE --> RM_INDEX
     RM_DIR --> WATCHER
 ```
 
@@ -1101,7 +1105,8 @@ graph TB
 
 - `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
-- Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
+- `assistant skills create` delegates to `createManagedSkill()`, which writes `SKILL.md` and `SKILLS.md` atomically (tmp file + rename).
+- `assistant skills uninstall` removes the skill directory and deletes its `SKILLS.md` entry.
 - After persist or delete, the file watcher triggers session eviction; the next turn runs in a fresh session. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` validates the recursive include graph (via `include-graph.ts`) before emitting output. Missing children and cycles produce `isError: true` with no `<loaded_skill>` marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
@@ -1373,7 +1378,6 @@ The `classifyRisk()` function determines the risk level for each tool invocation
 | `file_write`, `file_edit` targeting skill source paths           | **High**                    | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots                    |
 | `host_file_write`, `host_file_edit` targeting skill source paths | **High**                    | Same path classification, host variant                                                       |
 | `bash`, `host_bash`                                              | Varies                      | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
-| `scaffold_managed_skill`, `delete_managed_skill`                 | High                        | Skill lifecycle mutations always high-risk                                                   |
 | `evaluate_typescript_code`                                       | High                        | Arbitrary code execution                                                                     |
 | Skill-origin tools with no matching rule                         | Prompted regardless of risk | Even Low-risk skill tools default to `ask`                                                   |
 
