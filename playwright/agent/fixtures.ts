@@ -67,7 +67,7 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
   // Clear any previous onboarding state
   const domain = defaultsDomain(workerIndex);
   try {
-    execSync(`defaults delete ${domain}`, {
+    execSync(`defaults delete ${domain} 2>/dev/null`, {
       encoding: "utf-8",
       timeout: 5_000,
     });
@@ -77,7 +77,6 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
 
   return {
     teardown: async () => {
-      retireAssistant();
       quitApp(appDisplayName);
       cleanupTestDataDir(baseDataDir);
     },

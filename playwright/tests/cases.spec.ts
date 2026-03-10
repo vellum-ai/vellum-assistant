@@ -11,7 +11,7 @@
  */
 
 import { type ChildProcess, execSync, spawn } from "child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 
 import { test, expect } from "@playwright/test";
@@ -75,11 +75,6 @@ interface ScreenRecorder {
   logPath: string;
 }
 
-function logRecording(testName: string, message: string): void {
-  const ts = new Date().toISOString();
-  process.stdout.write(`[${ts}] [screen-recording] ${message}\n`);
-}
-
 /**
  * Detect the screen capture input device index for ffmpeg's avfoundation.
  * Returns the device index string (e.g. "1") or undefined if not found.
@@ -105,7 +100,7 @@ function detectScreenDevice(): string | undefined {
   }
 }
 
-function startScreenRecording(videoPath: string, testName: string): ScreenRecorder | undefined {
+function startScreenRecording(videoPath: string): ScreenRecorder | undefined {
   try {
     mkdirSync(path.dirname(videoPath), { recursive: true });
 
@@ -113,14 +108,12 @@ function startScreenRecording(videoPath: string, testName: string): ScreenRecord
     try {
       execSync("which ffmpeg", { timeout: 5_000 });
     } catch {
-      logRecording(testName, "ffmpeg not found, skipping screen recording");
       return undefined;
     }
 
     // Detect the screen capture device
     const screenDevice = detectScreenDevice();
     if (!screenDevice) {
-      logRecording(testName, "Could not detect avfoundation screen device, skipping recording");
       return undefined;
     }
 
@@ -141,8 +134,6 @@ function startScreenRecording(videoPath: string, testName: string): ScreenRecord
       videoPath,
     ];
 
-    logRecording(testName, `Starting ffmpeg: ffmpeg ${args.join(" ")}`);
-
     const proc = spawn("ffmpeg", args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -154,34 +145,26 @@ function startScreenRecording(videoPath: string, testName: string): ScreenRecord
       logStream.write(chunk);
     });
 
-    proc.on("error", (err) => {
-      logRecording(testName, `ffmpeg spawn error: ${err.message}`);
-    });
+    proc.on("error", () => {});
 
-    proc.on("exit", (code, signal) => {
-      logRecording(testName, `ffmpeg exited: code=${code}, signal=${signal}`);
+    proc.on("exit", () => {
       logStream.end();
     });
 
-    logRecording(testName, `ffmpeg started with PID ${proc.pid}`);
-
     return { proc, videoPath, logPath };
-  } catch (e) {
-    logRecording(testName, `startScreenRecording exception: ${e}`);
+  } catch {
     return undefined;
   }
 }
 
-async function stopScreenRecording(recorder: ScreenRecorder | undefined, testName: string): Promise<void> {
+async function stopScreenRecording(recorder: ScreenRecorder | undefined): Promise<void> {
   if (!recorder) return;
-  const { proc, videoPath } = recorder;
+  const { proc } = recorder;
   if (proc.killed || proc.exitCode !== null) {
-    logRecording(testName, "ffmpeg already exited, skipping stop");
     return;
   }
 
   // SIGINT causes ffmpeg to finalize the file (write moov atom) and exit cleanly
-  logRecording(testName, `Stopping ffmpeg (PID ${proc.pid}) with SIGINT`);
   proc.kill("SIGINT");
 
   const exitResult = await new Promise<{ code: number | null; signal: string | null; timedOut: boolean }>((resolve) => {
@@ -201,19 +184,8 @@ async function stopScreenRecording(recorder: ScreenRecorder | undefined, testNam
   });
 
   if (exitResult.timedOut) {
-    logRecording(testName, "ffmpeg did not exit within 10s after SIGINT, sending SIGKILL");
     proc.kill("SIGKILL");
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
-  } else {
-    logRecording(testName, `ffmpeg stopped: code=${exitResult.code}, signal=${exitResult.signal}`);
-  }
-
-  // Check the output file
-  if (existsSync(videoPath)) {
-    const stat = statSync(videoPath);
-    logRecording(testName, `Video file: ${videoPath}, size=${stat.size} bytes (${(stat.size / 1024 / 1024).toFixed(2)} MB)`);
-  } else {
-    logRecording(testName, `WARNING: Video file does not exist at ${videoPath}`);
   }
 }
 
@@ -255,7 +227,7 @@ for (const file of caseFiles) {
         testName,
       );
       const videoPath = path.join(videoDir, "screen-recording.webm");
-      recorder = startScreenRecording(videoPath, testName);
+      recorder = startScreenRecording(videoPath);
 
       const screenshotDir = path.resolve(
         __dirname,
@@ -280,7 +252,7 @@ for (const file of caseFiles) {
       });
 
       // Stop the screen recording BEFORE attaching so the file is finalized
-      await stopScreenRecording(recorder, testName);
+      await stopScreenRecording(recorder);
       const stoppedVideoPath = recorder?.videoPath;
       recorder = undefined;
 
@@ -356,7 +328,7 @@ for (const file of caseFiles) {
       ].join("");
       expect(result.passed, failureDetails).toBe(true);
     } finally {
-      await stopScreenRecording(recorder, testName);
+      await stopScreenRecording(recorder);
       if (fixtureCtx) await fixtureCtx.teardown().catch(() => {});
     }
   });
