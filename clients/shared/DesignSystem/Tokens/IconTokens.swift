@@ -256,7 +256,7 @@ public enum VIcon: String, CaseIterable, Sendable {
         ns.isTemplate = true
         return Image(nsImage: ns)
         #elseif canImport(UIKit)
-        guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size) else {
+        guard let url = pdfURL, let ui = Self.rasterizePDF(at: url, size: size, cacheKey: "\(rawValue)-\(size)") else {
             return Image(systemName: "questionmark.square")
         }
         return Image(uiImage: ui.withRenderingMode(.alwaysTemplate))
@@ -285,9 +285,17 @@ public enum VIcon: String, CaseIterable, Sendable {
     #endif
 
     #if canImport(UIKit)
-    /// Rasterize a PDF file into a `UIImage` using Core Graphics.
+    /// Cache for rasterized PDF images, keyed on "rawValue-size".
+    private static let rasterCache = NSCache<NSString, UIImage>()
+
+    /// Rasterize a PDF file into a `UIImage` using Core Graphics, with caching.
     /// `UIImage(contentsOfFile:)` does not support PDF — it only handles raster formats.
-    private static func rasterizePDF(at url: URL, size: CGFloat = 24) -> UIImage? {
+    private static func rasterizePDF(at url: URL, size: CGFloat = 24, cacheKey: String? = nil) -> UIImage? {
+        let key = NSString(string: cacheKey ?? "\(url.lastPathComponent)-\(size)")
+        if let cached = rasterCache.object(forKey: key) {
+            return cached
+        }
+
         guard let doc = CGPDFDocument(url as CFURL),
               let page = doc.page(at: 1) else { return nil }
         let box = page.getBoxRect(.cropBox)
@@ -297,13 +305,15 @@ public enum VIcon: String, CaseIterable, Sendable {
         let scaleY = targetSize.height / box.height
         let drawScale = min(scaleX, scaleY)
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-        return renderer.image { ctx in
+        let image = renderer.image { ctx in
             let cgContext = ctx.cgContext
             cgContext.translateBy(x: 0, y: size)
             cgContext.scaleBy(x: drawScale / scale, y: -drawScale / scale)
             cgContext.translateBy(x: -box.origin.x, y: -box.origin.y)
             cgContext.drawPDFPage(page)
         }
+        rasterCache.setObject(image, forKey: key)
+        return image
     }
     #endif
 }
