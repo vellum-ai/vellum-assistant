@@ -125,19 +125,15 @@ function executeAvatar(description: string) {
   );
 }
 
-/** Standard successful managed avatar platform response. */
+/** Standard successful Vertex predictions response. */
 function managedPlatformResponse() {
   return {
-    image: {
-      mime_type: "image/png",
-      data_base64: "iVBORw0KGgoAAAANSUhEUg==",
-      bytes: 1024,
-      sha256: "abc123",
-    },
-    usage: { billable: true, class_name: "assistant_avatar_system" },
-    generation_source: "vertex",
-    profile: "avatar_v1",
-    correlation_id: "managed-corr-id-123",
+    predictions: [
+      {
+        bytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUg==",
+        mimeType: "image/png",
+      },
+    ],
   };
 }
 
@@ -171,6 +167,10 @@ function mockFetchReturning(response: {
       ok: response.ok,
       status: response.status,
       json: async () => response.body,
+      text: async () =>
+        typeof response.body === "string"
+          ? response.body
+          : JSON.stringify(response.body),
     }),
   ) as unknown as typeof globalThis.fetch;
 }
@@ -380,9 +380,15 @@ describe("avatar E2E integration", () => {
 
   test("managed response with disallowed MIME type — rejected, no file written", async () => {
     mockStrategy = "managed_required";
-    const badResponse = managedPlatformResponse();
-    badResponse.image.mime_type = "image/gif";
-    mockFetchReturning({ ok: true, status: 200, body: badResponse });
+    mockFetchReturning({
+      ok: true,
+      status: 200,
+      body: {
+        predictions: [
+          { bytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUg==", mimeType: "image/gif" },
+        ],
+      },
+    });
 
     const result = await executeAvatar("a cat");
 
@@ -401,9 +407,18 @@ describe("avatar E2E integration", () => {
 
   test("managed response with oversized data — rejected, no file written", async () => {
     mockStrategy = "managed_required";
-    const oversizedResponse = managedPlatformResponse();
-    oversizedResponse.image.bytes = AVATAR_MAX_DECODED_BYTES + 1;
-    mockFetchReturning({ ok: true, status: 200, body: oversizedResponse });
+    const oversizedBase64 = "A".repeat(
+      Math.ceil(((AVATAR_MAX_DECODED_BYTES + 100) * 4) / 3),
+    );
+    mockFetchReturning({
+      ok: true,
+      status: 200,
+      body: {
+        predictions: [
+          { bytesBase64Encoded: oversizedBase64, mimeType: "image/png" },
+        ],
+      },
+    });
 
     const result = await executeAvatar("a cat");
 
@@ -444,11 +459,13 @@ describe("avatar E2E integration", () => {
   // 9. Correlation ID propagation
   // -----------------------------------------------------------------------
 
-  test("managed success — correlation ID from response is propagated through the pipeline", async () => {
+  test("managed success — correlation ID is propagated through the pipeline", async () => {
     mockStrategy = "managed_required";
-    const response = managedPlatformResponse();
-    response.correlation_id = "unique-corr-id-xyz";
-    mockFetchReturning({ ok: true, status: 200, body: response });
+    mockFetchReturning({
+      ok: true,
+      status: 200,
+      body: managedPlatformResponse(),
+    });
 
     const result = await executeAvatar("a robot");
 
@@ -456,15 +473,14 @@ describe("avatar E2E integration", () => {
     expect(result.isError).toBe(false);
     expect(writeFileSyncFn).toHaveBeenCalled();
 
+    // Correlation ID is now generated client-side, so just verify one is logged
     const correlationLogged = logInfoCalls.some(([meta, message]) => {
       if (message !== "Avatar saved successfully") return false;
       if (!meta || typeof meta !== "object" || !("correlationId" in meta)) {
         return false;
       }
-      return (
-        (meta as { correlationId?: unknown }).correlationId ===
-        "unique-corr-id-xyz"
-      );
+      const cid = (meta as { correlationId?: unknown }).correlationId;
+      return typeof cid === "string" && cid.length > 0;
     });
 
     expect(correlationLogged).toBe(true);
