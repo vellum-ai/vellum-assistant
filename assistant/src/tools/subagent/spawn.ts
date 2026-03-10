@@ -23,7 +23,7 @@ export async function executeSubagentSpawn(
     | undefined;
   if (!sendToClient) {
     return {
-      content: "No IPC client connected — cannot spawn subagent.",
+      content: "No client connected — cannot spawn subagent.",
       isError: true,
     };
   }

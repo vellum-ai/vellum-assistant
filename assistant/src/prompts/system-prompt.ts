@@ -341,7 +341,7 @@ function buildInChatConfigurationSection(): string {
     "**How to collect credentials and secrets:**",
     '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
     '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps.',
-    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate IPC or config tool to persist the value.",
+    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
     "",
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     "",

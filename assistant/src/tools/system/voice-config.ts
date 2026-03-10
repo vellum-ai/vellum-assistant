@@ -133,7 +133,7 @@ export class VoiceConfigUpdateTool implements Tool {
   name = "voice_config_update";
   description =
     "Update a voice configuration setting (TTS voice ID, PTT activation key, wake word enabled/keyword/timeout). " +
-    "Changes take effect immediately via IPC broadcast to the desktop client.";
+    "Changes take effect immediately.";
   category = "system";
   defaultRiskLevel = RiskLevel.Low;
 

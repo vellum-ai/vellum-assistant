@@ -53,7 +53,7 @@ export function executeDocumentCreate(
       surface_id: surfaceId,
       title,
       opened: false,
-      error: "No IPC client connected to open document editor",
+      error: "No client connected to open document editor",
     }),
     isError: false,
   };
@@ -92,7 +92,7 @@ export function executeDocumentUpdate(
   return {
     content: JSON.stringify({
       success: false,
-      error: "No IPC client connected to update document",
+      error: "No client connected to update document",
     }),
     isError: true,
   };
