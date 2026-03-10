@@ -234,12 +234,27 @@ function loadFromDisk(): TrustRule[] {
       try {
         mkdirSync(dirname(path), { recursive: true });
         renameSync(legacyPath, path);
+        chmodSync(path, 0o600);
         log.info(
           { from: legacyPath, to: path },
           "Migrated legacy trust file to protected path",
         );
       } catch (err) {
-        log.warn({ err }, "Failed to migrate legacy trust file");
+        log.warn(
+          { err },
+          "Failed to migrate legacy trust file; reading from legacy path",
+        );
+        // Fall back: copy content so the normal read path picks it up.
+        try {
+          const content = readFileSync(legacyPath, "utf-8");
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, content, { mode: 0o600 });
+        } catch (copyErr) {
+          log.warn(
+            { copyErr },
+            "Failed to copy legacy trust file to protected path",
+          );
+        }
       }
     }
   }
