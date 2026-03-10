@@ -144,7 +144,7 @@ function getConnectedChannels(): NotificationChannel[] {
 // ── Public API ─────────────────────────────────────────────────────────
 
 export interface EmitSignalParams<TEventName extends string = string> {
-  /** Free-form event name, e.g. 'reminder.fired', 'schedule.complete'. */
+  /** Free-form event name, e.g. 'schedule.notify', 'schedule.complete'. */
   sourceEventName: TEventName;
   /** Source channel that produced the event — must be a registered channel. */
   sourceChannel: NotificationSourceChannel;

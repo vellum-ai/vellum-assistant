@@ -5,7 +5,7 @@ import type { DrizzleDb } from "../db-connection.js";
  * memory_items, memory_item_sources, memory_item_conflicts, memory_summaries,
  * memory_embeddings, memory_jobs, memory_checkpoints, attachments,
  * message_attachments, message_surfaces, channel_inbound_events,
- * message_runs, reminders, cron_jobs, cron_runs, documents,
+ * message_runs, cron_jobs, cron_runs, documents,
  * published_pages, shared_app_links, home_base_app_links.
  */
 export function createCoreTables(database: DrizzleDb): void {
@@ -223,21 +223,6 @@ export function createCoreTables(database: DrizzleDb): void {
       output_tokens INTEGER NOT NULL DEFAULT 0,
       estimated_cost REAL NOT NULL DEFAULT 0,
       error TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS reminders (
-      id TEXT PRIMARY KEY,
-      label TEXT NOT NULL,
-      message TEXT NOT NULL,
-      fire_at INTEGER NOT NULL,
-      mode TEXT NOT NULL,
-      status TEXT NOT NULL,
-      fired_at INTEGER,
-      conversation_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )

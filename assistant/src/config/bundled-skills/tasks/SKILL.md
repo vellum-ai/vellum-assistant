@@ -23,7 +23,7 @@ Use `task_list_add` to enqueue items (ad-hoc or from a template), `task_list_sho
 
 ## Tips
 
-- When the user says "add to my tasks" or "add to my queue", use `task_list_add` (NOT schedule_create or reminder_create).
+- When the user says "add to my tasks" or "add to my queue", use `task_list_add` (NOT schedule_create).
 - Use `task_save` only when the user wants to capture a conversation pattern as a reusable template.
 - `task_list` shows saved templates; `task_list_show` shows the active work queue.
 - **Always specify `required_tools`** when calling `task_list_add`. Think about what tools the task will need at execution time and list them explicitly (e.g. `["host_bash"]` for shell commands, `["host_file_read", "host_file_write"]` for file operations, `["web_search", "web_fetch"]` for web lookups). The user must approve these tools before the task can run — omitting them forces a fallback to all tools, which is noisy and may miss non-standard tools the task actually needs.

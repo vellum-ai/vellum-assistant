@@ -233,7 +233,7 @@ export function buildAccessRequestContractText(
 
 // Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
-  "reminder.fired": (payload) => ({
+  "schedule.notify": (payload) => ({
     title: "Reminder",
     body: str(payload.message, str(payload.label, "A reminder has fired")),
   }),
