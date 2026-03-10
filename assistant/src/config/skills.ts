@@ -1108,7 +1108,7 @@ function isEscapingSymlink(filePath: string, rootDir: string): boolean {
   try {
     if (!lstatSync(filePath).isSymbolicLink()) return false;
     const real = realpathSync(filePath);
-    const normalizedRoot = resolve(rootDir);
+    const normalizedRoot = getCanonicalPath(rootDir);
     return (
       real !== normalizedRoot &&
       !real.startsWith(normalizedRoot + "/") &&
