@@ -294,9 +294,9 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Privacy
 
     /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
-    /// scroll speed). Defaults to `false`. Read by the MetricKit integration (M4) to decide
+    /// scroll speed). Defaults to `true`. Read by the MetricKit integration (M4) to decide
     /// whether to forward payloads.
-    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? false
+    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? true
 
     // MARK: - Private
 
