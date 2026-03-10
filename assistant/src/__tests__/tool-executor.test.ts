@@ -1190,18 +1190,6 @@ describe("isSideEffectTool", () => {
   });
 
   describe("action-aware classification for mixed-action tools", () => {
-    test("reminder_create is a side-effect", () => {
-      expect(isSideEffectTool("reminder_create")).toBe(true);
-    });
-
-    test("reminder_cancel is a side-effect", () => {
-      expect(isSideEffectTool("reminder_cancel")).toBe(true);
-    });
-
-    test("reminder_list is NOT a side-effect", () => {
-      expect(isSideEffectTool("reminder_list")).toBe(false);
-    });
-
     test("credential_store store is a side-effect", () => {
       expect(isSideEffectTool("credential_store", { action: "store" })).toBe(
         true,
@@ -1499,14 +1487,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
       { name: "document_create", input: { title: "doc", content: "body" } },
       { name: "document_update", input: { id: "doc-1", content: "updated" } },
       {
-        name: "reminder_create",
-        input: {
-          fire_at: "2030-01-01T00:00:00Z",
-          label: "test",
-          message: "remind me",
-        },
-      },
-      {
         name: "credential_store",
         input: { action: "store", name: "api-key", value: "secret" },
       },
@@ -1801,16 +1781,16 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("reminder_create forces prompt in private thread", async () => {
+  test("schedule_create forces prompt in private thread", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
     const result = await executor.execute(
-      "reminder_create",
+      "schedule_create",
       {
-        fire_at: "2030-01-01T00:00:00Z",
-        label: "test",
-        message: "test reminder",
+        name: "test schedule",
+        expression: "0 9 * * *",
+        message: "test",
       },
       makeContext({ forcePromptSideEffects: true }),
     );
@@ -1819,12 +1799,12 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("reminder_list does NOT force prompt in private thread", async () => {
+  test("schedule_list does NOT force prompt in private thread", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
     const result = await executor.execute(
-      "reminder_list",
+      "schedule_list",
       {},
       makeContext({ forcePromptSideEffects: true }),
     );

@@ -1,11 +1,11 @@
 ---
 name: schedule
-description: Recurring automation that dispatches messages on a cron or RRULE schedule
+description: Recurring and one-shot scheduling — cron, RRULE, or single fire-at time
 compatibility: "Designed for Vellum personal assistants"
 metadata: {"emoji":"📅","vellum":{"display-name":"Schedule"}}
 ---
 
-Manage recurring scheduled automations. Each schedule has an expression (cron or RRULE) that defines when it fires, and a message that gets dispatched to the assistant at trigger time.
+Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Both recurring and one-shot schedules support two modes: **execute** (run a message through the assistant) and **notify** (send a notification to the user).
 
 ## Schedule Syntax
 
@@ -62,19 +62,78 @@ Exclusions (EXDATE, EXRULE) always take precedence over inclusions (RRULE, RDATE
 - `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1\nRDATE:20250704T090000Z` — 1st of each month plus July 4th
 - `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=TU\nRRULE:FREQ=WEEKLY;BYDAY=TH` — union of Tuesdays and Thursdays
 
+## One-Shot Schedules (Reminders)
+
+To create a one-time schedule that fires once and is done, pass `fire_at` (an ISO 8601 timestamp) instead of an `expression`. This replaces the old reminder concept — "remind me at 3pm" becomes a one-shot schedule with `fire_at`.
+
+One-shot schedules:
+- Fire once at the specified time, then are marked as `fired` and disabled.
+- Support both `execute` and `notify` modes (see below).
+- Can be cancelled before they fire.
+
+Examples:
+- "remind me at 3pm" → `schedule_create` with `fire_at: "2025-03-15T15:00:00-05:00"`, `mode: "notify"`
+- "at 5pm, check my email and summarize it" → `schedule_create` with `fire_at`, `mode: "execute"`
+
+## Mode
+
+The `mode` parameter controls what happens when a schedule fires:
+
+- **execute** (default) — sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
+- **notify** — sends a notification to the user via the notification pipeline. No assistant processing occurs.
+
+Use `notify` for simple reminders ("remind me to take medicine at 9am") and `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest").
+
+## Routing (notify mode)
+
+Control how notify-mode schedules are delivered at trigger time with `routing_intent`:
+
+- **single_channel** — deliver to one best channel
+- **multi_channel** — deliver to a subset of channels
+- **all_channels** (default) — deliver to every available channel
+
+Optionally pass `routing_hints` (a JSON object) to influence routing decisions (e.g. preferred channels, exclusions).
+
+### Routing Defaults
+
+- **Default to `all_channels`** for most notifications. Users usually want to be notified wherever they are.
+- **Use `single_channel`** only when the user explicitly specifies a single channel (e.g. "remind me on Telegram").
+- **Check `user_message_channel`** from the turn context. If the user is currently active on a specific channel, include it as a routing hint:
+  ```
+  routing_hints: { preferred_channels: ["vellum"] }
+  routing_intent: "all_channels"
+  ```
+
 ## Tool Input
 
-Use `syntax` + `expression` to specify the schedule type explicitly, or just `expression` to auto-detect.
+Use `syntax` + `expression` to specify the schedule type explicitly, or just `expression` to auto-detect. For one-shot schedules, use `fire_at` instead of `expression`.
 
 ## Lifecycle
 
-1. Create a schedule with a name, expression, and message.
-2. At each trigger time, the message is dispatched to the assistant as if the user sent it.
-3. Schedules can be enabled/disabled, updated, or deleted.
+1. Create a schedule with a name and either an expression (recurring) or fire_at (one-shot), plus a message.
+2. At each trigger time, the message is dispatched to the assistant (execute mode) or a notification is sent (notify mode).
+3. Schedules can be enabled/disabled, updated, or deleted. One-shot schedules are automatically disabled after firing.
 
 ## Tips
 
-- Only use `schedule_create` when the user explicitly wants recurring automation (e.g. "every day at 9am", "weekly on Mondays"). For one-time tasks, use the task list instead.
+- Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
+- For task tracking ("add to my tasks", "add to my queue"), use task_list_add instead.
+- `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).
+
+### Anchored & Ambiguous Relative Time
+
+Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "20 minutes in" are **clock-position or anchored relative time** expressions. Do NOT treat them as offsets from now.
+
+**Resolution rules (in priority order):**
+
+1. **Session-anchored expressions** — if the user mentioned a start time earlier in conversation ("I got here at 9", "meeting started at 2:10"), interpret offset-style phrases ("the 45 minute mark", "20 minutes in") as `start_time + offset`.
+
+2. **Clock-position expressions** — when no start time is in context, map directly to a wall-clock time:
+   - "top of the hour" → next :00
+   - "the X minute mark" → current hour's :XX; if already past, advance one hour
+   - "noon" / "midnight" → 12:00 PM or 12:00 AM today; if past, tomorrow
+
+3. **Ask only if truly ambiguous** — if neither rule resolves, ask for clarification. Never silently default to "from now."
 - Timezones default to the system timezone if omitted. Use IANA timezone identifiers (e.g. "America/Los_Angeles").
 - Prefer RRULE for complex patterns that cron cannot express (e.g. "every other Tuesday", "last weekday of the month").
 

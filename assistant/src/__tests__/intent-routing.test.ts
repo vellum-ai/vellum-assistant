@@ -85,17 +85,6 @@ const taskListAddDef = tasksToolsJson.tools.find(
   (t: { name: string }) => t.name === "task_list_add",
 );
 
-// Load reminder_create description from the bundled skill TOOLS.json
-const reminderToolsJson = JSON.parse(
-  readFileSync(
-    join(import.meta.dirname, "../config/bundled-skills/reminder/TOOLS.json"),
-    "utf-8",
-  ),
-);
-const reminderCreateDef = reminderToolsJson.tools.find(
-  (t: { name: string }) => t.name === "reminder_create",
-);
-
 // Load schedule_create description from the bundled skill TOOLS.json
 const scheduleToolsJson = JSON.parse(
   readFileSync(
@@ -231,44 +220,18 @@ describe("schedule_create tool description", () => {
   });
 });
 
-describe("reminder tool description", () => {
-  test("mentions time-based reminders", () => {
-    expect(reminderCreateDef.description).toContain("time-based reminder");
-  });
-
-  test("scopes to time-triggered notifications only", () => {
-    expect(reminderCreateDef.description).toContain(
-      "ONLY when the user wants a time-triggered notification",
-    );
-  });
-
-  test('warns against using for "add to my tasks" requests', () => {
-    expect(reminderCreateDef.description).toContain(
-      'Do NOT use this for "add to my tasks"',
-    );
-  });
-
-  test("redirects to task_list_add for task queue items", () => {
-    expect(reminderCreateDef.description).toContain("task_list_add");
-  });
-});
-
 // =====================================================================
-// 3. Cross-tool consistency: all three tools agree on routing boundaries
+// 3. Cross-tool consistency: schedule and task tools agree on routing boundaries
 // =====================================================================
 
 describe("cross-tool routing consistency", () => {
-  test("all three tools reference task_list_add as the task-queue tool", () => {
-    // task_list_add is the canonical name in all three descriptions
+  test("both tools reference task_list_add as the task-queue tool", () => {
     expect(taskListAddDef.name).toBe("task_list_add");
     expect(scheduleCreateDef.description).toContain("task_list_add");
-    expect(reminderCreateDef.description).toContain("task_list_add");
   });
 
-  test('schedule_create and reminder both reject "add to my queue" usage', () => {
-    // Both should redirect away from task-queue requests
+  test('schedule_create rejects "add to my queue" usage', () => {
     expect(scheduleCreateDef.description).toContain("add to my queue");
-    expect(reminderCreateDef.description).toContain("add to my queue");
   });
 });
 

@@ -7,21 +7,6 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-export const reminders = sqliteTable("reminders", {
-  id: text("id").primaryKey(),
-  label: text("label").notNull(),
-  message: text("message").notNull(),
-  fireAt: integer("fire_at").notNull(), // epoch ms, absolute timestamp
-  mode: text("mode").notNull(), // 'notify' | 'execute'
-  status: text("status").notNull(), // 'pending' | 'firing' | 'fired' | 'cancelled'
-  firedAt: integer("fired_at"),
-  conversationId: text("conversation_id"),
-  routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
-  routingHintsJson: text("routing_hints_json").notNull().default("{}"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 export const cronJobs = sqliteTable("cron_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

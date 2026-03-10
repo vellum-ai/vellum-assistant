@@ -65,6 +65,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateDropRemindersTable,
   migrateRemindersToSchedules,
   migrateRenameGuardianVerificationValues,
   migrateRenameVerificationSessionIdColumn,
@@ -335,6 +336,9 @@ export function initializeDb(): void {
 
   // 51. Migrate existing reminders into cron_jobs as one-shot schedules
   migrateRemindersToSchedules(database);
+
+  // 52. Drop the legacy reminders table after data migration
+  migrateDropRemindersTable(database);
 
   validateMigrationState(database);
 

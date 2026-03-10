@@ -15,10 +15,6 @@ import {
   listSchedules,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
-import {
-  cancelReminder,
-  listReminders,
-} from "../../tools/reminder/reminder-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -100,13 +96,12 @@ function handleCancelSchedule(id: string): Response {
 }
 
 /**
- * List reminders by querying one-shot schedules from the schedule store,
- * falling back to the legacy reminder store for entries not yet migrated.
+ * List reminders by querying one-shot schedules from the schedule store.
+ * Maps to the legacy RemindersListResponse shape for client compat.
  */
 function handleListReminders(): Response {
-  // Query one-shot schedules and map to RemindersListResponse shape
   const oneShotSchedules = listSchedules({ oneShotOnly: true });
-  const fromSchedules = oneShotSchedules.map((s) => ({
+  const reminders = oneShotSchedules.map((s) => ({
     id: s.id,
     label: s.name,
     message: s.message,
@@ -117,44 +112,19 @@ function handleListReminders(): Response {
     createdAt: s.createdAt,
   }));
 
-  // Fall back to legacy reminder store for entries not yet migrated
-  const legacyReminders = listReminders();
-  const scheduleIds = new Set(fromSchedules.map((r) => r.id));
-  const fromLegacy = legacyReminders
-    .filter((r) => !scheduleIds.has(r.id))
-    .map((r) => ({
-      id: r.id,
-      label: r.label,
-      message: r.message,
-      fireAt: r.fireAt,
-      mode: r.mode,
-      status: r.status,
-      firedAt: r.firedAt,
-      createdAt: r.createdAt,
-    }));
-
   return Response.json({
     type: "reminders_list_response",
-    reminders: [...fromSchedules, ...fromLegacy],
+    reminders,
   });
 }
 
 /**
- * Cancel a reminder by first trying the schedule store (one-shot schedules),
- * then falling back to the legacy reminder store.
+ * Cancel a reminder by cancelling the corresponding one-shot schedule.
  */
 function handleCancelReminder(id: string): Response {
-  // Try schedule store first
-  const cancelledSchedule = cancelSchedule(id);
-  if (cancelledSchedule) {
+  const cancelled = cancelSchedule(id);
+  if (cancelled) {
     log.info({ id }, "Reminder cancelled via schedule store");
-    return handleListReminders();
-  }
-
-  // Fall back to legacy reminder store
-  const cancelledReminder = cancelReminder(id);
-  if (cancelledReminder) {
-    log.info({ id }, "Reminder cancelled via legacy reminder store");
     return handleListReminders();
   }
 
