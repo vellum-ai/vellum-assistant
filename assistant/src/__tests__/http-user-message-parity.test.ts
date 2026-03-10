@@ -254,7 +254,7 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
 
   test("handleSendMessage rejects messages containing AWS credentials", async () => {
     const secretContent =
-      "Here is my AWS key AKIAIOSFODNN7EXAMPLE and secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+      "Here is my AWS key AKIAQRSTUVWXYZ123456 and secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });
@@ -274,9 +274,9 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
     expect(runAgentLoop).toHaveBeenCalledTimes(0);
   });
 
-  test("handleSendMessage rejects messages containing Stripe test keys", async () => {
+  test("handleSendMessage rejects messages containing Stripe live API keys", async () => {
     const secretContent =
-      "My Stripe key is sk_test_4eC39HqLyjWDarjtT1zdp7dc";
+      "My Stripe key is sk_live_4eC39HqLyjWDarjtT1zdp7dc";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });
