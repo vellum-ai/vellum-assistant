@@ -39,17 +39,15 @@ struct IdentityView: View {
             }
             .navigationTitle("Intelligence")
         }
-        .task(id: clientProvider.isConnected) {
+        .task(id: clientProvider.clientGeneration) {
             guard clientProvider.isConnected else { return }
             if let daemonClient = clientProvider.client as? DaemonClient {
-                if skillsStore == nil {
-                    skillsStore = SkillsStore(daemonClient: daemonClient)
-                }
-                if contactsStore == nil {
-                    contactsStore = ContactsStore(daemonClient: daemonClient)
-                }
-                skillsStore?.fetchSkills(force: true)
-                contactsStore?.loadContacts()
+                let skills = SkillsStore(daemonClient: daemonClient)
+                skillsStore = skills
+                let contacts = ContactsStore(daemonClient: daemonClient)
+                contactsStore = contacts
+                skills.fetchSkills(force: true)
+                contacts.loadContacts()
             }
             await viewModel.fetchIdentity(client: clientProvider.client)
         }

@@ -138,13 +138,11 @@ struct SettingsView: View {
             .navigationDestination(isPresented: $navigateToConnect) {
                 DaemonConnectionSection()
             }
-            .task(id: clientProvider.isConnected) {
+            .task(id: clientProvider.clientGeneration) {
                 if let daemon = clientProvider.client as? DaemonClient {
-                    if contactsStore == nil {
-                        let contacts = ContactsStore(daemonClient: daemon)
-                        contactsStore = contacts
-                        channelTrustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contacts)
-                    }
+                    let contacts = ContactsStore(daemonClient: daemon)
+                    contactsStore = contacts
+                    channelTrustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contacts)
                 }
             }
         }
