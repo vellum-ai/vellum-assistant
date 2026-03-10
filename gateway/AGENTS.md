@@ -18,7 +18,7 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **Exception boundary:** The gateway service itself may call the runtime internally. Tests may use direct runtime URLs for isolated unit/integration scenarios. Intentional local daemon-control paths are exempt:
 
-- `clients/shared/IPC/DaemonClient.swift`
+- `clients/shared/Network/DaemonClient.swift`
 - `clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift` (health probe)
 
 **Migration rule:** If a needed endpoint is not available at the gateway, add a gateway route/proxy first, then consume it. Do not work around a missing gateway endpoint by hitting the runtime directly.

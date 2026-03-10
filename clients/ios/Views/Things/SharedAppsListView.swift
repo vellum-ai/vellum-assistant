@@ -288,6 +288,6 @@ struct SharedAppsListView: View {
 }
 
 // MARK: - SharedAppItem Identifiable conformance for .sheet(item:)
-// The Identifiable conformance via uuid is already declared in IPCMessages.swift
+// The Identifiable conformance via uuid is already declared in MessageTypes.swift
 
 #endif

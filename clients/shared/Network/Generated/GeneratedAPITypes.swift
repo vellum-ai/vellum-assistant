@@ -2,7 +2,7 @@
 //
 // This file contains Swift Codable DTOs derived from the message-types contract.
 // The discriminated union enums (ClientMessage/ServerMessage) remain
-// in the hand-written IPCMessages.swift since they require custom
+// in the hand-written MessageTypes.swift since they require custom
 // Decodable init logic that code generators cannot express cleanly.
 
 import Foundation
