@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       update_baseline:
-        description: 'Update stored baselines (default: true on main)'
+        description: 'Update stored baselines (only effective on main branch)'
         type: boolean
         default: true
 
@@ -67,7 +67,7 @@ jobs:
 
       - name: Compare baselines
         env:
-          UPDATE_BASELINE: ${{ inputs.update_baseline && 'true' || 'false' }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline && github.ref == 'refs/heads/main' && 'true' || 'false' }}
         run: bash scripts/compare-perf-baselines.sh
 
       - name: Performance summary
