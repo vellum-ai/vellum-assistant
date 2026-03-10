@@ -133,6 +133,28 @@ public final class ToolConfirmationNotificationService {
             }
             return command.count > 200 ? String(command.prefix(197)) + "..." : command
         }
+        // For all other tools, prefer the human-readable reason
+        if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
+            let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
+            // Filter out `reason` key so commandPreview doesn't duplicate it
+            let nonReasonInput = message.input.filter { $0.key != "reason" && $0.key != "reasoning" }
+            let preview = commandPreview(toolName: message.toolName, input: nonReasonInput)
+            if !preview.isEmpty {
+                let body = "\(capitalizedReason)\n\(preview)"
+                if body.count <= 200 { return body }
+                // Truncate reason first to preserve the target preview
+                let previewBudget = min(preview.count, 200)
+                let reasonBudget = 200 - previewBudget - 1 // 1 for newline
+                if reasonBudget >= 4 {
+                    let truncatedReason = String(capitalizedReason.prefix(reasonBudget - 3)) + "..."
+                    let truncatedBody = "\(truncatedReason)\n\(preview)"
+                    if truncatedBody.count <= 200 { return truncatedBody }
+                }
+                // Preview alone exceeds the limit — truncate it
+                return preview.count > 200 ? String(preview.prefix(197)) + "..." : preview
+            }
+            return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : String(capitalizedReason)
+        }
         let preview = commandPreview(toolName: message.toolName, input: message.input)
         if preview.count > 200 {
             return String(preview.prefix(197)) + "..."
