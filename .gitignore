@@ -22,6 +22,7 @@ coverage/
 dist
 
 # misc
+worktrees/
 .DS_Store
 .githooks/.githooks
 *.pem
