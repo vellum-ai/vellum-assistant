@@ -167,7 +167,7 @@ struct SlackChannelPickerView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(hoveredChannelID == channel.id ? VColor.navHover : Color.clear)
+            .background(VColor.navHover.opacity(hoveredChannelID == channel.id ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
