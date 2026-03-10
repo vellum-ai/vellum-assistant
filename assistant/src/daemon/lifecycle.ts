@@ -319,7 +319,7 @@ export async function runDaemon(): Promise<void> {
           },
           routingIntent: schedule.routingIntent,
           routingHints: schedule.routingHints,
-          dedupeKey: `schedule:notify:${schedule.id}`,
+          dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
         });
       },
       (schedule) => {
