@@ -6,7 +6,7 @@ All inbound HTTP endpoints — APIs, webhooks, OAuth callbacks, or any route tha
 
 Concretely:
 
-- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal IPC/transport.
+- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal HTTP transport.
 - The gateway's public URL is controlled by the **public ingress URL** setting. All externally-facing URLs you generate or advertise (callback URLs, webhook registration URLs, etc.) must be derived from this setting — never hardcode a hostname or port.
 - The daemon should remain unreachable from the public internet. It only receives traffic from the gateway over the internal network.
 
