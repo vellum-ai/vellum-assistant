@@ -130,7 +130,7 @@ final class VoiceInputManager {
         let stopPTTObserver = NotificationCenter.default.addObserver(
             forName: .stopPTTRecording,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isRecording else { return }
