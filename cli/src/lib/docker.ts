@@ -55,6 +55,12 @@ function findDockerRoot(): DockerRoot {
     dir = parent;
   }
 
+  // macOS app bundle: Contents/MacOS/vellum-cli -> Contents/Resources/Dockerfile
+  const appResourcesDir = join(dirname(process.execPath), "..", "Resources");
+  if (existsSync(join(appResourcesDir, "Dockerfile"))) {
+    return { root: appResourcesDir, dockerfileDir: "." };
+  }
+
   // Fall back to Node module resolution for the `vellum` package
   try {
     const vellumPkgPath = _require.resolve("vellum/package.json");
