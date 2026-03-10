@@ -10,6 +10,7 @@ struct AppsGridView: View {
     @State private var showShareSuccess = false
     @State private var bannerDismissTask: Task<Void, Never>?
     @AppStorage("pinnedAppIds") private var pinnedAppIdsData: Data = Data()
+    @State private var pinnedAppIds: Set<String> = []
 
     private let columns = [
         GridItem(.flexible(), spacing: VSpacing.md),
@@ -18,8 +19,8 @@ struct AppsGridView: View {
 
     // MARK: - Pinned App IDs
 
-    private var pinnedAppIds: Set<String> {
-        (try? JSONDecoder().decode(Set<String>.self, from: pinnedAppIdsData)) ?? []
+    private func decodePinnedIds(from data: Data) -> Set<String> {
+        (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
     }
 
     private func togglePin(for appId: String) {
@@ -29,6 +30,7 @@ struct AppsGridView: View {
         } else {
             ids.insert(appId)
         }
+        pinnedAppIds = ids
         pinnedAppIdsData = (try? JSONEncoder().encode(ids)) ?? Data()
     }
 
@@ -94,6 +96,16 @@ struct AppsGridView: View {
                     }
             }
         }
+        .onDisappear {
+            bannerDismissTask?.cancel()
+            bannerDismissTask = nil
+        }
+        .onAppear {
+            pinnedAppIds = decodePinnedIds(from: pinnedAppIdsData)
+        }
+        .onChange(of: pinnedAppIdsData) { newData in
+            pinnedAppIds = decodePinnedIds(from: newData)
+        }
     }
 
     // MARK: - Grid Content
@@ -144,7 +156,7 @@ struct AppsGridView: View {
     private var allAppsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if !pinnedApps.isEmpty {
-                Text("All Apps")
+                Text("Other Apps")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textCase(.uppercase)
@@ -218,6 +230,8 @@ struct AppsGridView: View {
                     let success = await directoryStore.shareAppCloud(id: app.id)
                     if success {
                         withAnimation { showShareSuccess = true }
+                    } else {
+                        errorMessage = "Failed to share app. Please try again."
                     }
                 }
             } label: {

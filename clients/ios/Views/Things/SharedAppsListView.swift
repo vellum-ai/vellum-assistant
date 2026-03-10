@@ -41,16 +41,6 @@ struct SharedAppsListView: View {
                 Text("Are you sure you want to delete \"\(app.name)\"? This action cannot be undone.")
             }
         }
-        .alert("Error", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            if let msg = errorMessage {
-                Text(msg)
-            }
-        }
     }
 
     // MARK: - List Content
@@ -244,6 +234,16 @@ struct SharedAppsListView: View {
             .onDisappear {
                 forkDismissTask?.cancel()
                 forkDismissTask = nil
+            }
+            .alert("Error", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: {
+                if let msg = errorMessage {
+                    Text(msg)
+                }
             }
         }
     }
