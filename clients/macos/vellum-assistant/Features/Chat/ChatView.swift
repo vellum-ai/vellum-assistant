@@ -110,7 +110,7 @@ struct ChatView: View {
                 if messages.isEmpty && !isHistoryLoaded {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
@@ -403,7 +403,7 @@ private struct ChatBootstrapLoadingView: View {
     var body: some View {
         ChatLoadingSkeleton()
             .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Getting ready")
             .opacity(visible ? 1 : 0)
