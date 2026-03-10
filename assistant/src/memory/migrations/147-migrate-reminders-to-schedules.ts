@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
@@ -46,9 +44,9 @@ export function migrateRemindersToSchedules(database: DrizzleDb): void {
         .get();
       if (!hasReminders) return;
 
-      // Read all reminders into memory so we can generate a UUID per row.
-      // The cron_jobs table uses TEXT PRIMARY KEY, and we need fresh UUIDs to
-      // avoid collisions with any existing cron_jobs rows.
+      // Read all reminders into memory. We use the reminder's original ID as
+      // the cron_jobs primary key so that INSERT OR IGNORE deduplicates
+      // correctly if the migration re-runs after a crash.
       const reminders = raw.query("SELECT * FROM reminders").all() as Array<{
         id: string;
         label: string;
@@ -98,7 +96,7 @@ export function migrateRemindersToSchedules(database: DrizzleDb): void {
           };
 
           insert.run(
-            randomUUID(),
+            r.id,
             r.label,
             r.status === "pending" ? 1 : 0,
             // message, next_run_at, last_run_at, last_status
