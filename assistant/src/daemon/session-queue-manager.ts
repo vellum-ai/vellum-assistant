@@ -26,8 +26,6 @@ export interface QueuedMessage {
   turnInterfaceContext?: TurnInterfaceContext;
   /** When false, the turn has no interactive user and should skip clarification prompts. */
   isInteractive?: boolean;
-  /** Timestamp (ms) when the message was enqueued. */
-  queuedAt: number;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
 }
@@ -92,7 +90,6 @@ export class MessageQueue {
       );
       return false;
     }
-    item.queuedAt = Date.now();
     this.items.push(item);
     this.currentBytes += itemBytes;
     return true;

@@ -1774,7 +1774,6 @@ describe("MessageQueue byte budget", () => {
       })),
       requestId,
       onEvent: () => {},
-      queuedAt: 0,
     };
   }
 

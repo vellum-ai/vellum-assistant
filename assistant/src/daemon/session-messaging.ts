@@ -236,7 +236,6 @@ export function enqueueMessage(
     turnChannelContext,
     turnInterfaceContext,
     isInteractive: options?.isInteractive,
-    queuedAt: Date.now(),
     displayContent,
   });
   if (!accepted) {
