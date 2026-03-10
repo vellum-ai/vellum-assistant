@@ -199,9 +199,8 @@ describe("Memory context benchmark", () => {
       config: {
         ...DEFAULT_CONFIG.contextWindow,
         maxInputTokens: 6000,
-        targetInputTokens: 3200,
+        targetBudgetRatio: 0.58,
         compactThreshold: 0.6,
-        preserveRecentUserTurns: 8,
         summaryBudgetRatio: 0.05,
       },
     });

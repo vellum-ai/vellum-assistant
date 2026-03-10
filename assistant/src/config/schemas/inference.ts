@@ -80,24 +80,18 @@ export const ContextWindowConfigSchema = z.object({
     .int("contextWindow.maxInputTokens must be an integer")
     .positive("contextWindow.maxInputTokens must be a positive integer")
     .default(200000),
-  targetInputTokens: z
-    .number({ error: "contextWindow.targetInputTokens must be a number" })
-    .int("contextWindow.targetInputTokens must be an integer")
-    .positive("contextWindow.targetInputTokens must be a positive integer")
-    .default(110000),
+  targetBudgetRatio: z
+    .number({ error: "contextWindow.targetBudgetRatio must be a number" })
+    .finite("contextWindow.targetBudgetRatio must be finite")
+    .gt(0, "contextWindow.targetBudgetRatio must be greater than 0")
+    .lte(1, "contextWindow.targetBudgetRatio must be less than or equal to 1")
+    .default(0.3),
   compactThreshold: z
     .number({ error: "contextWindow.compactThreshold must be a number" })
     .finite("contextWindow.compactThreshold must be finite")
     .gt(0, "contextWindow.compactThreshold must be greater than 0")
     .lte(1, "contextWindow.compactThreshold must be less than or equal to 1")
     .default(0.8),
-  preserveRecentUserTurns: z
-    .number({ error: "contextWindow.preserveRecentUserTurns must be a number" })
-    .int("contextWindow.preserveRecentUserTurns must be an integer")
-    .positive(
-      "contextWindow.preserveRecentUserTurns must be a positive integer",
-    )
-    .default(8),
   summaryBudgetRatio: z
     .number({ error: "contextWindow.summaryBudgetRatio must be a number" })
     .finite("contextWindow.summaryBudgetRatio must be finite")

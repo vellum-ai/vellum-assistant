@@ -430,9 +430,8 @@ describe("Context + Memory E2E regression", () => {
       config: {
         ...DEFAULT_CONFIG.contextWindow,
         maxInputTokens: 5200,
-        targetInputTokens: 2600,
+        targetBudgetRatio: 0.55,
         compactThreshold: 0.55,
-        preserveRecentUserTurns: 6,
         summaryBudgetRatio: 0.05,
       },
     });

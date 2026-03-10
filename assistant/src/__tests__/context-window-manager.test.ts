@@ -20,9 +20,8 @@ function makeConfig(
   return {
     enabled: true,
     maxInputTokens: 450,
-    targetInputTokens: 300,
+    targetBudgetRatio: 0.67,
     compactThreshold: 0.6,
-    preserveRecentUserTurns: 2,
     summaryBudgetRatio: 0.05,
     overflowRecovery: {
       enabled: true,
@@ -84,7 +83,7 @@ describe("ContextWindowManager", () => {
     const manager = new ContextWindowManager({
       provider,
       systemPrompt: "system prompt",
-      config: makeConfig(),
+      config: makeConfig({ maxInputTokens: 600 }),
     });
     const long = "x".repeat(240);
     const history: Message[] = [
@@ -146,8 +145,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 7_000,
-        targetInputTokens: 2_500,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.41,
       }),
     });
     const long = "q".repeat(6_000);
@@ -186,8 +184,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 300,
-        targetInputTokens: 160,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.58,
       }),
     });
     const long = "y".repeat(220);
@@ -226,8 +223,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 140,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.59,
       }),
     });
     const long = "z".repeat(220);
@@ -265,8 +261,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 280,
-        targetInputTokens: 150,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.59,
       }),
     });
     const long = "f".repeat(220);
@@ -314,8 +309,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 320,
-        targetInputTokens: 170,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.58,
       }),
     });
     const long = "k".repeat(220);
@@ -362,8 +356,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 320,
-        targetInputTokens: 170,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.58,
       }),
     });
     const long = "k".repeat(220);
@@ -423,8 +416,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 2600,
-        targetInputTokens: 1500,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.63,
       }),
     });
     const long = "c".repeat(5000);
@@ -468,8 +460,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 180,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.74,
       }),
     });
     const long = "c".repeat(220);
@@ -498,8 +489,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 320,
-        targetInputTokens: 180,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.61,
       }),
     });
     const long = "p".repeat(340);
@@ -530,8 +520,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 180,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.74,
       }),
     });
     const long = "c".repeat(220);
@@ -564,9 +553,8 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 7000,
-        targetInputTokens: 5000,
+        targetBudgetRatio: 0.76,
         compactThreshold: 0.8,
-        preserveRecentUserTurns: 1,
       }),
     });
 
@@ -616,8 +604,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 60,
-        preserveRecentUserTurns: 2,
+        targetBudgetRatio: 0.28,
       }),
     });
     const long = "e".repeat(220);
@@ -632,7 +619,7 @@ describe("ContextWindowManager", () => {
       minKeepRecentUserTurns: 0,
     });
     expect(result.compacted).toBe(true);
-    // With minKeepRecentUserTurns=0 and a tight targetInputTokens budget,
+    // With minKeepRecentUserTurns=0 and a tight target budget,
     // pickKeepBoundary drops keepTurns all the way to 0.
     // All three messages are compacted into a single summary message.
     expect(result.compactedMessages).toBe(3);
@@ -712,8 +699,7 @@ describe("ContextWindowManager", () => {
     // Use generous default target so normal compaction would keep all 3 user turns.
     const config = makeConfig({
       maxInputTokens: 1200,
-      targetInputTokens: 1000,
-      preserveRecentUserTurns: 3,
+      targetBudgetRatio: 0.88,
     });
     const long = "t".repeat(220);
     const history: Message[] = [
