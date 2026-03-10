@@ -1339,6 +1339,8 @@ public final class HTTPTransport {
         // Reconnect SSE to the new conversation's event stream.
         // Reset backoff so the reconnect is immediate.
         sseReconnectDelay = 1.0
+        sseReconnectTask?.cancel()
+        sseReconnectTask = nil
         if sseTask != nil {
             startSSEStream()
         }
@@ -3153,7 +3155,13 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = ["conversationId": conversationId]
+        var body: [String: Any] = ["conversationId": conversationId]
+        // Include the current conversationKey so the backend maps it to this
+        // conversation. This is important for restored threads whose thread
+        // UUID (used as conversationKey) differs from the original.
+        if !conversationKey.isEmpty {
+            body["conversationKey"] = conversationKey
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
