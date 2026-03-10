@@ -288,6 +288,10 @@ export function selectEmbeddingBackend(
               new GeminiEmbeddingBackend(
                 config.apiKeys.gemini,
                 config.memory.embeddings.geminiModel,
+                {
+                  taskType: config.memory.embeddings.geminiTaskType,
+                  dimensions: config.memory.embeddings.geminiDimensions,
+                },
               ),
           ),
           reason: null,
@@ -494,6 +498,10 @@ function selectFallbackBackends(
                 new GeminiEmbeddingBackend(
                   config.apiKeys.gemini,
                   config.memory.embeddings.geminiModel,
+                  {
+                    taskType: config.memory.embeddings.geminiTaskType,
+                    dimensions: config.memory.embeddings.geminiDimensions,
+                  },
                 ),
             ),
           );
