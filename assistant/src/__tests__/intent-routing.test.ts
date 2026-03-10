@@ -113,15 +113,14 @@ describe("Task/Schedule/Reminder routing section in system prompt", () => {
   test("system prompt includes the routing section heading", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain(
-      "## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications",
+      "## Tool Routing: Tasks vs Schedules vs Notifications",
     );
   });
 
-  test("routing section lists all four tools in the summary table", () => {
+  test("routing section lists all three tools in the summary table", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("`task_list_add`");
     expect(prompt).toContain("`schedule_create`");
-    expect(prompt).toContain("`reminder_create`");
     expect(prompt).toContain("`send_notification`");
   });
 
@@ -156,7 +155,7 @@ describe("Task/Schedule/Reminder routing section in system prompt", () => {
   test("routing section is present in the system prompt", () => {
     const prompt = buildSystemPrompt();
     const taskRoutingIdx = prompt.indexOf(
-      "## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications",
+      "## Tool Routing: Tasks vs Schedules vs Notifications",
     );
     expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
   });

@@ -828,7 +828,17 @@ export async function buildMemoryRecall(
   // degradation state. This ensures results computed with boosted limits
   // are marked degraded and excluded from the recall cache — preventing
   // stale boosted results from being served after the breaker closes.
-  if (collected.semanticSearchFailed || collected.semanticUnavailable) {
+  //
+  // Exception: when semanticUnavailable is solely because no embedding
+  // provider is configured (queryVector == null) and embeddings are not
+  // required, lexical-only results are the expected steady state — do not
+  // mark as degraded.
+  const semanticActuallyFailed =
+    collected.semanticSearchFailed ||
+    (collected.semanticUnavailable &&
+      (embeddingResult.queryVector != null ||
+        config.memory.embeddings.required));
+  if (semanticActuallyFailed) {
     embeddingResult.degraded = true;
     embeddingResult.reason =
       embeddingResult.reason ??
