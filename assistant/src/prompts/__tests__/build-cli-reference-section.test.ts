@@ -32,6 +32,17 @@ describe("buildCliReferenceSection", () => {
     expect(result).toContain("available via `bash`");
   });
 
+  test("routes account and auth work through documented assistant CLI commands", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain(
+      "prefer real `assistant` CLI workflows over any legacy account-record abstraction",
+    );
+    expect(result).toContain("assistant credentials");
+    expect(result).toContain("assistant oauth token <service>");
+    expect(result).toContain("assistant mcp auth <name>");
+    expect(result).toContain("assistant platform status");
+  });
+
   test("result is cached — calling twice returns the same string", () => {
     const first = buildCliReferenceSection();
     const second = buildCliReferenceSection();
