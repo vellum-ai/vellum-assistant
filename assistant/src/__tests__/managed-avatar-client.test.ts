@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { createHash } from "crypto";
+
 // ---------------------------------------------------------------------------
 // Mock dependencies — must be before importing the module under test
 // ---------------------------------------------------------------------------
@@ -40,10 +42,12 @@ let fetchResponse: {
   ok: boolean;
   status: number;
   json: () => Promise<unknown>;
+  text: () => Promise<string>;
 } = {
   ok: true,
   status: 200,
   json: async () => ({}),
+  text: async () => "",
 };
 
 globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -56,6 +60,7 @@ import {
   AVATAR_MAX_DECODED_BYTES,
   AVATAR_PROMPT_MAX_LENGTH,
   ManagedAvatarError,
+  VERTEX_IMAGE_DEFAULT_MODEL,
 } from "../media/avatar-types.js";
 import {
   generateManagedAvatar,
@@ -66,18 +71,16 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const SMALL_PNG_BASE64 = "iVBORw0KGgo=";
+
 function successResponse() {
   return {
-    image: {
-      mime_type: "image/png",
-      data_base64: "iVBORw0KGgo=",
-      bytes: 1024,
-      sha256: "abc123",
-    },
-    usage: { billable: true, class_name: "avatar" },
-    generation_source: "managed",
-    profile: "default",
-    correlation_id: "test-corr-id",
+    predictions: [
+      {
+        bytesBase64Encoded: SMALL_PNG_BASE64,
+        mimeType: "image/png",
+      },
+    ],
   };
 }
 
@@ -94,6 +97,7 @@ beforeEach(() => {
     ok: true,
     status: 200,
     json: async () => successResponse(),
+    text: async () => JSON.stringify(successResponse()),
   };
 });
 
@@ -102,9 +106,61 @@ describe("generateManagedAvatar", () => {
     const result = await generateManagedAvatar("a friendly robot avatar");
 
     expect(result.image.mime_type).toBe("image/png");
-    expect(result.image.data_base64).toBe("iVBORw0KGgo=");
-    expect(result.image.bytes).toBe(1024);
-    expect(result.generation_source).toBe("managed");
+    expect(result.image.data_base64).toBe(SMALL_PNG_BASE64);
+    // bytes is computed from base64 length, not from the server response
+    const padding = SMALL_PNG_BASE64.endsWith("==")
+      ? 2
+      : SMALL_PNG_BASE64.endsWith("=")
+        ? 1
+        : 0;
+    const expectedBytes =
+      Math.ceil((SMALL_PNG_BASE64.length * 3) / 4) - padding;
+    expect(result.image.bytes).toBe(expectedBytes);
+    const expectedSha256 = createHash("sha256")
+      .update(Buffer.from(SMALL_PNG_BASE64, "base64"))
+      .digest("hex");
+    expect(result.image.sha256).toBe(expectedSha256);
+    expect(result.generation_source).toBe("vertex");
+    expect(result.profile).toBe(VERTEX_IMAGE_DEFAULT_MODEL);
+    expect(result.usage.billable).toBe(true);
+    expect(result.usage.class_name).toBe("image_generation");
+    expect(result.correlation_id).toBeDefined();
+  });
+
+  test("fetch URL matches runtime proxy Vertex endpoint with default model", async () => {
+    await generateManagedAvatar("test prompt");
+
+    expect(lastFetchArgs).not.toBeNull();
+    const url = lastFetchArgs![0];
+    expect(url).toBe(
+      `https://platform.vellum.ai/v1/runtime-proxy/vertex/v1/models/${VERTEX_IMAGE_DEFAULT_MODEL}:predict`,
+    );
+  });
+
+  test("custom model is used in the URL path", async () => {
+    const customModel = "imagen-3.0-fast-generate-001";
+    await generateManagedAvatar("test prompt", { model: customModel });
+
+    expect(lastFetchArgs).not.toBeNull();
+    const url = lastFetchArgs![0];
+    expect(url).toBe(
+      `https://platform.vellum.ai/v1/runtime-proxy/vertex/v1/models/${customModel}:predict`,
+    );
+  });
+
+  test("request body uses Vertex Imagen format", async () => {
+    await generateManagedAvatar("a cool robot");
+
+    expect(lastFetchArgs).not.toBeNull();
+    const body = JSON.parse(lastFetchArgs![1].body as string);
+    expect(body).toEqual({
+      instances: [{ prompt: "a cool robot" }],
+      parameters: {
+        sampleCount: 1,
+        aspectRatio: "1:1",
+        outputOptions: { mimeType: "image/png" },
+      },
+    });
   });
 
   test("prompt exceeding max length throws ManagedAvatarError with code validation_error", async () => {
@@ -125,13 +181,8 @@ describe("generateManagedAvatar", () => {
     fetchResponse = {
       ok: false,
       status: 429,
-      json: async () => ({
-        code: "rate_limit",
-        subcode: "too_many_requests",
-        detail: "Rate limit exceeded",
-        retryable: true,
-        correlation_id: "corr-429",
-      }),
+      json: async () => ({}),
+      text: async () => "Rate limit exceeded",
     };
 
     try {
@@ -142,20 +193,17 @@ describe("generateManagedAvatar", () => {
       const avatarErr = err as ManagedAvatarError;
       expect(avatarErr.retryable).toBe(true);
       expect(avatarErr.statusCode).toBe(429);
+      expect(avatarErr.code).toBe("upstream_error");
+      expect(avatarErr.subcode).toBe("http_error");
     }
   });
 
-  test("HTTP 500 response throws ManagedAvatarError with upstream error details", async () => {
+  test("HTTP 500 response throws retryable ManagedAvatarError", async () => {
     fetchResponse = {
       ok: false,
       status: 500,
-      json: async () => ({
-        code: "internal_error",
-        subcode: "server_fault",
-        detail: "Internal server error",
-        retryable: true,
-        correlation_id: "corr-500",
-      }),
+      json: async () => ({}),
+      text: async () => "Internal server error",
     };
 
     try {
@@ -164,9 +212,31 @@ describe("generateManagedAvatar", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ManagedAvatarError);
       const avatarErr = err as ManagedAvatarError;
-      expect(avatarErr.code).toBe("internal_error");
-      expect(avatarErr.subcode).toBe("server_fault");
+      expect(avatarErr.code).toBe("upstream_error");
+      expect(avatarErr.subcode).toBe("http_error");
       expect(avatarErr.statusCode).toBe(500);
+      expect(avatarErr.retryable).toBe(true);
+    }
+  });
+
+  test("HTTP 400 response throws non-retryable ManagedAvatarError", async () => {
+    fetchResponse = {
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => "Model not allowed on this platform",
+    };
+
+    try {
+      await generateManagedAvatar("test prompt");
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ManagedAvatarError);
+      const avatarErr = err as ManagedAvatarError;
+      expect(avatarErr.code).toBe("upstream_error");
+      expect(avatarErr.subcode).toBe("http_error");
+      expect(avatarErr.statusCode).toBe(400);
+      expect(avatarErr.retryable).toBe(false);
     }
   });
 
@@ -175,9 +245,14 @@ describe("generateManagedAvatar", () => {
       ok: true,
       status: 200,
       json: async () => ({
-        ...successResponse(),
-        image: { ...successResponse().image, mime_type: "image/gif" },
+        predictions: [
+          {
+            bytesBase64Encoded: SMALL_PNG_BASE64,
+            mimeType: "image/gif",
+          },
+        ],
       }),
+      text: async () => "",
     };
 
     try {
@@ -191,33 +266,7 @@ describe("generateManagedAvatar", () => {
     }
   });
 
-  test("response with oversized bytes throws validation error", async () => {
-    fetchResponse = {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        ...successResponse(),
-        image: {
-          ...successResponse().image,
-          bytes: AVATAR_MAX_DECODED_BYTES + 1,
-        },
-      }),
-    };
-
-    try {
-      await generateManagedAvatar("test prompt");
-      expect(true).toBe(false);
-    } catch (err) {
-      expect(err).toBeInstanceOf(ManagedAvatarError);
-      const avatarErr = err as ManagedAvatarError;
-      expect(avatarErr.code).toBe("validation_error");
-      expect(avatarErr.subcode).toBe("oversized_image");
-    }
-  });
-
-  test("response with oversized base64 estimated decoded size throws validation error", async () => {
-    // Create a base64 string whose estimated decoded size exceeds the limit,
-    // even though the server-reported bytes field is under the limit
+  test("response with oversized image throws validation error", async () => {
     const oversizedBase64 = "A".repeat(
       Math.ceil(((AVATAR_MAX_DECODED_BYTES + 100) * 4) / 3),
     );
@@ -225,13 +274,14 @@ describe("generateManagedAvatar", () => {
       ok: true,
       status: 200,
       json: async () => ({
-        ...successResponse(),
-        image: {
-          ...successResponse().image,
-          data_base64: oversizedBase64,
-          bytes: 1024,
-        },
+        predictions: [
+          {
+            bytesBase64Encoded: oversizedBase64,
+            mimeType: "image/png",
+          },
+        ],
       }),
+      text: async () => "",
     };
 
     try {
