@@ -143,7 +143,7 @@ function createSkillOnDisk(
   const skillsDir = join(TEST_DIR, "skills");
   mkdirSync(join(skillsDir, id), { recursive: true });
   const ffBlock = featureFlag
-    ? `\nmetadata:\n  vellum:\n    feature-flag: "${featureFlag}"`
+    ? `\nmetadata: {"vellum":{"feature-flag":"${featureFlag}"}}`
     : "";
   writeFileSync(
     join(skillsDir, id, "SKILL.md"),
