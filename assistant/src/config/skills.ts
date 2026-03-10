@@ -98,8 +98,6 @@ export interface VellumMetadata {
   install?: InstallerSpec[];
   /** Declares a standalone CLI entry point for this skill. */
   cli?: SkillCliSpec;
-  /** Feature flag ID that gates this skill. When set, the skill is hidden/blocked if the flag is disabled. */
-  featureFlag?: string;
 }
 
 export interface SkillRequirements {
