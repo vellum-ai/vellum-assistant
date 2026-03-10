@@ -13,7 +13,7 @@ import {
   expandSnippets,
 } from "../dictation-text-processing.js";
 import type { DictationRequest } from "../message-protocol.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 // Action verbs for fast heuristic fallback (used when LLM classifier is unavailable)
 const ACTION_VERBS = [
@@ -471,7 +471,3 @@ async function handleCommandMode(
     });
   }
 }
-
-export const dictationHandlers = defineHandlers({
-  dictation_request: handleDictationRequest,
-});

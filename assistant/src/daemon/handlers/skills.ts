@@ -51,7 +51,6 @@ import type {
 } from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
-  defineHandlers,
   ensureSkillEntry,
   type HandlerContext,
   log,
@@ -929,19 +928,3 @@ export async function handleSkillsCreate(
     ...result,
   });
 }
-
-export const skillHandlers = defineHandlers({
-  skills_list: (_msg, ctx) => handleSkillsList(ctx),
-  skill_detail: handleSkillDetail,
-  skills_enable: handleSkillsEnable,
-  skills_disable: handleSkillsDisable,
-  skills_configure: handleSkillsConfigure,
-  skills_install: handleSkillsInstall,
-  skills_uninstall: handleSkillsUninstall,
-  skills_update: handleSkillsUpdate,
-  skills_check_updates: handleSkillsCheckUpdates,
-  skills_search: handleSkillsSearch,
-  skills_inspect: handleSkillsInspect,
-  skills_draft: handleSkillsDraft,
-  skills_create: handleSkillsCreate,
-});
