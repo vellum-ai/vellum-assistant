@@ -1110,7 +1110,11 @@ function applyFeatureGatedSections(body: string): string {
 function appendReferenceFiles(body: string, directoryPath: string): string {
   try {
     const refsDir = join(directoryPath, "references");
-    if (!existsSync(refsDir) || !statSync(refsDir).isDirectory()) {
+    if (
+      !existsSync(refsDir) ||
+      lstatSync(refsDir).isSymbolicLink() ||
+      !statSync(refsDir).isDirectory()
+    ) {
       return body;
     }
 
