@@ -45,9 +45,16 @@ export async function execute(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
-  const message = input.message as string;
+  const rawMessage = input.message as string;
   const processName = (input.process_name as string) ?? "Vellum";
   const waitSeconds = (input.wait_seconds as number) ?? 10;
+
+  // Resolve ${ENV_VAR} patterns in the message from process.env so the
+  // agent can include environment variable values (e.g. ${TWILIO_ACCOUNT_SID})
+  // without needing a separate type_env_var step.
+  const message = rawMessage.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
+    return process.env[name] ?? `\${${name}}`;
+  });
 
   // Escape the message for AppleScript string literal
   const escaped = message.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");

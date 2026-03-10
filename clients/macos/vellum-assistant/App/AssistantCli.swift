@@ -308,38 +308,14 @@ final class AssistantCli {
         }
     }
 
-    /// Start a periodic health check that restarts the daemon if it dies.
-    /// No-op in dev mode (no bundled CLI binary) or when the assistant
-    /// is not registered in the lock file.
+    /// Previously ran a periodic health check that restarted the daemon if it
+    /// died. The desktop app now relies on the daemon being managed externally
+    /// (via `vellum hatch` / `vellum wake`) and no longer attempts restarts.
     func startMonitoring() {
-        guard cliBinaryURL != nil else { return }
-
-        // Don't start monitoring if the assistant isn't in the lock file
-        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        if let assistantId, !isAssistantInLockFile(assistantId: assistantId) {
-            log.info("Assistant '\(assistantId, privacy: .private)' not in lock file — skipping monitor start")
-            return
-        }
-
-        isStopping = false
-        consecutiveCrashes = 0
-        stopMonitoring()
-
-        healthCheckTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: Self.healthCheckIntervalNanos)
-                guard let self, !Task.isCancelled, !self.isStopping else { return }
-
-                if !self.isDaemonAlive() {
-                    log.warning("Daemon process not running — attempting restart")
-                    await self.restartDaemon()
-                } else if !self.isGatewayAlive() {
-                    log.warning("Gateway process not running (daemon alive) — attempting restart")
-                    await self.restartDaemon(daemonOnly: false, restart: true)
-                }
-            }
-        }
-
+        // Intentionally a no-op. The daemon lifecycle is managed by the CLI,
+        // not the desktop app. Restart attempts from the app caused noise
+        // (repeated "Daemon process not running" errors) and interfered with
+        // externally-managed daemon instances.
     }
 
     /// Stop the health monitor.

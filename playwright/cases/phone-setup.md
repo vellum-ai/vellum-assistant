@@ -15,7 +15,7 @@ Verify that we're able to configure everything needed for the assistant to be ab
 2. Open a chat thread
 3. Send the message "Can you make phone calls for me?"
 4. Verify that the assistant responds in the affirmative that it is able to make phone calls, but that some initial setup is needed. If prompted, state that you already have a Twilio account.
-5. You should first be asked for your Twilio Account SID. Provide this conversationally through the chat.
+5. You should first be asked for your Twilio Account SID. Provide this conversationally through the chat by including `${TWILIO_ACCOUNT_SID}` in your message (it will be resolved automatically).
 6. You should then be asked for your Twilio Auth Token. Verify that you are asked to supply it securely through a separate window. Use the `fill_secure_credential` tool to enter it.
 7. From there, continue the conversation naturally. At some point, you should be asked for your ngrok Auth Token. Verify that you are asked to supply it securely through a separate window. Use the `fill_secure_credential` tool to enter it.
 8. Continue the conversation naturally. At some point you should be asked what voice you want the assistant to have and be presented with a few options to choose from. Pick any voice.
