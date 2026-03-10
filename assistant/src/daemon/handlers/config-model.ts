@@ -11,7 +11,6 @@ import type {
 import { MODEL_TO_PROVIDER } from "../session-slash.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
-  defineHandlers,
   type HandlerContext,
   log,
 } from "./shared.js";
@@ -195,8 +194,3 @@ export function handleImageGenModelSet(
   }
 }
 
-export const modelHandlers = defineHandlers({
-  model_get: (_msg, ctx) => handleModelGet(ctx),
-  model_set: handleModelSet,
-  image_gen_model_set: handleImageGenModelSet,
-});

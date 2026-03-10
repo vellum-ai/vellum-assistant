@@ -61,7 +61,6 @@ import {
 } from "./session-history.js";
 import { handleUserMessage } from "./session-user-message.js";
 import {
-  defineHandlers,
   type HandlerContext,
   log,
   pendingStandaloneSecrets,
@@ -764,23 +763,3 @@ export function handleReorderThreads(
   );
 }
 
-export const sessionHandlers = defineHandlers({
-  user_message: handleUserMessage,
-  confirmation_response: handleConfirmationResponse,
-  secret_response: handleSecretResponse,
-  session_list: (msg, ctx) =>
-    handleSessionList(ctx, msg.offset ?? 0, msg.limit ?? 50),
-  session_create: handleSessionCreate,
-  sessions_clear: (_msg, ctx) => handleSessionsClear(ctx),
-  session_switch: handleSessionSwitch,
-  session_rename: handleSessionRename,
-  cancel: handleCancel,
-  delete_queued_message: handleDeleteQueuedMessage,
-  history_request: handleHistoryRequest,
-  message_content_request: handleMessageContentRequest,
-  undo: handleUndo,
-  regenerate: handleRegenerate,
-  usage_request: handleUsageRequest,
-  conversation_search: handleConversationSearch,
-  reorder_threads: handleReorderThreads,
-});

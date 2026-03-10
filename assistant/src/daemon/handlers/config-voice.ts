@@ -1,5 +1,5 @@
 import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 /**
  * Send a client_settings_update message to all connected clients.
@@ -214,6 +214,3 @@ export function handleVoiceConfigUpdate(
   );
 }
 
-export const voiceHandlers = defineHandlers({
-  voice_config_update: handleVoiceConfigUpdate,
-});
