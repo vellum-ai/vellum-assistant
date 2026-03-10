@@ -86,7 +86,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcTrustContext: () => ({
+  resolveLocalTrustContext: () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
