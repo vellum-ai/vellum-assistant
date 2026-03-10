@@ -69,6 +69,7 @@ const VellumMetadataSchema = z
     "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
     includes: z.array(z.string()).optional(),
     "credential-setup-for": z.string().optional(),
+    "feature-flag": z.string().optional(),
   })
   .passthrough();
 
@@ -96,6 +97,8 @@ export interface VellumMetadata {
   install?: InstallerSpec[];
   /** Declares a standalone CLI entry point for this skill. */
   cli?: SkillCliSpec;
+  /** Feature flag ID that gates this skill. When set, the skill is hidden/blocked if the flag is disabled. */
+  featureFlag?: string;
 }
 
 export interface SkillRequirements {
@@ -136,6 +139,8 @@ export interface SkillSummary {
   includes?: string[];
   /** Declares which credential this skill sets up (e.g. "vercel:api_token"). */
   credentialSetupFor?: string;
+  /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
+  featureFlag?: string;
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -329,6 +334,7 @@ interface ParsedFrontmatter {
   metadata?: VellumMetadata;
   includes?: string[];
   credentialSetupFor?: string;
+  featureFlag?: string;
 }
 
 function parseFrontmatter(
@@ -459,6 +465,11 @@ function parseFrontmatter(
       ? vellum["credential-setup-for"]
       : undefined;
 
+  const featureFlag =
+    typeof vellum?.["feature-flag"] === "string"
+      ? vellum["feature-flag"]
+      : undefined;
+
   const displayName =
     (typeof vellum?.["display-name"] === "string"
       ? vellum["display-name"]
@@ -474,6 +485,7 @@ function parseFrontmatter(
     metadata,
     includes,
     credentialSetupFor,
+    featureFlag,
   };
 }
 
@@ -628,6 +640,7 @@ function readSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
+      featureFlag: parsed.featureFlag,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read skill file");
@@ -678,6 +691,7 @@ function readBundledSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
+      featureFlag: parsed.featureFlag,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
@@ -736,6 +750,7 @@ function loadBundledSkills(): SkillSummary[] {
       toolManifest: skill.toolManifest,
       includes: skill.includes,
       credentialSetupFor: skill.credentialSetupFor,
+      featureFlag: skill.featureFlag,
     });
   }
 
@@ -873,6 +888,7 @@ function skillSummaryFromDefinition(
     toolManifest: skill.toolManifest,
     includes: skill.includes,
     credentialSetupFor: skill.credentialSetupFor,
+    featureFlag: skill.featureFlag,
   };
 }
 
@@ -925,6 +941,7 @@ export function loadSkillCatalog(
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
             credentialSetupFor: parsed.credentialSetupFor,
+            featureFlag: parsed.featureFlag,
           });
         } catch (err) {
           log.warn({ err, directory }, "Failed to read skill from extraDirs");
@@ -1021,6 +1038,7 @@ export function loadSkillCatalog(
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
           credentialSetupFor: parsed.credentialSetupFor,
+          featureFlag: parsed.featureFlag,
         };
 
         if (seenIds.has(id)) {
