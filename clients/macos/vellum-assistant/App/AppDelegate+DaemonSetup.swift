@@ -450,19 +450,43 @@ extension AppDelegate {
     func checkAndApplyPrivacyFlag() {
         Task {
             do {
-                let flags = try await daemonClient.getFeatureFlags()
-                let collectUsageData = flags
-                    .first(where: { $0.key == "feature_flags.collect-usage-data.enabled" })
-                    .map { $0.enabled }
-                    ?? true
-                // Persist so MetricKitManager can check this flag synchronously
-                // during the startup window on the next launch, regardless of
-                // whether the user has visited the Privacy settings tab.
-                UserDefaults.standard.set(collectUsageData, forKey: "collectUsageDataEnabled")
-                if !collectUsageData {
-                    // Route through sentrySerialQueue to prevent races with
-                    // concurrent MetricKit captures or manual report sends.
-                    MetricKitManager.closeSentry()
+                let featureFlagKey = "feature_flags.collect-usage-data.enabled"
+
+                // Check if the user explicitly set the privacy preference during
+                // onboarding (before the daemon was available). If so, push that
+                // choice TO the daemon so it persists server-side, rather than
+                // letting the daemon's default (true) silently overwrite the
+                // user's opt-out.
+                if let onboardingValue = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool {
+                    let flags = try await daemonClient.getFeatureFlags()
+                    let daemonValue = flags
+                        .first(where: { $0.key == featureFlagKey })
+                        .map { $0.enabled }
+                        ?? true
+
+                    if onboardingValue != daemonValue {
+                        try await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
+                    }
+
+                    if !onboardingValue {
+                        MetricKitManager.closeSentry()
+                    }
+                } else {
+                    // No local preference set — use the daemon's value as before.
+                    let flags = try await daemonClient.getFeatureFlags()
+                    let collectUsageData = flags
+                        .first(where: { $0.key == featureFlagKey })
+                        .map { $0.enabled }
+                        ?? true
+                    // Persist so MetricKitManager can check this flag synchronously
+                    // during the startup window on the next launch, regardless of
+                    // whether the user has visited the Privacy settings tab.
+                    UserDefaults.standard.set(collectUsageData, forKey: "collectUsageDataEnabled")
+                    if !collectUsageData {
+                        // Route through sentrySerialQueue to prevent races with
+                        // concurrent MetricKit captures or manual report sends.
+                        MetricKitManager.closeSentry()
+                    }
                 }
             } catch {
                 // Flag check is best-effort; Sentry stays active when the flag
