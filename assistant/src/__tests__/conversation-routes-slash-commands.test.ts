@@ -188,6 +188,7 @@ function makeSession() {
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
     isProcessing: () => false,
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},

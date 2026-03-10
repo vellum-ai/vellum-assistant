@@ -683,6 +683,8 @@ export async function handleSendMessage(
     assistantMessageInterface: sourceInterface,
   });
 
+  await session.ensureActorScopedHistory();
+
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
   const config = getConfig();
@@ -764,7 +766,7 @@ export async function handleSendMessage(
   } catch (err) {
     // Reset preactivated skill IDs so a stale activation doesn't leak
     // into the next message if persistence fails.
-    session.setPreactivatedSkillIds([]);
+    session.setPreactivatedSkillIds(undefined);
     throw err;
   }
 
