@@ -181,7 +181,7 @@ public final class SkillsStore: ObservableObject {
                 }
                 return nil
             }
-            if let result, !result.isEmpty {
+            if let result {
                 searchResults = result
                 lastSearchQuery = query
             }
@@ -258,19 +258,19 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            let data = await stream.firstMatch { message -> ClawhubInspectData? in
+            let response = await stream.firstMatch { message -> SkillsInspectResponseMessage? in
                 if case .skillsInspectResponse(let response) = message,
                    response.slug == slug {
-                    return response.data
+                    return response
                 }
                 return nil
             }
             guard currentInspectSlug == slug else { return }
-            if let data {
+            if let data = response?.data {
                 inspectedSkill = data
                 inspectCache[slug] = data
             } else {
-                inspectError = "Inspection timed out"
+                inspectError = response?.error ?? "Inspection timed out"
             }
             isInspecting = false
         }
@@ -424,18 +424,18 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            let success = await stream.firstMatch { message -> Bool? in
+            let response = await stream.firstMatch { message -> SkillsOperationResponseMessage? in
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "create" {
-                    return response.success
+                    return response
                 }
                 return nil
             }
             guard generation == self.createGeneration else { return }
-            if success == true {
+            if response?.success == true {
                 fetchSkills(force: true)
-            } else if success == false {
-                createError = "Failed to create skill"
+            } else if let response {
+                createError = response.error ?? "Failed to create skill"
             }
             isCreating = false
         }
