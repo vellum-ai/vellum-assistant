@@ -35,7 +35,7 @@ export type TitleOrigin =
   | "subagent"
   | "sequence"
   | "heartbeat"
-  | "ipc"
+  | "local"
   | "task_submit"
   | "misc";
 
