@@ -22,7 +22,7 @@ const ALLOWLIST = new Set([
   // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
-  "clients/shared/IPC/DaemonClient.swift",
+  "clients/shared/Network/DaemonClient.swift",
   "clients/macos/vellum-assistant/App/AppDelegate.swift",
   "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
   ".claude/skills/update/SKILL.md", // daemon health check script
