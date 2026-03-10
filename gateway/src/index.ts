@@ -792,13 +792,15 @@ async function main() {
 
       // Attach a trace ID to every non-healthcheck request for
       // end-to-end correlation across webhook -> runtime -> reply.
+      // Set the header directly on the incoming request instead of cloning
+      // via `new Request(req, { headers })` — the clone triggers Bun's
+      // internal toArrayBuffer which can sporadically throw
+      // "SharedArrayBuffer is not defined" in Bun 1.3.x.
       const traceId = req.headers.get("x-trace-id") || generateTraceId();
-      const headers = new Headers(req.headers);
-      headers.set("x-trace-id", traceId);
-      const tracedReq = new Request(req, { headers });
+      req.headers.set("x-trace-id", traceId);
 
       // ── Route table dispatch ──
-      const response = router(tracedReq, url, resolveClientIp);
+      const response = router(req, url, resolveClientIp);
       if (response !== null) return response;
 
       return Response.json(
