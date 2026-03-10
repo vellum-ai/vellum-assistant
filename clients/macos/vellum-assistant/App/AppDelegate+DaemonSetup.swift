@@ -460,10 +460,6 @@ extension AppDelegate {
                 // UserDefaults key always non-nil and blocking daemon sync.
                 if UserDefaults.standard.bool(forKey: "collectUsageDataExplicitlySet"),
                    let onboardingValue = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool {
-                    // Clear the explicit-set flag so subsequent reconnects
-                    // resume daemon-as-source-of-truth behavior.
-                    UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
-
                     // Always apply Sentry state locally first, regardless of
                     // whether the daemon sync succeeds — the user's explicit
                     // choice must take effect immediately.
@@ -471,17 +467,23 @@ extension AppDelegate {
                         MetricKitManager.closeSentry()
                     }
 
-                    // Best-effort sync to daemon; failure is tolerable because
-                    // the local preference is already applied above.
-                    let flags = try await daemonClient.getFeatureFlags()
-                    let daemonValue = flags
-                        .first(where: { $0.key == featureFlagKey })
-                        .map { $0.enabled }
-                        ?? true
+                    // Best-effort sync to daemon. Use try? so failure doesn't
+                    // propagate to the outer catch and skip flag cleanup.
+                    if let flags = try? await daemonClient.getFeatureFlags() {
+                        let daemonValue = flags
+                            .first(where: { $0.key == featureFlagKey })
+                            .map { $0.enabled }
+                            ?? true
 
-                    if onboardingValue != daemonValue {
-                        try await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
+                        if onboardingValue != daemonValue {
+                            try? await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
+                        }
                     }
+
+                    // Clear the explicit-set flag only after the sync attempt
+                    // completes (success or best-effort failure). This ensures
+                    // the flag persists if we never reach this point.
+                    UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
                 } else {
                     // No explicit user interaction — use the daemon's value
                     // as the source of truth.
