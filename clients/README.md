@@ -15,7 +15,7 @@ For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 clients/
 ├── Package.swift              # Multi-platform Swift Package Manager manifest
 ├── shared/                    # VellumAssistantShared - cross-platform code
-│   ├── IPC/                   # Daemon communication (DaemonClient, DaemonConfig, IPCMessages)
+│   ├── Network/                # Daemon communication (DaemonClient, DaemonConfig, MessageTypes)
 │   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
 │   ├── Features/Skills/       # SkillsStore — cross-platform skills data operations
 │   ├── Features/Contacts/     # ContactsStore — cross-platform contacts data operations
@@ -52,10 +52,10 @@ clients/
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
-- **Network layer** (`DaemonClient`, `IPCMessages`, `Generated/GeneratedAPITypes`) - HTTP+SSE communication with the assistant
+- **Network layer** (`DaemonClient`, `MessageTypes`, `Generated/GeneratedAPITypes`) - HTTP+SSE communication with the assistant
   - macOS: HTTP+SSE to the local daemon runtime server
   - iOS: HTTP+SSE through the gateway
-  - Wire types are auto-generated from the TS contract; `IPCMessages.swift` provides
+  - Wire types are auto-generated from the TS contract; `MessageTypes.swift` provides
     typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
     types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
 - **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
@@ -152,7 +152,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 **~45-50% code reuse** between macOS and iOS achieved through:
 
-1. **Shared IPC layer** - Both platforms communicate with the assistant (different transport)
+1. **Shared network layer** - Both platforms communicate with the assistant (different transport)
 2. **Shared design system** - Tokens and components with conditional compilation
 3. **Shared ViewModels** - ChatViewModel, message models work on both platforms
 
@@ -174,12 +174,12 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ### Adding macOS-Only Code
 1. Place in `clients/macos/vellum-assistant/`
-2. Import `VellumAssistantShared` for access to IPC types
+2. Import `VellumAssistantShared` for access to network types
 3. Can use AppKit, ScreenCaptureKit, etc. freely
 
 ### Adding iOS Code
 1. Place in `clients/ios/App/` (app lifecycle) or `clients/ios/Views/` (UI)
-2. Import `VellumAssistantShared` for IPC, design tokens, ViewModels
+2. Import `VellumAssistantShared` for network types, design tokens, ViewModels
 3. DO NOT import `VellumAssistantLib` (macOS-only)
 4. Use `#if os(iOS)` guards if sharing files with macOS
 
@@ -188,7 +188,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 ## Known Limitations
 
 ### iOS Signing Operations
-- iOS clients return explicit error responses when the assistant sends signing requests (macOS-specific IPC)
+- iOS clients return explicit error responses when the assistant sends signing requests (macOS-specific operations)
 - Unsupported operations (`signBundlePayload`, `getSigningIdentity`) are logged and answered with an error message rather than silently dropped
 
 ### iOS Gateway Networking
