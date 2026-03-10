@@ -3753,7 +3753,9 @@ describe("Permission Checker", () => {
         );
         expect(noMatchResult.decision).toBe("prompt");
         expect(noMatchResult.reason).toContain("ask rule");
-        expect(noMatchResult.matchedRule?.id).toBe("default:ask-host_bash-global");
+        expect(noMatchResult.matchedRule?.id).toBe(
+          "default:ask-host_bash-global",
+        );
       });
     });
 

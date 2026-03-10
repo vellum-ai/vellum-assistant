@@ -351,11 +351,7 @@ async function handleStandaloneRecordingIntent(
       handleRecordingStop(msg.sessionId, ctx);
     }
     if (intentResult.kind === "start_with_remainder") {
-      handleRecordingStart(
-        msg.sessionId,
-        { promptForSource: true },
-        ctx,
-      );
+      handleRecordingStart(msg.sessionId, { promptForSource: true }, ctx);
     }
     if (
       intentResult.kind === "restart_with_remainder" ||
@@ -367,11 +363,7 @@ async function handleStandaloneRecordingIntent(
         restartResult.reason === "no_active_recording" &&
         intentResult.kind === "start_and_stop_with_remainder"
       ) {
-        handleRecordingStart(
-          msg.sessionId,
-          { promptForSource: true },
-          ctx,
-        );
+        handleRecordingStart(msg.sessionId, { promptForSource: true }, ctx);
       }
     }
 
@@ -678,15 +670,8 @@ function buildDispatchUserMessage(params: {
   ctx: HandlerContext;
   rlog: typeof log;
 }): DispatchUserMessageFn {
-  const {
-    msg,
-    session,
-    sendEvent,
-    ipcChannel,
-    ipcInterface,
-    ctx,
-    rlog,
-  } = params;
+  const { msg, session, sendEvent, ipcChannel, ipcInterface, ctx, rlog } =
+    params;
 
   const queuedChannelMetadata = {
     userMessageChannel: ipcChannel,
@@ -795,7 +780,7 @@ function buildDispatchUserMessage(params: {
           message: `Failed to process message: ${message}`,
         });
         const classified = classifySessionError(err, { phase: "agent_loop" });
-        ctx.send( buildSessionErrorMessage(msg.sessionId, classified));
+        ctx.send(buildSessionErrorMessage(msg.sessionId, classified));
       });
   };
 }
@@ -928,11 +913,11 @@ export async function handleUserMessage(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, "Error setting up user message processing");
-    ctx.send( {
+    ctx.send({
       type: "error",
       message: `Failed to process message: ${message}`,
     });
     const classified = classifySessionError(err, { phase: "handler" });
-    ctx.send( buildSessionErrorMessage(msg.sessionId, classified));
+    ctx.send(buildSessionErrorMessage(msg.sessionId, classified));
   }
 }

@@ -804,6 +804,15 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls (have toolUseId, not complete, no inputRawDict)
+                // as complete/cancelled so they don't remain in a dangling incomplete state.
+                for tcIdx in messages[index].toolCalls.indices {
+                    let tc = messages[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        messages[index].toolCalls[tcIdx].isComplete = true
+                        messages[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
             }
             currentAssistantMessageId = nil
             currentTurnUserText = nil
@@ -997,6 +1006,14 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls as complete on terminal error
+                for tcIdx in messages[index].toolCalls.indices {
+                    let tc = messages[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        messages[index].toolCalls[tcIdx].isComplete = true
+                        messages[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
             }
             currentAssistantMessageId = nil
             currentTurnUserText = nil
@@ -1131,6 +1148,53 @@ extension ChatViewModel {
                 messages.append(confirmMsg)
             }
 
+        case .toolUsePreviewStart(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            guard !isLoadingHistory else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
+            // Suppress preview chip for proxy tools — the inline surface widget replaces them.
+            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" {
+                break
+            }
+            // Flush buffered text so it lands before the tool call in content order.
+            flushStreamingBuffer()
+            // If a chip with the same toolUseId already exists (e.g. toolUseStart
+            // arrived before this preview), ignore the late preview.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }),
+               messages[index].toolCalls.contains(where: { $0.toolUseId == msg.toolUseId }) {
+                break
+            }
+            isThinking = false
+            var toolCall = ToolCallData(
+                toolName: msg.toolName,
+                inputSummary: "Preparing...",
+                inputFull: "",
+                inputRawValue: "",
+                arrivedBeforeText: !currentAssistantHasText,
+                startedAt: Date()
+            )
+            toolCall.toolUseId = msg.toolUseId
+            // Add to existing assistant message or create one.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }),
+               messages[index].toolCalls.count < 100 {
+                let tcIdx = messages[index].toolCalls.count
+                messages[index].toolCalls.append(toolCall)
+                messages[index].contentOrder.append(.toolCall(tcIdx))
+            } else {
+                if let existingId = currentAssistantMessageId,
+                   let oldIndex = messages.firstIndex(where: { $0.id == existingId }) {
+                    messages[oldIndex].isStreaming = false
+                }
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                newMsg.contentOrder = [.toolCall(0)]
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+            lastContentWasToolCall = true
+
         case .toolUseStart(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
@@ -1160,6 +1224,21 @@ extension ChatViewModel {
                 default: return nil
                 }
             }()
+            // Upsert by toolUseId: if a preview chip already exists for this tool, update it
+            // instead of creating a duplicate.
+            if let toolUseId = msg.toolUseId,
+               let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                messages[msgIndex].toolCalls[tcIndex].inputSummary = summarizeToolInput(msg.input)
+                messages[msgIndex].toolCalls[tcIndex].inputFull = formatAllToolInput(msg.input)
+                messages[msgIndex].toolCalls[tcIndex].inputRawValue = extractToolInput(msg.input)
+                messages[msgIndex].toolCalls[tcIndex].inputRawDict = msg.input
+                messages[msgIndex].toolCalls[tcIndex].buildingStatus = buildingStatus
+                messages[msgIndex].toolCalls[tcIndex].reasonDescription = (msg.input["reason"]?.value as? String)
+                    ?? (msg.input["reasoning"]?.value as? String)
+                break
+            }
             var toolCall = ToolCallData(
                 toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
@@ -1170,6 +1249,7 @@ extension ChatViewModel {
             )
             toolCall.buildingStatus = buildingStatus
             toolCall.toolUseId = msg.toolUseId
+            toolCall.inputRawDict = msg.input
             toolCall.reasonDescription = (msg.input["reason"]?.value as? String)
                 ?? (msg.input["reasoning"]?.value as? String)
             // Add to existing assistant message or create one.
@@ -1200,7 +1280,16 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             let preview = Self.extractCodePreview(from: msg.content, toolName: msg.toolName)
-            if let existingId = currentAssistantMessageId,
+            // If toolUseId is present, find the matching tool call and update its streaming preview.
+            if let toolUseId = msg.toolUseId,
+               let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                // Update code preview on the message for the matched tool call
+                messages[msgIndex].streamingCodePreview = preview
+                messages[msgIndex].streamingCodeToolName = msg.toolName
+                _ = tcIndex // suppress unused warning — match confirms the tool call exists
+            } else if let existingId = currentAssistantMessageId,
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[msgIndex].streamingCodePreview = preview
                 messages[msgIndex].streamingCodeToolName = msg.toolName
@@ -1263,38 +1352,50 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
-            // Find the most recent pending (incomplete) tool call.
-            // First check currentAssistantMessageId, then fall back to searching
-            // backward through messages (handles message rotation from tool call cap).
+            // Find the matching tool call.
+            // Prefer matching by toolUseId (stable identifier) over positional heuristics.
             var targetMsgIndex: Int?
             var targetTcIndex: Int?
-            if let existingId = currentAssistantMessageId,
-               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
-               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
-                targetMsgIndex = msgIndex
-                targetTcIndex = tcIndex
-            } else if let existingId = currentAssistantMessageId,
-                      let currentIdx = messages.firstIndex(where: { $0.id == existingId }) {
-                // Current assistant message has no incomplete tool calls.
-                // Search backward from current message position for rotated messages.
-                for i in stride(from: currentIdx - 1, through: max(0, currentIdx - 5), by: -1) {
-                    guard messages[i].role == .assistant else { continue }
-                    if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+            if let toolUseId = msg.toolUseId {
+                // Search all messages for a tool call with matching toolUseId
+                for i in stride(from: messages.count - 1, through: 0, by: -1) {
+                    if let tcIndex = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
                         targetMsgIndex = i
                         targetTcIndex = tcIndex
                         break
                     }
                 }
-            } else {
-                // currentAssistantMessageId is nil — search backward within current turn
-                // (reconnect scenario where there are no queued messages).
-                let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) ?? 0
-                for i in stride(from: messages.count - 1, through: lastUserIndex, by: -1) {
-                    guard messages[i].role == .assistant else { continue }
-                    if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
-                        targetMsgIndex = i
-                        targetTcIndex = tcIndex
-                        break
+            }
+            // Fall back to existing positional heuristic if no ID match.
+            if targetMsgIndex == nil {
+                if let existingId = currentAssistantMessageId,
+                   let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+                   let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                    targetMsgIndex = msgIndex
+                    targetTcIndex = tcIndex
+                } else if let existingId = currentAssistantMessageId,
+                          let currentIdx = messages.firstIndex(where: { $0.id == existingId }) {
+                    // Current assistant message has no incomplete tool calls.
+                    // Search backward from current message position for rotated messages.
+                    for i in stride(from: currentIdx - 1, through: max(0, currentIdx - 5), by: -1) {
+                        guard messages[i].role == .assistant else { continue }
+                        if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                            targetMsgIndex = i
+                            targetTcIndex = tcIndex
+                            break
+                        }
+                    }
+                } else {
+                    // currentAssistantMessageId is nil — search backward within current turn
+                    // (reconnect scenario where there are no queued messages).
+                    let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) ?? 0
+                    for i in stride(from: messages.count - 1, through: lastUserIndex, by: -1) {
+                        guard messages[i].role == .assistant else { continue }
+                        if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                            targetMsgIndex = i
+                            targetTcIndex = tcIndex
+                            break
+                        }
                     }
                 }
             }
@@ -1505,6 +1606,14 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls as complete on session error
+                for tcIdx in messages[index].toolCalls.indices {
+                    let tc = messages[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        messages[index].toolCalls[tcIdx].isComplete = true
+                        messages[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
             }
             currentAssistantMessageId = nil
             currentTurnUserText = nil

@@ -45,7 +45,7 @@ export function resolveWorkspacePath(relativePath: string): string | undefined {
     }
 
     let ancestor = resolved;
-     
+
     while (true) {
       const parent = resolve(ancestor, "..");
       if (parent === ancestor) break; // reached filesystem root

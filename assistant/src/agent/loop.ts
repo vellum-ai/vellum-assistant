@@ -64,7 +64,13 @@ export type AgentEvent =
       status?: string;
       contentBlocks?: ContentBlock[];
     }
-  | { type: "input_json_delta"; toolName: string; accumulatedJson: string }
+  | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
+  | {
+      type: "input_json_delta";
+      toolName: string;
+      toolUseId: string;
+      accumulatedJson: string;
+    }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -294,10 +300,17 @@ export class AgentLoop {
                 }
               } else if (event.type === "thinking_delta") {
                 onEvent({ type: "thinking_delta", thinking: event.thinking });
+              } else if (event.type === "tool_use_preview_start") {
+                onEvent({
+                  type: "tool_use_preview_start",
+                  toolUseId: event.toolUseId,
+                  toolName: event.toolName,
+                });
               } else if (event.type === "input_json_delta") {
                 onEvent({
                   type: "input_json_delta",
                   toolName: event.toolName,
+                  toolUseId: event.toolUseId,
                   accumulatedJson: event.accumulatedJson,
                 });
               }

@@ -40,12 +40,12 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Subject patterns:**
 
-| Pattern                                  | Principal Type | Description                                 |
-| ---------------------------------------- | -------------- | ------------------------------------------- |
-| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                 |
-| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)         |
-| `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections                |
-| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)                |
+| Pattern                                  | Principal Type | Description                         |
+| ---------------------------------------- | -------------- | ----------------------------------- |
+| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client         |
+| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks) |
+| `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections        |
+| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)        |
 
 **Scope profiles:**
 

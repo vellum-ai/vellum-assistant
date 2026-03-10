@@ -45,7 +45,10 @@ export function getModelInfo(): ModelInfo {
  * Keeps the business logic decoupled from IPC-specific HandlerContext.
  */
 export interface ModelSetContext {
-  sessions: Map<string, { isProcessing(): boolean; dispose(): void; markStale(): void }>;
+  sessions: Map<
+    string,
+    { isProcessing(): boolean; dispose(): void; markStale(): void }
+  >;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
@@ -128,10 +131,7 @@ export function setModel(modelId: string, ctx: ModelSetContext): ModelInfo {
 /**
  * Set the image generation model. Throws on failure.
  */
-export function setImageGenModel(
-  modelId: string,
-  ctx: ModelSetContext,
-): void {
+export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
   const raw = loadRawConfig();
   raw.imageGenModel = modelId;
 

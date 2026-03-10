@@ -79,32 +79,52 @@ export function migrateRemindersToSchedules(database: DrizzleDb): void {
         )
       `);
 
-      for (const r of reminders) {
-        const statusMap: Record<string, string> = {
-          pending: "active",
-          firing: "firing",
-          fired: "fired",
-          cancelled: "cancelled",
-        };
+      // Mark migrated pending reminders as fired so the legacy
+      // claimDueReminders path doesn't fire them a second time.
+      const markFired = raw.query(/*sql*/ `
+        UPDATE reminders SET status = 'fired', fired_at = ?
+        WHERE id = ? AND status = 'pending'
+      `);
 
-        insert.run(
-          randomUUID(),
-          r.label,
-          r.status === "pending" ? 1 : 0,
-          // message, next_run_at, last_run_at, last_status
-          r.message,
-          r.fire_at,
-          r.fired_at,
-          r.status === "fired" ? "ok" : null,
-          // mode, routing_intent, routing_hints_json, status
-          r.mode,
-          r.routing_intent,
-          r.routing_hints_json,
-          statusMap[r.status] ?? "active",
-          // created_at, updated_at
-          r.created_at,
-          r.updated_at,
-        );
+      try {
+        raw.exec("BEGIN");
+
+        for (const r of reminders) {
+          const statusMap: Record<string, string> = {
+            pending: "active",
+            firing: "firing",
+            fired: "fired",
+            cancelled: "cancelled",
+          };
+
+          insert.run(
+            randomUUID(),
+            r.label,
+            r.status === "pending" ? 1 : 0,
+            // message, next_run_at, last_run_at, last_status
+            r.message,
+            r.fire_at,
+            r.fired_at,
+            r.status === "fired" ? "ok" : null,
+            // mode, routing_intent, routing_hints_json, status
+            r.mode,
+            r.routing_intent,
+            r.routing_hints_json,
+            statusMap[r.status] ?? "active",
+            // created_at, updated_at
+            r.created_at,
+            r.updated_at,
+          );
+
+          if (r.status === "pending") {
+            markFired.run(Date.now(), r.id);
+          }
+        }
+
+        raw.exec("COMMIT");
+      } catch (err) {
+        raw.exec("ROLLBACK");
+        throw err;
       }
     },
   );

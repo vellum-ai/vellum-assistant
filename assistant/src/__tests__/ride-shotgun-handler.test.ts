@@ -248,10 +248,7 @@ describe("ride-shotgun-handler", () => {
 
     // Find the session and stop it
     const watchId = [...watchSessions.keys()][0]!;
-    await handleRideShotgunStop(
-      { type: "ride_shotgun_stop", watchId },
-      ctx,
-    );
+    await handleRideShotgunStop({ type: "ride_shotgun_stop", watchId }, ctx);
 
     expect(mockMinimizeCalled).toBe(true);
     expect(mockMinimizeBaseUrl).toBe("http://localhost:9222");
@@ -282,10 +279,7 @@ describe("ride-shotgun-handler", () => {
 
     // Find the session and stop it
     const watchId = [...watchSessions.keys()][0]!;
-    await handleRideShotgunStop(
-      { type: "ride_shotgun_stop", watchId },
-      ctx,
-    );
+    await handleRideShotgunStop({ type: "ride_shotgun_stop", watchId }, ctx);
 
     expect(mockMinimizeCalled).toBe(false);
   });
@@ -311,10 +305,7 @@ describe("ride-shotgun-handler", () => {
 
     // Clean up
     const watchId = [...watchSessions.keys()][0]!;
-    await handleRideShotgunStop(
-      { type: "ride_shotgun_stop", watchId },
-      ctx,
-    );
+    await handleRideShotgunStop({ type: "ride_shotgun_stop", watchId }, ctx);
   });
 
   test("sends watch_started message with session IDs", async () => {
@@ -342,10 +333,7 @@ describe("ride-shotgun-handler", () => {
 
     // Clean up
     const watchId = startMsg.watchId;
-    await handleRideShotgunStop(
-      { type: "ride_shotgun_stop", watchId },
-      ctx,
-    );
+    await handleRideShotgunStop({ type: "ride_shotgun_stop", watchId }, ctx);
   });
 
   test("sends ride_shotgun_error when ensureChromeWithCdp fails", async () => {

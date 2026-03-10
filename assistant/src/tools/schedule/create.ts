@@ -1,16 +1,24 @@
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
+import type {
+  RoutingIntent,
+  ScheduleMode,
+} from "../../schedule/schedule-store.js";
 import {
   createSchedule,
   describeCronExpression,
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
-import type { ScheduleMode } from "../../schedule/schedule-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute"];
+const VALID_ROUTING_INTENTS: RoutingIntent[] = [
+  "single_channel",
+  "multi_channel",
+  "all_channels",
+];
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -48,8 +56,27 @@ export async function executeScheduleCreate(
     };
   }
 
+  // Validate routing_intent
+  if (
+    routingIntent !== undefined &&
+    !VALID_ROUTING_INTENTS.includes(routingIntent as RoutingIntent)
+  ) {
+    return {
+      content: `Error: routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
+      isError: true,
+    };
+  }
+
   // ── One-shot schedule (fire_at) ──────────────────────────────────
   if (fireAt) {
+    // Require explicit timezone (Z or ±HH:MM offset) to avoid host-timezone ambiguity
+    if (!/(?:Z|[+-]\d{2}:\d{2})\s*$/.test(fireAt)) {
+      return {
+        content:
+          "Error: fire_at must include a timezone offset (e.g. 2025-06-15T09:00:00Z or 2025-06-15T09:00:00+05:30)",
+        isError: true,
+      };
+    }
     const fireAtMs = Date.parse(fireAt);
     if (isNaN(fireAtMs)) {
       return {
@@ -76,11 +103,7 @@ export async function executeScheduleCreate(
         expression: null,
         nextRunAt: fireAtMs,
         mode,
-        routingIntent: routingIntent as
-          | "single_channel"
-          | "multi_channel"
-          | "all_channels"
-          | undefined,
+        routingIntent: routingIntent as RoutingIntent | undefined,
         routingHints,
       });
 
@@ -155,11 +178,7 @@ export async function executeScheduleCreate(
       syntax: resolved.syntax,
       expression: resolved.expression,
       mode,
-      routingIntent: routingIntent as
-        | "single_channel"
-        | "multi_channel"
-        | "all_channels"
-        | undefined,
+      routingIntent: routingIntent as RoutingIntent | undefined,
       routingHints,
     });
 

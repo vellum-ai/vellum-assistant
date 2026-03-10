@@ -183,6 +183,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Copy all existing reminders into cron_jobs as one-shot schedules with correct status and field mapping",
   },
+  {
+    key: "migration_drop_reminders_table_v1",
+    version: 27,
+    dependsOn: ["migration_reminders_to_schedules_v1"],
+    description:
+      "Drop the legacy reminders table and its index after data migration to cron_jobs",
+  },
 ];
 
 export interface MigrationValidationResult {

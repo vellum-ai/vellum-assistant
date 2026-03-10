@@ -44,6 +44,9 @@ export class TelegramStreamingDelivery {
       case "assistant_text_delta":
         this.onTextDelta(msg.text);
         break;
+      case "tool_use_preview_start":
+        // Early preview of tool use — ignored by Telegram; full tool_use_start follows.
+        break;
       case "tool_use_start":
         // Flush buffer and send an edit so the message is up-to-date before the tool runs
         if (this.buffer.length > 0 && this.currentMessageId) {

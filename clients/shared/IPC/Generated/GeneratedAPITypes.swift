@@ -4783,12 +4783,15 @@ public struct IPCToolInputDelta: Codable, Sendable {
     public let toolName: String
     public let content: String
     public let sessionId: String?
+    /// The tool_use block ID for client-side correlation.
+    public let toolUseId: String?
 
-    public init(type: String, toolName: String, content: String, sessionId: String? = nil) {
+    public init(type: String, toolName: String, content: String, sessionId: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.content = content
         self.sessionId = sessionId
+        self.toolUseId = toolUseId
     }
 }
 
@@ -4946,8 +4949,10 @@ public struct IPCToolResult: Codable, Sendable {
     public let sessionId: String?
     /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
+    /// The tool_use block ID for client-side correlation.
+    public let toolUseId: String?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: IPCToolResultDiff? = nil, status: String? = nil, sessionId: String? = nil, imageData: String? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: IPCToolResultDiff? = nil, status: String? = nil, sessionId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4956,6 +4961,7 @@ public struct IPCToolResult: Codable, Sendable {
         self.status = status
         self.sessionId = sessionId
         self.imageData = imageData
+        self.toolUseId = toolUseId
     }
 }
 
@@ -4970,6 +4976,20 @@ public struct IPCToolResultDiff: Codable, Sendable {
         self.oldContent = oldContent
         self.newContent = newContent
         self.isNewFile = isNewFile
+    }
+}
+
+public struct IPCToolUsePreviewStart: Codable, Sendable {
+    public let type: String
+    public let toolUseId: String
+    public let toolName: String
+    public let sessionId: String?
+
+    public init(type: String, toolUseId: String, toolName: String, sessionId: String? = nil) {
+        self.type = type
+        self.toolUseId = toolUseId
+        self.toolName = toolName
+        self.sessionId = sessionId
     }
 }
 

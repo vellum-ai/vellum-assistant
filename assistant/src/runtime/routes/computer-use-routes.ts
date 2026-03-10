@@ -51,13 +51,15 @@ export interface ComputerUseDeps {
   /** Handle a ride-shotgun stop request. */
   handleRideShotgunStop: (watchId: string) => Promise<void>;
   /** Get ride-shotgun session status by watchId. */
-  getRideShotgunStatus: (watchId: string) => {
-    status: "active" | "completing" | "completed" | "cancelled";
-    sessionId: string;
-    recordingId?: string;
-    savedRecordingPath?: string;
-    bootstrapFailureReason?: string;
-  } | undefined;
+  getRideShotgunStatus: (watchId: string) =>
+    | {
+        status: "active" | "completing" | "completed" | "cancelled";
+        sessionId: string;
+        recordingId?: string;
+        savedRecordingPath?: string;
+        bootstrapFailureReason?: string;
+      }
+    | undefined;
   /** Handle a watch observation. */
   handleWatchObservation: (params: {
     watchId: string;
@@ -126,10 +128,18 @@ async function handleCreateSession(
     return httpError("BAD_REQUEST", "task is required", 400);
   }
   if (typeof screenWidth !== "number" || screenWidth <= 0) {
-    return httpError("BAD_REQUEST", "screenWidth must be a positive number", 400);
+    return httpError(
+      "BAD_REQUEST",
+      "screenWidth must be a positive number",
+      400,
+    );
   }
   if (typeof screenHeight !== "number" || screenHeight <= 0) {
-    return httpError("BAD_REQUEST", "screenHeight must be a positive number", 400);
+    return httpError(
+      "BAD_REQUEST",
+      "screenHeight must be a positive number",
+      400,
+    );
   }
 
   // Abort any existing session with the same ID to prevent zombies
@@ -157,13 +167,15 @@ async function handleCreateSession(
   const sessionRef: { current?: ComputerUseSession } = {};
   const onTerminal = (sid: string) => {
     removeCuSessionReferences(deps, sid, sessionRef.current);
-    log.info({ sessionId: sid }, "Computer-use session cleaned up after terminal state");
+    log.info(
+      { sessionId: sid },
+      "Computer-use session cleaned up after terminal state",
+    );
   };
 
   // Dynamic import to avoid circular dependency
-  const { ComputerUseSession: CUSession } = await import(
-    "../../daemon/computer-use-session.js"
-  );
+  const { ComputerUseSession: CUSession } =
+    await import("../../daemon/computer-use-session.js");
 
   const session = new CUSession(
     sessionId,
@@ -316,10 +328,18 @@ async function handleTaskSubmit(
     return httpError("BAD_REQUEST", "task is required", 400);
   }
   if (typeof screenWidth !== "number" || screenWidth <= 0) {
-    return httpError("BAD_REQUEST", "screenWidth must be a positive number", 400);
+    return httpError(
+      "BAD_REQUEST",
+      "screenWidth must be a positive number",
+      400,
+    );
   }
   if (typeof screenHeight !== "number" || screenHeight <= 0) {
-    return httpError("BAD_REQUEST", "screenHeight must be a positive number", 400);
+    return httpError(
+      "BAD_REQUEST",
+      "screenHeight must be a positive number",
+      400,
+    );
   }
 
   const sessionId = crypto.randomUUID();
@@ -343,12 +363,14 @@ async function handleTaskSubmit(
   const sessionRef: { current?: ComputerUseSession } = {};
   const onTerminal = (sid: string) => {
     removeCuSessionReferences(deps, sid, sessionRef.current);
-    log.info({ sessionId: sid }, "Computer-use session cleaned up after terminal state");
+    log.info(
+      { sessionId: sid },
+      "Computer-use session cleaned up after terminal state",
+    );
   };
 
-  const { ComputerUseSession: CUSession } = await import(
-    "../../daemon/computer-use-session.js"
-  );
+  const { ComputerUseSession: CUSession } =
+    await import("../../daemon/computer-use-session.js");
 
   const session = new CUSession(
     sessionId,
@@ -393,13 +415,28 @@ async function handleRideShotgunStartRoute(
     autoNavigate?: boolean;
   };
 
-  const { durationSeconds, intervalSeconds, mode, targetDomain, navigateDomain, autoNavigate } = body;
+  const {
+    durationSeconds,
+    intervalSeconds,
+    mode,
+    targetDomain,
+    navigateDomain,
+    autoNavigate,
+  } = body;
 
   if (typeof durationSeconds !== "number" || durationSeconds <= 0) {
-    return httpError("BAD_REQUEST", "durationSeconds must be a positive number", 400);
+    return httpError(
+      "BAD_REQUEST",
+      "durationSeconds must be a positive number",
+      400,
+    );
   }
   if (typeof intervalSeconds !== "number" || intervalSeconds <= 0) {
-    return httpError("BAD_REQUEST", "intervalSeconds must be a positive number", 400);
+    return httpError(
+      "BAD_REQUEST",
+      "intervalSeconds must be a positive number",
+      400,
+    );
   }
 
   try {
@@ -413,7 +450,12 @@ async function handleRideShotgunStartRoute(
     });
 
     log.info(
-      { watchId: result.watchId, sessionId: result.sessionId, durationSeconds, mode },
+      {
+        watchId: result.watchId,
+        sessionId: result.sessionId,
+        durationSeconds,
+        mode,
+      },
       "Ride shotgun started via HTTP",
     );
 
@@ -447,7 +489,10 @@ async function handleRideShotgunStopRoute(
     return Response.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, watchId: body.watchId }, "Failed to stop ride shotgun via HTTP");
+    log.error(
+      { err, watchId: body.watchId },
+      "Failed to stop ride shotgun via HTTP",
+    );
     return httpError("INTERNAL_ERROR", message, 500);
   }
 }
@@ -523,7 +568,10 @@ async function handleWatchObservationRoute(
     return Response.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, watchId: body.watchId }, "Failed to handle watch observation via HTTP");
+    log.error(
+      { err, watchId: body.watchId },
+      "Failed to handle watch observation via HTTP",
+    );
     return httpError("INTERNAL_ERROR", message, 500);
   }
 }
@@ -583,7 +631,8 @@ export function computerUseRouteDefinitions(deps: {
       endpoint: "computer-use/ride-shotgun/status/:watchId",
       method: "GET",
       policyKey: "computer-use/ride-shotgun/status",
-      handler: ({ params }) => handleRideShotgunStatusRoute(params.watchId, getDeps()),
+      handler: ({ params }) =>
+        handleRideShotgunStatusRoute(params.watchId, getDeps()),
     },
     {
       endpoint: "computer-use/watch",

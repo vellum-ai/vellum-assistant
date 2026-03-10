@@ -12,4 +12,4 @@ _ or available tools. Focus on what matters to the user experience.
 _
 _ To add release notes, replace this content with real markdown
 _ describing what changed. The sync will only materialize a bulletin
-\_ when non-comment content is present.
+_ when non-comment content is present.

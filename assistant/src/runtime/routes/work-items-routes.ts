@@ -283,8 +283,7 @@ export function getWorkItemOutput(id: string): WorkItemOutputResult {
   if (!summary && msgs.length > 0) {
     const toolHighlights = extractToolHighlights(msgs, 10);
     if (toolHighlights.length > 0) {
-      summary =
-        "Task completed. Tool outcomes:\n" + toolHighlights.join("\n");
+      summary = "Task completed. Tool outcomes:\n" + toolHighlights.join("\n");
       highlights = toolHighlights.slice(0, 5);
     }
   }
@@ -458,10 +457,7 @@ export function workItemRouteDefinitions(
         // Don't allow overwriting a cancelled status
         if (body.status !== undefined) {
           const existing = getWorkItem(params.id);
-          if (
-            existing?.status === "cancelled" &&
-            body.status !== "cancelled"
-          ) {
+          if (existing?.status === "cancelled" && body.status !== "cancelled") {
             return Response.json({ item: existing });
           }
         }
@@ -497,7 +493,11 @@ export function workItemRouteDefinitions(
       handler: ({ params }) => {
         const existing = getWorkItem(params.id);
         if (!existing) {
-          return httpError("NOT_FOUND", `Work item not found: ${params.id}`, 404);
+          return httpError(
+            "NOT_FOUND",
+            `Work item not found: ${params.id}`,
+            404,
+          );
         }
         if (existing.status !== "awaiting_review") {
           return httpError(
@@ -580,9 +580,16 @@ export function workItemRouteDefinitions(
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { approvedTools?: string[] };
         if (!Array.isArray(body.approvedTools)) {
-          return httpError("BAD_REQUEST", "approvedTools array is required", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "approvedTools array is required",
+            400,
+          );
         }
-        const result = approveWorkItemPermissions(params.id, body.approvedTools);
+        const result = approveWorkItemPermissions(
+          params.id,
+          body.approvedTools,
+        );
         if (!result.success) {
           return httpError("NOT_FOUND", result.error!, 404);
         }
@@ -620,11 +627,7 @@ export function workItemRouteDefinitions(
         }
 
         if (workItem.status === "running") {
-          return httpError(
-            "CONFLICT",
-            "Work item is already running",
-            409,
-          );
+          return httpError("CONFLICT", "Work item is already running", 409);
         }
 
         const NON_RUNNABLE_STATUSES: readonly string[] = ["archived"];
@@ -755,10 +758,7 @@ export function workItemRouteDefinitions(
             if (session) {
               (session as { headlessLock: boolean }).headlessLock = false;
             }
-            log.error(
-              { err, workItemId },
-              "work_item_run_task (HTTP) failed",
-            );
+            log.error({ err, workItemId }, "work_item_run_task (HTTP) failed");
             updateWorkItem(workItemId, {
               status: "failed",
               lastRunStatus: "failed",
@@ -797,11 +797,7 @@ export function workItemRouteDefinitions(
             { err, workItemId: params.id },
             "GET /v1/work-items/:id/output failed",
           );
-          return httpError(
-            "INTERNAL_ERROR",
-            "Failed to load task output",
-            500,
-          );
+          return httpError("INTERNAL_ERROR", "Failed to load task output", 500);
         }
       },
     },

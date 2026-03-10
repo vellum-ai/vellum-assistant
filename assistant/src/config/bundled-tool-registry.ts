@@ -135,10 +135,6 @@ import * as playbookCreate from "./bundled-skills/playbooks/tools/playbook-creat
 import * as playbookDelete from "./bundled-skills/playbooks/tools/playbook-delete.js";
 import * as playbookList from "./bundled-skills/playbooks/tools/playbook-list.js";
 import * as playbookUpdate from "./bundled-skills/playbooks/tools/playbook-update.js";
-import * as reminderCancel from "./bundled-skills/reminder/tools/reminder-cancel.js";
-// ── reminder ─────────────────────────────────────────────────────────────────
-import * as reminderCreate from "./bundled-skills/reminder/tools/reminder-create.js";
-import * as reminderList from "./bundled-skills/reminder/tools/reminder-list.js";
 // ── schedule ─────────────────────────────────────────────────────────────────
 import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create.js";
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
@@ -327,11 +323,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["playbooks:tools/playbook-list.ts", playbookList],
   ["playbooks:tools/playbook-update.ts", playbookUpdate],
   ["playbooks:tools/playbook-delete.ts", playbookDelete],
-
-  // reminder
-  ["reminder:tools/reminder-create.ts", reminderCreate],
-  ["reminder:tools/reminder-list.ts", reminderList],
-  ["reminder:tools/reminder-cancel.ts", reminderCancel],
 
   // schedule
   ["schedule:tools/schedule-create.ts", scheduleCreate],

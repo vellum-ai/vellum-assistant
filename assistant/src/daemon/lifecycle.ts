@@ -181,9 +181,7 @@ export async function runDaemon(): Promise<void> {
       chmodSync(httpTokenPath, 0o600);
       log.info("Daemon startup: CLI edge token written");
     } else {
-      log.warn(
-        "No guardian principal available — CLI edge token not written",
-      );
+      log.warn("No guardian principal available — CLI edge token not written");
     }
 
     try {
@@ -301,11 +299,11 @@ export async function runDaemon(): Promise<void> {
             : undefined,
         );
       },
-      (reminder) => {
+      (schedule) => {
         void emitNotificationSignal({
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           sourceChannel: "scheduler",
-          sourceSessionId: reminder.id,
+          sourceSessionId: schedule.id,
           attentionHints: {
             requiresAction: true,
             urgency: "high",
@@ -313,13 +311,13 @@ export async function runDaemon(): Promise<void> {
             visibleInSourceNow: false,
           },
           contextPayload: {
-            reminderId: reminder.id,
-            label: reminder.label,
-            message: reminder.message,
+            scheduleId: schedule.id,
+            label: schedule.label,
+            message: schedule.message,
           },
-          routingIntent: reminder.routingIntent,
-          routingHints: reminder.routingHints,
-          dedupeKey: `reminder:${reminder.id}`,
+          routingIntent: schedule.routingIntent,
+          routingHints: schedule.routingHints,
+          dedupeKey: `schedule:notify:${schedule.id}`,
         });
       },
       (schedule) => {

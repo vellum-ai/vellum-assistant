@@ -32,7 +32,6 @@ If Team Jarvis has approved your new tool:
 2. Use `git commit --no-verify` to bypass the hook
 3. Include the approval context in your PR description
 
-
 ## Questions?
 
 Contact Team Jarvis before shipping a new tool.

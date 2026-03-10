@@ -69,6 +69,8 @@ export function migrateScheduleOneShotRouting(database: DrizzleDb): void {
       DROP TABLE cron_jobs;
       ALTER TABLE cron_jobs_new RENAME TO cron_jobs;
 
+      CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next_run ON cron_jobs(enabled, next_run_at);
+      CREATE INDEX IF NOT EXISTS idx_cron_jobs_syntax_enabled_next_run ON cron_jobs(schedule_syntax, enabled, next_run_at);
       CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next_run_at ON cron_jobs(status, next_run_at);
 
       COMMIT;

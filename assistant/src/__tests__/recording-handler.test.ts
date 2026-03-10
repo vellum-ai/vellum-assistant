@@ -207,11 +207,7 @@ describe("handleRecordingStart", () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-1";
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
 
     expect(recordingId).not.toBeNull();
     // UUID v4 format
@@ -253,19 +249,11 @@ describe("handleRecordingStart", () => {
   test("returns null when a different conversation already has an active recording (global guard)", () => {
     const { ctx, sent } = createCtx();
 
-    const id1 = handleRecordingStart(
-      "conv-global-a",
-      undefined,
-      ctx,
-    );
+    const id1 = handleRecordingStart("conv-global-a", undefined, ctx);
     expect(id1).toBeTruthy();
 
     // A second start from a different conversation should be rejected
-    const id2 = handleRecordingStart(
-      "conv-global-b",
-      undefined,
-      ctx,
-    );
+    const id2 = handleRecordingStart("conv-global-b", undefined, ctx);
     expect(id2).toBeNull();
 
     // Only the first call sends recording_start
@@ -291,11 +279,7 @@ describe("handleRecordingStop", () => {
     const conversationId = "conv-stop-1";
 
     // Start a recording first
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0; // Clear the start message
 
@@ -365,11 +349,7 @@ describe("recordingHandlers.recording_status", () => {
     const { ctx } = createCtx();
     const conversationId = "conv-status-1";
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
 
     const statusMsg: RecordingStatus = {
@@ -388,11 +368,7 @@ describe("recordingHandlers.recording_status", () => {
 
     // Bind socket
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -439,12 +415,7 @@ describe("recordingHandlers.recording_status", () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-status-no-msg";
 
-
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -472,11 +443,7 @@ describe("recordingHandlers.recording_status", () => {
 
     mockFileExists = false;
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -511,11 +478,7 @@ describe("recordingHandlers.recording_status", () => {
     mockFileExists = true;
     mockFileSize = 0;
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -556,11 +519,7 @@ describe("recordingHandlers.recording_status", () => {
     mockFileExists = true;
     mockFileSize = 4096;
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -597,11 +556,7 @@ describe("recordingHandlers.recording_status", () => {
     mockFileExists = true;
     mockFileSize = 4096;
 
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -634,12 +589,7 @@ describe("recordingHandlers.recording_status", () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-status-fail-final";
 
-
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -673,12 +623,7 @@ describe("recordingHandlers.recording_status", () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-status-failed";
 
-
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -705,12 +650,7 @@ describe("recordingHandlers.recording_status", () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-status-failed-no-err";
 
-
-    const recordingId = handleRecordingStart(
-      conversationId,
-      undefined,
-      ctx,
-    );
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -730,7 +670,6 @@ describe("recordingHandlers.recording_status", () => {
   test("handles status with attachToConversationId fallback", async () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-fallback";
-
 
     // Send a recording_status directly with attachToConversationId
     // without having started a recording through handleRecordingStart

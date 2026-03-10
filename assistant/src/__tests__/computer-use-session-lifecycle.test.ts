@@ -25,7 +25,10 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { ComputerUseSession } from "../daemon/computer-use-session.js";
-import type { CuObservation, ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  CuObservation,
+  ServerMessage,
+} from "../daemon/message-protocol.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 
 function createProvider(responses: ProviderResponse[]): {

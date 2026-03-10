@@ -1,13 +1,6 @@
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { runSequencesOnce } from "../sequence/engine.js";
-import {
-  claimDueReminders,
-  completeReminder,
-  failReminder,
-  type RoutingIntent,
-  setReminderConversationId,
-} from "../tools/reminder/reminder-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   runWatchersOnce,
@@ -21,6 +14,7 @@ import {
   completeScheduleRun,
   createScheduleRun,
   failOneShot,
+  type RoutingIntent,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -35,7 +29,7 @@ export type ScheduleMessageProcessor = (
   options?: ScheduleMessageOptions,
 ) => Promise<unknown>;
 
-export type ReminderNotifier = (reminder: {
+export type ScheduleNotifyModeNotifier = (payload: {
   id: string;
   label: string;
   message: string;
@@ -60,7 +54,7 @@ const TICK_INTERVAL_MS = 15_000;
 
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
-  notifyReminder: ReminderNotifier,
+  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
@@ -75,7 +69,7 @@ export function startScheduler(
     try {
       await runScheduleOnce(
         processMessage,
-        notifyReminder,
+        notifyScheduleOneShot,
         notifySchedule,
         watcherNotifier,
         watcherEscalator,
@@ -98,7 +92,7 @@ export function startScheduler(
     async runOnce(): Promise<number> {
       return runScheduleOnce(
         processMessage,
-        notifyReminder,
+        notifyScheduleOneShot,
         notifySchedule,
         watcherNotifier,
         watcherEscalator,
@@ -114,7 +108,7 @@ export function startScheduler(
 
 async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
-  notifyReminder: ReminderNotifier,
+  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
@@ -135,7 +129,7 @@ async function runScheduleOnce(
           { jobId: job.id, name: job.name, isOneShot },
           "Firing schedule notification",
         );
-        notifyReminder({
+        notifyScheduleOneShot({
           id: job.id,
           label: job.name,
           message: job.message,
@@ -302,61 +296,6 @@ async function runScheduleOnce(
         );
       }
     }
-  }
-
-  // ── One-shot reminders ──────────────────────────────────────────────
-  const dueReminders = claimDueReminders(now);
-  for (const reminder of dueReminders) {
-    if (reminder.mode === "execute") {
-      const conversation = bootstrapConversation({
-        source: "reminder",
-        origin: "reminder",
-        systemHint: `Reminder: ${reminder.label}`,
-      });
-      setReminderConversationId(reminder.id, conversation.id);
-      try {
-        log.info(
-          {
-            reminderId: reminder.id,
-            label: reminder.label,
-            conversationId: conversation.id,
-          },
-          "Executing reminder",
-        );
-        await processMessage(conversation.id, reminder.message, {
-          trustClass: "guardian",
-        });
-        completeReminder(reminder.id);
-      } catch (err) {
-        log.warn(
-          { err, reminderId: reminder.id },
-          "Reminder execution failed, reverting to pending",
-        );
-        failReminder(reminder.id);
-      }
-    } else {
-      try {
-        log.info(
-          { reminderId: reminder.id, label: reminder.label },
-          "Firing reminder notification",
-        );
-        notifyReminder({
-          id: reminder.id,
-          label: reminder.label,
-          message: reminder.message,
-          routingIntent: reminder.routingIntent,
-          routingHints: reminder.routingHints,
-        });
-        completeReminder(reminder.id);
-      } catch (err) {
-        log.warn(
-          { err, reminderId: reminder.id },
-          "Reminder notification failed, reverting to pending",
-        );
-        failReminder(reminder.id);
-      }
-    }
-    processed += 1;
   }
 
   // ── Watchers (event-driven polling) ────────────────────────────────

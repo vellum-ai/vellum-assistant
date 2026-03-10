@@ -95,11 +95,20 @@ export interface ToolOutputChunk {
   subToolId?: string;
 }
 
+export interface ToolUsePreviewStart {
+  type: "tool_use_preview_start";
+  toolUseId: string;
+  toolName: string;
+  sessionId?: string;
+}
+
 export interface ToolInputDelta {
   type: "tool_input_delta";
   toolName: string;
   content: string;
   sessionId?: string;
+  /** The tool_use block ID for client-side correlation. */
+  toolUseId?: string;
 }
 
 export interface ToolResult {
@@ -117,6 +126,8 @@ export interface ToolResult {
   sessionId?: string;
   /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot). */
   imageData?: string;
+  /** The tool_use block ID for client-side correlation. */
+  toolUseId?: string;
 }
 
 export interface ConfirmationRequest {
@@ -270,6 +281,7 @@ export interface AssistantActivityState {
     | "thinking_delta"
     | "first_text_delta"
     | "tool_use_start"
+    | "preview_start"
     | "tool_result_received"
     | "confirmation_requested"
     | "confirmation_resolved"
@@ -325,6 +337,7 @@ export type _MessagesServerMessages =
   | AssistantTextDelta
   | AssistantThinkingDelta
   | ToolUseStart
+  | ToolUsePreviewStart
   | ToolOutputChunk
   | ToolInputDelta
   | ToolResult
