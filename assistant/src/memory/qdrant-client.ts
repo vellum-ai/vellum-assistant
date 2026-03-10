@@ -27,6 +27,7 @@ export interface QdrantPointPayload {
   conversation_id?: string;
   message_id?: string;
   entity_ids?: string[];
+  modality?: "text" | "image" | "audio" | "video";
 }
 
 export interface QdrantSearchResult {
@@ -151,6 +152,10 @@ export class VellumQdrantClient {
       }),
       this.client.createPayloadIndex(this.collection, {
         field_name: "conversation_id",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "modality",
         field_schema: "keyword",
       }),
     ]);
