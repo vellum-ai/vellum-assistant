@@ -1,0 +1,233 @@
+#if canImport(UIKit)
+import SwiftUI
+import VellumAssistantShared
+
+/// List view of shared apps with detail sheet for fork/delete actions.
+struct SharedAppsListView: View {
+    @ObservedObject var directoryStore: DirectoryStore
+    @State private var selectedApp: SharedAppItem?
+    @State private var appToDelete: SharedAppItem?
+
+    var body: some View {
+        Group {
+            if directoryStore.isLoadingSharedApps && directoryStore.sharedApps.isEmpty {
+                loadingView
+            } else if directoryStore.sharedApps.isEmpty {
+                emptyView
+            } else {
+                listContent
+            }
+        }
+        .sheet(item: $selectedApp) { app in
+            sharedAppDetail(app)
+        }
+        .alert("Delete Shared App", isPresented: Binding(
+            get: { appToDelete != nil },
+            set: { if !$0 { appToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { appToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let app = appToDelete {
+                    directoryStore.deleteSharedApp(uuid: app.uuid)
+                    appToDelete = nil
+                    selectedApp = nil
+                }
+            }
+        } message: {
+            if let app = appToDelete {
+                Text("Are you sure you want to delete \"\(app.name)\"? This action cannot be undone.")
+            }
+        }
+    }
+
+    // MARK: - List Content
+
+    private var listContent: some View {
+        List(directoryStore.sharedApps, id: \.uuid) { app in
+            Button {
+                selectedApp = app
+            } label: {
+                sharedAppRow(app)
+            }
+        }
+        .listStyle(.plain)
+        .refreshable {
+            directoryStore.fetchSharedApps()
+        }
+    }
+
+    // MARK: - Row
+
+    private func sharedAppRow(_ app: SharedAppItem) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Text(app.icon ?? "\u{1F4E6}")
+                .font(.system(size: 28))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: VSpacing.xs) {
+                    Text(app.name)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+
+                    if app.updateAvailable == true {
+                        Text("Update")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(VColor.accent.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                }
+
+                if let signer = app.signerDisplayName {
+                    HStack(spacing: VSpacing.xs) {
+                        Text(signer)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        trustBadge(app.trustTier)
+                    }
+                }
+            }
+
+            Spacer()
+
+            VIconView(.chevronRight, size: 14)
+                .foregroundColor(VColor.textMuted)
+        }
+        .padding(.vertical, VSpacing.xs)
+    }
+
+    // MARK: - Trust Badge
+
+    private func trustBadge(_ tier: String) -> some View {
+        Text(tier.capitalized)
+            .font(VFont.caption)
+            .foregroundColor(trustColor(tier))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(trustColor(tier).opacity(0.15))
+            .cornerRadius(4)
+    }
+
+    private func trustColor(_ tier: String) -> Color {
+        switch tier.lowercased() {
+        case "trusted": return .green
+        case "verified": return .blue
+        case "community": return .orange
+        default: return VColor.textMuted
+        }
+    }
+
+    // MARK: - Detail Sheet
+
+    private func sharedAppDetail(_ app: SharedAppItem) -> some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        Text(app.icon ?? "\u{1F4E6}")
+                            .font(.system(size: 48))
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text(app.name)
+                                .font(VFont.title)
+                                .foregroundColor(VColor.textPrimary)
+                            if let signer = app.signerDisplayName {
+                                Text("by \(signer)")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            }
+                        }
+                    }
+                }
+
+                if let description = app.description {
+                    Section("Description") {
+                        Text(description)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                    }
+                }
+
+                Section("Details") {
+                    LabeledContent("Trust Tier") {
+                        trustBadge(app.trustTier)
+                    }
+                    LabeledContent("Bundle Size") {
+                        Text(formattedSize(app.bundleSizeBytes))
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    LabeledContent("Installed") {
+                        Text(app.installedAt)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    if let version = app.version {
+                        LabeledContent("Version") {
+                            Text(version)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        directoryStore.forkSharedApp(uuid: app.uuid)
+                        selectedApp = nil
+                    } label: {
+                        Label("Fork App", systemImage: "arrow.branch")
+                    }
+
+                    Button(role: .destructive) {
+                        appToDelete = app
+                    } label: {
+                        Label("Delete App", systemImage: "trash")
+                    }
+                }
+            }
+            .navigationTitle("Shared App")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { selectedApp = nil }
+                }
+            }
+        }
+    }
+
+    // MARK: - States
+
+    private var loadingView: some View {
+        VStack(spacing: VSpacing.md) {
+            ProgressView()
+            Text("Loading shared apps...")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyView: some View {
+        VStack(spacing: VSpacing.md) {
+            VIconView(.package, size: 48)
+                .foregroundColor(VColor.textMuted)
+            Text("No shared apps")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Helpers
+
+    private func formattedSize(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+}
+
+// MARK: - SharedAppItem Identifiable conformance for .sheet(item:)
+// The Identifiable conformance via uuid is already declared in IPCMessages.swift
+
+#endif
