@@ -30,6 +30,7 @@ struct AssistantProgressView: View {
     let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
@@ -180,7 +181,7 @@ struct AssistantProgressView: View {
                     .padding(.bottom, VSpacing.xs)
             }
         }
-        .background(VColor.surface.opacity(0.5))
+        .background(colorScheme == .light ? Moss._50 : VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
