@@ -80,11 +80,6 @@ extension AppDelegate {
             self.startSession(task: text, source: TaskSubmission.voiceActionSource)
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
-            // Check if main window is actively in the foreground (not just existing behind other apps)
-            let mainWindowActive = NSApp.isActive && (self?.mainWindow?.isVisible ?? false)
-            // If there's an active conversation in ready state, route recording state there
-            let hasActiveConvo = self?.currentTextSession?.state == .ready
-
             // Sync recording state: clear on the view model that started recording
             // to avoid stale isRecording when the user switches threads mid-recording.
             if isRecording {
