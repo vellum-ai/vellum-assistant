@@ -161,8 +161,6 @@ struct ChatSessionErrorToast: View {
             return .creditCard
         case .contextTooLarge:
             return .fileText
-        case .queueFull:
-            return .inbox
         case .sessionAborted:
             return .circleStop
         case .processingFailed, .regenerateFailed:
@@ -178,7 +176,7 @@ struct ChatSessionErrorToast: View {
     /// red for hard failures.
     private func accentColor(for category: SessionErrorCategory) -> Color {
         switch category {
-        case .rateLimit, .queueFull:
+        case .rateLimit:
             return VColor.warning
         case .providerNetwork:
             return Amber._500

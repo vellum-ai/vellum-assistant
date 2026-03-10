@@ -7,7 +7,6 @@ public enum SessionErrorCategory: Equatable, Sendable {
     case providerApi
     case providerBilling
     case contextTooLarge
-    case queueFull
     case sessionAborted
     case processingFailed
     case regenerateFailed
@@ -26,8 +25,6 @@ public enum SessionErrorCategory: Equatable, Sendable {
             self = .providerBilling
         case .contextTooLarge:
             self = .contextTooLarge
-        case .queueFull:
-            self = .queueFull
         case .sessionAborted:
             self = .sessionAborted
         case .sessionProcessingFailed:
@@ -54,8 +51,6 @@ public enum SessionErrorCategory: Equatable, Sendable {
             return "Please add credits to your account or update your API key in Settings."
         case .contextTooLarge:
             return "Start a new thread to reset context, or try a shorter message."
-        case .queueFull:
-            return "Wait for pending messages to finish, then resend."
         case .sessionAborted:
             return "Send a new message to continue the conversation."
         case .processingFailed:
