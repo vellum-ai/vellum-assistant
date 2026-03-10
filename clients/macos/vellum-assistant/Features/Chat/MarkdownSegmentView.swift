@@ -56,36 +56,6 @@ struct MarkdownSegmentView: View {
                         .lineLimit(nil)
                         .padding(.top, level == 1 ? 4 : 2)
 
-                case .list(let items, _):
-                    let mdOptions = AttributedString.MarkdownParsingOptions(
-                        interpretedSyntax: .inlineOnlyPreservingWhitespace
-                    )
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            let indentLevel = CGFloat(item.indent / 2)
-                            let leftPad = indentLevel * 16 * zoomScale
-                            let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                            let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
-                                ?? AttributedString(item.text)
-                            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text(prefix)
-                                    .font(.system(size: scaledBodySize))
-                                    .foregroundColor(secondaryTextColor)
-                                Text(Self.applyInlineCodeStyles(to: itemAttr, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor))
-                                    .font(.system(size: scaledBodySize))
-                                    .lineSpacing(4)
-                                    .foregroundColor(textColor)
-                                    .tint(tintColor)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    // lineLimit(nil) avoids the double-measurement from fixedSize.
-                                    .lineLimit(nil)
-                            }
-                            .padding(.leading, leftPad)
-                            .textSelection(.enabled)
-                        }
-                    }
-                    .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
-
                 case .codeBlock(let language, let code):
                     VStack(alignment: .leading, spacing: 0) {
                         if let language, !language.isEmpty {
@@ -136,7 +106,6 @@ struct MarkdownSegmentView: View {
         /// A heading rendered as its own block for spacing control.
         case heading(level: Int, text: String)
         case codeBlock(language: String?, code: String)
-        case list(items: [ListItem], ordered: Bool)
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: String)
         case horizontalRule
@@ -169,10 +138,8 @@ struct MarkdownSegmentView: View {
             case .heading(let level, let text):
                 flushRun()
                 groups.append(.heading(level: level, text: text))
-            case .list(let items):
-                flushRun()
-                let hasOrdered = items.contains { $0.ordered }
-                groups.append(.list(items: items, ordered: hasOrdered))
+            case .list:
+                currentRun.append(segment)
             case .codeBlock(let language, let code):
                 flushRun()
                 groups.append(.codeBlock(language: language, code: code))
@@ -347,6 +314,24 @@ struct MarkdownSegmentView: View {
                 let attributed = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
                 result += attributed
+
+            case .list(let items):
+                for (itemIndex, item) in items.enumerated() {
+                    if itemIndex > 0 {
+                        result += AttributedString("\n")
+                    }
+                    let indentLevel = item.indent / 2
+                    let indentString = String(repeating: "    ", count: indentLevel)
+                    let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+
+                    var prefixAttr = AttributedString(indentString + prefix)
+                    prefixAttr.foregroundColor = secondaryTextColor
+                    result += prefixAttr
+
+                    let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
+                        ?? AttributedString(item.text)
+                    result += itemAttr
+                }
 
             default:
                 break
