@@ -35,7 +35,7 @@ export type ScheduleNotifyModeNotifier = (payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
-}) => Promise<void>;
+}) => void | Promise<void>;
 
 export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
 
