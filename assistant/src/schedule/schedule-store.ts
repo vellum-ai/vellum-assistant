@@ -96,7 +96,7 @@ export function createSchedule(params: {
   routingHints?: Record<string, unknown>;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
-  const isOneShot = expression === null || expression === undefined;
+  const isOneShot = expression == null;
   const syntax = params.syntax ?? "cron";
 
   if (isOneShot) {
@@ -240,7 +240,7 @@ export function updateSchedule(
   const newEnabled =
     updates.enabled !== undefined ? updates.enabled : existing.enabled;
 
-  const isOneShot = newExpr === null || newExpr === undefined;
+  const isOneShot = newExpr == null;
 
   // Validate if expression or syntax changed (only for recurring schedules)
   if (
