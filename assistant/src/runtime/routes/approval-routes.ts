@@ -107,9 +107,7 @@ export async function handleConfirm(
     }
 
     if (selectedScope) {
-      const validScopes = (confirmation.scopeOptions ?? []).map(
-        (o) => o.scope,
-      );
+      const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
       if (validScopes.length === 0) {
         if (selectedScope !== "everywhere") {
           return httpError(

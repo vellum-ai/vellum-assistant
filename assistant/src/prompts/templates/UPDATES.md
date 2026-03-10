@@ -1,5 +1,5 @@
 _ Lines starting with _ are comments — they won't appear in the system prompt
-_
+\_
 _ This file contains release update notes for the assistant.
 _ Each release block is wrapped with HTML comment markers:
 _ <!-- vellum-update-release:<version> -->

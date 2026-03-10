@@ -79,9 +79,7 @@ function handlePairingApprovalResponse(
   }
 }
 
-function handleApprovedDevicesList(
-  ctx: HandlerContext,
-): void {
+function handleApprovedDevicesList(ctx: HandlerContext): void {
   const devices = listDevices();
   ctx.send({
     type: "approved_devices_list_response",
@@ -104,9 +102,7 @@ function handleApprovedDeviceRemove(
   );
 }
 
-function handleApprovedDevicesClear(
-  _ctx: HandlerContext,
-): void {
+function handleApprovedDevicesClear(_ctx: HandlerContext): void {
   clearAllDevices();
   log.info("All approved devices cleared via IPC");
 }

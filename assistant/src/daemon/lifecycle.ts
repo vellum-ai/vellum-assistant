@@ -181,9 +181,7 @@ export async function runDaemon(): Promise<void> {
       chmodSync(httpTokenPath, 0o600);
       log.info("Daemon startup: CLI edge token written");
     } else {
-      log.warn(
-        "No guardian principal available — CLI edge token not written",
-      );
+      log.warn("No guardian principal available — CLI edge token not written");
     }
 
     try {

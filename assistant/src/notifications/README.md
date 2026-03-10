@@ -405,29 +405,29 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 
 ## Key Files
 
-| File                      | Purpose                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
-| `../channels/config.ts`   | Channel policy registry -- single source of truth for per-channel notification behavior        |
-| `emit-signal.ts`          | Single entry point for producers; orchestrates the full pipeline                               |
-| `signal.ts`               | `NotificationSignal` and `AttentionHints` type definitions                                     |
-| `types.ts`                | Channel adapter interfaces, delivery types, decision output contract, `ThreadAction` union     |
-| `thread-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine  |
-| `conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy                     |
-| `decision-engine.ts`      | LLM-based routing with forced tool_choice; deterministic fallback                              |
-| `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability)                             |
-| `runtime-dispatch.ts`     | Dispatch gating (no-op decisions, empty channels)                                              |
+| File                      | Purpose                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `../channels/config.ts`   | Channel policy registry -- single source of truth for per-channel notification behavior              |
+| `emit-signal.ts`          | Single entry point for producers; orchestrates the full pipeline                                     |
+| `signal.ts`               | `NotificationSignal` and `AttentionHints` type definitions                                           |
+| `types.ts`                | Channel adapter interfaces, delivery types, decision output contract, `ThreadAction` union           |
+| `thread-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine        |
+| `conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy                           |
+| `decision-engine.ts`      | LLM-based routing with forced tool_choice; deterministic fallback                                    |
+| `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability)                                   |
+| `runtime-dispatch.ts`     | Dispatch gating (no-op decisions, empty channels)                                                    |
 | `broadcaster.ts`          | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` SSE event |
-| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                              |
-| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                                |
-| `destination-resolver.ts` | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                       |
-| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                  |
-| `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                       |
-| `preference-extractor.ts` | Detects notification preferences in conversation messages                                      |
-| `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                |
-| `preferences-store.ts`    | CRUD for `notification_preferences` table                                                      |
-| `events-store.ts`         | CRUD for `notification_events` table                                                           |
-| `decisions-store.ts`      | CRUD for `notification_decisions` table                                                        |
-| `deliveries-store.ts`     | CRUD for `notification_deliveries` table                                                       |
+| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                               |
+| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                                 |
+| `destination-resolver.ts` | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                        |
+| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                   |
+| `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                             |
+| `preference-extractor.ts` | Detects notification preferences in conversation messages                                            |
+| `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                      |
+| `preferences-store.ts`    | CRUD for `notification_preferences` table                                                            |
+| `events-store.ts`         | CRUD for `notification_events` table                                                                 |
+| `decisions-store.ts`      | CRUD for `notification_decisions` table                                                              |
+| `deliveries-store.ts`     | CRUD for `notification_deliveries` table                                                             |
 
 ## How to Add a New Notification Producer
 

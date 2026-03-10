@@ -1327,7 +1327,6 @@ function createMockCtx(): {
   return { ctx, lastResponse: () => captured };
 }
 
-
 describe("IPC handler channel-aware guardian status", () => {
   beforeEach(() => {
     resetTables();

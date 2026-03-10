@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SecretRequest, ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  SecretRequest,
+  ServerMessage,
+} from "../daemon/message-protocol.js";
 
 // Capture all logger calls so we can verify secret values never appear
 const logCalls: Array<{ level: string; args: unknown[] }> = [];

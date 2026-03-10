@@ -51,7 +51,6 @@ describe("hasNoAuthOverride", () => {
   test("returns false when VELLUM_DAEMON_NOAUTH is true without safety gate", () => {
     expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: "true" })).toBe(false);
   });
-
 });
 
 describe("shouldAutoStartDaemon", () => {
@@ -60,15 +59,13 @@ describe("shouldAutoStartDaemon", () => {
   });
 
   test("returns true when VELLUM_DAEMON_AUTOSTART=1", () => {
-    expect(
-      shouldAutoStartDaemon({ VELLUM_DAEMON_AUTOSTART: "1" }),
-    ).toBe(true);
+    expect(shouldAutoStartDaemon({ VELLUM_DAEMON_AUTOSTART: "1" })).toBe(true);
   });
 
   test("returns true when VELLUM_DAEMON_AUTOSTART=true", () => {
-    expect(
-      shouldAutoStartDaemon({ VELLUM_DAEMON_AUTOSTART: "true" }),
-    ).toBe(true);
+    expect(shouldAutoStartDaemon({ VELLUM_DAEMON_AUTOSTART: "true" })).toBe(
+      true,
+    );
   });
 
   test("returns false when VELLUM_DAEMON_AUTOSTART=0", () => {

@@ -99,11 +99,12 @@ async function handleRunScheduleNow(
         { taskId, workingDir: process.cwd(), source: "schedule" },
         async (conversationId, message, taskRunId) => {
           if (!sendMessageDeps) {
-            throw new Error("sendMessageDeps not available for schedule execution");
+            throw new Error(
+              "sendMessageDeps not available for schedule execution",
+            );
           }
-          const session = await sendMessageDeps.getOrCreateSession(
-            conversationId,
-          );
+          const session =
+            await sendMessageDeps.getOrCreateSession(conversationId);
           session.taskRunId = taskRunId;
           await session.processMessage(
             message,

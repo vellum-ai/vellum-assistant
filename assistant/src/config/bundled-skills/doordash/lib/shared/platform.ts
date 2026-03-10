@@ -44,7 +44,10 @@ export function buildDaemonUrl(port?: number): string {
  */
 export function readHttpToken(): string | null {
   try {
-    const token = readFileSync(join(getRootDir(), "http-token"), "utf-8").trim();
+    const token = readFileSync(
+      join(getRootDir(), "http-token"),
+      "utf-8",
+    ).trim();
     return token || null;
   } catch {
     return null;

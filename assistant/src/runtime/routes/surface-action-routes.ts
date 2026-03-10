@@ -62,11 +62,7 @@ export async function handleSurfaceAction(
     : findSessionBySurfaceId?.(surfaceId);
 
   if (!session) {
-    return httpError(
-      "NOT_FOUND",
-      "No active session found",
-      404,
-    );
+    return httpError("NOT_FOUND", "No active session found", 404);
   }
 
   try {
@@ -115,11 +111,7 @@ export async function handleSurfaceUndo(
     : findSessionBySurfaceId?.(surfaceId);
 
   if (!session) {
-    return httpError(
-      "NOT_FOUND",
-      "No active session found",
-      404,
-    );
+    return httpError("NOT_FOUND", "No active session found", 404);
   }
 
   if (!session.handleSurfaceUndo) {
@@ -132,10 +124,7 @@ export async function handleSurfaceUndo(
 
   try {
     session.handleSurfaceUndo(surfaceId);
-    log.info(
-      { sessionId, surfaceId },
-      "Surface undo handled via HTTP",
-    );
+    log.info({ sessionId, surfaceId }, "Surface undo handled via HTTP");
     return Response.json({ ok: true });
   } catch (err) {
     log.error(
