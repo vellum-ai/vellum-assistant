@@ -138,8 +138,14 @@ struct SettingsPrivacyTab: View {
                 MetricKitManager.closeSentry()
             }
         } catch {
-            // Revert the optimistic toggle on failure
+            // Revert the optimistic toggle on failure, including the
+            // cascaded performance metrics toggle if it was turned off.
             collectUsageData = !enabled
+            if !enabled {
+                // We had turned off sendPerformanceReports when disabling;
+                // revert it since the disable failed.
+                store.sendPerformanceReports = true
+            }
             loadError = "Could not save privacy setting: \(error.localizedDescription)"
         }
         isUpdating = false

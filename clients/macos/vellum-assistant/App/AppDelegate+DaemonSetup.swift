@@ -467,8 +467,9 @@ extension AppDelegate {
                         MetricKitManager.closeSentry()
                     }
 
-                    // Best-effort sync to daemon. Use try? so failure doesn't
-                    // propagate to the outer catch and skip flag cleanup.
+                    // Best-effort sync to daemon. Only clear the explicit-set
+                    // flag when the sync succeeds so that a transient gateway
+                    // failure preserves the flag for retry on next reconnect.
                     if let flags = try? await daemonClient.getFeatureFlags() {
                         let daemonValue = flags
                             .first(where: { $0.key == featureFlagKey })
@@ -478,12 +479,11 @@ extension AppDelegate {
                         if onboardingValue != daemonValue {
                             try? await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
                         }
-                    }
 
-                    // Clear the explicit-set flag only after the sync attempt
-                    // completes (success or best-effort failure). This ensures
-                    // the flag persists if we never reach this point.
-                    UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+                        // Sync succeeded — clear the flag so subsequent
+                        // reconnects resume daemon-as-source-of-truth.
+                        UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+                    }
                 } else {
                     // No explicit user interaction — use the daemon's value
                     // as the source of truth.
