@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -442,6 +442,9 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
 
     await this.mutex.withLock(async () => {
+      // Remove stale index.lock before staging (see removeStaleIndexLock docs).
+      this.removeStaleIndexLock();
+
       // Stage all changes
       await this.execGit(["add", "-A"]);
 
@@ -565,6 +568,11 @@ export class WorkspaceGitService {
           );
           return { committed: false, status, didRunGit: true as const };
         }
+
+        // Remove stale index.lock if present. We hold the mutex, so no
+        // other WorkspaceGitService operation can be running — any lock
+        // file is left over from a killed/crashed git process.
+        this.removeStaleIndexLock();
 
         await this.execGit(["add", "-A"]);
 
@@ -775,6 +783,29 @@ export class WorkspaceGitService {
         // `main` doesn't exist yet — create it.
         await this.execGit(["switch", "-c", "main"]);
       }
+    }
+  }
+
+  /**
+   * Remove a stale .git/index.lock if one exists.
+   *
+   * Must only be called while holding the mutex. Under the mutex no other
+   * WorkspaceGitService operation is running, so any existing lock file
+   * is a leftover from a killed or crashed git process (e.g. a timed-out
+   * `git notes add` or an interrupted `git status` refresh).
+   */
+  private removeStaleIndexLock(): void {
+    const lockPath = join(this.workspaceDir, ".git", "index.lock");
+    try {
+      unlinkSync(lockPath);
+      log.warn(
+        { workspaceDir: this.workspaceDir },
+        "Removed stale git index.lock",
+      );
+    } catch {
+      // ENOENT (no lock file) is the expected common case; other errors
+      // (permission, etc.) are harmless — the next git command will
+      // surface them with better diagnostics.
     }
   }
 
