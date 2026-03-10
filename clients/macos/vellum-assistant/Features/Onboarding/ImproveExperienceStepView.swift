@@ -64,9 +64,7 @@ struct ImproveExperienceStepView: View {
                     .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
