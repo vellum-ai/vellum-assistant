@@ -34,7 +34,7 @@ struct PointerCursorModifier: ViewModifier {
                         didPushCursor = false
                     }
                 }
-                .onChange(of: isEnabled) { enabled in
+                .onChange(of: isEnabled) { _, enabled in
                     if !enabled && didPushCursor {
                         NSCursor.pop()
                         didPushCursor = false
