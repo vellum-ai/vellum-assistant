@@ -51,7 +51,7 @@ import type {
 } from "../message-protocol.js";
 import { type HandlerContext, log } from "./shared.js";
 
-// -- Transport-agnostic result type (omits the IPC `type` discriminant) --
+// -- Transport-agnostic result type (omits the `type` discriminant) --
 
 export type ChannelVerificationSessionResult = Omit<
   ChannelVerificationSessionResponse,
@@ -224,7 +224,7 @@ export function revokeVerificationForChannel(
 }
 
 // ---------------------------------------------------------------------------
-// Trusted-contact verification (shared by IPC + HTTP transports)
+// Trusted-contact verification (shared across transports)
 // ---------------------------------------------------------------------------
 
 /** Session TTL in seconds (matches challenge TTL of 10 minutes). */
@@ -252,7 +252,7 @@ function toVerificationChannel(channelType: string): ChannelId | null {
  * channel, derives the verification channel and destination, checks rate
  * limits, and creates the appropriate outbound session.
  *
- * Returns a `ChannelVerificationSessionResult` so both the IPC handler
+ * Returns a `ChannelVerificationSessionResult` so both the message handler
  * and the HTTP handler can wrap it in their respective response envelopes.
  */
 export async function verifyTrustedContact(

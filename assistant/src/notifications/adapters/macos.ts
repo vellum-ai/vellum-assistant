@@ -1,6 +1,6 @@
 /**
  * Vellum channel adapter — delivers notifications to connected desktop
- * and mobile clients via the daemon's IPC broadcast mechanism.
+ * and mobile clients via the daemon's event broadcast mechanism.
  *
  * The adapter broadcasts a `notification_intent` message that the Vellum
  * client can use to display a native notification (e.g. NSUserNotification

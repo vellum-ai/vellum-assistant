@@ -4,7 +4,7 @@
  * These pure functions encapsulate the business logic for starting, resending,
  * and cancelling outbound verification flows (Telegram, voice, Slack).
  * They return transport-agnostic result objects and are consumed by both the
- * IPC handler (config-channels.ts) and the HTTP route layer (channel-verification-routes.ts).
+ * message handler (config-channels.ts) and the HTTP route layer (channel-verification-routes.ts).
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -99,7 +99,7 @@ export interface CancelOutboundParams {
 
 /**
  * Transport-agnostic result object returned by outbound actions.
- * Maps 1:1 with the fields in ChannelVerificationSessionResponse minus the IPC
+ * Maps 1:1 with the fields in ChannelVerificationSessionResponse minus the
  * `type` discriminant.
  */
 export interface OutboundActionResult {

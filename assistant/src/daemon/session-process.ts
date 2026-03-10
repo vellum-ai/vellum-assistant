@@ -511,7 +511,7 @@ export async function drainQueue(
 
 /**
  * Convenience function that persists a user message and runs the agent loop
- * in a single call. Used by the IPC path where blocking is expected.
+ * in a single call. Used by the message-handler path where blocking is expected.
  */
 export async function processMessage(
   session: ProcessSessionContext,

@@ -12,7 +12,7 @@ export function executeDocumentCreate(
   const initialContent = (input.initial_content as string | undefined) || "";
   const surfaceId = `doc-${randomUUID()}`;
 
-  // Send document_editor_show IPC message to open the built-in RTE
+  // Send document_editor_show message to open the built-in RTE
   if (context.sendToClient) {
     context.sendToClient({
       type: "document_editor_show",
@@ -47,7 +47,7 @@ export function executeDocumentCreate(
     };
   }
 
-  // Fallback if no IPC client is connected
+  // Fallback if no client is connected
   return {
     content: JSON.stringify({
       surface_id: surfaceId,
@@ -67,7 +67,7 @@ export function executeDocumentUpdate(
   const content = input.content as string;
   const mode = (input.mode as string | undefined) || "append";
 
-  // Send document_editor_update IPC message to update the built-in RTE
+  // Send document_editor_update message to update the built-in RTE
   if (context.sendToClient) {
     context.sendToClient({
       type: "document_editor_update",
@@ -88,7 +88,7 @@ export function executeDocumentUpdate(
     };
   }
 
-  // Fallback if no IPC client is connected
+  // Fallback if no client is connected
   return {
     content: JSON.stringify({
       success: false,

@@ -1,9 +1,7 @@
 /**
  * HTTP route handlers for diagnostics export and dictation processing.
  *
- * Migrated from IPC handlers:
- *   - handlers/diagnostics.ts (diagnostics_export_request)
- *   - handlers/dictation.ts (dictation_request)
+ * Handles diagnostics export and dictation processing requests.
  */
 
 import { randomBytes } from "node:crypto";
@@ -53,7 +51,7 @@ import type { RouteDefinition } from "../http-router.js";
 const log = getLogger("diagnostics-routes");
 
 // ---------------------------------------------------------------------------
-// Diagnostics export — redaction helpers (shared with IPC handler)
+// Diagnostics export — redaction helpers
 // ---------------------------------------------------------------------------
 
 const MAX_CONTENT_LENGTH = 500;
@@ -653,7 +651,7 @@ async function handleDictation(body: DictationBody): Promise<Response> {
       log.warn(
         "Dictation: no provider available, using heuristic + raw transcription",
       );
-      // Build an IPC-compatible msg for the heuristic
+      // Build a compatible msg for the heuristic
       const mode = detectDictationModeHeuristic({
         type: "dictation_request",
         transcription: body.transcription,

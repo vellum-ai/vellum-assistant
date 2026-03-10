@@ -194,7 +194,7 @@ export class VoiceConfigUpdateTool implements Tool {
     const meta = VOICE_SETTINGS[setting as VoiceSettingName];
     const friendlyName = FRIENDLY_NAMES[setting as VoiceSettingName];
 
-    // Send client_settings_update IPC to write to UserDefaults
+    // Send client_settings_update message to write to UserDefaults
     if (context.sendToClient) {
       context.sendToClient({
         type: "client_settings_update",

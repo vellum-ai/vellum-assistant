@@ -90,7 +90,7 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   allowedToolNames?: Set<string>;
   /** Session memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
-  /** True when the session has no connected IPC client (HTTP-only path). */
+  /** True when the session has no connected client (HTTP-only path). */
   hasNoClient?: boolean;
   /** When true, the session is executing a task run and must not become interactive. */
   headlessLock?: boolean;

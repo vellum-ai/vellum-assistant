@@ -2,9 +2,7 @@
  * HTTP route handlers for computer use session lifecycle.
  *
  * These endpoints expose CU session management, ride-shotgun, and watch
- * observation functionality over HTTP. The existing IPC handlers remain
- * as the primary transport; these routes provide the HTTP-first API
- * surface for the phase-out-ipc migration.
+ * observation functionality over HTTP.
  *
  * All CU write operations require the `chat.write` scope.
  */
@@ -306,8 +304,7 @@ async function handleObservation(
  * POST /v1/computer-use/tasks — submit a task.
  *
  * This is a simplified HTTP version of task_submit that creates a CU session.
- * The full task_submit flow (with routing, recording intents, etc.) remains
- * IPC-only for now; this endpoint provides direct CU session creation.
+ * This endpoint provides direct CU session creation.
  *
  * Body: { task, screenWidth, screenHeight, interactionType? }
  */

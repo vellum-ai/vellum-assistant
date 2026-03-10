@@ -62,7 +62,7 @@ import {
 /**
  * Minimal context needed by the standalone skill business-logic functions.
  * HandlerContext satisfies this interface, but HTTP routes can also provide
- * a compatible object without coupling to IPC internals.
+ * a compatible object without coupling to handler internals.
  */
 export interface SkillOperationContext {
   debounceTimers: HandlerContext["debounceTimers"];
@@ -204,7 +204,7 @@ function heuristicDraft(body: string): {
 const LLM_DRAFT_TIMEOUT_MS = 15_000;
 
 // ─── Standalone business-logic functions ─────────────────────────────────────
-// These are consumed by both the IPC handlers below and the HTTP route layer.
+// These are consumed by both the handlers below and the HTTP route layer.
 
 /** Helper: suppress config reload, save, debounce, and update fingerprint. */
 function saveConfigWithSuppression(
@@ -764,7 +764,7 @@ export async function createSkill(
   }
 }
 
-// ─── IPC handlers (thin wrappers) ───────────────────────────────────────────
+// ─── HTTP handlers (thin wrappers) ──────────────────────────────────────────
 
 export function handleSkillsList(ctx: HandlerContext): void {
   const skills = listSkills(ctx);

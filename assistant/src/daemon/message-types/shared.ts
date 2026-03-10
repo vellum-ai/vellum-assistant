@@ -1,4 +1,4 @@
-// Shared types used across multiple IPC domains.
+// Shared types used across multiple message domains.
 
 export type ThreadType = "standard" | "private";
 

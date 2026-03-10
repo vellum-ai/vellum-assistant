@@ -497,7 +497,7 @@ export async function finalizeAndPublishRecording(params: {
   }
 
   // Restrict accepted file paths to the app's recordings directory to
-  // prevent attachment of arbitrary files via crafted IPC messages.
+  // prevent attachment of arbitrary files via crafted messages.
   let resolvedPath: string;
   try {
     resolvedPath = realpathSync(filePath);

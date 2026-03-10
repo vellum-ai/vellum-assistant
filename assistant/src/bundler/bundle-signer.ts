@@ -2,7 +2,7 @@
  * Bundle signing for .vellum archives.
  *
  * Computes content hashes, constructs a canonical signing payload,
- * and requests an Ed25519 signature from the Swift client via IPC.
+ * and requests an Ed25519 signature from the Swift client.
  */
 
 import { createHash } from "node:crypto";
@@ -22,8 +22,8 @@ export interface SignatureJson {
 }
 
 /**
- * Callback type for requesting a signature from the Swift client via IPC.
- * The caller provides this so the signer doesn't need to know about IPC details.
+ * Callback type for requesting a signature from the Swift client.
+ * The caller provides this so the signer doesn't need to know about transport details.
  */
 export type SigningCallback = (payload: string) => Promise<{
   signature: string; // base64-encoded
@@ -109,7 +109,7 @@ export async function signBundle(
   });
   const canonicalPayload = JSON.stringify(signingPayload);
 
-  // 4. Request signature from Swift via IPC
+  // 4. Request signature from Swift client
   const { signature, keyId } = await requestSignature(canonicalPayload);
 
   // 5. Build SignatureJson

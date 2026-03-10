@@ -3,7 +3,7 @@
  *
  * Encapsulates the core business logic — validation, conversation scoping,
  * canonical decision application, and result mapping — so both the HTTP
- * handler and the IPC handler can delegate here without duplicating code.
+ * handler and the message handler can delegate here without duplicating code.
  */
 
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
@@ -61,7 +61,7 @@ export type ProcessGuardianDecisionResult =
  *
  * Validates the action, checks conversation scope if applicable, applies the
  * canonical decision, and maps the result to a caller-agnostic shape that
- * both HTTP and IPC handlers can interpret.
+ * both HTTP and message handlers can interpret.
  */
 export async function processGuardianDecision(
   params: ProcessGuardianDecisionParams,
@@ -97,7 +97,7 @@ export async function processGuardianDecision(
     action: action as ApprovalAction,
     actorContext: {
       actorPrincipalId: actorContext.actorPrincipalId,
-      actorExternalUserId: undefined, // Desktop/IPC path — no channel-native ID
+      actorExternalUserId: undefined, // Desktop path — no channel-native ID
       channel,
       guardianPrincipalId: actorContext.guardianPrincipalId,
     },

@@ -2,7 +2,7 @@
  * Route handlers for work item (task queue) operations.
  *
  * Exposes all work item CRUD and lifecycle operations over HTTP,
- * sharing business logic with the IPC handlers in
+ * sharing business logic with the handlers in
  * `daemon/handlers/work-items.ts`.
  */
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -195,7 +195,7 @@ function extractToolHighlights(
 }
 
 // ---------------------------------------------------------------------------
-// Shared business logic functions (exported for IPC handler reuse)
+// Shared business logic functions (exported for handler reuse)
 // ---------------------------------------------------------------------------
 
 export interface WorkItemOutputResult {
