@@ -53,6 +53,8 @@ public struct VStreamingWaveform: View {
                 draw(context: context, size: size, time: date)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isActive ? "Audio waveform, active" : "Audio waveform, inactive")
     }
 
     // MARK: - Drawing
@@ -116,7 +118,7 @@ private struct WaveformPreviewContainer: View {
     var body: some View {
         VStack(spacing: VSpacing.xl) {
             Text("Conversation Style")
-                .font(.headline)
+                .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
             VStreamingWaveform(
                 amplitude: amplitude,
@@ -126,7 +128,7 @@ private struct WaveformPreviewContainer: View {
             .frame(width: 120, height: 60)
 
             Text("Dictation Style")
-                .font(.headline)
+                .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
             VStreamingWaveform(
                 amplitude: amplitude,
