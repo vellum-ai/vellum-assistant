@@ -1,4 +1,4 @@
-import { detectOrphanedProcesses } from "./ps";
+import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { stopProcess } from "../lib/process";
 
 export async function clean(): Promise<void> {
