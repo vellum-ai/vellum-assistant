@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { BackendUnavailableError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db.js";
+import { getDb, rawChanges } from "./db.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
@@ -248,6 +248,33 @@ export async function embedAndUpsert(
     );
     throw err;
   }
+}
+
+// ── Stale embedding cache purge ─────────────────────────────────────
+
+/**
+ * Delete SQLite embedding cache entries that no longer match the active
+ * provider, model, or dimensions.  Call at startup (or lazily on first embed)
+ * to free disk space from stale cached vectors.
+ *
+ * @returns The number of purged rows.
+ */
+export function purgeStaleEmbeddingCache(
+  provider: string,
+  model: string,
+  dimensions: number,
+): number {
+  const db = getDb();
+  db.delete(memoryEmbeddings)
+    .where(
+      or(
+        ne(memoryEmbeddings.provider, provider),
+        ne(memoryEmbeddings.model, model),
+        ne(memoryEmbeddings.dimensions, dimensions),
+      ),
+    )
+    .run();
+  return rawChanges();
 }
 
 // ── Time window utilities ──────────────────────────────────────────
