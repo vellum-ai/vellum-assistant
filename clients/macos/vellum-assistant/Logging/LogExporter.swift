@@ -16,9 +16,8 @@ private let log = Logger(
 /// Log sources included:
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
-/// - `~/.vellum/workspace/data/logs/` — daemon rotating log files (assistant-*.log)
-/// - `~/.vellum/workspace/data/db/assistant.db` — SQLite database containing tool invocation audit log
-/// - `~/.vellum/daemon-stderr.log` — daemon stderr capture
+/// - Daemon logs via `POST /v1/export/daemon-logs` HTTP API
+/// - Audit data via `POST /v1/export/audit-data` HTTP API
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -133,37 +132,11 @@ enum LogExporter {
             }
         }
 
-        // 3. Daemon logs — ~/.vellum/workspace/data/logs/
+        // 3. Daemon logs and audit data via daemon HTTP APIs
         let home = NSHomeDirectory()
-        let daemonLogDir = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/workspace/data/logs", isDirectory: true)
-        copyDirectoryContents(
-            from: daemonLogDir,
-            to: tempDir.appendingPathComponent("daemon-logs", isDirectory: true),
-            fileManager: fileManager
-        )
+        await fetchDaemonExports(into: tempDir)
 
-        // 4. Audit database — ~/.vellum/workspace/data/db/assistant.db
-        let auditDb = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/workspace/data/db/assistant.db")
-        if fileManager.fileExists(atPath: auditDb.path) {
-            try? fileManager.copyItem(
-                at: auditDb,
-                to: tempDir.appendingPathComponent("assistant.db")
-            )
-        }
-
-        // 5. Daemon stderr — ~/.vellum/daemon-stderr.log
-        let stderrLog = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/daemon-stderr.log")
-        if fileManager.fileExists(atPath: stderrLog.path) {
-            try? fileManager.copyItem(
-                at: stderrLog,
-                to: tempDir.appendingPathComponent("daemon-stderr.log")
-            )
-        }
-
-        // 6. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
+        // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
         let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
             ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
         let xdgLogDir = URL(fileURLWithPath: xdgConfigHome)
@@ -174,17 +147,17 @@ enum LogExporter {
             fileManager: fileManager
         )
 
-        // 7. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
+        // 5. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
         writeSanitizedLockfile(
             to: tempDir.appendingPathComponent("vellum.lock.json")
         )
 
-        // 8. UserDefaults snapshot — app-relevant keys for debugging
+        // 6. UserDefaults snapshot — app-relevant keys for debugging
         writeUserDefaultsSnapshot(
             to: tempDir.appendingPathComponent("user-defaults.json")
         )
 
-        // 9. Auth debug info — non-sensitive token expiry and refresh metadata
+        // 7. Auth debug info — non-sensitive token expiry and refresh metadata
         writeAuthDebugInfo(
             to: tempDir.appendingPathComponent("auth-debug.json")
         )
@@ -253,6 +226,104 @@ enum LogExporter {
                 at: item,
                 to: dest.appendingPathComponent(item.lastPathComponent)
             )
+        }
+    }
+
+    // MARK: - Daemon HTTP Helpers
+
+    /// Fetches audit data and daemon log files from the daemon HTTP API
+    /// and writes them into `directory`. Silently skips if the daemon is
+    /// unreachable or returns an error.
+    private nonisolated static func fetchDaemonExports(into directory: URL) async {
+        guard let assistant = LockfileAssistant.loadLatest() else {
+            log.warning("No lockfile assistant found — skipping daemon exports")
+            return
+        }
+        let port = assistant.resolvedDaemonPort()
+        let baseURL = "http://localhost:\(port)"
+
+        guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+            log.warning("No actor token available — skipping daemon exports")
+            return
+        }
+
+        // Audit data export
+        await fetchAuditData(baseURL: baseURL, token: token, into: directory)
+
+        // Daemon logs export
+        await fetchDaemonLogs(baseURL: baseURL, token: token, into: directory)
+    }
+
+    /// Calls POST /v1/export/audit-data and writes the returned rows as JSONL.
+    private nonisolated static func fetchAuditData(
+        baseURL: String,
+        token: String,
+        into directory: URL
+    ) async {
+        guard let url = URL(string: "\(baseURL)/v1/export/audit-data") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["limit": 10000])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Audit data export failed with status \(status)")
+                return
+            }
+            // Write the raw JSON response so it can be parsed offline
+            try data.write(to: directory.appendingPathComponent("audit-data.json"))
+        } catch {
+            log.warning("Audit data export request failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Calls POST /v1/export/daemon-logs and writes each returned file.
+    private nonisolated static func fetchDaemonLogs(
+        baseURL: String,
+        token: String,
+        into directory: URL
+    ) async {
+        guard let url = URL(string: "\(baseURL)/v1/export/daemon-logs") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Daemon logs export failed with status \(status)")
+                return
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let files = json["files"] as? [String: String] else {
+                log.warning("Daemon logs export returned unexpected format")
+                return
+            }
+
+            let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
+            try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+            for (filename, content) in files {
+                let sanitized = (filename as NSString).lastPathComponent
+                try? content.write(
+                    to: logsDir.appendingPathComponent(sanitized),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+        } catch {
+            log.warning("Daemon logs export request failed: \(error.localizedDescription)")
         }
     }
 
