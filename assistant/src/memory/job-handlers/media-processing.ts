@@ -6,12 +6,22 @@ import {
 import { mapSegmentsForAsset } from "../../config/bundled-skills/media-processing/tools/analyze-keyframes.js";
 import { preprocessForAsset } from "../../config/bundled-skills/media-processing/tools/extract-keyframes.js";
 import { reduceForAsset } from "../../config/bundled-skills/media-processing/tools/query-media-events.js";
+import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { getMediaAssetById, updateMediaAssetStatus } from "../media-store.js";
 
 const log = getLogger("media-processing-job");
+
+function supportsMultimodalEmbedding(): boolean {
+  const fullConfig = getConfig();
+  const embeddingProvider = fullConfig.memory.embeddings.provider;
+  return (
+    embeddingProvider === "gemini" ||
+    (embeddingProvider === "auto" && !!fullConfig.apiKeys.gemini)
+  );
+}
 
 export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   const mediaAssetId = asString(job.payload.mediaAssetId);
@@ -32,7 +42,9 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
       "Skipping media processing pipeline — only video assets are supported",
     );
     updateMediaAssetStatus(mediaAssetId, "indexed");
-    enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
+    if (supportsMultimodalEmbedding()) {
+      enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
+    }
     return;
   }
 
@@ -110,5 +122,7 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   }
 
   updateMediaAssetStatus(mediaAssetId, "indexed");
-  enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
+  if (supportsMultimodalEmbedding()) {
+    enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
+  }
 }
