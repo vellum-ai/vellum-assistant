@@ -47,6 +47,7 @@ import {
   startGateway,
   stopLocalProcesses,
 } from "../lib/local";
+import { maybeStartNgrokTunnel } from "../lib/ngrok";
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
@@ -266,7 +267,16 @@ function parseArgs(): HatchArgs {
     }
   }
 
-  return { species, detached, keepAlive, name, remote, daemonOnly, restart, watch };
+  return {
+    species,
+    detached,
+    keepAlive,
+    name,
+    remote,
+    daemonOnly,
+    restart,
+    watch,
+  };
 }
 
 function formatElapsed(ms: number): string {
@@ -731,7 +741,13 @@ async function hatchLocal(
     resources = await allocateLocalResources(instanceName);
   }
 
-  const logsDir = join(resources.instanceDir, ".vellum", "workspace", "data", "logs");
+  const logsDir = join(
+    resources.instanceDir,
+    ".vellum",
+    "workspace",
+    "data",
+    "logs",
+  );
   archiveLogFile("hatch.log", logsDir);
   resetLogFile("hatch.log");
 
@@ -752,6 +768,21 @@ async function hatchLocal(
     );
     await stopLocalProcesses(resources);
     throw error;
+  }
+
+  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
+  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+  const prevBaseDataDir = process.env.BASE_DATA_DIR;
+  process.env.BASE_DATA_DIR = resources.instanceDir;
+  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+  if (ngrokChild?.pid) {
+    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+  }
+  if (prevBaseDataDir !== undefined) {
+    process.env.BASE_DATA_DIR = prevBaseDataDir;
+  } else {
+    delete process.env.BASE_DATA_DIR;
   }
 
   // Read the bearer token (JWT) written by the daemon so the CLI can
@@ -831,9 +862,7 @@ async function hatchLocal(
         consecutiveFailures++;
       }
       if (consecutiveFailures >= MAX_FAILURES) {
-        console.log(
-          "\n⚠️  Gateway stopped responding — shutting down.",
-        );
+        console.log("\n⚠️  Gateway stopped responding — shutting down.");
         await stopLocalProcesses(resources);
         process.exit(1);
       }
@@ -849,8 +878,16 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, keepAlive, name, remote, daemonOnly, restart, watch } =
-    parseArgs();
+  const {
+    species,
+    detached,
+    keepAlive,
+    name,
+    remote,
+    daemonOnly,
+    restart,
+    watch,
+  } = parseArgs();
 
   if (restart && remote !== "local") {
     console.error(
