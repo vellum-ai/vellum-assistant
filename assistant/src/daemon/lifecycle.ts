@@ -187,8 +187,9 @@ export async function runDaemon(): Promise<void> {
         hashedDeviceId,
       });
 
-      // Write to http-token file for backward compatibility with CLI
-      // consumers that read the token from disk.
+      // DEPRECATED: The http-token file is deprecated. Readers will be
+      // migrated to use the credential store instead. This write is kept
+      // for backward compatibility until all consumers are updated.
       const httpTokenPath = join(getRootDir(), "http-token");
       writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);
