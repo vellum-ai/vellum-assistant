@@ -131,7 +131,8 @@ export interface ProcessSessionContext {
       | "confirmation_resolved"
       | "message_complete"
       | "generation_cancelled"
-      | "error_terminal",
+      | "error_terminal"
+      | "preview_start",
     anchor?: "assistant_turn" | "user_turn" | "global",
     requestId?: string,
     statusText?: string,

@@ -13,6 +13,8 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import {
   addMessage,
   getMessageById,
@@ -304,6 +306,36 @@ export function handleToolUse(
   });
 }
 
+export function handleToolUsePreviewStart(
+  _state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "tool_use_preview_start" }>,
+): void {
+  const config = getConfig();
+  if (
+    !isAssistantFeatureFlagEnabled(
+      "feature_flags.tool-preview-lifecycle.enabled",
+      config,
+    )
+  ) {
+    return;
+  }
+  deps.onEvent({
+    type: "tool_use_preview_start",
+    toolUseId: event.toolUseId,
+    toolName: event.toolName,
+    sessionId: deps.ctx.conversationId,
+  });
+  const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
+  deps.ctx.emitActivityState(
+    "tool_running",
+    "preview_start",
+    "assistant_turn",
+    deps.reqId,
+    statusText,
+  );
+}
+
 export function handleToolOutputChunk(
   _state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -396,6 +428,7 @@ export function handleInputJsonDelta(
     toolName: event.toolName,
     content,
     sessionId: deps.ctx.conversationId,
+    toolUseId: event.toolUseId,
   });
 }
 
@@ -420,6 +453,7 @@ export function handleToolResult(
     status: event.status,
     sessionId: deps.ctx.conversationId,
     imageData: imageBlock?.source.data,
+    toolUseId: event.toolUseId,
   });
   state.pendingToolResults.set(event.toolUseId, {
     content: event.content,
@@ -780,6 +814,9 @@ export async function dispatchAgentEvent(
       break;
     case "tool_use":
       handleToolUse(state, deps, event);
+      break;
+    case "tool_use_preview_start":
+      handleToolUsePreviewStart(state, deps, event);
       break;
     case "tool_output_chunk":
       handleToolOutputChunk(state, deps, event);
