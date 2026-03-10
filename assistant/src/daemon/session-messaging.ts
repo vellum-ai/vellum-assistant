@@ -212,7 +212,7 @@ export function enqueueMessage(
   metadata?: Record<string, unknown>,
   options?: { isInteractive?: boolean },
   displayContent?: string,
-): { queued: boolean; rejected?: boolean; requestId: string } {
+): { queued: boolean; requestId: string } {
   if (!ctx.processing) {
     return { queued: false, requestId };
   }
@@ -225,7 +225,7 @@ export function enqueueMessage(
     extractTurnInterfaceContext(metadata) ??
     ctx.getTurnInterfaceContext() ??
     undefined;
-  const pushed = ctx.queue.push({
+  ctx.queue.push({
     content,
     attachments,
     requestId,
@@ -239,9 +239,6 @@ export function enqueueMessage(
     queuedAt: Date.now(),
     displayContent,
   });
-  if (!pushed) {
-    return { queued: false, rejected: true, requestId };
-  }
   return { queued: true, requestId };
 }
 

@@ -219,13 +219,7 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
 
         const result = await manager.sendMessage(params.id, body.content);
 
-        if (result === "queue_full") {
-          return httpError(
-            "CONFLICT",
-            `Subagent "${params.id}" message queue is full. Please wait for current messages to be processed.`,
-            409,
-          );
-        } else if (result === "empty") {
+        if (result === "empty") {
           return httpError(
             "BAD_REQUEST",
             "Message content is empty or whitespace-only.",

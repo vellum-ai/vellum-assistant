@@ -635,7 +635,7 @@ export async function handleSendMessage(
 
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
-    const result = session.enqueueMessage(
+    session.enqueueMessage(
       content ?? "",
       attachments,
       onEvent,
@@ -650,13 +650,6 @@ export async function handleSendMessage(
       },
       { isInteractive: false },
     );
-    if (result.rejected) {
-      return httpError(
-        "RATE_LIMITED",
-        "Message queue is full. Please retry later.",
-        429,
-      );
-    }
     return Response.json({ accepted: true, queued: true }, { status: 202 });
   }
 

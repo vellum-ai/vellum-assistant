@@ -121,7 +121,6 @@ export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
 
 export { findLastUndoableUserMessageIndex } from "./session-history.js";
 export type { QueueDrainReason, QueuePolicy } from "./session-queue-manager.js";
-export { MAX_QUEUE_DEPTH } from "./session-queue-manager.js";
 
 export class Session {
   public readonly conversationId: string;
@@ -444,7 +443,7 @@ export class Session {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; rejected?: boolean; requestId: string } {
+  ): { queued: boolean; requestId: string } {
     return enqueueMessageImpl(
       this,
       content,
