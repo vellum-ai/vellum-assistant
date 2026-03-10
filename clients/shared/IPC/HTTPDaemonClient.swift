@@ -1502,7 +1502,7 @@ public final class HTTPTransport {
     // MARK: - HTTP Endpoints
 
     /// Upload a single attachment and return its server-assigned ID, or nil on failure.
-    private func uploadAttachment(_ attachment: IPCAttachment) async -> String? {
+    private func uploadAttachment(_ attachment: IPCAttachment, isRetry: Bool = false) async -> String? {
         guard let url = buildURL(for: .uploadAttachment) else { return nil }
 
         var request = URLRequest(url: url)
@@ -1519,12 +1519,23 @@ public final class HTTPTransport {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                log.error("Attachment upload failed")
+            guard let http = response as? HTTPURLResponse else { return nil }
+
+            if http.statusCode == 200 {
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                return json?["id"] as? String
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                switch refreshResult {
+                case .success:
+                    return await uploadAttachment(attachment, isRetry: true)
+                case .terminalFailure, .transientFailure:
+                    return nil
+                }
+            } else {
+                log.error("Attachment upload failed (\(http.statusCode))")
                 return nil
             }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            return json?["id"] as? String
         } catch {
             log.error("Attachment upload error: \(error.localizedDescription)")
             return nil
@@ -1535,12 +1546,24 @@ public final class HTTPTransport {
         // Upload attachments first and collect their IDs
         var attachmentIds: [String] = []
         if let attachments, !attachments.isEmpty {
+            var uploadFailed = false
             for attachment in attachments {
                 if let id = await uploadAttachment(attachment) {
                     attachmentIds.append(id)
                 } else {
                     log.error("Failed to upload attachment: \(attachment.filename)")
+                    uploadFailed = true
                 }
+            }
+            if uploadFailed {
+                let failedCount = attachments.count - attachmentIds.count
+                onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: sessionId,
+                    code: .providerApi,
+                    userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
+                    retryable: true
+                )))
+                return
             }
         }
 
