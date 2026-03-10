@@ -452,12 +452,14 @@ extension AppDelegate {
             do {
                 let featureFlagKey = "feature_flags.collect-usage-data.enabled"
 
-                // Check if the user explicitly set the privacy preference during
-                // onboarding (before the daemon was available). If so, push that
-                // choice TO the daemon so it persists server-side, rather than
-                // letting the daemon's default (true) silently overwrite the
-                // user's opt-out.
-                if let onboardingValue = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool {
+                // Check if the user explicitly interacted with the privacy
+                // toggle during onboarding. The `collectUsageDataExplicitlySet`
+                // flag is only written when the user actually touches the
+                // toggle, NOT when the onAppear block sets the default value.
+                // This prevents the auto-written default from making the
+                // UserDefaults key always non-nil and blocking daemon sync.
+                if UserDefaults.standard.bool(forKey: "collectUsageDataExplicitlySet"),
+                   let onboardingValue = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool {
                     let flags = try await daemonClient.getFeatureFlags()
                     let daemonValue = flags
                         .first(where: { $0.key == featureFlagKey })
@@ -468,11 +470,16 @@ extension AppDelegate {
                         try await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
                     }
 
+                    // Clear the explicit-set flag so subsequent reconnects
+                    // resume daemon-as-source-of-truth behavior.
+                    UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+
                     if !onboardingValue {
                         MetricKitManager.closeSentry()
                     }
                 } else {
-                    // No local preference set — use the daemon's value as before.
+                    // No explicit user interaction — use the daemon's value
+                    // as the source of truth.
                     let flags = try await daemonClient.getFeatureFlags()
                     let collectUsageData = flags
                         .first(where: { $0.key == featureFlagKey })

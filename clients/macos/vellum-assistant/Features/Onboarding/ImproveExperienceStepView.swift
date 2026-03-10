@@ -37,6 +37,7 @@ struct ImproveExperienceStepView: View {
                     set: { newValue in
                         collectUsageData = newValue
                         UserDefaults.standard.set(newValue, forKey: "collectUsageDataEnabled")
+                        UserDefaults.standard.set(true, forKey: "collectUsageDataExplicitlySet")
                     }
                 ))
             }
