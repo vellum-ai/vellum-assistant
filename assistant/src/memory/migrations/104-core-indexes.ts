@@ -199,10 +199,6 @@ export function createCoreIndexes(database: DrizzleDb): void {
   );
 
   database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_reminders_status_fire_at ON reminders(status, fire_at)`,
-  );
-
-  database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next_run ON cron_jobs(enabled, next_run_at)`,
   );
   database.run(
