@@ -136,9 +136,9 @@ export interface ToolContext {
     allowedTools?: string[];
     allowedDomains?: string[];
   }) => Promise<SecretPromptResult>;
-  /** Optional callback to send a message to the connected IPC client (e.g. open_url). */
+  /** Optional callback to send a message to the connected client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
-  /** True when an interactive IPC client is connected (not just a no-op callback). */
+  /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
   /** Memory scope ID from the session's memory policy, so memory tools can target the correct scope. */
   memoryScopeId?: string;

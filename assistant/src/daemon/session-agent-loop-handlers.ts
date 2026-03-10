@@ -164,22 +164,22 @@ export function emitLlmCallStartedIfNeeded(
   );
 }
 
-// ── IPC Size Caps ────────────────────────────────────────────────────
+// ── Client Payload Size Caps ─────────────────────────────────────────
 // The client truncates tool results anyway (2 000 chars in ChatViewModel),
 // but the full string can be megabytes (file_read, bash output). Capping
-// here avoids sending oversized payloads over IPC which get decoded on
-// the client's main thread.
+// here avoids sending oversized payloads which get decoded on the
+// client's main thread.
 
 const TOOL_RESULT_MAX_CHARS = 2_000;
 const TOOL_RESULT_TRUNCATION_SUFFIX = "...[truncated]";
 
 // tool_input_delta streams accumulated JSON as tools run. For non-app
 // tools the client discards it (extractCodePreview only handles app tools),
-// so we cap it aggressively to avoid excessive IPC traffic.
+// so we cap it aggressively to avoid excessive client traffic.
 const TOOL_INPUT_DELTA_MAX_CHARS = 50_000;
 const APP_TOOL_NAMES = new Set(["app_create", "app_update"]);
 
-function truncateForIpc(
+function truncateForClient(
   value: string,
   maxChars: number,
   suffix: string,
@@ -407,7 +407,7 @@ export function handleInputJsonDelta(
   // app_create/app_update code previews; all other tools discard it.
   const content = APP_TOOL_NAMES.has(event.toolName)
     ? event.accumulatedJson
-    : truncateForIpc(
+    : truncateForClient(
         event.accumulatedJson,
         TOOL_INPUT_DELTA_MAX_CHARS,
         TOOL_RESULT_TRUNCATION_SUFFIX,
@@ -432,7 +432,7 @@ export function handleToolResult(
   deps.onEvent({
     type: "tool_result",
     toolName: "",
-    result: truncateForIpc(
+    result: truncateForClient(
       event.content,
       TOOL_RESULT_MAX_CHARS,
       TOOL_RESULT_TRUNCATION_SUFFIX,
