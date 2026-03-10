@@ -2,9 +2,16 @@ import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../db.js";
+import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { memoryItems, memorySegments, memorySummaries } from "../schema.js";
+import { extractMediaBlocks } from "../message-content.js";
+import {
+  memoryItems,
+  memorySegments,
+  memorySummaries,
+  messages,
+} from "../schema.js";
 
 export async function embedSegmentJob(
   job: MemoryJob,
@@ -74,4 +81,39 @@ export async function embedSummaryJob(
       last_seen_at: summary.endAt,
     },
   );
+}
+
+export async function embedAttachmentJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const messageId = asString(job.payload.messageId);
+  const blockIndex = job.payload.blockIndex as number;
+  if (!messageId || typeof blockIndex !== "number") return;
+
+  const db = getDb();
+  const message = db
+    .select()
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (!message) return;
+
+  const mediaBlocks = extractMediaBlocks(message.content);
+  const block = mediaBlocks.find((b) => b.index === blockIndex);
+  if (!block) return;
+
+  const input: EmbeddingInput = {
+    type: block.type,
+    data: block.data,
+    mimeType: block.mimeType,
+  };
+
+  // Use messageId + blockIndex as targetId for uniqueness
+  const targetId = `${messageId}:${blockIndex}`;
+  await embedAndUpsert(config, "media", targetId, input, {
+    created_at: message.createdAt,
+    message_id: messageId,
+    conversation_id: message.conversationId,
+  });
 }

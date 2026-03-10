@@ -18,6 +18,7 @@ import {
 } from "./job-handlers/conflict.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
+  embedAttachmentJob,
   embedItemJob,
   embedSegmentJob,
   embedSummaryJob,
@@ -333,6 +334,9 @@ async function processJob(
       return;
     case "media_processing":
       await mediaProcessingJob(job);
+      return;
+    case "embed_attachment":
+      await embedAttachmentJob(job, config);
       return;
     default:
       throw new Error(
