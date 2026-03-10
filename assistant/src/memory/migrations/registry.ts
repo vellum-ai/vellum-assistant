@@ -177,6 +177,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Drop the unused legacy accounts table and its leftover indexes after account_manage removal",
   },
+  {
+    key: "migration_reminders_to_schedules_v1",
+    version: 26,
+    description:
+      "Copy all existing reminders into cron_jobs as one-shot schedules with correct status and field mapping",
+  },
 ];
 
 export interface MigrationValidationResult {
