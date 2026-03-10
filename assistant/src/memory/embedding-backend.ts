@@ -401,6 +401,7 @@ export async function embedWithBackend(
   const backends: EmbeddingBackend[] = [selection.backend, ...fallbacks];
 
   let lastErr: unknown;
+  let anyBackendAttempted = false;
   for (const backend of backends) {
     const isPrimary = backend === selection.backend;
     // For the primary backend, only embed uncached inputs and merge with cached.
@@ -410,11 +411,15 @@ export async function embedWithBackend(
       : inputs;
 
     // Skip text-only backends for multimodal inputs
-    if (backend.provider !== "gemini" && inputs.some((i) => typeof i !== "string" && i.type !== "text")) {
+    const hasNonText = inputsToEmbed.some(
+      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+    );
+    if (backend.provider !== "gemini" && hasNonText) {
       continue;
     }
 
     try {
+      anyBackendAttempted = true;
       const vectors = await backend.embed(inputsToEmbed, options);
       if (vectors.length !== inputsToEmbed.length) {
         throw new Error(
@@ -461,11 +466,15 @@ export async function embedWithBackend(
       }
     }
   }
-  const hasMultimodal = inputs.some((i) => typeof i !== "string" && i.type !== "text");
-  if (hasMultimodal) {
-    throw new Error(
-      "No available embedding backend supports multimodal inputs. Gemini API key is required for image/audio/video embeddings.",
+  if (!anyBackendAttempted) {
+    const hasMultimodal = inputs.some(
+      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
+    if (hasMultimodal) {
+      throw new Error(
+        "No available embedding backend supports multimodal inputs. Gemini API key is required for image/audio/video embeddings.",
+      );
+    }
   }
   throw lastErr;
 }
