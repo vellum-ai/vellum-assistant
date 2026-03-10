@@ -11,6 +11,7 @@
 import {
   createClientUrl,
   createProjectUrl,
+  downloadClientJsonUrl,
   enableApiUrl,
   GCP_API_KEY,
   getProjectOperationUrl,
@@ -119,10 +120,11 @@ async function cdpFetch(
           // Extract SAPISID from cookies
           var sapisid = (document.cookie.match(/SAPISID=([^;]+)/) || [])[1];
           var headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
             'X-Goog-AuthUser': '0',
           };
+          // Only set Content-Type for requests with a body (POST/PUT)
+          ${opts.body ? `headers['Content-Type'] = 'application/json';` : ""}
 
           if (sapisid) {
             var ts = Math.floor(Date.now() / 1000);
@@ -132,7 +134,11 @@ async function cdpFetch(
             var hashBuf = await crypto.subtle.digest('SHA-1', msgBuf);
             var hashArr = Array.from(new Uint8Array(hashBuf));
             var hashHex = hashArr.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
-            headers['Authorization'] = 'SAPISIDHASH ' + ts + '_' + hashHex;
+            // Include all three hash variants like the GCP Console does
+            var hash = 'SAPISIDHASH ' + ts + '_' + hashHex
+                     + ' SAPISID1PHASH ' + ts + '_' + hashHex
+                     + ' SAPISID3PHASH ' + ts + '_' + hashHex;
+            headers['Authorization'] = hash;
           }
 
           return fetch(${JSON.stringify(url)}, {
@@ -798,10 +804,20 @@ export async function createOAuthClient(opts: {
     body,
   );
 
-  const secret = result.clientSecrets?.[0]?.clientSecret;
+  // The creation response includes the plaintext secret for WEB clients,
+  // but NATIVE_DESKTOP clients may omit it. Fall back to the downloadJson
+  // endpoint which returns the same JSON blob as the "Download JSON" button
+  // in the GCP Console — this always contains the secret.
+  let secret = result.clientSecrets?.[0]?.clientSecret;
+  if (!secret) {
+    process.stderr.write(
+      "[gcp-oauth] Secret not in creation response, downloading client JSON...\n",
+    );
+    secret = await downloadClientSecret(result.clientId);
+  }
   if (!secret) {
     throw new GCPApiError(
-      "Client created but no secret returned. This is unexpected.",
+      "Client created but could not retrieve the secret from either the creation response or the download JSON endpoint.",
     );
   }
 
@@ -811,6 +827,32 @@ export async function createOAuthClient(opts: {
     displayName: result.displayName,
     type: result.type,
   };
+}
+
+/**
+ * Download the client credentials JSON (the "Download JSON" blob from GCP Console)
+ * and extract the client_secret. This is the only reliable way to get the secret
+ * for NATIVE_DESKTOP clients.
+ */
+async function downloadClientSecret(
+  clientId: string,
+): Promise<string | undefined> {
+  try {
+    interface ClientJson {
+      client_id: string;
+      client_secret: string;
+    }
+    const json = await restCall<{
+      installed?: ClientJson;
+      web?: ClientJson;
+    }>(downloadClientJsonUrl(clientId), "GET");
+    return json.installed?.client_secret ?? json.web?.client_secret;
+  } catch (err) {
+    process.stderr.write(
+      `[gcp-oauth] Failed to download client JSON: ${err instanceof Error ? err.message : err}\n`,
+    );
+    return undefined;
+  }
 }
 
 /**

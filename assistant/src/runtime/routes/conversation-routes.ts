@@ -558,10 +558,16 @@ export async function handleSendMessage(
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
   // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
-  // resolver, notifiers, trace emitter) can reach the HTTP client.  The
-  // IPC socket removal (PR #14431) left sendToClient as a no-op; this
-  // restores the delivery path using the SSE hub instead.
-  session.updateClient(onEvent, true);
+  // resolver, notifiers, trace emitter) can reach the HTTP client.
+  // Desktop app (sourceChannel "vellum") is a real interactive client even
+  // though it connects over HTTP+SSE rather than IPC. Channel sessions
+  // (telegram, sms) have no interactive client attached.
+  const hasNoClient = sourceChannel !== "vellum";
+  log.info(
+    { sourceChannel, hasNoClient, conversationId: mapping.conversationId },
+    "updateClient: setting hasNoClient for HTTP session",
+  );
+  session.updateClient(onEvent, hasNoClient);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -648,7 +654,7 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       },
-      { isInteractive: false },
+      { isInteractive: sourceChannel === "vellum" },
     );
     if (result.rejected) {
       return httpError(
@@ -677,10 +683,12 @@ export async function handleSendMessage(
   );
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  // Mark non-interactive so conflict clarification doesn't block the turn.
+  // Desktop app (sourceChannel "vellum") is interactive — OAuth flows can
+  // block and wait for the localhost callback. Channel sessions (telegram,
+  // sms) are non-interactive and use the deferred OAuth path.
   session
     .runAgentLoop(content ?? "", messageId, onEvent, {
-      isInteractive: false,
+      isInteractive: sourceChannel === "vellum",
       isUserMessage: true,
     })
     .catch((err) => {

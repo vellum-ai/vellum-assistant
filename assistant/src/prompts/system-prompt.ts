@@ -124,22 +124,30 @@ export function buildSystemPrompt(): string {
   const updates = readPromptFile(updatesPath);
 
   // ── Core sections ──
-  const parts: string[] = [];
-  parts.push(
+  // Track named sections for size logging
+  const namedParts: Array<{ name: string; content: string }> = [];
+  const addPart = (name: string, content: string) => {
+    namedParts.push({ name, content });
+  };
+
+  addPart(
+    "em-dash-rule",
     "IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.",
   );
-  if (identity) parts.push(identity);
-  if (soul) parts.push(soul);
-  if (user) parts.push(user);
+  if (identity) addPart("IDENTITY.md", identity);
+  if (soul) addPart("SOUL.md", soul);
+  if (user) addPart("USER.md", user);
   if (bootstrap) {
-    parts.push(
+    addPart(
+      "BOOTSTRAP.md",
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrap,
     );
   }
   if (updates) {
-    parts.push(
+    addPart(
+      "UPDATES.md",
       [
         "## Recent Updates",
         "",
@@ -155,42 +163,84 @@ export function buildSystemPrompt(): string {
       ].join("\n"),
     );
   }
-  if (getIsContainerized()) parts.push(buildContainerizedSection());
-  parts.push(buildConfigSection());
-  parts.push(buildCliReferenceSection());
-  parts.push(buildPostToolResponseSection());
-  parts.push(buildExternalCommsIdentitySection());
-  parts.push(buildChannelAwarenessSection());
+  if (getIsContainerized())
+    addPart("containerized", buildContainerizedSection());
+  addPart("config", buildConfigSection());
+  addPart("cli-reference", buildCliReferenceSection());
+  addPart("post-tool-response", buildPostToolResponseSection());
+  addPart("external-comms-identity", buildExternalCommsIdentitySection());
+  addPart("channel-awareness", buildChannelAwarenessSection());
   const config = getConfig();
-  parts.push(buildToolPermissionSection());
-  parts.push(buildTaskScheduleReminderRoutingSection());
+  addPart("tool-permission", buildToolPermissionSection());
+  addPart(
+    "task-schedule-reminder-routing",
+    buildTaskScheduleReminderRoutingSection(),
+  );
   if (
     isAssistantFeatureFlagEnabled(
       "feature_flags.guardian-verify-setup.enabled",
       config,
     )
   ) {
-    parts.push(buildVerificationRoutingSection());
+    addPart("verification-routing", buildVerificationRoutingSection());
   }
-  parts.push(buildAttachmentSection());
-  parts.push(buildInChatConfigurationSection());
-  parts.push(buildVoiceSetupRoutingSection());
-  parts.push(buildPhoneCallsRoutingSection());
-  parts.push(buildChannelCommandIntentSection());
+  addPart("attachment", buildAttachmentSection());
+  addPart("in-chat-configuration", buildInChatConfigurationSection());
+  addPart("voice-setup-routing", buildVoiceSetupRoutingSection());
+  addPart("phone-calls-routing", buildPhoneCallsRoutingSection());
+  addPart("channel-command-intent", buildChannelCommandIntentSection());
 
   if (!isOnboardingComplete()) {
-    parts.push(buildStarterTaskPlaybookSection());
+    addPart("starter-task-playbook", buildStarterTaskPlaybookSection());
   }
-  parts.push(buildSystemPermissionSection());
-  parts.push(buildSwarmGuidanceSection());
-  parts.push(buildAccessPreferenceSection());
-  parts.push(buildIntegrationSection());
-  parts.push(buildMemoryPersistenceSection());
-  parts.push(buildMemoryRecallSection());
-  parts.push(buildWorkspaceReflectionSection());
-  parts.push(buildLearningMemorySection());
+  addPart("system-permission", buildSystemPermissionSection());
+  addPart("swarm-guidance", buildSwarmGuidanceSection());
+  addPart("access-preference", buildAccessPreferenceSection());
+  addPart("integration", buildIntegrationSection());
+  addPart("memory-persistence", buildMemoryPersistenceSection());
+  addPart("memory-recall", buildMemoryRecallSection());
+  addPart("workspace-reflection", buildWorkspaceReflectionSection());
+  addPart("learning-memory", buildLearningMemorySection());
 
-  return appendSkillsCatalog(parts.join("\n\n"));
+  // Log section sizes for context budget debugging
+  const sectionSizes = namedParts.map((p) => ({
+    name: p.name,
+    chars: p.content.length,
+    estimatedTokens: Math.ceil(p.content.length / 4),
+  }));
+  const totalChars = sectionSizes.reduce((sum, s) => sum + s.chars, 0);
+  const totalTokens = Math.ceil(totalChars / 4);
+
+  // Sort by size descending for the log
+  const sorted = [...sectionSizes].sort((a, b) => b.chars - a.chars);
+  const top10 = sorted.slice(0, 10);
+
+  log.info(
+    {
+      totalChars,
+      totalTokens,
+      sectionCount: namedParts.length,
+      top10Sections: top10.map(
+        (s) => `${s.name}: ${s.chars} chars (~${s.estimatedTokens} tokens)`,
+      ),
+    },
+    "System prompt size breakdown (before skills catalog)",
+  );
+
+  const parts = namedParts.map((p) => p.content);
+  const result = appendSkillsCatalog(parts.join("\n\n"));
+
+  log.info(
+    {
+      finalChars: result.length,
+      finalTokens: Math.ceil(result.length / 4),
+      skillsCatalogChars: result.length - totalChars,
+      skillsCatalogTokens: Math.ceil((result.length - totalChars) / 4),
+    },
+    "System prompt final size (with skills catalog)",
+  );
+
+  return result;
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {

@@ -40,7 +40,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Gmail
 
-1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
+1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed. **If the tool returns an authorization URL, you MUST copy the full URL into your response text** so the user can see and click it. Do not just say "click the link above" — the tool output panel is not reliably visible.
 2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill:
    - Call `skill_load` with `skill: "google-oauth-setup"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:

@@ -93,20 +93,26 @@ export const REQUIRED_APIS = [
 // URL builders
 // ---------------------------------------------------------------------------
 
+// clientauthconfig requires the GCP Console API key (same as other clients6 endpoints).
+
 export function listClientsUrl(projectNumber: string): string {
   const params = new URLSearchParams({
     projectNumber,
+    key: GCP_API_KEY,
     readMask:
-      "client_id,redirect_uris,post_message_origins,type,auth_type,native_app_info,creation_time,display_name,domain_wide_delegation,restrict_deletion_to_loas_owner,client_secrets",
+      "clientId,displayName,type,clientSecrets,redirectUris,creationTime",
     "readOptions.staleness": "0.02s",
     returnDisabledClients: "true",
-    key: GCP_API_KEY,
   });
   return `${CLIENT_AUTH_CONFIG_BASE}/v1/clients?${params}`;
 }
 
 export function createClientUrl(): string {
   return `${CLIENT_AUTH_CONFIG_BASE}/v1/clients?key=${GCP_API_KEY}`;
+}
+
+export function downloadClientJsonUrl(clientId: string): string {
+  return `${CLIENT_AUTH_CONFIG_BASE}/v1/clients/${clientId}:downloadJson?key=${GCP_API_KEY}`;
 }
 
 export function oauthEntityServiceUrl(): string {

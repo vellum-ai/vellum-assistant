@@ -53,6 +53,17 @@ function findStoredOAuthField(
   return undefined;
 }
 
+/** Resolve the OAuth client secret from tool input or stored credentials. */
+function getOAuthSecret(
+  input: Record<string, unknown>,
+  service: string,
+): string | undefined {
+  const field = "client_secret";
+  return (
+    (input[field] as string | undefined) ?? findStoredOAuthField(service, field)
+  );
+}
+
 class CredentialStoreTool implements Tool {
   name = "credential_store";
   description =
@@ -757,13 +768,21 @@ class CredentialStoreTool implements Tool {
         // Fill missing params from provider profile
         const profile = getProviderProfile(service);
 
-        // Look up client_id/client_secret from stored credentials if not provided
+        // Look up client_id / client_secret from stored credentials if not provided
         const clientId =
           (input.client_id as string | undefined) ??
           findStoredOAuthField(service, "client_id");
-        const clientSecret =
-          (input.client_secret as string | undefined) ??
-          findStoredOAuthField(service, "client_secret");
+        const clientSecret = getOAuthSecret(input, service);
+        log.info(
+          {
+            service,
+            hasClientId: !!clientId,
+            clientIdPrefix: clientId?.substring(0, 15) ?? "(none)",
+            hasSecret: !!clientSecret,
+            secretPrefix: clientSecret?.substring(0, 10) ?? "(none)",
+          },
+          "oauth2_connect: resolved credentials",
+        );
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;
@@ -842,6 +861,14 @@ class CredentialStoreTool implements Tool {
         // For profile-based providers, pass user scopes as requestedScopes so the
         // scope policy engine (resolveScopes) is invoked. For custom providers,
         // pass scopes directly as an explicit override.
+        log.info(
+          {
+            service: rawService,
+            isInteractive: !!context.isInteractive,
+            hasSendToClient: !!context.sendToClient,
+          },
+          "oauth2_connect: invoking orchestrator",
+        );
         const result = await orchestrateOAuthConnect({
           service: rawService,
           clientId,
@@ -875,7 +902,7 @@ class CredentialStoreTool implements Tool {
 
         if (result.deferred) {
           return {
-            content: `To connect ${rawService}, open this link and authorize access:\n\n${result.authUrl}\n\nOnce you authorize, the connection will be set up automatically. You can verify by asking me to check your inbox.`,
+            content: `Authorization required for ${rawService}. IMPORTANT: You MUST copy the full URL below into your response text so the user can see and click it — do NOT just refer to this tool output.\n\nAuthorization URL:\n${result.authUrl}\n\nOnce the user opens this link and authorizes, the connection will be set up automatically.`,
             isError: false,
           };
         }
