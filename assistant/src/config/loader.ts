@@ -180,8 +180,16 @@ function backfillConfigDefaults(
     return;
   }
 
-  if (deepMergeMissing(raw as Record<string, unknown>, fullDefaults)) {
-    writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
+  deepMergeMissing(raw as Record<string, unknown>, fullDefaults);
+  // Compare serialized JSON to decide whether a write is needed.
+  // deepMergeMissing can report false-positive mutations (e.g. setting a key
+  // to a value identical to what was already there), so comparing the final
+  // JSON avoids a hot-loop where writing triggers the config-watcher which
+  // reloads and backfills again endlessly.
+  const newJson = JSON.stringify(raw, null, 2) + "\n";
+  const existingJson = readFileSync(configPath, "utf-8");
+  if (newJson !== existingJson) {
+    writeFileSync(configPath, newJson);
     log.info("Backfilled missing config defaults in %s", configPath);
   }
 }
