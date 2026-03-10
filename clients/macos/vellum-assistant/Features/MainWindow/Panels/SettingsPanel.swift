@@ -1037,7 +1037,7 @@ private struct SettingsNavRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 (isSelected ? VColor.navActive : isHovered ? VColor.navHover : .clear)
-                    .animation(VAnimation.fast, value: isHovered)
+                    .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())

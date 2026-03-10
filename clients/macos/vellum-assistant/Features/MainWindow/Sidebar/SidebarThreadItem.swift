@@ -125,7 +125,7 @@ struct SidebarThreadItem: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
-            .animation(VAnimation.fast, value: isHovered)
+            .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
         }
         .onTapGesture {
             selectThread()
