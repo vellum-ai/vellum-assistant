@@ -30,10 +30,7 @@ function findSystemChrome(): string | null {
     );
   } else {
     // Linux
-    candidates.push(
-      "/usr/bin/google-chrome",
-      "/usr/bin/google-chrome-stable",
-    );
+    candidates.push("/usr/bin/google-chrome", "/usr/bin/google-chrome-stable");
   }
 
   for (const candidate of candidates) {
@@ -291,10 +288,7 @@ class BrowserManager {
         const systemChrome = findSystemChrome();
 
         if (systemChrome) {
-          log.info(
-            { path: systemChrome },
-            "Using system Chrome installation",
-          );
+          log.info({ path: systemChrome }, "Using system Chrome installation");
           launch = (userDataDir, options) =>
             pw.chromium.launchPersistentContext(userDataDir, {
               ...options,

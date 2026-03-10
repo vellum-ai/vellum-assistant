@@ -657,9 +657,9 @@ describe("POST /v1/workspace/rename", () => {
     const res = await handler(ctx);
     expect(res.status).toBe(200);
     expect(existsSync(srcDir)).toBe(false);
-    expect(
-      existsSync(join(testWorkspaceDir, "dir-renamed", "child.txt")),
-    ).toBe(true);
+    expect(existsSync(join(testWorkspaceDir, "dir-renamed", "child.txt"))).toBe(
+      true,
+    );
   });
 
   test("rejects missing source with 404", async () => {

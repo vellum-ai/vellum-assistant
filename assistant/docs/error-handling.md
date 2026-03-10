@@ -21,7 +21,7 @@ throw new ConfigError("Missing required provider configuration");
 // Good: subagent manager throws when depth limit is exceeded
 throw new AssistantError(
   "Cannot spawn subagent: parent is itself a subagent",
-  ErrorCode.DAEMON_ERROR
+  ErrorCode.DAEMON_ERROR,
 );
 ```
 

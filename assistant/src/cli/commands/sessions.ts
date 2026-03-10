@@ -56,7 +56,9 @@ Examples:
         log.info("No sessions");
       } else {
         for (const s of all) {
-          log.info(`  ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`);
+          log.info(
+            `  ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`,
+          );
         }
       }
     });

@@ -668,7 +668,10 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
   }
 
   test("telegram-setup includes public-ingress", () => {
-    const includes = readSkillIncludes(FIRST_PARTY_SKILLS_DIR, "telegram-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "telegram-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("public-ingress");
   });
@@ -683,7 +686,10 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
   });
 
   test("slack-oauth-setup includes browser", () => {
-    const includes = readSkillIncludes(FIRST_PARTY_SKILLS_DIR, "slack-oauth-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "slack-oauth-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("browser");
   });

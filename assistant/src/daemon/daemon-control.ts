@@ -223,7 +223,10 @@ export async function getDaemonStatus(): Promise<{
   // killStaleDaemon() can clean it up.
   const responsive = await isHttpHealthy();
   if (!responsive) {
-    log.warn({ pid }, "Daemon process alive but HTTP health check unresponsive");
+    log.warn(
+      { pid },
+      "Daemon process alive but HTTP health check unresponsive",
+    );
     return { running: false, pid };
   }
   return { running: true, pid };

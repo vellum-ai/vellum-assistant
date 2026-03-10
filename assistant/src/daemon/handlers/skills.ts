@@ -318,7 +318,11 @@ export function disableSkill(
 
 export function configureSkill(
   skillId: string,
-  config: { env?: Record<string, string>; apiKey?: string; config?: Record<string, unknown> },
+  config: {
+    env?: Record<string, string>;
+    apiKey?: string;
+    config?: Record<string, unknown>;
+  },
   ctx: SkillOperationContext,
 ): { success: true } | { success: false; error: string } {
   try {
@@ -484,7 +488,9 @@ export async function updateSkill(
 
 export async function checkSkillUpdates(
   _ctx: SkillOperationContext,
-): Promise<{ success: true; data: unknown } | { success: false; error: string }> {
+): Promise<
+  { success: true; data: unknown } | { success: false; error: string }
+> {
   try {
     const updates = await clawhubCheckUpdates();
     return { success: true, data: updates };
@@ -498,7 +504,9 @@ export async function checkSkillUpdates(
 export async function searchSkills(
   query: string,
   _ctx: SkillOperationContext,
-): Promise<{ success: true; data: unknown } | { success: false; error: string }> {
+): Promise<
+  { success: true; data: unknown } | { success: false; error: string }
+> {
   try {
     const result = await clawhubSearch(query);
     return { success: true, data: result };
@@ -744,9 +752,7 @@ export async function createSkill(
 
 // ─── IPC handlers (thin wrappers) ───────────────────────────────────────────
 
-export function handleSkillsList(
-  ctx: HandlerContext,
-): void {
+export function handleSkillsList(ctx: HandlerContext): void {
   const skills = listSkills(ctx);
   ctx.send({ type: "skills_list_response", skills });
 }

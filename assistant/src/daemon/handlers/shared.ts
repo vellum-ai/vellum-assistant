@@ -276,7 +276,10 @@ export function wireEscalationHandler(
         }
         ctx.cuSessions.delete(sid);
         ctx.cuObservationParseSequence.delete(sid);
-        log.info({ sessionId: sid }, "Computer-use session cleaned up after terminal state");
+        log.info(
+          { sessionId: sid },
+          "Computer-use session cleaned up after terminal state",
+        );
       };
 
       const cuSession = new ComputerUseSession(

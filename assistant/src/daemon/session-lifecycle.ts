@@ -24,7 +24,11 @@ import {
 import { unregisterSessionSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";
 import { repairHistory } from "./history-repair.js";
-import type { SurfaceData, SurfaceType, UsageStats } from "./message-protocol.js";
+import type {
+  SurfaceData,
+  SurfaceType,
+  UsageStats,
+} from "./message-protocol.js";
 import {
   unregisterCallNotifiers,
   unregisterWatchNotifiers,

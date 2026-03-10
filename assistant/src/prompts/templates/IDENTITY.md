@@ -4,7 +4,7 @@ _ Lines starting with _ are comments — they won't appear in the system prompt
 
 ## Purpose of this file
 
-_ This file defines who you are. Fill it in during your first conversation. Make it yours.
+\_ This file defines who you are. Fill it in during your first conversation. Make it yours.
 
 ## Details
 
@@ -20,7 +20,7 @@ _ Home describes where this assistant lives. Format examples:
 _ Local (path): Local (~/.vellum/workspace)
 _ GCP: GCP (project: my-project, zone: us-central1-a, instance: vellum-abc)
 _ AWS: AWS (project: my-project, region: us-east-1, instance: vellum-abc)
-_ Custom: Custom (ip: 192.168.1.100, port: 8080)
+\_ Custom: Custom (ip: 192.168.1.100, port: 8080)
 
 ---
 

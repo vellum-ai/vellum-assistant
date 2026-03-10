@@ -245,13 +245,7 @@ export async function handleDictationRequest(
   // Command mode: selected text present — deterministic, no classification needed
   if (msg.context.selectedText && msg.context.selectedText.trim().length > 0) {
     log.info({ mode: "command" }, "Command mode (selected text present)");
-    await handleCommandMode(
-      msg,
-      ctx,
-      profile,
-      profileMeta,
-      stylePrompt,
-    );
+    await handleCommandMode(msg, ctx, profile, profileMeta, stylePrompt);
     return;
   }
 

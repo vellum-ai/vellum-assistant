@@ -340,9 +340,7 @@ export function clearAllSessions(ctx: HandlerContext): number {
   return cleared;
 }
 
-export function handleSessionsClear(
-  ctx: HandlerContext,
-): void {
+export function handleSessionsClear(ctx: HandlerContext): void {
   const cleared = clearAllSessions(ctx);
   ctx.send({ type: "sessions_clear_response", cleared });
 }
@@ -520,10 +518,7 @@ export async function handleSessionSwitch(
 /**
  * Rename a session/conversation. Returns true on success, false if not found.
  */
-export function renameSession(
-  sessionId: string,
-  name: string,
-): boolean {
+export function renameSession(sessionId: string, name: string): boolean {
   const conversation = getConversation(sessionId);
   if (!conversation) {
     return false;
@@ -572,10 +567,7 @@ export function cancelGeneration(
   return true;
 }
 
-export function handleCancel(
-  msg: CancelRequest,
-  ctx: HandlerContext,
-): void {
+export function handleCancel(msg: CancelRequest, ctx: HandlerContext): void {
   const sessionId = msg.sessionId;
   if (sessionId) {
     cancelGeneration(sessionId, ctx);
@@ -598,10 +590,7 @@ export function undoLastMessage(
   return { removedCount };
 }
 
-export function handleUndo(
-  msg: UndoRequest,
-  ctx: HandlerContext,
-): void {
+export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
   const result = undoLastMessage(msg.sessionId, ctx);
   if (!result) {
     ctx.send({ type: "error", message: "No active session" });
@@ -717,8 +706,12 @@ export function handleUsageRequest(
 export function deleteQueuedMessage(
   sessionId: string,
   requestId: string,
-  findSession: (id: string) => { removeQueuedMessage(requestId: string): boolean } | undefined,
-): { removed: true } | { removed: false; reason: "session_not_found" | "message_not_found" } {
+  findSession: (
+    id: string,
+  ) => { removeQueuedMessage(requestId: string): boolean } | undefined,
+):
+  | { removed: true }
+  | { removed: false; reason: "session_not_found" | "message_not_found" } {
   const session = findSession(sessionId);
   if (!session) {
     log.warn(
@@ -731,10 +724,7 @@ export function deleteQueuedMessage(
   if (removed) {
     return { removed: true };
   }
-  log.warn(
-    { sessionId, requestId },
-    "Queued message not found for deletion",
-  );
+  log.warn({ sessionId, requestId }, "Queued message not found for deletion");
   return { removed: false, reason: "message_not_found" };
 }
 
@@ -746,10 +736,8 @@ export function handleDeleteQueuedMessage(
   msg: DeleteQueuedMessage,
   ctx: HandlerContext,
 ): void {
-  const result = deleteQueuedMessage(
-    msg.sessionId,
-    msg.requestId,
-    (id) => ctx.sessions.get(id),
+  const result = deleteQueuedMessage(msg.sessionId, msg.requestId, (id) =>
+    ctx.sessions.get(id),
   );
   if (result.removed) {
     ctx.send({

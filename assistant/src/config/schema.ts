@@ -274,7 +274,7 @@ export const AssistantConfigSchema = z
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
       .default(16000),
-effort: EffortSchema,
+    effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
       ContextWindowConfigSchema.parse({}),
