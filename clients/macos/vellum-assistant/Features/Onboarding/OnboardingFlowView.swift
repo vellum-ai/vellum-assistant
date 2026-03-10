@@ -4,6 +4,34 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "OnboardingFlowView")
 
+struct ManagedBootstrapCompletionMetadata {
+    let shouldSendWakeUpGreeting: Bool
+    let hatchedAt: String
+}
+
+func deriveManagedBootstrapCompletionMetadata(
+    outcome: ManagedBootstrapOutcome,
+    existingHatchedAt: String?,
+    fallbackDate: Date = Date()
+) -> ManagedBootstrapCompletionMetadata {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let fallbackHatchedAt = formatter.string(from: fallbackDate)
+
+    switch outcome {
+    case .createdNew(let assistant):
+        return ManagedBootstrapCompletionMetadata(
+            shouldSendWakeUpGreeting: true,
+            hatchedAt: assistant.created_at ?? fallbackHatchedAt
+        )
+    case .reusedExisting(let assistant):
+        return ManagedBootstrapCompletionMetadata(
+            shouldSendWakeUpGreeting: false,
+            hatchedAt: existingHatchedAt ?? assistant.created_at ?? fallbackHatchedAt
+        )
+    }
+}
+
 @MainActor
 struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
@@ -209,6 +237,7 @@ struct OnboardingFlowView: View {
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
+        state.shouldSendWakeUpGreetingAfterOnboarding = false
         log.info("Beginning managed assistant bootstrap")
 
         do {
@@ -225,14 +254,16 @@ struct OnboardingFlowView: View {
             }
 
             let runtimeUrl = AuthService.shared.baseURL
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let hatchedAt = isoFormatter.string(from: Date())
+            let existingManagedAssistant = LockfileAssistant.loadByName(assistant.id)
+            let completionMetadata = deriveManagedBootstrapCompletionMetadata(
+                outcome: outcome,
+                existingHatchedAt: existingManagedAssistant?.hatchedAt
+            )
 
             let success = LockfileAssistant.upsertManagedEntry(
                 assistantId: assistant.id,
                 runtimeUrl: runtimeUrl,
-                hatchedAt: hatchedAt
+                hatchedAt: completionMetadata.hatchedAt
             )
 
             guard success else {
@@ -241,6 +272,7 @@ struct OnboardingFlowView: View {
                 return
             }
 
+            state.shouldSendWakeUpGreetingAfterOnboarding = completionMetadata.shouldSendWakeUpGreeting
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
             isBootstrappingManaged = false

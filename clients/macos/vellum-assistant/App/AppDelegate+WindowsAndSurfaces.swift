@@ -424,7 +424,9 @@ extension AppDelegate {
             // By this point the user has either entered an API key (steps 0→1→2)
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
             // don't re-check auth, which would show the auth gate again.
-            self?.proceedToApp(isFirstLaunch: true)
+            self?.proceedToApp(
+                isFirstLaunch: state.shouldSendWakeUpGreetingAfterOnboarding
+            )
         }
         onboarding.onDismiss = { [weak self] in
             self?.onboardingWindow = nil

@@ -67,6 +67,10 @@ final class OnboardingState {
     var firstTaskCandidate: String? = nil
     var observationDurationMinutes: Int = 5
     var observationInsights: [String] = []
+    /// Controls whether completing onboarding should enter the first-launch
+    /// bootstrap that sends the wake-up greeting. Local onboarding defaults to
+    /// true; managed bootstrap flips this off when it reuses an existing assistant.
+    var shouldSendWakeUpGreetingAfterOnboarding: Bool = true
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted
