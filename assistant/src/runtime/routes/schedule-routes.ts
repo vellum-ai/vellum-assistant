@@ -112,6 +112,13 @@ function handleListReminders(): Response {
     createdAt: s.createdAt,
   }));
 
+  reminders.sort((a, b) => {
+    if (a.fireAt == null && b.fireAt == null) return 0;
+    if (a.fireAt == null) return 1;
+    if (b.fireAt == null) return -1;
+    return new Date(a.fireAt).getTime() - new Date(b.fireAt).getTime();
+  });
+
   return Response.json({
     type: "reminders_list_response",
     reminders,
@@ -300,7 +307,7 @@ export function scheduleRouteDefinitions(deps: {
     {
       endpoint: "schedules/:id/cancel",
       method: "POST",
-      policyKey: "schedules",
+      policyKey: "schedules/cancel",
       handler: ({ params }) => handleCancelSchedule(params.id),
     },
     // Reminder-compat routes: serve reminders from schedule store
@@ -313,7 +320,7 @@ export function scheduleRouteDefinitions(deps: {
     {
       endpoint: "reminders/:id/cancel",
       method: "POST",
-      policyKey: "schedules",
+      policyKey: "schedules/cancel",
       handler: ({ params }) => handleCancelReminder(params.id),
     },
   ];

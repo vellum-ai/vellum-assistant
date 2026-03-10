@@ -395,6 +395,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "schedules:DELETE", scopes: ["settings.write"] },
   { endpoint: "schedules/toggle", scopes: ["settings.write"] },
   { endpoint: "schedules/run", scopes: ["settings.write"] },
+  { endpoint: "schedules/cancel", scopes: ["settings.write"] },
 
   // Diagnostics
   { endpoint: "diagnostics/export", scopes: ["settings.read"] },
