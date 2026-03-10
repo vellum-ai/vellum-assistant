@@ -180,6 +180,8 @@ struct SkillDetailView: View {
                         .font(VFont.caption)
                 }
                 .foregroundColor(.orange)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Skill is degraded")
             }
 
             if skill.updateAvailable {
@@ -189,6 +191,8 @@ struct SkillDetailView: View {
                         .font(VFont.caption)
                 }
                 .foregroundColor(VColor.accent)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Update available for this skill")
             }
         }
         .frame(maxWidth: .infinity)

@@ -172,6 +172,9 @@ struct TaskPreflightView: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(permission.tool), \(permission.description), risk: \(permission.riskLevel), \(isApproved ? "approved" : "not approved")")
+        .accessibilityHint("Double-tap to \(isApproved ? "revoke" : "approve") this permission")
     }
 
     private func riskBadge(for level: String) -> some View {
@@ -210,6 +213,8 @@ struct TaskPreflightView: View {
             }
             .buttonStyle(.plain)
             .disabled(approvedTools.isEmpty)
+            .accessibilityLabel("Approve and run")
+            .accessibilityHint(approvedTools.isEmpty ? "Select at least one permission first" : "Runs the task with \(approvedTools.count) approved permissions")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)

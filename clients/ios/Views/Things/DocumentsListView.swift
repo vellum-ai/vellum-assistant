@@ -111,6 +111,9 @@ struct DocumentsListView: View {
             Spacer()
         }
         .padding(.vertical, VSpacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(doc.title), \(doc.wordCount) words, updated \(formattedDate(doc.updatedAt))")
+        .accessibilityHint("Opens document")
     }
 
     // MARK: - States
@@ -129,11 +132,14 @@ struct DocumentsListView: View {
         VStack(spacing: VSpacing.md) {
             VIconView(.fileText, size: 48)
                 .foregroundColor(VColor.textMuted)
+                .accessibilityHidden(true)
             Text("No documents yet")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No documents yet")
     }
 
     // MARK: - Helpers

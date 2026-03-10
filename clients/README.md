@@ -17,6 +17,10 @@ clients/
 ├── shared/                    # VellumAssistantShared - cross-platform code
 │   ├── IPC/                   # Daemon communication (DaemonClient, DaemonConfig, IPCMessages)
 │   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
+│   ├── Features/Skills/       # SkillsStore — cross-platform skills data operations
+│   ├── Features/Contacts/     # ContactsStore — cross-platform contacts data operations
+│   ├── Features/Directory/    # DirectoryStore — cross-platform apps and documents operations
+│   ├── Features/ChannelTrust/ # ChannelTrustStore — guardian state and channel trust management
 │   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
 │   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
 │   ├── Utilities/             # Shared utilities (APIKeyManager, PermissionManager)
@@ -29,7 +33,9 @@ clients/
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, etc.)
-│   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, etc.)
+│   │   ├── Intelligence/      # Skills and contacts views (InstalledSkills, CommunitySkills, Contacts)
+│   │   ├── Things/            # Apps, shared apps, and documents views
+│   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist, background.png
 └── chrome-extension/          # Chrome browser extension
@@ -54,6 +60,7 @@ clients/
     types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
 - **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
 - **Design system** (`VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, and all `V`-prefixed components)
+- **Shared feature stores** (`SkillsStore`, `ContactsStore`, `DirectoryStore`, `ChannelTrustStore` — cross-platform data operations for skills, contacts, apps, documents, and guardian trust)
 - **Shared utilities** (`APIKeyManager` for Keychain credential storage, `PermissionManager`, `MacOSClientFeatureFlagManager`)
 - **Shared app utilities** (signing identity management)
 
@@ -133,6 +140,9 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Deep linking (`vellum://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
 - ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
+- ✅ Intelligence tab — installed skills management, community skill browser, contacts with channel policy editing
+- ✅ Things tab — local apps grid with pin/share/bundle, shared apps with fork, searchable documents list
+- ✅ Settings parity — Models & Services, Privacy permissions, Channels & Guardian sections
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 

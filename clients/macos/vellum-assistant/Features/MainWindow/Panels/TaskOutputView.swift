@@ -102,6 +102,7 @@ struct TaskOutputView: View {
             .padding(.vertical, 4)
             .background(statusColor(for: output.status).opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .accessibilityLabel("Status: \(statusLabel(for: output.status))")
 
             if let completedAt = output.completedAt {
                 HStack(spacing: 4) {

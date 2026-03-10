@@ -24,6 +24,9 @@ The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
+- Intelligence tab — installed skills management, community skill browser with debounced search, contacts with channel policy editing
+- Things tab — local apps grid (2-column LazyVGrid) with pin/share/bundle, shared apps with fork, searchable/sortable documents list
+- Settings parity — Models & Services (model selection, API key management), Privacy (system permission status), Channels & Guardian (guardian status, channel trust)
 
 ---
 

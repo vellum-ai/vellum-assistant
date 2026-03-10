@@ -113,6 +113,7 @@ struct InstalledSkillsView: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Skill: \(skill.name), \(skill.state)\(skill.degraded ? ", degraded" : "")")
+        .accessibilityHint("Opens skill details")
     }
 
     // MARK: - State Badge
@@ -153,6 +154,8 @@ struct InstalledSkillsView: View {
                 .padding(.horizontal, VSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No skills installed. Browse the community to discover and install skills for your assistant.")
     }
 
     private var loadingState: some View {

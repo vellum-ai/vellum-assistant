@@ -122,7 +122,8 @@ struct ContactsListView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Contact: \(contact.displayName), \(contact.role)")
+        .accessibilityLabel("Contact: \(contact.displayName), \(contact.role)\(contact.interactionCount > 0 ? ", \(contact.interactionCount) interactions" : "")")
+        .accessibilityHint("Opens contact details")
     }
 
     // MARK: - Initials
@@ -198,6 +199,8 @@ struct ContactsListView: View {
                 .padding(.horizontal, VSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No contacts. Contacts will appear here as people interact with your assistant.")
     }
 
     private var loadingState: some View {

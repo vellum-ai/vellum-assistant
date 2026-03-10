@@ -210,6 +210,9 @@ struct AppsGridView: View {
             .background(VColor.surface)
             .cornerRadius(VRadius.lg)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(app.name)\(isPinned(app.id) ? ", pinned" : "")\(app.description != nil ? ", \(app.description!)" : "")")
+        .accessibilityHint("Opens app. Long press for more options.")
         .contextMenu {
             Button {
                 directoryStore.openApp(id: app.id)
@@ -284,11 +287,14 @@ struct AppsGridView: View {
         VStack(spacing: VSpacing.md) {
             VIconView(.layoutGrid, size: 48)
                 .foregroundColor(VColor.textMuted)
+                .accessibilityHidden(true)
             Text("No apps yet")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No apps yet")
     }
 
     // MARK: - Helpers

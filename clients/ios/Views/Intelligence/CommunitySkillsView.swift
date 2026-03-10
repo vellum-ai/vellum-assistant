@@ -100,7 +100,8 @@ struct CommunitySkillsView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Skill: \(item.name) by \(item.author)")
+        .accessibilityLabel("Skill: \(item.name) by \(item.author)\(item.isVellum ? ", Vellum verified" : "")\(item.stars > 0 ? ", \(item.stars) stars" : "")")
+        .accessibilityHint("Opens skill details")
     }
 
     // MARK: - States
@@ -132,6 +133,8 @@ struct CommunitySkillsView: View {
                 .padding(.horizontal, VSpacing.xl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No results. No skills found matching \(searchQuery). Try a different search term.")
     }
 
     private var browsePromptState: some View {
