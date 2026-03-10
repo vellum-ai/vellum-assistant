@@ -53,17 +53,9 @@ export function rebuildIndexJob(): void {
     enqueueMemoryJob("embed_segment", { segmentId: segment.id });
   }
 
-  const assets = db
-    .select({ id: mediaAssets.id })
-    .from(mediaAssets)
-    .where(eq(mediaAssets.status, "indexed"))
-    .all();
-  for (const asset of assets) {
-    enqueueMemoryJob("embed_media", { assetId: asset.id });
-  }
-
-  // Re-enqueue embed_attachment jobs for messages with image content.
-  // Only when the embedding provider supports multimodal (Gemini).
+  // Re-enqueue multimodal embedding jobs only when the embedding provider
+  // supports multimodal inputs (Gemini). Without this gate, embed_media and
+  // embed_attachment jobs would all fail for non-Gemini users.
   const fullConfig = getConfig();
   const embeddingProvider = fullConfig.memory.embeddings.provider;
   const supportsMultimodal =
@@ -71,6 +63,15 @@ export function rebuildIndexJob(): void {
     (embeddingProvider === "auto" && !!fullConfig.apiKeys.gemini);
 
   if (supportsMultimodal) {
+    const assets = db
+      .select({ id: mediaAssets.id })
+      .from(mediaAssets)
+      .where(eq(mediaAssets.status, "indexed"))
+      .all();
+    for (const asset of assets) {
+      enqueueMemoryJob("embed_media", { assetId: asset.id });
+    }
+
     const allMessages = db
       .select({ id: messages.id, content: messages.content })
       .from(messages)
