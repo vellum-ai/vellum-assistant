@@ -45,7 +45,11 @@ struct SettingsAccountTab: View {
             accountSection
             assistantInfoSection
             switchAssistantSection
-            GatewaySettingsCard(store: store, daemonClient: daemonClient)
+            GatewaySettingsCard(
+                store: store,
+                daemonClient: daemonClient,
+                isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
+            )
             hatchNewAssistantSection
             retireAssistantSection
         }
