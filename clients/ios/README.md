@@ -93,7 +93,7 @@ Pair with a running assistant (local Mac or remote) via QR code. The iOS app con
 4. Tap **Approve Once** or **Always Allow** on the host
 5. The app auto-configures the gateway URL and bearer token
 
-The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
+The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing is disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1` on the Mac; when enabled, the QR code includes the local gateway URL for direct LAN connections.
 
 **Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys and tokens are stored in `UserDefaults` instead, which works fine for development. On a real device, credentials are stored in the Keychain.
 
