@@ -4,8 +4,8 @@
  * Measures compaction cost with a mock provider:
  * - compaction latency under threshold pressure
  * - no-op fast path for below-threshold histories
- * - token reduction ratio after compaction
- * - summary call count within expected range
+ * - token reduction below target budget
+ * - single-pass summarization (exactly 1 call)
  * - severe pressure overriding cooldown
  */
 import { describe, expect, mock, test } from "bun:test";
@@ -73,9 +73,8 @@ function makeConfig() {
   return {
     ...DEFAULT_CONFIG.contextWindow,
     maxInputTokens: 6000,
-    targetInputTokens: 3200,
+    targetBudgetRatio: 0.58,
     compactThreshold: 0.6,
-    preserveRecentUserTurns: 8,
     summaryBudgetRatio: 0.05,
   };
 }
@@ -131,7 +130,7 @@ describe("Compaction benchmark", () => {
     expect(counter.calls).toBe(0);
   });
 
-  test("token reduction ratio exceeds 30% after compaction", async () => {
+  test("compaction reduces tokens below target budget", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
@@ -145,13 +144,17 @@ describe("Compaction benchmark", () => {
     const result = await manager.maybeCompact(messages);
 
     expect(result.compacted).toBe(true);
-    const reductionRatio =
-      (result.previousEstimatedInputTokens - result.estimatedInputTokens) /
-      result.previousEstimatedInputTokens;
-    expect(reductionRatio).toBeGreaterThan(0.3);
+    expect(result.estimatedInputTokens).toBeLessThan(
+      result.previousEstimatedInputTokens,
+    );
+    // Target is maxInputTokens * (targetBudgetRatio - summaryBudgetRatio)
+    const targetTokens = Math.floor(
+      config.maxInputTokens * (config.targetBudgetRatio - config.summaryBudgetRatio),
+    );
+    expect(result.estimatedInputTokens).toBeLessThanOrEqual(targetTokens);
   });
 
-  test("summary calls fall within 2-6 range", async () => {
+  test("single-pass summarization makes exactly 1 summary call", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
@@ -165,8 +168,7 @@ describe("Compaction benchmark", () => {
     const result = await manager.maybeCompact(messages);
 
     expect(result.compacted).toBe(true);
-    expect(result.summaryCalls).toBeGreaterThanOrEqual(2);
-    expect(result.summaryCalls).toBeLessThanOrEqual(6);
+    expect(result.summaryCalls).toBe(1);
     expect(result.summaryCalls).toBe(counter.calls);
   });
 
@@ -177,7 +179,7 @@ describe("Compaction benchmark", () => {
     const config = {
       ...makeConfig(),
       maxInputTokens: 4000,
-      targetInputTokens: 2000,
+      targetBudgetRatio: 0.55,
     };
     const manager = new ContextWindowManager({
       provider,

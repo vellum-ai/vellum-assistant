@@ -435,6 +435,13 @@ export class ContextWindowManager {
     };
   }
 
+  private get targetInputTokens(): number {
+    return Math.floor(
+      this.config.maxInputTokens *
+        (this.config.targetBudgetRatio - this.config.summaryBudgetRatio),
+    );
+  }
+
   private pickKeepBoundary(
     messages: Message[],
     userTurnStarts: number[],
@@ -448,12 +455,10 @@ export class ContextWindowManager {
       userTurnStarts.length,
     );
     const targetTokens =
-      opts?.targetInputTokensOverride ?? this.config.targetInputTokens;
+      opts?.targetInputTokensOverride ?? this.targetInputTokens;
 
-    let keepTurns = Math.min(
-      this.config.preserveRecentUserTurns,
-      userTurnStarts.length,
-    );
+    // Start from all available turns and reduce until projected tokens fit.
+    let keepTurns = userTurnStarts.length;
     keepTurns = Math.max(minFloor, keepTurns);
 
     // When minFloor is 0 and there are no user turns to keep, keepFromIndex

@@ -15,10 +15,8 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 180000,
-      targetInputTokens: 110000,
-      compactThreshold: 0.8,
-      preserveRecentUserTurns: 8,
-      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.30,
+      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
     },
   }),
   invalidateConfigCache: () => {},
