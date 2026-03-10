@@ -11,6 +11,14 @@ struct ChatLoadingSkeleton: View {
     /// Varying lengths look more natural than uniform bones.
     private let assistantLineWidths: [CGFloat] = [0.92, 0.85, 0.78, 0.95, 0.70, 0.45]
 
+    /// Darker bone that uses a subtler shimmer to avoid the bright white sweep.
+    private func chatBone(width: CGFloat? = nil, height: CGFloat = 14) -> some View {
+        RoundedRectangle(cornerRadius: VRadius.sm)
+            .fill(VColor.surfaceBorder.opacity(0.7))
+            .frame(width: width, height: height)
+            .vShimmer(highlightColor: VColor.surfaceBorder)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             userMessage
@@ -22,12 +30,12 @@ struct ChatLoadingSkeleton: View {
 
     // MARK: - User Message
 
-    /// Right-aligned user bubble with two short text lines inside,
+    /// Right-aligned user bubble with two text lines inside,
     /// matching real ChatBubble user styling (fill + padding + corner radius).
     private var userMessage: some View {
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
-            VSkeletonBone(width: 180, height: 14, radius: VRadius.sm)
-            VSkeletonBone(width: 120, height: 14, radius: VRadius.sm)
+            chatBone(width: 280, height: 14)
+            chatBone(width: 200, height: 14)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -47,14 +55,11 @@ struct ChatLoadingSkeleton: View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(assistantLineWidths.indices, id: \.self) { idx in
-                    VSkeletonBone(
-                        height: 14,
-                        radius: VRadius.sm
-                    )
-                    .frame(
-                        maxWidth: VSpacing.chatBubbleMaxWidth * assistantLineWidths[idx],
-                        alignment: .leading
-                    )
+                    chatBone(height: 14)
+                        .frame(
+                            maxWidth: VSpacing.chatBubbleMaxWidth * assistantLineWidths[idx],
+                            alignment: .leading
+                        )
                 }
             }
             .padding(.horizontal, VSpacing.lg)
