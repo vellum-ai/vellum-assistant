@@ -617,30 +617,6 @@ export async function handleSendMessage(
   }
 
   if (session.isProcessing()) {
-    // If a tool confirmation is pending, auto-deny it so the agent
-    // can finish the current turn and process this queued message.
-    if (session.hasAnyPendingConfirmation()) {
-      // Emit authoritative denial state for each pending request.
-      // sendToClient (wired to the SSE hub) delivers these to the client.
-      for (const interaction of pendingInteractions.getByConversation(
-        mapping.conversationId,
-      )) {
-        if (
-          interaction.session === session &&
-          interaction.kind === "confirmation"
-        ) {
-          session.emitConfirmationStateChanged({
-            sessionId: mapping.conversationId,
-            requestId: interaction.requestId,
-            state: "denied" as const,
-            source: "auto_deny" as const,
-          });
-        }
-      }
-      session.denyAllPendingConfirmations();
-      pendingInteractions.removeBySession(session);
-    }
-
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
     const enqueueResult = session.enqueueMessage(
@@ -664,6 +640,32 @@ export async function handleSendMessage(
         { status: 429 },
       );
     }
+
+    // Auto-deny pending confirmations only after enqueue succeeds, so we
+    // don't cancel approval-gated workflows when the replacement message
+    // is itself rejected by the queue budget.
+    if (session.hasAnyPendingConfirmation()) {
+      // Emit authoritative denial state for each pending request.
+      // sendToClient (wired to the SSE hub) delivers these to the client.
+      for (const interaction of pendingInteractions.getByConversation(
+        mapping.conversationId,
+      )) {
+        if (
+          interaction.session === session &&
+          interaction.kind === "confirmation"
+        ) {
+          session.emitConfirmationStateChanged({
+            sessionId: mapping.conversationId,
+            requestId: interaction.requestId,
+            state: "denied" as const,
+            source: "auto_deny" as const,
+          });
+        }
+      }
+      session.denyAllPendingConfirmations();
+      pendingInteractions.removeBySession(session);
+    }
+
     return Response.json({ accepted: true, queued: true }, { status: 202 });
   }
 
