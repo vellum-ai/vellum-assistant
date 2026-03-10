@@ -121,9 +121,11 @@ struct SettingsPanel: View {
 
                 Spacer()
             }
+            .padding(.trailing, VSpacing.xl)
             .padding(.bottom, VSpacing.md)
 
             VColor.surfaceBorder.frame(height: 1)
+                .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
             HStack(alignment: .top, spacing: 0) {
@@ -132,11 +134,16 @@ struct SettingsPanel: View {
 
                 if selectedTab == .contacts {
                     selectedTabContent
+                        .padding(.trailing, VSpacing.xl)
+                        .padding(.bottom, VSpacing.xl)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
                     ScrollView {
                         selectedTabContent
-                            .padding(VSpacing.lg)
+                            .padding(.top, VSpacing.lg)
+                            .padding(.leading, VSpacing.lg)
+                            .padding(.trailing, VSpacing.xl)
+                            .padding(.bottom, VSpacing.xl)
                             .frame(maxWidth: 700, alignment: .top)
                             .frame(maxWidth: .infinity)
                     }
@@ -144,7 +151,8 @@ struct SettingsPanel: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(VSpacing.xl)
+        .padding(.top, VSpacing.xl)
+        .padding(.leading, VSpacing.xl)
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
