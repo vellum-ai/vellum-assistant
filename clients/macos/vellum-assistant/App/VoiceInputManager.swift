@@ -54,6 +54,7 @@ final class VoiceInputManager {
     /// All active event monitors, consolidated for clean teardown.
     private var monitors: [Any] = []
 
+    private var permissionTask: Task<Void, Never>?
     private var holdTask: Task<Void, Never>?
     private var otherKeyPressedDuringHold = false  // True if any other key pressed while holding
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
@@ -162,6 +163,8 @@ final class VoiceInputManager {
         }
         appSwitchObservers = []
         isActivatorHeld = false
+        permissionTask?.cancel()
+        permissionTask = nil
         stopRecording()
         overlayWindow.dismiss()
     }
@@ -514,26 +517,23 @@ final class VoiceInputManager {
 
         // Check microphone and speech permissions before recording.
         // If not yet determined, trigger the system-native permission dialogs.
-        // If denied, open the relevant System Settings pane.
+        // If denied, log and return silently.
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
 
         if micStatus == .notDetermined || speechStatus == .notDetermined {
             currentDictationContext = nil
-            Task { @MainActor in
-                await self.requestPermissionsAndRecord()
+            guard permissionTask == nil else { return }
+            permissionTask = Task { @MainActor [weak self] in
+                await self?.requestPermissionsAndRecord()
+                self?.permissionTask = nil
             }
             return
         }
         let micDenied = micStatus == .denied || micStatus == .restricted
         let speechDenied = speechStatus == .denied || speechStatus == .restricted
         if micDenied || speechDenied {
-            log.warning("Required permissions denied — opening System Settings")
-            if micDenied {
-                PermissionManager.openMicrophoneSettings()
-            } else {
-                PermissionManager.openSpeechRecognitionSettings()
-            }
+            log.warning("Required permissions denied (mic=\(micDenied), speech=\(speechDenied))")
             currentDictationContext = nil
             return
         }
@@ -625,9 +625,9 @@ final class VoiceInputManager {
     /// then start recording if both are granted.
     private func requestPermissionsAndRecord() async {
         let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
+        guard !Task.isCancelled else { return }
         guard micGranted else {
-            log.warning("Microphone access denied by user — opening System Settings")
-            PermissionManager.openMicrophoneSettings()
+            log.warning("Microphone access denied by user")
             return
         }
 
@@ -636,9 +636,9 @@ final class VoiceInputManager {
                 continuation.resume(returning: status == .authorized)
             }
         }
+        guard !Task.isCancelled else { return }
         guard speechGranted else {
-            log.warning("Speech recognition access denied by user — opening System Settings")
-            PermissionManager.openSpeechRecognitionSettings()
+            log.warning("Speech recognition access denied by user")
             return
         }
 
