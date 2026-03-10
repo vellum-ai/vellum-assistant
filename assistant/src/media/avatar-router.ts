@@ -58,18 +58,23 @@ async function generateLocal(
 
 export async function routedGenerateAvatar(
   prompt: string,
-  options?: { correlationId?: string },
+  options?: { correlationId?: string; model?: string },
 ): Promise<AvatarGenerationResult> {
   const strategy = getAvatarStrategy();
   const correlationId = options?.correlationId;
+  const model = options?.model;
 
   if (strategy === "managed_required") {
-    const managed = await generateManagedAvatar(prompt, { correlationId });
+    const managed = await generateManagedAvatar(prompt, {
+      correlationId,
+      model,
+    });
     return {
       imageBase64: managed.image.data_base64,
       mimeType: managed.image.mime_type,
       pathUsed: "managed",
       correlationId: managed.correlation_id,
+      model,
     };
   }
 
@@ -80,12 +85,16 @@ export async function routedGenerateAvatar(
   // managed_prefer: try managed first if available, fall back to local
   if (isManagedAvailable()) {
     try {
-      const managed = await generateManagedAvatar(prompt, { correlationId });
+      const managed = await generateManagedAvatar(prompt, {
+        correlationId,
+        model,
+      });
       return {
         imageBase64: managed.image.data_base64,
         mimeType: managed.image.mime_type,
         pathUsed: "managed",
         correlationId: managed.correlation_id,
+        model,
       };
     } catch (err) {
       log.warn(

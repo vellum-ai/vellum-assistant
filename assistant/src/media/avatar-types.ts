@@ -56,6 +56,7 @@ export interface AvatarGenerationResult {
   mimeType: string;
   pathUsed: "managed" | "local";
   correlationId?: string;
+  model?: string;
 }
 
 export const AVATAR_MIME_ALLOWLIST = new Set([
