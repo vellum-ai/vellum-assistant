@@ -242,9 +242,9 @@ extension ChatBubble {
         }
 
         // Attachments are not part of contentOrder but must still be rendered
-        // Skip image attachments when they're already shown inline from tool calls
+        // Skip image attachments when they all come from tool calls shown inline
         let partitioned = partitionedAttachments
-        if !partitioned.images.isEmpty && !hasInlineToolCallImages {
+        if !partitioned.images.isEmpty && partitioned.images.count != inlineToolCallImageCount {
             attachmentImageGrid(partitioned.images)
         }
         if !partitioned.videos.isEmpty {

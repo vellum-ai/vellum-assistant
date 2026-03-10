@@ -1,5 +1,38 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
+
+// MARK: - Inline Tool Call Image
+
+/// Renders a single tool-call-generated image at full width in the message flow.
+/// Uses `@Environment(\.displayScale)` for correct sizing on Retina and non-Retina displays.
+private struct InlineToolCallImageView: View {
+    let image: NSImage
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let nativeWidth = CGFloat(cgImage.width) / displayScale
+            let nativeHeight = CGFloat(cgImage.height) / displayScale
+            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            Image(decorative: cgImage, scale: displayScale)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(
+                    maxWidth: min(nativeWidth, maxDim),
+                    maxHeight: min(nativeHeight, maxDim)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        } else {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+    }
+}
 
 // MARK: - Attachment Image Grid (async)
 
@@ -213,11 +246,12 @@ extension ChatBubble {
         return String(format: "%.1f MB", mb)
     }
 
-    /// Whether the message has tool calls with inline images, meaning
-    /// image attachments from tool content blocks are already shown inline
-    /// and should be skipped in the attachment grid.
-    var hasInlineToolCallImages: Bool {
-        message.toolCalls.contains { $0.cachedImage != nil }
+    /// Number of tool calls in this message that have inline cached images.
+    /// Used to suppress the corresponding image attachments from the attachment
+    /// grid — only when the count matches (i.e. all image attachments come from
+    /// tool calls), so unrelated image attachments still render normally.
+    var inlineToolCallImageCount: Int {
+        message.toolCalls.filter { $0.cachedImage != nil }.count
     }
 
     /// Renders cached images from completed tool calls inline below the
@@ -231,28 +265,7 @@ extension ChatBubble {
         }
         if !imagesWithIds.isEmpty {
             ForEach(imagesWithIds, id: \.id) { item in
-                let img = item.image
-                if let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    let scale: CGFloat = 2.0 // Retina
-                    let nativeWidth = CGFloat(cgImage.width) / scale
-                    let nativeHeight = CGFloat(cgImage.height) / scale
-                    let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-                    Image(decorative: cgImage, scale: scale)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(
-                            maxWidth: min(nativeWidth, maxDim),
-                            maxHeight: min(nativeHeight, maxDim)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                } else {
-                    Image(nsImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                }
+                InlineToolCallImageView(image: item.image)
             }
         }
     }
