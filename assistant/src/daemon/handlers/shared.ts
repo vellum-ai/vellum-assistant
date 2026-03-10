@@ -13,7 +13,6 @@ import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { ComputerUseSession } from "../computer-use-session.js";
 import type {
-  ClientMessage,
   ServerMessage,
   SessionTransportMetadata,
 } from "../message-protocol.js";
@@ -169,29 +168,6 @@ export interface HandlerContext {
   touchSession(sessionId: string): void;
   /** Optional heartbeat service reference for "Run Now" support. */
   heartbeatService?: HeartbeatService;
-}
-
-// ─── Typed dispatch ──────────────────────────────────────────────────────────
-
-type MessageType = ClientMessage["type"];
-// 'auth' is handled at the transport layer (server.ts) and never reaches dispatch.
-export type DispatchableType = Exclude<MessageType, "auth">;
-type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
-type MessageHandler<T extends MessageType> = (
-  msg: MessageOfType<T>,
-  ctx: HandlerContext,
-) => void | Promise<void>;
-export type DispatchMap = { [T in DispatchableType]: MessageHandler<T> };
-
-/**
- * Type-safe handler group definition. Preserves exact key types so the
- * combined spread in index.ts can be checked for exhaustiveness via
- * `satisfies DispatchMap` instead of an unsafe `as DispatchMap` cast.
- */
-export function defineHandlers<K extends DispatchableType>(
-  handlers: Pick<DispatchMap, K>,
-): Pick<DispatchMap, K> {
-  return handlers;
 }
 
 /**

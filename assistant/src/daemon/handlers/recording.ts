@@ -9,7 +9,7 @@ import {
 } from "../../memory/attachments-store.js";
 import { addMessage } from "../../memory/conversation-crud.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1045,19 +1045,3 @@ export function __resetRecordingState(): void {
   finalizedRecordingIds.clear();
   activeRestartToken = null;
 }
-
-// ─── IPC handler wrapper ─────────────────────────────────────────────────────
-
-/** IPC-compatible wrapper: ignores the socket (unused) and delegates to core. */
-async function handleRecordingStatusIpc(
-  msg: RecordingStatus,
-  ctx: HandlerContext,
-): Promise<void> {
-  return handleRecordingStatusCore(msg, ctx);
-}
-
-// ─── Export handler group ────────────────────────────────────────────────────
-
-export const recordingHandlers = defineHandlers({
-  recording_status: handleRecordingStatusIpc,
-});
