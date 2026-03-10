@@ -1560,14 +1560,14 @@ final class ChatViewModelTests: XCTestCase {
 
         let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
-            code: .queueFull,
-            userMessage: "Queue is full",
+            code: .providerApi,
+            userMessage: "Provider error",
             retryable: false
         )
         viewModel.handleServerMessage(.sessionError(errorMsg))
 
         XCTAssertEqual(viewModel.sessionError?.isRetryable, false)
-        XCTAssertEqual(viewModel.sessionError?.category, .queueFull)
+        XCTAssertEqual(viewModel.sessionError?.category, .providerApi)
     }
 
     func testSessionErrorReplacedBySubsequentError() {
