@@ -10,7 +10,12 @@ import type { Species } from "./constants";
 import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
-import { closeLogFile, openLogFile, resetLogFile, writeToLogFile } from "./xdg-log";
+import {
+  closeLogFile,
+  openLogFile,
+  resetLogFile,
+  writeToLogFile,
+} from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
 
@@ -48,6 +53,12 @@ function findDockerRoot(): DockerRoot {
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
+  }
+
+  // macOS app bundle: Contents/MacOS/vellum-cli -> Contents/Resources/Dockerfile
+  const appResourcesDir = join(dirname(process.execPath), "..", "Resources");
+  if (existsSync(join(appResourcesDir, "Dockerfile"))) {
+    return { root: appResourcesDir, dockerfileDir: "." };
   }
 
   // Fall back to Node module resolution for the `vellum` package
@@ -152,18 +163,40 @@ export async function hatchDocker(
   name: string | null,
   watch: boolean,
 ): Promise<void> {
-  const { root: repoRoot, dockerfileDir } = findDockerRoot();
+  resetLogFile("hatch.log");
+
+  let repoRoot: string;
+  let dockerfileDir: string;
+  try {
+    ({ root: repoRoot, dockerfileDir } = findDockerRoot());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const logFd = openLogFile("hatch.log");
+    writeToLogFile(
+      logFd,
+      `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
+    );
+    closeLogFile(logFd);
+    console.error(message);
+    throw err;
+  }
+
   const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
   const dockerfileName = watch ? "Dockerfile.development" : "Dockerfile";
   const dockerfile = join(dockerfileDir, dockerfileName);
   const dockerfilePath = join(repoRoot, dockerfile);
 
   if (!existsSync(dockerfilePath)) {
-    console.error(`Error: ${dockerfile} not found at ${dockerfilePath}`);
+    const message = `Error: ${dockerfile} not found at ${dockerfilePath}`;
+    const logFd = openLogFile("hatch.log");
+    writeToLogFile(
+      logFd,
+      `[docker-hatch] ${new Date().toISOString()} ERROR\n${message}\n`,
+    );
+    closeLogFile(logFd);
+    console.error(message);
     process.exit(1);
   }
-
-  resetLogFile("hatch.log");
 
   console.log(`🥚 Hatching Docker assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
@@ -182,7 +215,10 @@ export async function hatchDocker(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    writeToLogFile(logFd, `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`);
+    writeToLogFile(
+      logFd,
+      `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`,
+    );
     closeLogFile(logFd);
     throw err;
   }
@@ -244,13 +280,21 @@ export async function hatchDocker(
   // requires an extra argument the Dockerfile doesn't include.
   const containerCmd: string[] =
     species !== "vellum"
-      ? ["vellum", "hatch", species, ...(watch ? ["--watch"] : []), "--keep-alive"]
+      ? [
+          "vellum",
+          "hatch",
+          species,
+          ...(watch ? ["--watch"] : []),
+          "--keep-alive",
+        ]
       : [];
 
   // Always start the container detached so it keeps running after the CLI exits.
   runArgs.push("-d");
   console.log("🚀 Starting Docker container...");
-  await exec("docker", [...runArgs, imageTag, ...containerCmd], { cwd: repoRoot });
+  await exec("docker", [...runArgs, imageTag, ...containerCmd], {
+    cwd: repoRoot,
+  });
 
   if (detached) {
     console.log("\n✅ Docker assistant hatched!\n");
@@ -304,7 +348,13 @@ export async function hatchDocker(
       child.on("close", (code) => {
         // The log tail may exit if the container stops before the sentinel
         // is seen, or we killed it after detecting the sentinel.
-        if (code === 0 || code === null || code === 130 || code === 137 || code === 143) {
+        if (
+          code === 0 ||
+          code === null ||
+          code === 130 ||
+          code === 137 ||
+          code === 143
+        ) {
           resolve();
         } else {
           reject(new Error(`Docker container exited with code ${code}`));
