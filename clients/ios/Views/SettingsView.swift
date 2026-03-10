@@ -12,6 +12,20 @@ struct SettingsView: View {
     /// manage private threads without creating a second store that races on UserDefaults.
     var threadStore: IOSThreadStore
 
+    /// Lazily builds the Channels & Guardian destination, creating the
+    /// shared stores from the current DaemonClient.
+    @ViewBuilder
+    private var channelsGuardianDestination: some View {
+        if let daemon = clientProvider.client as? DaemonClient {
+            let contactsStore = ContactsStore(daemonClient: daemon)
+            let trustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contactsStore)
+            ChannelsGuardianSection(channelTrustStore: trustStore, contactsStore: contactsStore)
+        } else {
+            Text("Not connected")
+                .foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -29,6 +43,11 @@ struct SettingsView: View {
                         Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
                     }
                     NavigationLink {
+                        ModelsServicesSection()
+                    } label: {
+                        Label { Text("Models & Services") } icon: { VIconView(.cpu, size: 14) }
+                    }
+                    NavigationLink {
                         TwilioSettingsSection()
                     } label: {
                         Label { Text("Twilio") } icon: { VIconView(.phone, size: 14) }
@@ -37,6 +56,11 @@ struct SettingsView: View {
                         IntegrationsSection()
                     } label: {
                         Label { Text("Integrations") } icon: { VIconView(.link, size: 14) }
+                    }
+                    NavigationLink {
+                        channelsGuardianDestination
+                    } label: {
+                        Label { Text("Channels & Guardian") } icon: { VIconView(.shieldCheck, size: 14) }
                     }
                     NavigationLink {
                         SchedulesSection()
@@ -79,6 +103,11 @@ struct SettingsView: View {
                 Section("Permissions") {
                     PermissionRowView(permission: .microphone)
                     PermissionRowView(permission: .speechRecognition)
+                    NavigationLink {
+                        PrivacySection()
+                    } label: {
+                        Label { Text("Privacy") } icon: { VIconView(.eye, size: 14) }
+                    }
                 }
 
                 Section("About") {
