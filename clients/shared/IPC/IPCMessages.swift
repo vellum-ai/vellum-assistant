@@ -1318,6 +1318,16 @@ extension IPCScheduleRemove {
     }
 }
 
+/// Cancel a schedule (preserves the record with status 'cancelled').
+/// Backed by generated `IPCScheduleCancel`.
+public typealias ScheduleCancelMessage = IPCScheduleCancel
+
+extension IPCScheduleCancel {
+    public init(id: String) {
+        self.init(type: "schedule_cancel", id: id)
+    }
+}
+
 /// Run a schedule immediately as a one-off.
 /// Backed by generated `IPCScheduleRunNow`.
 public typealias ScheduleRunNowMessage = IPCScheduleRunNow

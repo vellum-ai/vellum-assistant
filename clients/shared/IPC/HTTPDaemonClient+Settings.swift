@@ -49,6 +49,10 @@ extension HTTPTransport {
                 Task { await self.sendGenericPost(.scheduleDelete(id: msg.id), method: "DELETE", label: "schedule_remove") }
                 return true
             }
+            if let msg = message as? ScheduleCancelMessage {
+                Task { await self.sendGenericPost(.scheduleCancel(id: msg.id), label: "schedule_cancel") }
+                return true
+            }
             if let msg = message as? ScheduleRunNowMessage {
                 Task { await self.sendGenericPost(.scheduleRunNow(id: msg.id), label: "schedule_run_now") }
                 return true

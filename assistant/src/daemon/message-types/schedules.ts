@@ -17,6 +17,11 @@ export interface ScheduleRemove {
   id: string;
 }
 
+export interface ScheduleCancel {
+  type: "schedule_cancel";
+  id: string;
+}
+
 export interface ScheduleRunNow {
   type: "schedule_run_now";
   id: string;
@@ -125,6 +130,7 @@ export type _SchedulesClientMessages =
   | SchedulesList
   | ScheduleToggle
   | ScheduleRemove
+  | ScheduleCancel
   | ScheduleRunNow
   | HeartbeatConfig
   | HeartbeatRunsList

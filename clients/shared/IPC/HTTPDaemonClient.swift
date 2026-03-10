@@ -366,6 +366,7 @@ public final class HTTPTransport {
         case schedules
         case scheduleToggle(id: String)
         case scheduleDelete(id: String)
+        case scheduleCancel(id: String)
         case scheduleRunNow(id: String)
 
         // Diagnostics
@@ -745,6 +746,9 @@ public final class HTTPTransport {
         case .scheduleDelete(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/schedules/\(encoded)", nil)
+        case .scheduleCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/schedules/\(encoded)/cancel", nil)
         case .scheduleRunNow(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/schedules/\(encoded)/run", nil)
@@ -1123,6 +1127,9 @@ public final class HTTPTransport {
         case .scheduleDelete(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/schedules/\(encoded)/", nil)
+        case .scheduleCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/schedules/\(encoded)/cancel/", nil)
         case .scheduleRunNow(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/schedules/\(encoded)/run/", nil)

@@ -107,8 +107,9 @@ struct RemindersSection: View {
 
     private func cancelSchedule(_ id: String) {
         guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.sendRemoveSchedule(id: id)
-        schedules.removeAll { $0.id == id }
+        try? daemon.sendCancelSchedule(id: id)
+        // Reload so the cancelled status is reflected in the list.
+        loadSchedules()
     }
 
     private func formatTimestamp(_ ms: Int) -> String? {

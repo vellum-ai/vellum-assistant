@@ -1201,6 +1201,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ScheduleRemoveMessage(id: id))
     }
 
+    /// Cancel a schedule (preserves the record with status 'cancelled').
+    public func sendCancelSchedule(id: String) throws {
+        try send(ScheduleCancelMessage(id: id))
+    }
+
     /// Run a schedule immediately as a one-off execution.
     public func sendRunScheduleNow(id: String) throws {
         try send(ScheduleRunNowMessage(id: id))
