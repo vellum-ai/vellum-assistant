@@ -416,6 +416,9 @@ public final class HTTPTransport {
         case workspaceFiles
         case workspaceFilesRead
 
+        // Attachments
+        case uploadAttachment
+
         // Misc
         case channelVerificationSessions
         case registerDeviceToken
@@ -814,6 +817,9 @@ public final class HTTPTransport {
             return ("/v1/workspace-files", nil)
         case .workspaceFilesRead:
             return ("/v1/workspace-files/read", nil)
+        // Attachments
+        case .uploadAttachment:
+            return ("/v1/attachments", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
@@ -1195,6 +1201,9 @@ public final class HTTPTransport {
             return ("\(prefix)/workspace-files/", nil)
         case .workspaceFilesRead:
             return ("\(prefix)/workspace-files/read/", nil)
+        // Attachments
+        case .uploadAttachment:
+            return ("\(prefix)/attachments/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
@@ -1492,7 +1501,49 @@ public final class HTTPTransport {
 
     // MARK: - HTTP Endpoints
 
-    func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
+    /// Upload a single attachment and return its server-assigned ID, or nil on failure.
+    private func uploadAttachment(_ attachment: IPCAttachment) async -> String? {
+        guard let url = buildURL(for: .uploadAttachment) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = [
+            "filename": attachment.filename,
+            "mimeType": attachment.mimeType,
+            "data": attachment.data
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                log.error("Attachment upload failed")
+                return nil
+            }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return json?["id"] as? String
+        } catch {
+            log.error("Attachment upload error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func sendMessage(content: String?, sessionId: String, attachments: [IPCAttachment]? = nil, isRetry: Bool = false) async {
+        // Upload attachments first and collect their IDs
+        var attachmentIds: [String] = []
+        if let attachments, !attachments.isEmpty {
+            for attachment in attachments {
+                if let id = await uploadAttachment(attachment) {
+                    attachmentIds.append(id)
+                } else {
+                    log.error("Failed to upload attachment: \(attachment.filename)")
+                }
+            }
+        }
+
         guard let url = buildURL(for: .sendMessage) else { return }
 
         var request = URLRequest(url: url)
@@ -1508,6 +1559,9 @@ public final class HTTPTransport {
         if let content, !content.isEmpty {
             body["content"] = content
         }
+        if !attachmentIds.isEmpty {
+            body["attachmentIds"] = attachmentIds
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1521,7 +1575,7 @@ public final class HTTPTransport {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
                 case .success:
-                    await sendMessage(content: content, sessionId: sessionId, isRetry: true)
+                    await sendMessage(content: content, sessionId: sessionId, attachments: attachments, isRetry: true)
                 case .terminalFailure:
                     // performRefresh() already emitted .authenticationRequired — don't overwrite it
                     break
