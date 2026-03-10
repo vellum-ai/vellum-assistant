@@ -10,61 +10,68 @@ struct ImproveExperienceStepView: View {
     @State private var sharePerformanceMetrics: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? true
 
     var body: some View {
-        VStack(spacing: VSpacing.xxl) {
-            VStack(spacing: VSpacing.md) {
-                Text("Improve Experience")
-                    .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
+        Text("Improve Experience")
+            .font(VFont.onboardingTitle)
+            .foregroundColor(VColor.textPrimary)
+            .opacity(showTitle ? 1 : 0)
+            .offset(y: showTitle ? 0 : 8)
+            .padding(.bottom, VSpacing.md)
 
-                Text("To provide you the best experience, your assistant will ask you a couple of questions to get to know you better.")
-                    .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
+        Text("To provide you the best experience, your assistant will ask you a couple of questions to get to know you better.")
+            .font(VFont.onboardingSubtitle)
+            .foregroundColor(VColor.textSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, VSpacing.xxl)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
-            VStack(spacing: VSpacing.md) {
-                HStack {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Share performance metrics")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("Send anonymised performance metrics to help us improve responsiveness. No personal data or message content is included.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    Spacer()
-                    VToggle(isOn: Binding(
-                        get: { sharePerformanceMetrics },
-                        set: { newValue in
-                            sharePerformanceMetrics = newValue
-                            UserDefaults.standard.set(newValue, forKey: "sendPerformanceReports")
-                        }
-                    ))
-                }
-
-                OnboardingButton(
-                    title: "Continue",
-                    style: .primary
-                ) {
-                    state.isHatching = true
-                }
-
-                Button(action: { goBack() }) {
-                    Text("Back")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+        HStack {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Share performance metrics")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Text("Send anonymised performance metrics to help us improve responsiveness. No personal data or message content is included.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
             }
-            .opacity(showContent ? 1 : 0)
-            .offset(y: showContent ? 0 : 12)
+            Spacer()
+            VToggle(isOn: Binding(
+                get: { sharePerformanceMetrics },
+                set: { newValue in
+                    sharePerformanceMetrics = newValue
+                    UserDefaults.standard.set(newValue, forKey: "sendPerformanceReports")
+                }
+            ))
         }
         .padding(.horizontal, VSpacing.xxl)
+        .padding(.top, VSpacing.xl)
+        .opacity(showContent ? 1 : 0)
+        .offset(y: showContent ? 0 : 12)
+
+        Spacer()
+
+        VStack(spacing: VSpacing.md) {
+            OnboardingButton(
+                title: "Continue",
+                style: .primary
+            ) {
+                state.isHatching = true
+            }
+
+            Button(action: { goBack() }) {
+                Text("Back")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(.horizontal, VSpacing.xxl)
+        .padding(.bottom, VSpacing.lg)
+        .opacity(showContent ? 1 : 0)
+        .offset(y: showContent ? 0 : 12)
         .onAppear {
             // Opt in by default during onboarding, but preserve any existing choice
             if UserDefaults.standard.object(forKey: "sendPerformanceReports") == nil {
@@ -85,6 +92,9 @@ struct ImproveExperienceStepView: View {
                 showContent = true
             }
         }
+
+        OnboardingFooter(currentStep: state.currentStep, totalSteps: state.needsCloudCredentials ? 4 : 3)
+            .padding(.bottom, VSpacing.lg)
     }
 
     private func goBack() {
