@@ -77,7 +77,6 @@ import {
   createGuardianActionCopyGenerator,
   createGuardianFollowUpConversationGenerator,
 } from "./guardian-action-generators.js";
-import { initPairingHandlers } from "./handlers/pairing.js";
 import {
   cancelGeneration,
   clearAllSessions,
@@ -712,7 +711,6 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp.setPairingBroadcast((msg) =>
         server.broadcast(msg as ServerMessage),
       );
-      initPairingHandlers(runtimeHttp.getPairingStore(), pairingBearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
       log.info(
