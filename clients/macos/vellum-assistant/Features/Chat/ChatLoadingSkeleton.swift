@@ -14,9 +14,9 @@ struct ChatLoadingSkeleton: View {
     /// Darker bone that uses a subtler shimmer to avoid the bright white sweep.
     private func chatBone(width: CGFloat? = nil, height: CGFloat = 14) -> some View {
         RoundedRectangle(cornerRadius: VRadius.sm)
-            .fill(VColor.surfaceBorder.opacity(0.7))
+            .fill(VColor.textMuted.opacity(0.15))
             .frame(width: width, height: height)
-            .vShimmer(highlightColor: VColor.surfaceBorder)
+            .vShimmer(highlightColor: VColor.textMuted.opacity(0.1))
     }
 
     var body: some View {
@@ -42,7 +42,7 @@ struct ChatLoadingSkeleton: View {
         .padding(.vertical, VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBorder.opacity(0.25))
+                .fill(VColor.textMuted.opacity(0.06))
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -67,7 +67,7 @@ struct ChatLoadingSkeleton: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surfaceBorder.opacity(0.15))
+                    .fill(VColor.textMuted.opacity(0.06))
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
             .overlay(alignment: .topLeading) {
@@ -78,7 +78,7 @@ struct ChatLoadingSkeleton: View {
                     .clipShape(Circle())
                     .overlay(
                         Circle()
-                            .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                            .strokeBorder(VColor.textMuted.opacity(0.2), lineWidth: 1)
                     )
                     .offset(x: -(28 + VSpacing.sm), y: 0)
             }
