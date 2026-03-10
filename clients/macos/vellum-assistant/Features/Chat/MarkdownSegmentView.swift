@@ -302,7 +302,10 @@ struct MarkdownSegmentView: View {
 
                     // Apply hanging indent so wrapped lines align with item text
                     let prefixText = indentString + prefix
-                    let prefixWidth = CGFloat(prefixText.count) * 7.5 * zoomScale
+                    // Measure actual prefix width using the font
+                    let font = NSFont.systemFont(ofSize: 14 * zoomScale)
+                    let prefixNS = NSString(string: prefixText)
+                    let prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                     let paragraphStyle = NSMutableParagraphStyle()
                     paragraphStyle.headIndent = prefixWidth
                     paragraphStyle.firstLineHeadIndent = 0
