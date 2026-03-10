@@ -8,11 +8,11 @@ import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 import {
   type EmbeddingInput,
-  type MultimodalEmbeddingInput,
-  type TextEmbeddingInput,
-  normalizeEmbeddingInput,
   embeddingInputContentHash,
   isTextInput,
+  type MultimodalEmbeddingInput,
+  normalizeEmbeddingInput,
+  type TextEmbeddingInput,
 } from "./embedding-types.js";
 
 export type {
@@ -20,7 +20,7 @@ export type {
   MultimodalEmbeddingInput,
   TextEmbeddingInput,
 };
-export { normalizeEmbeddingInput, embeddingInputContentHash, isTextInput };
+export { embeddingInputContentHash, isTextInput,normalizeEmbeddingInput };
 
 const log = getLogger("memory-embeddings");
 

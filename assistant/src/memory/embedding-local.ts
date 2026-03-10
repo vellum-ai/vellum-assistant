@@ -9,8 +9,8 @@ import type {
   EmbeddingInput,
   EmbeddingRequestOptions,
 } from "./embedding-backend.js";
-import { normalizeEmbeddingInput } from "./embedding-types.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
+import { normalizeEmbeddingInput } from "./embedding-types.js";
 
 const log = getLogger("memory-embedding-local");
 

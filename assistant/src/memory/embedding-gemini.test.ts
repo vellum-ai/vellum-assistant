@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 
 function makeSuccessResponse(values: number[]) {
