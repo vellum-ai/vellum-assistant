@@ -135,12 +135,12 @@ function createMockDeps(
       get: () => () => {},
     }) as unknown as EventHandlerDeps["rlog"],
     turnChannelContext: {
-      userMessageChannel: "desktop",
-      assistantMessageChannel: "desktop",
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
     } as EventHandlerDeps["turnChannelContext"],
     turnInterfaceContext: {
-      userMessageInterface: "chat",
-      assistantMessageInterface: "chat",
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
     } as EventHandlerDeps["turnInterfaceContext"],
     ...overrides,
   } as EventHandlerDeps;
