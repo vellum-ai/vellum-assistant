@@ -165,6 +165,10 @@ export async function semanticSearch(
         finalScore: 0,
       });
     } else if (payload.target_type === "media") {
+      // Media points don't currently store scope_id in their Qdrant payload,
+      // so we can't verify scope membership. Skip them when a scope filter is
+      // active to prevent cross-scope media leakage.
+      if (scopeIds) continue;
       candidates.push({
         key: `media:${payload.target_id}`,
         type: "media",
