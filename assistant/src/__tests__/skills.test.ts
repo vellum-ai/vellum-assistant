@@ -664,7 +664,7 @@ describe("bundled public-ingress skill", () => {
   });
 });
 
-describe("ingress-dependent setup skills declare public-ingress", () => {
+describe("setup skills declare required includes", () => {
   const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
   const BUNDLED_SKILLS_DIR = join(
     import.meta.dir,
@@ -715,13 +715,13 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
     expect(includes).toContain("public-ingress");
   });
 
-  test("google-oauth-setup includes public-ingress", () => {
+  test("google-oauth-setup includes browser", () => {
     const includes = readSkillIncludes(
       BUNDLED_SKILLS_DIR,
       "google-oauth-setup",
     );
     expect(includes).toBeDefined();
-    expect(includes).toContain("public-ingress");
+    expect(includes).toContain("browser");
   });
 
   test("slack-oauth-setup includes browser", () => {

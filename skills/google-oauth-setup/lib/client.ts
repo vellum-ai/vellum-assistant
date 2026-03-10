@@ -406,7 +406,9 @@ async function extractApiKeyFromNetworkReload(
 /**
  * Fallback: extract API key from script tags (naive, may grab wrong key).
  */
-async function extractApiKeyFromScripts(wsUrl: string): Promise<string | null> {
+async function extractApiKeyFromScripts(
+  wsUrl: string,
+): Promise<string | null> {
   const script = `
     (function() {
       var scripts = document.querySelectorAll('script');
@@ -775,22 +777,15 @@ export async function createOAuthClient(opts: {
   redirectUris?: string[];
 }): Promise<CreatedClient> {
   const { projectNumber } = requireConfig();
-  const clientType = opts.type ?? "NATIVE_DESKTOP";
 
   const body: CreateClientRequest = {
-    type: clientType,
+    type: opts.type ?? "WEB",
     displayName: opts.displayName,
+    redirectUris: opts.redirectUris ?? [],
     authType: "SHARED_SECRET",
     brandId: projectNumber,
     projectNumber,
   };
-  if (
-    clientType === "WEB" &&
-    opts.redirectUris &&
-    opts.redirectUris.length > 0
-  ) {
-    body.redirectUris = opts.redirectUris;
-  }
 
   const result = await restCall<GCPOAuthClient>(
     createClientUrl(),

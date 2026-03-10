@@ -81,7 +81,8 @@ export const CLOUD_RESOURCE_MANAGER_BASE =
   "https://cloudresourcemanager.clients6.google.com";
 
 /** Service Usage — enable/disable APIs (via Console proxy, accepts SAPISIDHASH). */
-export const SERVICE_USAGE_BASE = "https://serviceusage.clients6.google.com";
+export const SERVICE_USAGE_BASE =
+  "https://serviceusage.clients6.google.com";
 
 /** APIs to enable for Gmail + Calendar integration. */
 export const REQUIRED_APIS = [
