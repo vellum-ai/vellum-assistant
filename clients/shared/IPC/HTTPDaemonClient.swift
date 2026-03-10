@@ -1501,9 +1501,15 @@ public final class HTTPTransport {
 
     // MARK: - HTTP Endpoints
 
-    /// Upload a single attachment and return its server-assigned ID, or nil on failure.
-    private func uploadAttachment(_ attachment: IPCAttachment, isRetry: Bool = false) async -> String? {
-        guard let url = buildURL(for: .uploadAttachment) else { return nil }
+    private enum AttachmentUploadResult {
+        case success(id: String)
+        case transientFailure
+        case terminalAuthFailure
+    }
+
+    /// Upload a single attachment and return its server-assigned ID.
+    private func uploadAttachment(_ attachment: IPCAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
+        guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1519,51 +1525,58 @@ public final class HTTPTransport {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return nil }
+            guard let http = response as? HTTPURLResponse else { return .transientFailure }
 
             if http.statusCode == 200 {
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                return json?["id"] as? String
+                if let id = json?["id"] as? String {
+                    return .success(id: id)
+                }
+                return .transientFailure
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
                 case .success:
                     return await uploadAttachment(attachment, isRetry: true)
-                case .terminalFailure, .transientFailure:
-                    return nil
+                case .terminalFailure:
+                    // handleAuthenticationFailureAsync already emitted .authenticationRequired
+                    return .terminalAuthFailure
+                case .transientFailure:
+                    return .transientFailure
                 }
             } else {
                 log.error("Attachment upload failed (\(http.statusCode))")
-                return nil
+                return .transientFailure
             }
         } catch {
             log.error("Attachment upload error: \(error.localizedDescription)")
-            return nil
+            return .transientFailure
         }
     }
 
-    func sendMessage(content: String?, sessionId: String, attachments: [IPCAttachment]? = nil, isRetry: Bool = false) async {
-        // Upload attachments first and collect their IDs
-        var attachmentIds: [String] = []
-        if let attachments, !attachments.isEmpty {
-            var uploadFailed = false
+    func sendMessage(content: String?, sessionId: String, attachments: [IPCAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+        // On retry, reuse already-uploaded attachment IDs to avoid duplicates
+        var attachmentIds: [String] = uploadedAttachmentIds ?? []
+
+        if attachmentIds.isEmpty, let attachments, !attachments.isEmpty {
             for attachment in attachments {
-                if let id = await uploadAttachment(attachment) {
+                switch await uploadAttachment(attachment) {
+                case .success(let id):
                     attachmentIds.append(id)
-                } else {
+                case .terminalAuthFailure:
+                    // .authenticationRequired already emitted — don't overwrite with a generic error
+                    return
+                case .transientFailure:
                     log.error("Failed to upload attachment: \(attachment.filename)")
-                    uploadFailed = true
+                    let failedCount = attachments.count - attachmentIds.count
+                    onMessage?(.sessionError(SessionErrorMessage(
+                        sessionId: sessionId,
+                        code: .providerApi,
+                        userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
+                        retryable: true
+                    )))
+                    return
                 }
-            }
-            if uploadFailed {
-                let failedCount = attachments.count - attachmentIds.count
-                onMessage?(.sessionError(SessionErrorMessage(
-                    sessionId: sessionId,
-                    code: .providerApi,
-                    userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
-                    retryable: true
-                )))
-                return
             }
         }
 
@@ -1598,7 +1611,8 @@ public final class HTTPTransport {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
                 case .success:
-                    await sendMessage(content: content, sessionId: sessionId, attachments: attachments, isRetry: true)
+                    // Reuse already-uploaded IDs to avoid duplicate uploads
+                    await sendMessage(content: content, sessionId: sessionId, uploadedAttachmentIds: attachmentIds, isRetry: true)
                 case .terminalFailure:
                     // performRefresh() already emitted .authenticationRequired — don't overwrite it
                     break
