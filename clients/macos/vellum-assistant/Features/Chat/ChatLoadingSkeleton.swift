@@ -34,8 +34,9 @@ struct ChatLoadingSkeleton: View {
     /// matching real ChatBubble user styling (fill + padding + corner radius).
     private var userMessage: some View {
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
-            chatBone(width: 280, height: 14)
-            chatBone(width: 200, height: 14)
+            chatBone(height: 14)
+            chatBone(height: 14)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.6, alignment: .trailing)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -43,7 +44,7 @@ struct ChatLoadingSkeleton: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.surfaceBorder.opacity(0.25))
         )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .trailing)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
