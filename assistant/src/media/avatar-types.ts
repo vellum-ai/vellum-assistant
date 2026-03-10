@@ -1,4 +1,7 @@
-export type AvatarGenerationStrategy = "managed_required" | "managed_prefer" | "local_only";
+export type AvatarGenerationStrategy =
+  | "managed_required"
+  | "managed_prefer"
+  | "local_only";
 
 export interface ManagedAvatarImagePayload {
   mime_type: string;
@@ -55,6 +58,11 @@ export interface AvatarGenerationResult {
   correlationId?: string;
 }
 
-export const AVATAR_MIME_ALLOWLIST = new Set(["image/png", "image/jpeg", "image/webp"]);
+export const AVATAR_MIME_ALLOWLIST = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 export const AVATAR_MAX_DECODED_BYTES = 10 * 1024 * 1024;
 export const AVATAR_PROMPT_MAX_LENGTH = 2000;
+export const VERTEX_IMAGE_DEFAULT_MODEL = "imagen-3.0-generate-002";

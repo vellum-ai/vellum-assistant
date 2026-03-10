@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+
 import { getPlatformBaseUrl } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { getSecureKey } from "../security/secure-keys.js";
@@ -7,8 +9,8 @@ import {
   AVATAR_MIME_ALLOWLIST,
   AVATAR_PROMPT_MAX_LENGTH,
   ManagedAvatarError,
-  type ManagedAvatarErrorResponse,
   type ManagedAvatarResponse,
+  VERTEX_IMAGE_DEFAULT_MODEL,
 } from "./avatar-types.js";
 
 const log = getLogger("managed-avatar-client");
@@ -30,7 +32,7 @@ export function isManagedAvailable(): boolean {
 
 export async function generateManagedAvatar(
   prompt: string,
-  options?: { correlationId?: string; idempotencyKey?: string },
+  options?: { correlationId?: string; idempotencyKey?: string; model?: string },
 ): Promise<ManagedAvatarResponse> {
   if (prompt.length > AVATAR_PROMPT_MAX_LENGTH) {
     throw new ManagedAvatarError({
@@ -68,7 +70,8 @@ export async function generateManagedAvatar(
     });
   }
 
-  const url = `${baseUrl}/v1/assistants/avatar/generate/`;
+  const model = options?.model ?? VERTEX_IMAGE_DEFAULT_MODEL;
+  const url = `${baseUrl}/v1/runtime-proxy/vertex/v1/models/${model}:predict`;
   const idempotencyKey = options?.idempotencyKey ?? crypto.randomUUID();
   const correlationId = options?.correlationId ?? crypto.randomUUID();
 
@@ -79,13 +82,23 @@ export async function generateManagedAvatar(
     "X-Correlation-Id": correlationId,
   };
 
-  log.debug({ url, correlationId }, "Requesting managed avatar generation");
+  log.debug(
+    { url, correlationId, model },
+    "Requesting managed avatar generation",
+  );
 
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({
+        instances: [{ prompt }],
+        parameters: {
+          sampleCount: 1,
+          aspectRatio: "1:1",
+          outputOptions: { mimeType: "image/png" },
+        },
+      }),
       signal: AbortSignal.timeout(60_000),
       headers,
     });
@@ -105,63 +118,89 @@ export async function generateManagedAvatar(
   }
 
   if (!response.ok) {
-    let errorBody: ManagedAvatarErrorResponse;
+    let detail = `HTTP ${response.status}`;
     try {
-      errorBody = (await response.json()) as ManagedAvatarErrorResponse;
+      const text = await response.text();
+      if (text) detail = `HTTP ${response.status}: ${text}`;
     } catch {
-      throw new ManagedAvatarError({
-        code: "upstream_error",
-        subcode: "unparseable_response",
-        detail: `HTTP ${response.status}: unable to parse error response`,
-        retryable: response.status >= 500 || response.status === 429,
-        correlationId,
-        statusCode: response.status,
-      });
+      // ignore parse failures
     }
 
     throw new ManagedAvatarError({
-      code: errorBody.code ?? "upstream_error",
-      subcode: errorBody.subcode ?? "unknown",
-      detail: errorBody.detail ?? `HTTP ${response.status}`,
-      retryable:
-        errorBody.retryable ??
-        (response.status >= 500 || response.status === 429),
-      correlationId: errorBody.correlation_id ?? correlationId,
+      code: "upstream_error",
+      subcode: "http_error",
+      detail,
+      retryable: response.status >= 500 || response.status === 429,
+      correlationId,
       statusCode: response.status,
     });
   }
 
-  let body: ManagedAvatarResponse;
   try {
-    body = (await response.json()) as ManagedAvatarResponse;
+    const vertexBody = (await response.json()) as {
+      predictions: Array<{ bytesBase64Encoded: string; mimeType: string }>;
+    };
 
-    if (!AVATAR_MIME_ALLOWLIST.has(body.image.mime_type)) {
+    const prediction = vertexBody.predictions?.[0];
+    if (!prediction) {
+      throw new ManagedAvatarError({
+        code: "upstream_error",
+        subcode: "empty_predictions",
+        detail: "Vertex response contained no predictions",
+        retryable: false,
+        correlationId,
+        statusCode: 0,
+      });
+    }
+
+    const mimeType = prediction.mimeType;
+    const dataBase64 = prediction.bytesBase64Encoded;
+
+    if (!AVATAR_MIME_ALLOWLIST.has(mimeType)) {
       throw new ManagedAvatarError({
         code: "validation_error",
         subcode: "disallowed_mime_type",
-        detail: `Response MIME type "${body.image.mime_type}" is not in the allowlist`,
+        detail: `Response MIME type "${mimeType}" is not in the allowlist`,
         retryable: false,
         correlationId,
         statusCode: 0,
       });
     }
 
-    const b64 = body.image.data_base64;
-    const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
-    const estimatedDecodedBytes = Math.ceil((b64.length * 3) / 4) - padding;
-    if (
-      estimatedDecodedBytes > AVATAR_MAX_DECODED_BYTES ||
-      body.image.bytes > AVATAR_MAX_DECODED_BYTES
-    ) {
+    const padding = dataBase64.endsWith("==")
+      ? 2
+      : dataBase64.endsWith("=")
+        ? 1
+        : 0;
+    const estimatedDecodedBytes =
+      Math.ceil((dataBase64.length * 3) / 4) - padding;
+    if (estimatedDecodedBytes > AVATAR_MAX_DECODED_BYTES) {
       throw new ManagedAvatarError({
         code: "validation_error",
         subcode: "oversized_image",
-        detail: `Response image size ${Math.max(estimatedDecodedBytes, body.image.bytes)} exceeds maximum of ${AVATAR_MAX_DECODED_BYTES} bytes`,
+        detail: `Response image size ${estimatedDecodedBytes} exceeds maximum of ${AVATAR_MAX_DECODED_BYTES} bytes`,
         retryable: false,
         correlationId,
         statusCode: 0,
       });
     }
+
+    const sha256 = createHash("sha256")
+      .update(Buffer.from(dataBase64, "base64"))
+      .digest("hex");
+
+    const body: ManagedAvatarResponse = {
+      image: {
+        mime_type: mimeType,
+        data_base64: dataBase64,
+        bytes: estimatedDecodedBytes,
+        sha256,
+      },
+      usage: { billable: true, class_name: "image_generation" },
+      generation_source: "vertex",
+      profile: model,
+      correlation_id: correlationId,
+    };
 
     log.debug(
       {
