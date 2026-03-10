@@ -22,7 +22,6 @@ import {
 import type { IngressConfigRequest } from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
-  defineHandlers,
   type HandlerContext,
   log,
 } from "./shared.js";
@@ -252,6 +251,3 @@ export async function handleIngressConfig(
   }
 }
 
-export const ingressHandlers = defineHandlers({
-  ingress_config: handleIngressConfig,
-});
