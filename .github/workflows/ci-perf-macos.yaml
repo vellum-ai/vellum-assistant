@@ -1,13 +1,6 @@
 name: CI – macOS Performance Baselines
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'clients/macos/**'
-      - 'clients/shared/**'
-      - '.github/workflows/ci-perf-macos.yaml'
-      - 'scripts/compare-perf-baselines.sh'
   workflow_dispatch:
 
 jobs:
