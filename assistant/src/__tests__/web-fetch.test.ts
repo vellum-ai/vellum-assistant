@@ -1606,7 +1606,7 @@ describe("web_fetch tool", () => {
     expect(result.content).toContain("Regular markdown content.");
   });
 
-  test("suggests browser skill when HTML page returns very little text content", async () => {
+  test("suggests JS rendering may be needed when HTML page returns very little text content", async () => {
     const spaHtml =
       '<!doctype html><html><head><title>My App</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>';
     const result = await executeWithMockFetch(
@@ -1622,8 +1622,8 @@ describe("web_fetch tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("browser skill");
-    expect(result.content).toContain("browser_navigate");
+    expect(result.content).toContain("Extracted text content is very short");
+    expect(result.content).toContain("JavaScript rendering");
   });
 
   test("does not suggest browser skill when HTML page has substantial content", async () => {
@@ -1641,6 +1641,25 @@ describe("web_fetch tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).not.toContain("browser skill");
+    expect(result.content).not.toContain("Extracted text content is very short");
+  });
+
+  test("does not suggest JS rendering notice in raw mode even for sparse HTML", async () => {
+    const spaHtml =
+      '<!doctype html><html><head><title>My App</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>';
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/spa", raw: true },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(spaHtml, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("Extracted text content is very short");
   });
 });
