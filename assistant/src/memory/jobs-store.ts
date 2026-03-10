@@ -28,13 +28,15 @@ export type MemoryJobType =
   | "reconcile_fts"
   | "delete_qdrant_vectors"
   | "media_processing"
-  | "embed_media";
+  | "embed_media"
+  | "embed_attachment";
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
   "embed_item",
   "embed_summary",
   "embed_media",
+  "embed_attachment",
 ];
 
 export interface MemoryJob<T = Record<string, unknown>> {
