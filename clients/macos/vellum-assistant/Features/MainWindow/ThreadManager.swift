@@ -1068,9 +1068,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
             guard let self, let service = self.activityNotificationService else { return }
             let sessionId = viewModel?.sessionId ?? ""
+            // Derive a human-friendly summary from the last tool call's reasonDescription
+            let summary: String
+            if let lastReason = toolCalls.last?.reasonDescription, !lastReason.isEmpty {
+                let capitalized = lastReason.prefix(1).uppercased() + lastReason.dropFirst()
+                summary = capitalized.count > 50 ? String(capitalized.prefix(47)) + "..." : String(capitalized)
+            } else {
+                let count = toolCalls.count
+                summary = "Completed \(count) action\(count == 1 ? "" : "s")"
+            }
             Task { @MainActor in
                 await service.notifySessionComplete(
-                    summary: "Tool execution completed",
+                    summary: summary,
                     steps: toolCalls.count,
                     toolCalls: toolCalls,
                     sessionId: sessionId

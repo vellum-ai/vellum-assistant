@@ -133,6 +133,17 @@ public final class ToolConfirmationNotificationService {
             }
             return command.count > 200 ? String(command.prefix(197)) + "..." : command
         }
+        // For all other tools, prefer the human-readable reason
+        if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
+            let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
+            let preview = commandPreview(toolName: message.toolName, input: message.input)
+            if !preview.isEmpty {
+                let body = "\(capitalizedReason)\n\(preview)"
+                if body.count <= 200 { return body }
+                return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : String(capitalizedReason)
+            }
+            return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : String(capitalizedReason)
+        }
         let preview = commandPreview(toolName: message.toolName, input: message.input)
         if preview.count > 200 {
             return String(preview.prefix(197)) + "..."

@@ -135,6 +135,12 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
 
         // Filter and format tool calls to be user-friendly
         let friendlyTools = toolCalls.compactMap { tc -> String? in
+            // Prefer the LLM-provided reasonDescription when available
+            if let reason = tc.reasonDescription, !reason.isEmpty {
+                let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
+                return String(capitalized)
+            }
+
             // Skip technical/internal tools that aren't user-facing
             let toolName = tc.toolName.lowercased()
             if toolName.contains("bash") || toolName.contains("command") {
@@ -216,6 +222,24 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
     /// Map technical tool names to user-friendly names
     private func friendlyToolName(_ toolName: String) -> String {
         switch toolName.lowercased() {
+        case "call_start":
+            return "Started call"
+        case "call_status":
+            return "Checked call"
+        case "call_end":
+            return "Ended call"
+        case "schedule_create":
+            return "Created schedule"
+        case "schedule_update":
+            return "Updated schedule"
+        case "schedule_delete":
+            return "Deleted schedule"
+        case "reminder_create":
+            return "Set reminder"
+        case "reminder_list":
+            return "Listed reminders"
+        case "reminder_cancel":
+            return "Cancelled reminder"
         case let name where name.contains("write"):
             return "Created file"
         case let name where name.contains("edit"):
@@ -233,7 +257,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         case let name where name.contains("type"):
             return "Typed text"
         default:
-            return toolName
+            return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 }
