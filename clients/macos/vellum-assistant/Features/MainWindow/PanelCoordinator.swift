@@ -501,8 +501,6 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-        default:
-            EmptyView()
         }
     }
 

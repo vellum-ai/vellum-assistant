@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// Main container for the Things tab — shows a segmented picker switching
 /// between My Apps, Shared Apps, and Documents.
 struct ThingsView: View {
-    @StateObject var directoryStore: DirectoryStore
+    @ObservedObject var directoryStore: DirectoryStore
 
     private enum Segment: String, CaseIterable {
         case myApps = "My Apps"
