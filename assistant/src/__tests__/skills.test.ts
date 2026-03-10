@@ -23,7 +23,6 @@ mock.module("../util/platform.js", () => ({
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),

@@ -55,7 +55,6 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => "",
   getHistoryPath: () => "",
   getHooksDir: () => "",
-  getSocketPath: () => "",
   getSessionTokenPath: () => "",
   getPlatformTokenPath: () => "",
   getPidPath: () => "",

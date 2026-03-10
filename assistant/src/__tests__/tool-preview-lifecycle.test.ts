@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock platform (must precede imports that read it) ─────────────────────────
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => "/tmp/test-tool-preview.sock",
   getSessionTokenPath: () => "/tmp/test-token",
   getRootDir: () => "/tmp/test",
   getDataDir: () => "/tmp/test",
