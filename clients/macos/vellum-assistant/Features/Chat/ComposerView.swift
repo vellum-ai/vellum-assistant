@@ -1,9 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
+import os
 #if os(macOS)
 import AppKit
 #endif
+
+private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Composer")
 
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
@@ -12,7 +15,7 @@ struct ComposerView: View {
     // MARK: - ComposerMode
 
     /// Three-mode state machine for the composer.
-    private enum ComposerMode {
+    private enum ComposerMode: Equatable {
         /// Normal text entry with attach/send buttons.
         case textEntry
         /// Inline dictation: text field visible with a recording strip below.
@@ -121,6 +124,9 @@ struct ComposerView: View {
         .onChange(of: threadId) {
             guard !hasPendingConfirmation else { return }
             composerFocus = true
+        }
+        .onChange(of: currentMode) {
+            composerLog.debug("Composer mode: \(String(describing: currentMode))")
         }
     }
 
