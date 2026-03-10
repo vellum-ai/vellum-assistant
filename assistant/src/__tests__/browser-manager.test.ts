@@ -15,6 +15,7 @@ mock.module("../util/logger.js", () => ({
 
 import {
   browserManager,
+  sanitizeDownloadFilename,
   setLaunchFn,
 } from "../tools/browser/browser-manager.js";
 
@@ -72,6 +73,27 @@ function createMockContext() {
     },
   };
 }
+
+describe("sanitizeDownloadFilename", () => {
+  test("keeps a normal filename", () => {
+    expect(sanitizeDownloadFilename("report.json")).toBe("report.json");
+  });
+
+  test("removes traversal segments and separators", () => {
+    expect(sanitizeDownloadFilename("../../.ssh/authorized_keys")).toBe(
+      "authorized_keys",
+    );
+    expect(
+      sanitizeDownloadFilename("..\\..\\windows\\system32\\drivers\\etc\\hosts"),
+    ).toBe("hosts");
+  });
+
+  test("falls back to safe default for empty or dot paths", () => {
+    expect(sanitizeDownloadFilename("   ")).toBe("download");
+    expect(sanitizeDownloadFilename(".")).toBe("download");
+    expect(sanitizeDownloadFilename("..")).toBe("download");
+  });
+});
 
 describe("BrowserManager", () => {
   let mockCtx: ReturnType<typeof createMockContext>;

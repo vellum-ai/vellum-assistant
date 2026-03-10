@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -58,6 +58,13 @@ function getDownloadsDir(): string {
   const dir = join(getDataDir(), "browser-downloads");
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+export function sanitizeDownloadFilename(filename: string): string {
+  const leaf = filename.replaceAll("\\", "/").split("/").pop() ?? "";
+  const stripped = leaf.replaceAll("\0", "").trim();
+  const safe = stripped.length > 0 ? stripped : "download";
+  return safe === "." || safe === ".." ? "download" : safe;
 }
 
 /** Wraps a promise with a timeout to prevent indefinite hangs. */
@@ -778,8 +785,13 @@ class BrowserManager {
         failure(): Promise<string | null>;
       };
       try {
-        const filename = dl.suggestedFilename();
-        const destPath = join(getDownloadsDir(), `${Date.now()}-${filename}`);
+        const filename = sanitizeDownloadFilename(dl.suggestedFilename());
+        const downloadsDir = getDownloadsDir();
+        const destPath = resolve(downloadsDir, `${Date.now()}-${filename}`);
+        const relPath = relative(resolve(downloadsDir), destPath);
+        if (relPath.startsWith("..") || isAbsolute(relPath)) {
+          throw new Error("Resolved download path escaped downloads directory");
+        }
         await withTimeout(dl.saveAs(destPath), 120_000, "Download save");
         const info: DownloadInfo = { path: destPath, filename };
 
