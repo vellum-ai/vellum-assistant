@@ -100,12 +100,30 @@ public final class DirectoryStore: ObservableObject {
             return false
         }
 
-        for await message in stream {
-            if case .shareAppCloudResponse(let response) = message {
-                return response.success
+        // Race the stream listener against a 15-second timeout to avoid waiting
+        // indefinitely when the transport returns early without emitting a response.
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .shareAppCloudResponse(let response) = message {
+                        return response.success
+                    }
+                }
+                return false
             }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                return nil // sentinel indicating timeout
+            }
+
+            let first = await group.next() ?? nil
+
+            // Cancel the remaining task (timeout or stream listener)
+            group.cancelAll()
+
+            return first ?? false
         }
-        return false
     }
 
     // MARK: - Shared Apps
@@ -167,15 +185,36 @@ public final class DirectoryStore: ObservableObject {
             return false
         }
 
-        for await message in stream {
-            if case .forkSharedAppResponse(let response) = message {
-                if response.success {
-                    fetchApps()
+        // Race the stream listener against a 15-second timeout to avoid waiting
+        // indefinitely when the transport returns early without emitting a response.
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .forkSharedAppResponse(let response) = message {
+                        return response.success
+                    }
                 }
-                return response.success
+                return false
             }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                return nil // sentinel indicating timeout
+            }
+
+            let first = await group.next() ?? nil
+
+            // Cancel the remaining task (timeout or stream listener)
+            group.cancelAll()
+
+            if let result = first {
+                if result {
+                    await MainActor.run { self.fetchApps() }
+                }
+                return result
+            }
+            return false // timeout
         }
-        return false
     }
 
     /// Bundle a local app for sharing.

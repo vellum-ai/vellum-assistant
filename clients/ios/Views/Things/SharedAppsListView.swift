@@ -234,6 +234,7 @@ struct SharedAppsListView: View {
             .onDisappear {
                 forkDismissTask?.cancel()
                 forkDismissTask = nil
+                isForkingApp = false
             }
             .alert("Error", isPresented: Binding(
                 get: { errorMessage != nil },
