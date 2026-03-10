@@ -420,7 +420,6 @@ struct ChatContentView: View {
         case .providerNetwork: return .wifiOff
         case .rateLimit: return .clockAlert
         case .providerApi: return .cloudOff
-        case .queueFull: return .inbox
         case .sessionAborted: return .circleStop
         case .processingFailed, .regenerateFailed: return .refreshCw
         case .contextTooLarge: return .fileText
@@ -432,7 +431,7 @@ struct ChatContentView: View {
 
     private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
         switch category {
-        case .rateLimit, .queueFull: return VColor.warning
+        case .rateLimit: return VColor.warning
         case .providerNetwork: return .orange
         case .sessionAborted: return VColor.textSecondary
         case .contextTooLarge: return VColor.warning

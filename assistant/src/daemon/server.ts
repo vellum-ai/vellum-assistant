@@ -291,7 +291,7 @@ export class DaemonServer {
         undefined,
         metadata,
       );
-      if (!enqueueResult.queued) {
+      if (!enqueueResult.queued && !enqueueResult.rejected) {
         const messageId = await parentSession.persistUserMessage(
           message,
           [],

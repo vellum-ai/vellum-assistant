@@ -43,8 +43,8 @@ struct SidebarPrimaryRow: View {
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(
-                (isActive ? VColor.navActive : isHovered ? VColor.navHover : .clear)
-                    .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
+                (isActive ? VColor.navActive : VColor.navHover.opacity(isHovered ? 1 : 0))
+                    .animation(VAnimation.fast, value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())

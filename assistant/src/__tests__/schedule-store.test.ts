@@ -29,9 +29,14 @@ mock.module("../util/logger.js", () => ({
 
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
+  cancelSchedule,
   claimDueSchedules,
+  completeOneShot,
   createSchedule,
+  describeCronExpression,
+  failOneShot,
   getSchedule,
+  listSchedules,
   updateSchedule,
 } from "../schedule/schedule-store.js";
 
@@ -567,5 +572,441 @@ describe("claimDueSchedules", () => {
     // Second claim should find nothing since nextRunAt was advanced
     const second = claimDueSchedules(Date.now() - 500);
     expect(second.length).toBe(0);
+  });
+});
+
+// ── One-shot schedules ──────────────────────────────────────────────
+
+describe("createSchedule (one-shot)", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("creates a one-shot schedule with no expression", () => {
+    const fireAt = Date.now() + 60_000;
+    const job = createSchedule({
+      name: "Remind me",
+      message: "take out the trash",
+      nextRunAt: fireAt,
+    });
+
+    expect(job.expression).toBeNull();
+    expect(job.cronExpression).toBeNull();
+    expect(job.nextRunAt).toBe(fireAt);
+    expect(job.enabled).toBe(true);
+    expect(job.status).toBe("active");
+    expect(job.mode).toBe("execute");
+    expect(job.routingIntent).toBe("all_channels");
+    expect(job.routingHints).toEqual({});
+  });
+
+  test("creates a one-shot schedule with notify mode and routing", () => {
+    const fireAt = Date.now() + 60_000;
+    const hints = { preferredChannel: "slack", threadId: "abc123" };
+    const job = createSchedule({
+      name: "Notify me",
+      message: "meeting in 5",
+      nextRunAt: fireAt,
+      mode: "notify",
+      routingIntent: "single_channel",
+      routingHints: hints,
+    });
+
+    expect(job.mode).toBe("notify");
+    expect(job.routingIntent).toBe("single_channel");
+    expect(job.routingHints).toEqual(hints);
+    expect(job.expression).toBeNull();
+    expect(job.status).toBe("active");
+  });
+
+  test("rejects one-shot schedule without nextRunAt", () => {
+    expect(() =>
+      createSchedule({
+        name: "Bad one-shot",
+        message: "no time",
+      }),
+    ).toThrow("One-shot schedules (no expression) require nextRunAt");
+  });
+
+  test("one-shot schedule persists and round-trips correctly", () => {
+    const fireAt = Date.now() + 120_000;
+    const hints = { channel: "telegram" };
+    const job = createSchedule({
+      name: "Persist test",
+      message: "round trip",
+      nextRunAt: fireAt,
+      mode: "notify",
+      routingIntent: "multi_channel",
+      routingHints: hints,
+    });
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.expression).toBeNull();
+    expect(retrieved!.cronExpression).toBeNull();
+    expect(retrieved!.nextRunAt).toBe(fireAt);
+    expect(retrieved!.mode).toBe("notify");
+    expect(retrieved!.routingIntent).toBe("multi_channel");
+    expect(retrieved!.routingHints).toEqual(hints);
+    expect(retrieved!.status).toBe("active");
+  });
+});
+
+// ── One-shot claiming ───────────────────────────────────────────────
+
+describe("claimDueSchedules (one-shot)", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("claims one-shot schedules whose nextRunAt <= now", () => {
+    const job = createSchedule({
+      name: "Due one-shot",
+      message: "fire now",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(1);
+    expect(claimed[0].id).toBe(job.id);
+    expect(claimed[0].expression).toBeNull();
+    expect(claimed[0].status).toBe("firing");
+  });
+
+  test("does not claim one-shot schedules that are not yet due", () => {
+    createSchedule({
+      name: "Future one-shot",
+      message: "not yet",
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(0);
+  });
+
+  test("does not double-claim one-shot schedules", () => {
+    createSchedule({
+      name: "Once only",
+      message: "no double",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    const first = claimDueSchedules(Date.now());
+    expect(first.length).toBe(1);
+
+    // Second claim should find nothing since status is now 'firing'
+    const second = claimDueSchedules(Date.now());
+    expect(second.length).toBe(0);
+  });
+
+  test("claims both recurring and one-shot schedules in the same tick", () => {
+    const recurring = createSchedule({
+      name: "Recurring",
+      cronExpression: "* * * * *",
+      message: "recurring",
+      syntax: "cron",
+    });
+    getRawDb().run("UPDATE cron_jobs SET next_run_at = ? WHERE id = ?", [
+      Date.now() - 1000,
+      recurring.id,
+    ]);
+
+    createSchedule({
+      name: "One-shot",
+      message: "one-shot",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(2);
+    const expressions = claimed.map((c) => c.expression);
+    expect(expressions).toContain(null); // one-shot
+    expect(expressions.some((e) => e !== null)).toBe(true); // recurring
+  });
+});
+
+// ── One-shot lifecycle (complete, fail, cancel) ─────────────────────
+
+describe("completeOneShot", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("transitions firing -> fired", () => {
+    const job = createSchedule({
+      name: "Complete me",
+      message: "done",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    // Claim first to get to 'firing' state
+    claimDueSchedules(Date.now());
+
+    completeOneShot(job.id);
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved!.status).toBe("fired");
+    expect(retrieved!.enabled).toBe(false);
+  });
+
+  test("does not transition if not in firing state", () => {
+    const job = createSchedule({
+      name: "Not firing",
+      message: "still active",
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    completeOneShot(job.id);
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved!.status).toBe("active"); // unchanged
+    expect(retrieved!.enabled).toBe(true);
+  });
+});
+
+describe("failOneShot", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("transitions firing -> active for retry", () => {
+    const job = createSchedule({
+      name: "Fail me",
+      message: "retry",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    // Claim to get to 'firing'
+    claimDueSchedules(Date.now());
+
+    failOneShot(job.id);
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved!.status).toBe("active");
+    expect(retrieved!.enabled).toBe(true); // still enabled for retry
+  });
+
+  test("can be re-claimed after failing", () => {
+    const job = createSchedule({
+      name: "Retry",
+      message: "try again",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    claimDueSchedules(Date.now());
+    failOneShot(job.id);
+
+    // Should be claimable again
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(1);
+    expect(claimed[0].id).toBe(job.id);
+  });
+});
+
+describe("cancelSchedule", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("cancels an active one-shot schedule", () => {
+    const job = createSchedule({
+      name: "Cancel me",
+      message: "never fire",
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    const result = cancelSchedule(job.id);
+    expect(result).toBe(true);
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved!.status).toBe("cancelled");
+    expect(retrieved!.enabled).toBe(false);
+  });
+
+  test("returns false for non-active schedule", () => {
+    const job = createSchedule({
+      name: "Already done",
+      message: "completed",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    // Claim and complete it
+    claimDueSchedules(Date.now());
+    completeOneShot(job.id);
+
+    const result = cancelSchedule(job.id);
+    expect(result).toBe(false);
+  });
+
+  test("cancelled schedule is not claimable", () => {
+    const job = createSchedule({
+      name: "Cancelled",
+      message: "should not fire",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    cancelSchedule(job.id);
+
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(0);
+  });
+});
+
+// ── Routing and mode round-trip ─────────────────────────────────────
+
+describe("routing and mode fields", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("recurring schedule defaults to execute mode and all_channels", () => {
+    const job = createSchedule({
+      name: "Defaults",
+      cronExpression: "0 9 * * *",
+      message: "check defaults",
+      syntax: "cron",
+    });
+
+    expect(job.mode).toBe("execute");
+    expect(job.routingIntent).toBe("all_channels");
+    expect(job.routingHints).toEqual({});
+    expect(job.status).toBe("active");
+  });
+
+  test("routing hints round-trip through create/read", () => {
+    const hints = { channels: ["slack", "discord"], priority: 1 };
+    const job = createSchedule({
+      name: "Routed",
+      cronExpression: "0 9 * * *",
+      message: "routed msg",
+      syntax: "cron",
+      routingIntent: "multi_channel",
+      routingHints: hints,
+      mode: "notify",
+    });
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved!.routingIntent).toBe("multi_channel");
+    expect(retrieved!.routingHints).toEqual(hints);
+    expect(retrieved!.mode).toBe("notify");
+  });
+
+  test("routing hints round-trip through DB raw query", () => {
+    const hints = { target: "sms" };
+    const job = createSchedule({
+      name: "Raw round-trip",
+      message: "check raw",
+      nextRunAt: Date.now() + 60_000,
+      routingIntent: "single_channel",
+      routingHints: hints,
+    });
+
+    const raw = getRawDb()
+      .query(
+        "SELECT mode, routing_intent, routing_hints_json, status FROM cron_jobs WHERE id = ?",
+      )
+      .get(job.id) as {
+      mode: string;
+      routing_intent: string;
+      routing_hints_json: string;
+      status: string;
+    } | null;
+    expect(raw).not.toBeNull();
+    expect(raw!.mode).toBe("execute");
+    expect(raw!.routing_intent).toBe("single_channel");
+    expect(JSON.parse(raw!.routing_hints_json)).toEqual(hints);
+    expect(raw!.status).toBe("active");
+  });
+
+  test("updateSchedule updates mode and routing fields", () => {
+    const job = createSchedule({
+      name: "Update routing",
+      cronExpression: "0 9 * * *",
+      message: "update routing",
+      syntax: "cron",
+    });
+
+    const updated = updateSchedule(job.id, {
+      mode: "notify",
+      routingIntent: "single_channel",
+      routingHints: { channel: "telegram" },
+    });
+
+    expect(updated).not.toBeNull();
+    expect(updated!.mode).toBe("notify");
+    expect(updated!.routingIntent).toBe("single_channel");
+    expect(updated!.routingHints).toEqual({ channel: "telegram" });
+  });
+});
+
+// ── listSchedules filters ───────────────────────────────────────────
+
+describe("listSchedules filters", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("oneShotOnly filter returns only one-shot schedules", () => {
+    createSchedule({
+      name: "Recurring",
+      cronExpression: "0 9 * * *",
+      message: "recurring",
+      syntax: "cron",
+    });
+    createSchedule({
+      name: "One-shot",
+      message: "one-shot",
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    const oneShots = listSchedules({ oneShotOnly: true });
+    expect(oneShots.length).toBe(1);
+    expect(oneShots[0].name).toBe("One-shot");
+    expect(oneShots[0].expression).toBeNull();
+  });
+
+  test("recurringOnly filter returns only recurring schedules", () => {
+    createSchedule({
+      name: "Recurring",
+      cronExpression: "0 9 * * *",
+      message: "recurring",
+      syntax: "cron",
+    });
+    createSchedule({
+      name: "One-shot",
+      message: "one-shot",
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    const recurring = listSchedules({ recurringOnly: true });
+    expect(recurring.length).toBe(1);
+    expect(recurring[0].name).toBe("Recurring");
+    expect(recurring[0].expression).not.toBeNull();
+  });
+});
+
+// ── describeCronExpression ──────────────────────────────────────────
+
+describe("describeCronExpression", () => {
+  test("returns 'One-time' for null expression", () => {
+    expect(describeCronExpression(null)).toBe("One-time");
+  });
+
+  test("returns description for valid cron expression", () => {
+    expect(describeCronExpression("0 9 * * *")).toBe("Every day at 9:00 AM");
   });
 });

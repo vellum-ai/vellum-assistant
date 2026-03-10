@@ -115,6 +115,7 @@ export async function findExistingTunnel(
  */
 export function startNgrokProcess(targetPort: number): ChildProcess {
   const child = spawn("ngrok", ["http", String(targetPort), "--log=stdout"], {
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   return child;
@@ -240,6 +241,15 @@ export async function maybeStartNgrokTunnel(
     const publicUrl = await waitForNgrokUrl();
     saveIngressUrl(publicUrl);
     console.log(`   Tunnel established: ${publicUrl}`);
+
+    // Detach the ngrok process so the CLI (hatch/wake) can exit without
+    // keeping it alive. Remove stdout/stderr listeners and unref all handles.
+    ngrokProcess.stdout?.removeAllListeners("data");
+    ngrokProcess.stderr?.removeAllListeners("data");
+    ngrokProcess.stdout?.destroy();
+    ngrokProcess.stderr?.destroy();
+    ngrokProcess.unref();
+
     return ngrokProcess;
   } catch {
     console.warn(

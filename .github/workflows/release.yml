@@ -727,6 +727,7 @@ jobs:
         run: |
           npm install -g @sentry/cli@2.42.2
           sentry-cli debug-files upload --org vellum --project vellum-assistant-macos dist/*.dSYM
+          sentry-cli debug-files upload --org vellum --project vellum-assistant-brain dist/*.dSYM
 
       - name: Free disk space
         run: |
@@ -1067,6 +1068,7 @@ jobs:
         run: |
           npm install -g @sentry/cli@2.42.2
           sentry-cli debug-files upload --org vellum --project vellum-assistant-macos dist/*.dSYM
+          sentry-cli debug-files upload --org vellum --project vellum-assistant-brain dist/*.dSYM
 
       - name: Free disk space
         run: |

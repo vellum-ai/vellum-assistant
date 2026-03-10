@@ -2,7 +2,11 @@ import { createUserMessage } from "../agent/message-types.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { ContentBlock, Message, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import { estimatePromptTokens } from "./token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateTextTokens,
+} from "./token-estimator.js";
+import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 
 const log = getLogger("context-window");
 
@@ -12,6 +16,7 @@ const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
 const MIN_GAIN_TOKENS_DURING_COOLDOWN = 1200;
 const SEVERE_PRESSURE_RATIO = 0.95;
+const COMPACTION_TOOL_RESULT_MAX_CHARS = 6_000;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
@@ -192,11 +197,22 @@ export class ContextWindowManager {
       targetInputTokensOverride: options?.targetInputTokensOverride,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
+      // All turns fit after truncation projection, but the real in-memory
+      // messages may still contain un-truncated tool results. Apply truncation
+      // so the caller gets the token savings even without summarization.
+      const { messages: truncatedMessages, truncatedCount } =
+        truncateToolResultsAcrossHistory(messages, COMPACTION_TOOL_RESULT_MAX_CHARS);
+      const didTruncate = truncatedCount > 0;
+      const estimatedAfterTruncation = didTruncate
+        ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
+            providerName: this.provider.name,
+          })
+        : previousEstimatedInputTokens;
       return {
-        messages,
-        compacted: false,
+        messages: truncatedMessages,
+        compacted: didTruncate,
         previousEstimatedInputTokens,
-        estimatedInputTokens: previousEstimatedInputTokens,
+        estimatedInputTokens: estimatedAfterTruncation,
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
@@ -206,7 +222,9 @@ export class ContextWindowManager {
         summaryOutputTokens: 0,
         summaryModel: "",
         summaryText: existingSummary ?? "",
-        reason: "unable to compact while keeping recent turns",
+        reason: didTruncate
+          ? "truncated tool results without summarization"
+          : "unable to compact while keeping recent turns",
       };
     }
 
@@ -235,10 +253,15 @@ export class ContextWindowManager {
 
     const compactedPersistedMessages =
       countPersistedMessages(compactableMessages);
-    const projectedMessages = [
+    const rawProjectedMessages = [
       createContextSummaryMessage(existingSummary ?? "Projected summary"),
       ...messages.slice(keepPlan.keepFromIndex),
     ];
+    const { messages: projectedMessages } =
+      truncateToolResultsAcrossHistory(
+        rawProjectedMessages,
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
     const projectedInputTokens = estimatePromptTokens(
       projectedMessages,
       this.systemPrompt,
@@ -328,7 +351,10 @@ export class ContextWindowManager {
       };
     }
 
-    const transcript = serializeMessages(compactableMessages);
+    const transcript = this.capTranscriptToTokenBudget(
+      serializeMessages(compactableMessages),
+      existingSummary ?? "No previous summary.",
+    );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
       transcript,
@@ -355,10 +381,12 @@ export class ContextWindowManager {
     // Media in compacted turns is described textually in the summary transcript.
     const summaryMessage = createContextSummaryMessage(summary);
 
-    const compactedMessages = [
-      summaryMessage,
-      ...messages.slice(keepPlan.keepFromIndex),
-    ];
+    const { messages: truncatedKeptMessages } =
+      truncateToolResultsAcrossHistory(
+        messages.slice(keepPlan.keepFromIndex),
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
+    const compactedMessages = [summaryMessage, ...truncatedKeptMessages];
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
       this.systemPrompt,
@@ -418,44 +446,106 @@ export class ContextWindowManager {
     const targetTokens =
       opts?.targetInputTokensOverride ?? this.targetInputTokens;
 
-    // Start from all available turns and reduce until projected tokens fit.
-    let keepTurns = userTurnStarts.length;
-    keepTurns = Math.max(minFloor, keepTurns);
+    // Binary search for the maximum keepTurns whose projected tokens fit
+    // within the budget. Token count is monotonically non-decreasing with
+    // keepTurns (more turns = more tokens), so binary search is valid.
+    const projectedTokensForKeep = (turns: number): number => {
+      const fromIndex =
+        turns === 0
+          ? messages.length
+          : (userTurnStarts[userTurnStarts.length - turns] ?? messages.length);
+      const rawProjected = [
+        createContextSummaryMessage("Projected summary"),
+        ...messages.slice(fromIndex),
+      ];
+      const { messages: projectedMessages } =
+        truncateToolResultsAcrossHistory(
+          rawProjected,
+          COMPACTION_TOOL_RESULT_MAX_CHARS,
+        );
+      return estimatePromptTokens(projectedMessages, this.systemPrompt, {
+        providerName: this.provider.name,
+      });
+    };
 
-    // When minFloor is 0 and there are no user turns to keep, keepFromIndex
-    // points past the end of the array so all messages become compactable.
-    let keepFromIndex =
+    let lo = minFloor;
+    let hi = userTurnStarts.length;
+
+    // Fast path: if keeping all turns already fits, skip the search.
+    if (hi > lo && projectedTokensForKeep(hi) > targetTokens) {
+      // Binary search: find the largest keepTurns where projected tokens fit.
+      while (lo < hi) {
+        const mid = lo + Math.ceil((hi - lo) / 2);
+        if (projectedTokensForKeep(mid) <= targetTokens) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+    } else {
+      lo = hi;
+    }
+
+    const keepTurns = lo;
+    const keepFromIndex =
       keepTurns === 0
         ? messages.length
         : (userTurnStarts[userTurnStarts.length - keepTurns] ??
           messages.length);
 
-    while (keepTurns > minFloor) {
-      const projectedMessages = [
-        createContextSummaryMessage("Projected summary"),
-        ...messages.slice(keepFromIndex),
-      ];
-      const projectedTokens = estimatePromptTokens(
-        projectedMessages,
-        this.systemPrompt,
-        { providerName: this.provider.name },
-      );
-      if (projectedTokens <= targetTokens) break;
-      keepTurns -= 1;
-      keepFromIndex =
-        keepTurns === 0
-          ? messages.length
-          : (userTurnStarts[userTurnStarts.length - keepTurns] ??
-            keepFromIndex);
-    }
-
     return { keepFromIndex, keepTurns };
   }
 
   private get summaryMaxTokens(): number {
-    return Math.floor(
-      this.config.maxInputTokens * this.config.summaryBudgetRatio,
+    return Math.max(
+      1,
+      Math.floor(
+        this.config.maxInputTokens * this.config.summaryBudgetRatio,
+      ),
     );
+  }
+
+  /**
+   * Trim the serialized transcript so that the summary prompt (system prompt +
+   * existing summary + transcript + scaffolding) fits within the provider's
+   * input token limit, minus the output budget reserved for the summary itself.
+   * This prevents the summarizer LLM call from exceeding its context window
+   * during forced compaction of very large histories.
+   */
+  private capTranscriptToTokenBudget(
+    transcript: string,
+    currentSummary: string,
+  ): string {
+    // Reserve tokens for: system prompt, summary prompt scaffolding, existing
+    // summary, message overhead, and the output (summaryMaxTokens).
+    const overheadTokens =
+      estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
+      estimateTextTokens(currentSummary) +
+      // Scaffolding text in buildSummaryPrompt ("Update the summary...",
+      // section headers, etc.) — generous fixed estimate.
+      200 +
+      this.summaryMaxTokens;
+
+    const maxTranscriptTokens = Math.max(
+      0,
+      this.config.maxInputTokens - overheadTokens,
+    );
+
+    const transcriptTokens = estimateTextTokens(transcript);
+    if (transcriptTokens <= maxTranscriptTokens) return transcript;
+
+    // Truncate from the beginning (older messages) to preserve recent context.
+    const maxChars = maxTranscriptTokens * 4; // inverse of estimateTextTokens
+    const truncated = transcript.slice(transcript.length - maxChars);
+    log.info(
+      {
+        originalTokens: transcriptTokens,
+        cappedTokens: maxTranscriptTokens,
+        droppedTokens: transcriptTokens - maxTranscriptTokens,
+      },
+      "Capped summary transcript to fit provider input limit",
+    );
+    return `[earlier messages truncated]\n${truncated}`;
   }
 
   private async updateSummary(

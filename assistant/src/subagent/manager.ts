@@ -398,6 +398,9 @@ export class SubagentManager {
       onEvent,
       requestId,
     );
+    if (result.rejected) {
+      return "sent"; // error event already delivered via onEvent
+    }
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = await managed.session.persistUserMessage(trimmed, []);

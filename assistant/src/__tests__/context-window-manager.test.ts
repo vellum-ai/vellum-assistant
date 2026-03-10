@@ -260,11 +260,11 @@ describe("ContextWindowManager", () => {
       provider,
       systemPrompt: "system prompt",
       config: makeConfig({
-        maxInputTokens: 280,
+        maxInputTokens: 550,
         targetBudgetRatio: 0.59,
       }),
     });
-    const long = "f".repeat(220);
+    const long = "f".repeat(500);
     const history: Message[] = [
       {
         role: "user",
@@ -686,6 +686,115 @@ describe("ContextWindowManager", () => {
     const result = manager.shouldCompact(history);
     expect(result.needed).toBe(false);
     expect(result.estimatedTokens).toBe(0);
+  });
+
+  test("truncates tool results in kept turns to preserve more conversation", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- truncation summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+    // Budget is tight enough that full 8K tool results would force dropping turns,
+    // but truncated results (≤6K chars) should allow more turns to be kept.
+    const config = makeConfig({
+      maxInputTokens: 4000,
+      targetBudgetRatio: 0.7,
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+
+    const largeToolResult = "x".repeat(8000);
+    const history: Message[] = [
+      message("user", "u1"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "read_file",
+            input: { path: "/tmp/a" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1",
+            content: largeToolResult,
+          },
+        ],
+      },
+      message("assistant", "a1"),
+      message("user", "u2"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "read_file",
+            input: { path: "/tmp/b" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t2",
+            content: largeToolResult,
+          },
+        ],
+      },
+      message("assistant", "a2"),
+      message("user", "u3"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t3",
+            name: "read_file",
+            input: { path: "/tmp/c" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t3",
+            content: largeToolResult,
+          },
+        ],
+      },
+      message("assistant", "a3"),
+      message("user", "u4"),
+      message("assistant", "a4"),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+    expect(result.compacted).toBe(true);
+
+    // Verify tool results in output are truncated (should be < 8K chars each).
+    for (const msg of result.messages) {
+      for (const block of msg.content) {
+        if (block.type === "tool_result") {
+          expect(block.content.length).toBeLessThan(8000);
+        }
+      }
+    }
   });
 
   test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {

@@ -93,9 +93,11 @@ export async function executeScheduleUpdate(
     }
 
     const scheduleDescription =
-      job.syntax === "rrule"
-        ? job.expression
-        : describeCronExpression(job.cronExpression);
+      job.expression == null
+        ? "One-time"
+        : job.syntax === "rrule"
+          ? job.expression
+          : describeCronExpression(job.cronExpression);
 
     return {
       content: [

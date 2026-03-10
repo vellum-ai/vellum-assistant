@@ -24,6 +24,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import {
+  getProvider,
   getProviderRoutingSource,
   initializeProviders,
   listProviders,
@@ -146,6 +147,33 @@ describe("managed proxy integration — credential precedence", () => {
         expect(registered).toContain(p);
         expect(getProviderRoutingSource(p)).toBe("managed-proxy");
       }
+    });
+
+    test("managed anthropic uses vertex proxy path instead of anthropic proxy path", () => {
+      enableManagedProxy();
+      initializeProviders({
+        apiKeys: {},
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      });
+
+      const provider = getProvider("anthropic");
+
+      // Unwrap RetryProvider → LogfireProvider → AnthropicProvider to inspect
+      // the Anthropic SDK client's baseURL. The wrappers use private `inner`
+      // and AnthropicProvider stores the SDK client as private `client`.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const retryInner = (provider as any).inner;
+      // retryInner is the logfire wrapper; it also has an `inner` property
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const logfireInner = (retryInner as any).inner ?? retryInner;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anthropicClient = (logfireInner as any).client;
+
+      expect(anthropicClient).toBeDefined();
+      const baseURL: string = anthropicClient.baseURL;
+      expect(baseURL).toContain("/v1/runtime-proxy/vertex");
+      expect(baseURL).not.toContain("/v1/runtime-proxy/anthropic");
     });
   });
 

@@ -730,6 +730,9 @@ function buildDispatchUserMessage(params: {
       undefined,
       displayContent,
     );
+    if (result.rejected) {
+      return;
+    }
     if (result.queued) {
       const position = session.getQueueDepth();
       rlog.info({ source, position }, queuedDescription);

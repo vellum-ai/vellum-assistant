@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -14,13 +14,20 @@ import type { ScheduleSyntax } from "./recurrence-types.js";
 
 const logger = getLogger("schedule-store");
 
+export type ScheduleMode = "notify" | "execute";
+export type RoutingIntent =
+  | "single_channel"
+  | "multi_channel"
+  | "all_channels";
+export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
+
 export interface ScheduleJob {
   id: string;
   name: string;
   enabled: boolean;
   syntax: ScheduleSyntax;
-  expression: string;
-  cronExpression: string;
+  expression: string | null;
+  cronExpression: string | null;
   timezone: string | null;
   message: string;
   nextRunAt: number;
@@ -28,6 +35,10 @@ export interface ScheduleJob {
   lastStatus: string | null;
   retryCount: number;
   createdBy: string;
+  mode: ScheduleMode;
+  routingIntent: RoutingIntent;
+  routingHints: Record<string, unknown>;
+  status: ScheduleStatus;
   createdAt: number;
   updatedAt: number;
 }
@@ -72,19 +83,34 @@ export function computeNextRunAt(
 
 export function createSchedule(params: {
   name: string;
-  cronExpression: string;
+  cronExpression?: string | null;
   timezone?: string | null;
   message: string;
   enabled?: boolean;
   createdBy?: string;
-  syntax: ScheduleSyntax;
-  expression?: string;
+  syntax?: ScheduleSyntax;
+  expression?: string | null;
+  nextRunAt?: number;
+  mode?: ScheduleMode;
+  routingIntent?: RoutingIntent;
+  routingHints?: Record<string, unknown>;
 }): ScheduleJob {
-  const expression = params.expression ?? params.cronExpression;
+  const expression = params.expression ?? params.cronExpression ?? null;
+  const isOneShot = expression === null;
+  const syntax = params.syntax ?? "cron";
 
-  const spec = { syntax: params.syntax, expression, timezone: params.timezone };
-  if (!isValidScheduleExpression(spec)) {
-    throw new Error(`Invalid ${params.syntax} expression: "${expression}"`);
+  if (isOneShot) {
+    // One-shot schedules must have nextRunAt provided directly
+    if (params.nextRunAt == null) {
+      throw new Error(
+        "One-shot schedules (no expression) require nextRunAt to be provided",
+      );
+    }
+  } else {
+    const spec = { syntax, expression, timezone: params.timezone };
+    if (!isValidScheduleExpression(spec)) {
+      throw new Error(`Invalid ${syntax} expression: "${expression}"`);
+    }
   }
 
   const db = getDb();
@@ -92,14 +118,25 @@ export function createSchedule(params: {
   const now = Date.now();
   const enabled = params.enabled ?? true;
   const timezone = params.timezone ?? null;
-  const nextRunAt = enabled ? computeNextRunAtEngine(spec) : 0;
+  const mode = params.mode ?? "execute";
+  const routingIntent = params.routingIntent ?? "all_channels";
+  const routingHints = params.routingHints ?? {};
+
+  let nextRunAt: number;
+  if (isOneShot) {
+    nextRunAt = params.nextRunAt!;
+  } else {
+    nextRunAt = enabled
+      ? computeNextRunAtEngine({ syntax, expression: expression!, timezone })
+      : 0;
+  }
 
   const row = {
     id,
     name: params.name,
     enabled,
     cronExpression: expression,
-    scheduleSyntax: params.syntax,
+    scheduleSyntax: syntax,
     timezone,
     message: params.message,
     nextRunAt,
@@ -107,6 +144,10 @@ export function createSchedule(params: {
     lastStatus: null as string | null,
     retryCount: 0,
     createdBy: params.createdBy ?? "agent",
+    mode,
+    routingIntent,
+    routingHintsJson: JSON.stringify(routingHints),
+    status: "active" as ScheduleStatus,
     createdAt: now,
     updatedAt: now,
   };
@@ -140,15 +181,27 @@ export function countSchedules(): { total: number; enabled: number } {
 
 export function listSchedules(options?: {
   enabledOnly?: boolean;
+  oneShotOnly?: boolean;
+  recurringOnly?: boolean;
 }): ScheduleJob[] {
   const db = getDb();
-  const conditions = options?.enabledOnly
-    ? eq(scheduleJobs.enabled, true)
-    : undefined;
+  const conditions = [];
+  if (options?.enabledOnly) {
+    conditions.push(eq(scheduleJobs.enabled, true));
+  }
+  if (options?.oneShotOnly) {
+    conditions.push(isNull(scheduleJobs.cronExpression));
+  }
+  if (options?.recurringOnly) {
+    conditions.push(
+      sql`${scheduleJobs.cronExpression} IS NOT NULL`,
+    );
+  }
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
   const rows = db
     .select()
     .from(scheduleJobs)
-    .where(conditions)
+    .where(where)
     .orderBy(asc(scheduleJobs.nextRunAt))
     .all();
   return rows.map(parseJobRow);
@@ -164,6 +217,9 @@ export function updateSchedule(
     enabled?: boolean;
     syntax?: ScheduleSyntax;
     expression?: string;
+    mode?: ScheduleMode;
+    routingIntent?: RoutingIntent;
+    routingHints?: Record<string, unknown>;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -184,11 +240,14 @@ export function updateSchedule(
   const newEnabled =
     updates.enabled !== undefined ? updates.enabled : existing.enabled;
 
-  // Validate if expression or syntax changed
+  const isOneShot = newExpr === null;
+
+  // Validate if expression or syntax changed (only for recurring schedules)
   if (
-    updates.expression !== undefined ||
-    updates.cronExpression !== undefined ||
-    updates.syntax !== undefined
+    !isOneShot &&
+    (updates.expression !== undefined ||
+      updates.cronExpression !== undefined ||
+      updates.syntax !== undefined)
   ) {
     const spec = {
       syntax: newSyntax,
@@ -210,18 +269,24 @@ export function updateSchedule(
   if (updates.timezone !== undefined) set.timezone = updates.timezone;
   if (updates.message !== undefined) set.message = updates.message;
   if (updates.enabled !== undefined) set.enabled = updates.enabled;
+  if (updates.mode !== undefined) set.mode = updates.mode;
+  if (updates.routingIntent !== undefined)
+    set.routingIntent = updates.routingIntent;
+  if (updates.routingHints !== undefined)
+    set.routingHintsJson = JSON.stringify(updates.routingHints);
 
-  // Recompute nextRunAt if schedule timing may have changed
+  // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
-    updates.cronExpression !== undefined ||
-    updates.expression !== undefined ||
-    updates.syntax !== undefined ||
-    updates.timezone !== undefined ||
-    updates.enabled !== undefined
+    !isOneShot &&
+    (updates.cronExpression !== undefined ||
+      updates.expression !== undefined ||
+      updates.syntax !== undefined ||
+      updates.timezone !== undefined ||
+      updates.enabled !== undefined)
   ) {
     const spec = {
       syntax: newSyntax,
-      expression: newExpr,
+      expression: newExpr!,
       timezone: newTimezone,
     };
     set.nextRunAt = newEnabled ? computeNextRunAtEngine(spec) : 0;
@@ -239,31 +304,41 @@ export function deleteSchedule(id: string): boolean {
 }
 
 /**
- * Claim due recurrence schedules atomically. For each candidate where
- * enabled=true and next_run_at <= now, we advance next_run_at using
- * optimistic locking on the old value to prevent double-claiming by
- * concurrent ticks. Works for both cron and RRULE syntax.
+ * Claim due schedules atomically. Handles both recurring and one-shot schedules.
+ *
+ * For recurring schedules: advance next_run_at using optimistic locking on the
+ * old value to prevent double-claiming by concurrent ticks. Works for both
+ * cron and RRULE syntax.
+ *
+ * For one-shot schedules: transition status from 'active' to 'firing' where
+ * next_run_at <= now and enabled = true and cron_expression IS NULL.
  */
 export function claimDueSchedules(now: number): ScheduleJob[] {
   const db = getDb();
-  const candidates = db
+  const claimed: ScheduleJob[] = [];
+
+  // ── Recurring schedules ──────────────────────────────────────────
+  const recurringCandidates = db
     .select()
     .from(scheduleJobs)
     .where(
-      and(eq(scheduleJobs.enabled, true), lte(scheduleJobs.nextRunAt, now)),
+      and(
+        eq(scheduleJobs.enabled, true),
+        lte(scheduleJobs.nextRunAt, now),
+        sql`${scheduleJobs.cronExpression} IS NOT NULL`,
+      ),
     )
     .orderBy(asc(scheduleJobs.nextRunAt))
     .all();
 
-  const claimed: ScheduleJob[] = [];
-  for (const row of candidates) {
+  for (const row of recurringCandidates) {
     let newNextRunAt: number | null;
     let exhausted = false;
     try {
       const syntax = row.scheduleSyntax as ScheduleSyntax;
       newNextRunAt = computeNextRunAtEngine({
         syntax,
-        expression: row.cronExpression,
+        expression: row.cronExpression!,
         timezone: row.timezone,
       });
     } catch (err) {
@@ -316,7 +391,107 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
       }),
     );
   }
+
+  // ── One-shot schedules ───────────────────────────────────────────
+  const oneShotCandidates = db
+    .select()
+    .from(scheduleJobs)
+    .where(
+      and(
+        isNull(scheduleJobs.cronExpression),
+        eq(scheduleJobs.status, "active"),
+        lte(scheduleJobs.nextRunAt, now),
+        eq(scheduleJobs.enabled, true),
+      ),
+    )
+    .orderBy(asc(scheduleJobs.nextRunAt))
+    .all();
+
+  for (const row of oneShotCandidates) {
+    db.update(scheduleJobs)
+      .set({
+        status: "firing",
+        lastRunAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scheduleJobs.id, row.id),
+          eq(scheduleJobs.status, "active"),
+        ),
+      )
+      .run();
+
+    if (rawChanges() === 0) continue;
+
+    claimed.push(
+      parseJobRow({
+        ...row,
+        status: "firing",
+        lastRunAt: now,
+        updatedAt: now,
+      }),
+    );
+  }
+
   return claimed;
+}
+
+/**
+ * Complete a one-shot schedule after successful execution.
+ * Transitions status from 'firing' to 'fired' and disables the schedule.
+ */
+export function completeOneShot(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "fired",
+      enabled: false,
+      updatedAt: now,
+    })
+    .where(
+      and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")),
+    )
+    .run();
+}
+
+/**
+ * Revert a one-shot schedule from 'firing' back to 'active' on failure.
+ * Allows the schedule to be retried on the next tick.
+ */
+export function failOneShot(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "active",
+      updatedAt: now,
+    })
+    .where(
+      and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")),
+    )
+    .run();
+}
+
+/**
+ * Cancel a one-shot schedule. Sets status to 'cancelled' and disables it.
+ * Returns true if a row was actually updated (i.e., it was in 'active' status).
+ */
+export function cancelSchedule(id: string): boolean {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "cancelled",
+      enabled: false,
+      updatedAt: now,
+    })
+    .where(
+      and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")),
+    )
+    .run();
+  return rawChanges() > 0;
 }
 
 export function createScheduleRun(
@@ -422,14 +597,17 @@ export function formatLocalDate(timestamp: number): string {
 // Convert a cron expression to a human-readable description.
 // Only applicable to cron syntax; RRULE schedules should display the
 // raw expression text instead.
+// Returns "One-time" for null expressions (one-shot schedules).
 //
 // Examples:
-//   "* * * * *"     -> "Every minute"
-//   "0 9 * * 1-5"   -> "Every weekday at 9:00 AM"
-//   "0 9 * * 0,6"   -> "Every weekend at 9:00 AM"
-//   "0 9 1 * *"     -> "On the 1st of every month at 9:00 AM"
-//   "30 14 * * *"   -> "Every day at 2:30 PM"
-export function describeCronExpression(expr: string): string {
+//   null                -> "One-time"
+//   "* * * * *"         -> "Every minute"
+//   "0 9 * * 1-5"       -> "Every weekday at 9:00 AM"
+//   "0 9 * * 0,6"       -> "Every weekend at 9:00 AM"
+//   "0 9 1 * *"         -> "On the 1st of every month at 9:00 AM"
+//   "30 14 * * *"       -> "Every day at 2:30 PM"
+export function describeCronExpression(expr: string | null): string {
+  if (expr === null) return "One-time";
   try {
     const cron = new Cron(expr, { maxRuns: 0 });
     // Access Croner internal state to extract the parsed cron pattern.
@@ -583,9 +761,22 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     lastStatus: row.lastStatus,
     retryCount: row.retryCount,
     createdBy: row.createdBy,
+    mode: (row.mode ?? "execute") as ScheduleMode,
+    routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,
+    routingHints: safeParseJson(row.routingHintsJson),
+    status: (row.status ?? "active") as ScheduleStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function safeParseJson(json: string | null | undefined): Record<string, unknown> {
+  if (!json) return {};
+  try {
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }
 
 function parseRunRow(row: typeof scheduleRuns.$inferSelect): ScheduleRun {

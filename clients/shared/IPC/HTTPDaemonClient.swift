@@ -416,6 +416,9 @@ public final class HTTPTransport {
         case workspaceFiles
         case workspaceFilesRead
 
+        // Attachments
+        case uploadAttachment
+
         // Misc
         case channelVerificationSessions
         case registerDeviceToken
@@ -814,6 +817,9 @@ public final class HTTPTransport {
             return ("/v1/workspace-files", nil)
         case .workspaceFilesRead:
             return ("/v1/workspace-files/read", nil)
+        // Attachments
+        case .uploadAttachment:
+            return ("/v1/attachments", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
@@ -1195,6 +1201,9 @@ public final class HTTPTransport {
             return ("\(prefix)/workspace-files/", nil)
         case .workspaceFilesRead:
             return ("\(prefix)/workspace-files/read/", nil)
+        // Attachments
+        case .uploadAttachment:
+            return ("\(prefix)/attachments/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
@@ -1492,7 +1501,85 @@ public final class HTTPTransport {
 
     // MARK: - HTTP Endpoints
 
-    func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
+    private enum AttachmentUploadResult {
+        case success(id: String)
+        case transientFailure
+        case terminalAuthFailure
+    }
+
+    /// Upload a single attachment and return its server-assigned ID.
+    private func uploadAttachment(_ attachment: IPCAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
+        guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = [
+            "filename": attachment.filename,
+            "mimeType": attachment.mimeType,
+            "data": attachment.data
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return .transientFailure }
+
+            if http.statusCode == 200 {
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                if let id = json?["id"] as? String {
+                    return .success(id: id)
+                }
+                return .transientFailure
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                switch refreshResult {
+                case .success:
+                    return await uploadAttachment(attachment, isRetry: true)
+                case .terminalFailure:
+                    // handleAuthenticationFailureAsync already emitted .authenticationRequired
+                    return .terminalAuthFailure
+                case .transientFailure:
+                    return .transientFailure
+                }
+            } else {
+                log.error("Attachment upload failed (\(http.statusCode))")
+                return .transientFailure
+            }
+        } catch {
+            log.error("Attachment upload error: \(error.localizedDescription)")
+            return .transientFailure
+        }
+    }
+
+    func sendMessage(content: String?, sessionId: String, attachments: [IPCAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+        // On retry, reuse already-uploaded attachment IDs to avoid duplicates
+        var attachmentIds: [String] = uploadedAttachmentIds ?? []
+
+        if attachmentIds.isEmpty, let attachments, !attachments.isEmpty {
+            for attachment in attachments {
+                switch await uploadAttachment(attachment) {
+                case .success(let id):
+                    attachmentIds.append(id)
+                case .terminalAuthFailure:
+                    // .authenticationRequired already emitted — don't overwrite with a generic error
+                    return
+                case .transientFailure:
+                    log.error("Failed to upload attachment: \(attachment.filename)")
+                    let failedCount = attachments.count - attachmentIds.count
+                    onMessage?(.sessionError(SessionErrorMessage(
+                        sessionId: sessionId,
+                        code: .providerApi,
+                        userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
+                        retryable: true
+                    )))
+                    return
+                }
+            }
+        }
+
         guard let url = buildURL(for: .sendMessage) else { return }
 
         var request = URLRequest(url: url)
@@ -1508,6 +1595,9 @@ public final class HTTPTransport {
         if let content, !content.isEmpty {
             body["content"] = content
         }
+        if !attachmentIds.isEmpty {
+            body["attachmentIds"] = attachmentIds
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -1521,7 +1611,8 @@ public final class HTTPTransport {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
                 case .success:
-                    await sendMessage(content: content, sessionId: sessionId, isRetry: true)
+                    // Reuse already-uploaded IDs to avoid duplicate uploads
+                    await sendMessage(content: content, sessionId: sessionId, uploadedAttachmentIds: attachmentIds, isRetry: true)
                 case .terminalFailure:
                     // performRefresh() already emitted .authenticationRequired — don't overwrite it
                     break

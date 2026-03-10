@@ -33,7 +33,7 @@ struct DrawerMenuItem: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.navHover : Color.clear)
+            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

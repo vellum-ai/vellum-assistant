@@ -1107,7 +1107,7 @@ private struct ShareDrawerRow: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.navHover : Color.clear)
+            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

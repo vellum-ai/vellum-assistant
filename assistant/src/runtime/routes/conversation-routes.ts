@@ -617,8 +617,33 @@ export async function handleSendMessage(
   }
 
   if (session.isProcessing()) {
-    // If a tool confirmation is pending, auto-deny it so the agent
-    // can finish the current turn and process this queued message.
+    // Queue the message so it's processed when the current turn completes
+    const requestId = crypto.randomUUID();
+    const enqueueResult = session.enqueueMessage(
+      content ?? "",
+      attachments,
+      onEvent,
+      requestId,
+      undefined, // activeSurfaceId
+      undefined, // currentPage
+      {
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      },
+      { isInteractive: isInteractiveInterface },
+    );
+    if (enqueueResult.rejected) {
+      return Response.json(
+        { accepted: false, error: "queue_full" },
+        { status: 429 },
+      );
+    }
+
+    // Auto-deny pending confirmations only after enqueue succeeds, so we
+    // don't cancel approval-gated workflows when the replacement message
+    // is itself rejected by the queue budget.
     if (session.hasAnyPendingConfirmation()) {
       // Emit authoritative denial state for each pending request.
       // sendToClient (wired to the SSE hub) delivers these to the client.
@@ -641,23 +666,6 @@ export async function handleSendMessage(
       pendingInteractions.removeBySession(session);
     }
 
-    // Queue the message so it's processed when the current turn completes
-    const requestId = crypto.randomUUID();
-    session.enqueueMessage(
-      content ?? "",
-      attachments,
-      onEvent,
-      requestId,
-      undefined, // activeSurfaceId
-      undefined, // currentPage
-      {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      },
-      { isInteractive: isInteractiveInterface },
-    );
     return Response.json({ accepted: true, queued: true }, { status: 202 });
   }
 

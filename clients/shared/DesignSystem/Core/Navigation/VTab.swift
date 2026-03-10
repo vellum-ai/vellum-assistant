@@ -33,7 +33,7 @@ public struct VTab: View {
         } else if isHovered {
             return VColor.navHover
         } else {
-            return .clear
+            return VColor.navHover.opacity(0)
         }
     }
 
@@ -78,6 +78,7 @@ public struct VTab: View {
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
                 .opacity(isSelected ? 1 : 0)
         )
+        .animation(VAnimation.fast, value: isHovered)
         .onHover { hovering in isHovered = hovering }
         .pointerCursor()
     }
