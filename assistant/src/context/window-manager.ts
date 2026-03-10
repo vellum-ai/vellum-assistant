@@ -3,6 +3,7 @@ import type { ContextWindowConfig } from "../config/types.js";
 import type { ContentBlock, Message, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { estimatePromptTokens } from "./token-estimator.js";
+import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 
 const log = getLogger("context-window");
 
@@ -12,6 +13,7 @@ const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
 const MIN_GAIN_TOKENS_DURING_COOLDOWN = 1200;
 const SEVERE_PRESSURE_RATIO = 0.95;
+const COMPACTION_TOOL_RESULT_MAX_CHARS = 6_000;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
@@ -235,10 +237,15 @@ export class ContextWindowManager {
 
     const compactedPersistedMessages =
       countPersistedMessages(compactableMessages);
-    const projectedMessages = [
+    const rawProjectedMessages = [
       createContextSummaryMessage(existingSummary ?? "Projected summary"),
       ...messages.slice(keepPlan.keepFromIndex),
     ];
+    const { messages: projectedMessages } =
+      truncateToolResultsAcrossHistory(
+        rawProjectedMessages,
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
     const projectedInputTokens = estimatePromptTokens(
       projectedMessages,
       this.systemPrompt,
@@ -355,10 +362,12 @@ export class ContextWindowManager {
     // Media in compacted turns is described textually in the summary transcript.
     const summaryMessage = createContextSummaryMessage(summary);
 
-    const compactedMessages = [
-      summaryMessage,
-      ...messages.slice(keepPlan.keepFromIndex),
-    ];
+    const { messages: truncatedKeptMessages } =
+      truncateToolResultsAcrossHistory(
+        messages.slice(keepPlan.keepFromIndex),
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
+    const compactedMessages = [summaryMessage, ...truncatedKeptMessages];
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
       this.systemPrompt,
@@ -431,10 +440,15 @@ export class ContextWindowManager {
           messages.length);
 
     while (keepTurns > minFloor) {
-      const projectedMessages = [
+      const rawProjected = [
         createContextSummaryMessage("Projected summary"),
         ...messages.slice(keepFromIndex),
       ];
+      const { messages: projectedMessages } =
+        truncateToolResultsAcrossHistory(
+          rawProjected,
+          COMPACTION_TOOL_RESULT_MAX_CHARS,
+        );
       const projectedTokens = estimatePromptTokens(
         projectedMessages,
         this.systemPrompt,
