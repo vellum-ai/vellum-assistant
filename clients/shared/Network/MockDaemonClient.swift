@@ -35,6 +35,12 @@ public final class MockDaemonClient: DaemonClientProtocol, ObservableObject {
     public func startSSE() {}
     public func stopSSE() {}
 
+    /// The most recent conversation key passed to `switchConversationKey(_:)`.
+    public private(set) var currentConversationKey: String?
+    public func switchConversationKey(_ newKey: String) {
+        currentConversationKey = newKey
+    }
+
     /// Inject a server message into all active subscribers.
     public func emit(_ message: ServerMessage) {
         for continuation in continuations {

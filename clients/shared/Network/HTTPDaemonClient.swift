@@ -104,7 +104,7 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let conversationKey: String
+    private var conversationKey: String
     private let sourceChannel: String
     let transportMetadata: TransportMetadata
 
@@ -1324,6 +1324,24 @@ public final class HTTPTransport {
         sseTask?.cancel()
         sseTask = nil
         setSSEConnected(false)
+    }
+
+    /// Update the conversation key and reconnect the SSE stream so subsequent
+    /// messages and events target the new conversation. Called when the user
+    /// switches threads.
+    func switchConversationKey(_ newKey: String) {
+        guard newKey != conversationKey else { return }
+        log.info("Switching conversationKey from \(self.conversationKey, privacy: .public) to \(newKey, privacy: .public)")
+        conversationKey = newKey
+        // Reset session ID mappings — the new conversation will have its own IDs.
+        activeLocalSessionId = nil
+        remoteSessionId = nil
+        // Reconnect SSE to the new conversation's event stream.
+        // Reset backoff so the reconnect is immediate.
+        sseReconnectDelay = 1.0
+        if sseTask != nil {
+            startSSEStream()
+        }
     }
 
     private func startSSEStream() {

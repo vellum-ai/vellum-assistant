@@ -33,6 +33,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Switching to a real thread discards any draft
                 draftViewModel = nil
 
+                // Scope the HTTP transport's conversationKey to this thread so
+                // SSE events and outgoing messages target the correct backend
+                // conversation instead of sharing a single global one.
+                daemonClient.switchConversationKey(activeThreadId.uuidString)
+
                 let activeViewModel = getOrCreateViewModel(for: activeThreadId)
                 activeViewModel?.ensureMessageLoopStarted()
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)

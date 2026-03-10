@@ -93,6 +93,7 @@ public protocol DaemonClientProtocol {
     func disconnect()
     func startSSE()
     func stopSSE()
+    func switchConversationKey(_ newKey: String)
     func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData?
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
@@ -103,6 +104,9 @@ extension DaemonClientProtocol {
     public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
         try send(signal)
     }
+
+    /// Default no-op for clients that don't support conversation key switching (e.g. test mocks).
+    public func switchConversationKey(_ newKey: String) {}
 
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
     public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }

@@ -90,6 +90,13 @@ extension DaemonClient {
         httpTransport?.stopSSE()
     }
 
+    /// Switch the conversation key on the active HTTP transport.
+    /// Updates the key used for SSE subscriptions and message sending,
+    /// and reconnects the SSE stream to the new conversation.
+    public func switchConversationKey(_ newKey: String) {
+        httpTransport?.switchConversationKey(newKey)
+    }
+
     // MARK: - Token Update
 
     /// Push a new bearer token to the active HTTP transport. If SSE is currently

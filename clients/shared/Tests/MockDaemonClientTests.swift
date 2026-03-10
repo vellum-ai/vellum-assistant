@@ -158,6 +158,34 @@ final class MockDaemonClientTests: XCTestCase {
         }
     }
 
+    // MARK: - Conversation Key Switching
+
+    func testSwitchConversationKeyRecordsKey() {
+        let client = MockDaemonClient()
+        XCTAssertNil(client.currentConversationKey, "Should be nil before any switch")
+
+        client.switchConversationKey("thread-123")
+        XCTAssertEqual(client.currentConversationKey, "thread-123")
+    }
+
+    func testSwitchConversationKeyUpdatesOnSubsequentCalls() {
+        let client = MockDaemonClient()
+        client.switchConversationKey("thread-A")
+        XCTAssertEqual(client.currentConversationKey, "thread-A")
+
+        client.switchConversationKey("thread-B")
+        XCTAssertEqual(client.currentConversationKey, "thread-B",
+                       "Switching again should update to the latest key")
+    }
+
+    func testSwitchConversationKeyWithUUIDString() {
+        let client = MockDaemonClient()
+        let threadId = UUID()
+        client.switchConversationKey(threadId.uuidString)
+        XCTAssertEqual(client.currentConversationKey, threadId.uuidString,
+                       "Should store the UUID string exactly as provided")
+    }
+
     // MARK: - Multiple Connect/Disconnect Cycles
 
     func testMultipleConnectDisconnectCycles() async throws {
