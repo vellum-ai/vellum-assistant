@@ -5,10 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
-import {
-  getGatewayInternalBaseUrl,
-  getIngressPublicBaseUrl,
-} from "../../config/env.js";
+import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { getDataDir } from "../../util/platform.js";
 
 const SAFE_ENV_VARS = [
   "PATH",
@@ -29,6 +27,7 @@ const SAFE_ENV_VARS = [
   "SSH_AGENT_PID",
   "GPG_TTY",
   "GNUPGHOME",
+  "VELLUM_DEV",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {
@@ -41,9 +40,8 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();
   env.INTERNAL_GATEWAY_BASE_URL = internalGatewayBase;
-  // Inject a public gateway base when ingress is configured; otherwise fall
-  // back to the internal base so commands remain functional in local-only mode.
-  const publicGatewayBase = getIngressPublicBaseUrl()?.replace(/\/+$/, "");
-  env.GATEWAY_BASE_URL = publicGatewayBase || internalGatewayBase;
+  // Expose the runtime data directory so child processes can locate databases,
+  // logs, and other instance-scoped state without re-deriving the path.
+  env.VELLUM_DATA_DIR = getDataDir();
   return env;
 }

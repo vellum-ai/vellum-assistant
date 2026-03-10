@@ -10,7 +10,7 @@ The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 - **Fire-and-forget**: Returns `202 { accepted: true }` immediately. The client observes progress via SSE (`GET /v1/events`).
 - **Hub publishing**: All agent events are published to `assistantEventHub`, making them observable via SSE.
 
-Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP) or `session.processMessage()` (IPC).
+Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP).
 
 ### Approvals (confirmations, secrets, trust rules)
 
@@ -18,9 +18,9 @@ Approvals are **orthogonal to message sending**. The assistant asks for approval
 
 - **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
 - **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
-  - `POST /v1/confirm` — `{ requestId, decision: "allow" | "deny" }`
+  - `POST /v1/confirm` — `{ requestId, decision, selectedPattern?, selectedScope? }`. Valid decisions: `"allow"`, `"allow_10m"`, `"allow_thread"`, `"deny"`, `"always_allow"`, `"always_deny"`, `"always_allow_high_risk"`. For persistent decisions (`always_allow`, `always_deny`, `always_allow_high_risk`), `selectedPattern` and `selectedScope` are validated against the server-provided allowlist/scope options from the original confirmation request before trust rules are persisted.
   - `POST /v1/secret` — `{ requestId, value, delivery }`
-  - `POST /v1/trust-rules` — `{ requestId, pattern, scope }`
+  - `POST /v1/trust-rules` — `{ requestId, pattern, scope, decision, allowHighRisk? }`. Validates pattern/scope against server-provided options. Does not resolve the confirmation itself.
 - **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → session`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.
 
 Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
@@ -33,10 +33,8 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
 
-## HTTP-First for New Endpoints
+## HTTP-Only Transport
 
-New configuration and control endpoints MUST be exposed over HTTP on the runtime server (`assistant/src/runtime/http-server.ts`), not as IPC-only message types. The runtime HTTP server is the canonical API surface — IPC is a legacy transport being phased out.
+HTTP is the sole transport for client-daemon communication. The runtime HTTP server (`assistant/src/runtime/http-server.ts`) is the canonical API surface. Clients connect via HTTP for request/response operations and SSE (`GET /v1/events`) for streaming server-to-client events.
 
-Existing IPC-only handlers should be migrated to HTTP when touched. The pattern: extract business logic into a shared function, add an HTTP route handler in `assistant/src/runtime/routes/`, keep the IPC handler as a thin wrapper that calls the same logic.
-
-When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (JWT-authenticated via `Authorization: Bearer <jwt>`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
+When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (JWT-authenticated via `Authorization: Bearer <jwt>`). The assistant already knows how to use `curl`.

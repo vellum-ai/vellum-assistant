@@ -44,15 +44,6 @@ export function getBaseDataDir(): string | undefined {
 }
 
 /**
- * VELLUM_DAEMON_SOCKET — string, default: ~/.vellum/vellum.sock
- * Overrides the Unix domain socket path for daemon IPC.
- * Supports ~ expansion.
- */
-export function getDaemonSocket(): string | undefined {
-  return str("VELLUM_DAEMON_SOCKET");
-}
-
-/**
  * VELLUM_DAEMON_TCP_PORT — number, default: 8765
  * TCP port for the daemon's TCP listener (used by iOS clients).
  */
@@ -141,7 +132,6 @@ export function getIsContainerized(): boolean {
  * to warn about typos or unrecognized variables.
  */
 const KNOWN_VELLUM_VARS = new Set([
-  "VELLUM_DAEMON_SOCKET",
   "VELLUM_DAEMON_TCP_PORT",
   "VELLUM_DAEMON_TCP_ENABLED",
   "VELLUM_DAEMON_TCP_HOST",
@@ -159,6 +149,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_CLAUDE_CODE_DEPTH",
   "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_UNSAFE_AUTH_BYPASS",
+  "VELLUM_DATA_DIR",
 ]);
 
 /**

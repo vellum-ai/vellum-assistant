@@ -576,7 +576,7 @@ async function classifyRiskUncached(
 
       if (prog === "rm") {
         // Only downgrade rm of known safe workspace files for sandboxed bash.
-        // host_bash has a global allow rule that would auto-approve Medium-risk
+        // host_bash has a global ask rule that would prompt Medium-risk
         // commands, so rm on the host must always require explicit approval.
         if (toolName === "bash" && isRmOfKnownSafeFile(seg.args)) {
           maxRisk = RiskLevel.Medium;

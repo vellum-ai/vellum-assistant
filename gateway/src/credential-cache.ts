@@ -19,6 +19,7 @@ export class CredentialCache {
   /** In-flight promises keyed by credential account, used for deduplication. */
   private readonly inflight = new Map<string, Promise<string | undefined>>();
   private readonly invalidateListeners = new Set<() => void>();
+  private generation = 0;
 
   constructor(opts?: { ttlMs?: number }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
@@ -63,6 +64,7 @@ export class CredentialCache {
    * all registered invalidation listeners.
    */
   invalidate(): void {
+    this.generation++;
     this.cache.clear();
     this.inflight.clear();
     for (const cb of this.invalidateListeners) {
@@ -92,17 +94,22 @@ export class CredentialCache {
     const existing = this.inflight.get(key);
     if (existing) return existing;
 
+    const gen = this.generation;
     const promise = readCredential(key).then(
       (value) => {
-        this.cache.set(key, {
-          value,
-          expiresAt: Date.now() + this.ttlMs,
-        });
-        this.inflight.delete(key);
+        if (this.generation === gen) {
+          this.cache.set(key, {
+            value,
+            expiresAt: Date.now() + this.ttlMs,
+          });
+          this.inflight.delete(key);
+        }
         return value;
       },
       (err) => {
-        this.inflight.delete(key);
+        if (this.generation === gen) {
+          this.inflight.delete(key);
+        }
         throw err;
       },
     );

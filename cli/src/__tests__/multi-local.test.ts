@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Create a temp directory that acts as a fake home, so allocateLocalResources()
 // never touches the real ~/.vellum directory.
 const testDir = mkdtempSync(join(tmpdir(), "cli-multi-local-test-"));
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // Mock homedir() to return testDir — this isolates allocateLocalResources()
 // which uses homedir() directly for instance directory creation.
@@ -46,7 +46,7 @@ import {
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
-  delete process.env.BASE_DATA_DIR;
+  delete process.env.VELLUM_LOCKFILE_DIR;
 });
 
 function writeLockfile(data: unknown): void {
@@ -94,21 +94,22 @@ describe("multi-local", () => {
   });
 
   describe("allocateLocalResources() produces non-conflicting ports", () => {
-    test("first instance gets XDG path and default ports", async () => {
+    test("first instance gets home directory and default ports", async () => {
       // GIVEN no local assistants exist in the lockfile
 
       // WHEN we allocate resources for the first instance
       const res = await allocateLocalResources("instance-a");
 
-      // THEN it gets an XDG instance directory under the home dir
-      expect(res.instanceDir).toBe(
-        join(testDir, ".local", "share", "vellum", "assistants", "instance-a"),
-      );
+      // THEN it gets the home directory as its instance root
+      expect(res.instanceDir).toBe(testDir);
 
       // AND it gets the default ports since no other instances exist
       expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
       expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
       expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
+
+      // AND the PID file is under ~/.vellum/
+      expect(res.pidFile).toBe(join(testDir, ".vellum", "vellum.pid"));
     });
 
     test("second instance gets distinct ports and dir when first instance is saved", async () => {
@@ -234,14 +235,14 @@ describe("multi-local", () => {
     });
   });
 
-  describe("removeAssistantEntry() clears matching activeAssistant", () => {
-    test("set active to foo, remove foo, verify active is null", () => {
+  describe("removeAssistantEntry() reassigns activeAssistant on removal", () => {
+    test("set active to foo, remove foo, verify active is reassigned to bar", () => {
       writeLockfile({
         assistants: [makeEntry("foo"), makeEntry("bar")],
         activeAssistant: "foo",
       });
       removeAssistantEntry("foo");
-      expect(getActiveAssistant()).toBeNull();
+      expect(getActiveAssistant()).toBe("bar");
     });
 
     test("set active to foo, remove bar, verify active is still foo", () => {

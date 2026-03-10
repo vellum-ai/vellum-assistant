@@ -1,14 +1,12 @@
 name: CI – macOS Performance Baselines
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'clients/macos/**'
-      - 'clients/shared/**'
-      - '.github/workflows/ci-perf-macos.yaml'
-      - 'scripts/compare-perf-baselines.sh'
   workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: 'Update stored baselines (only effective on main branch)'
+        type: boolean
+        default: true
 
 jobs:
   perf-baselines:
@@ -69,7 +67,7 @@ jobs:
 
       - name: Compare baselines
         env:
-          UPDATE_BASELINE: ${{ github.event_name == 'push' && 'true' || 'false' }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline && github.ref == 'refs/heads/main' && 'true' || 'false' }}
         run: bash scripts/compare-perf-baselines.sh
 
       - name: Performance summary

@@ -318,7 +318,7 @@ describe("assistant ID boundary", () => {
       import.meta.dir,
       "..",
       "daemon",
-      "ipc-contract",
+      "message-types",
       "integrations.ts",
     );
     const content = readFileSync(ipcContractPath, "utf-8");

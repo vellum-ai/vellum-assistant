@@ -10,7 +10,6 @@ import { randomInt } from "node:crypto";
 
 import type { ServerWebSocket } from "bun";
 
-import { resolveGuardianName } from "../config/user-reference.js";
 import {
   findGuardianForChannel,
   listGuardianChannels,
@@ -25,6 +24,7 @@ import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { resolveGuardianName } from "../prompts/user-reference.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
   resolveActorTrust,
@@ -152,12 +152,12 @@ export const activeRelayConnections = new Map<string, RelayConnection>();
 
 /** Module-level broadcast function, set by the HTTP server during startup. */
 let globalBroadcast:
-  | ((msg: import("../daemon/ipc-protocol.js").ServerMessage) => void)
+  | ((msg: import("../daemon/message-protocol.js").ServerMessage) => void)
   | undefined;
 
 /** Register a broadcast function so RelayConnection can forward IPC events. */
 export function setRelayBroadcast(
-  fn: (msg: import("../daemon/ipc-protocol.js").ServerMessage) => void,
+  fn: (msg: import("../daemon/message-protocol.js").ServerMessage) => void,
 ): void {
   globalBroadcast = fn;
 }

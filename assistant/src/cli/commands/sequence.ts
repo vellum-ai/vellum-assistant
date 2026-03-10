@@ -6,7 +6,6 @@
 
 import { Command } from "commander";
 
-import { initializeDb } from "../../memory/db.js";
 import {
   getGuardrailConfig,
   setGuardrailConfig,
@@ -19,6 +18,7 @@ import {
   listSequences,
   updateSequence,
 } from "../../sequence/store.js";
+import { initializeDb } from "../db.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

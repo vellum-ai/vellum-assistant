@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct CrashReportView: View {
     let crashURL: URL
     let crashLog: String
+    let companionFiles: [URL]
     let onDismiss: () -> Void
 
     @State private var isSending = false
@@ -96,20 +97,33 @@ struct CrashReportView: View {
         let crashFileName = crashURL.lastPathComponent
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let urlCopy = crashURL
+        let companions = companionFiles
 
         Task.detached {
             let event = Event(level: .fatal)
             event.message = SentryMessage(formatted: "Crash report: \(crashFileName)")
             event.tags = ["source": "crash_log", "app_version": appVersion]
             // Truncate to ~8 KB to stay within Sentry's event size limits.
+            // Kept as a fallback for quick viewing in Sentry.
             let truncated = logContent.count > 8_192
                 ? String(logContent.prefix(8_192)) + "\n[truncated]"
                 : logContent
             event.extra = ["crash_log": truncated, "crash_file": crashFileName]
 
+            // Attach the full crash log file and any companion files (e.g. spindump
+            // .tar.gz archives) so they are available in Sentry for download.
+            var attachments: [Attachment] = [
+                Attachment(path: urlCopy.path, filename: urlCopy.lastPathComponent),
+            ]
+            for companion in companions {
+                attachments.append(
+                    Attachment(path: companion.path, filename: companion.lastPathComponent)
+                )
+            }
+
             // Await completion so UI confirms delivery only after flush finishes.
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                MetricKitManager.sendManualReport(event) {
+                MetricKitManager.sendManualReport(event, attachments: attachments) {
                     continuation.resume()
                 }
             }
@@ -135,7 +149,7 @@ extension AppDelegate {
     /// Opens a crash report window if a crash log from the previous session exists.
     /// Call early in `applicationDidFinishLaunching`, before `recordLaunch()`.
     func checkForPreviousCrash() {
-        guard let (url, content) = CrashReporter.pendingCrashLog() else {
+        guard let (url, content, companionFiles) = CrashReporter.pendingCrashLog() else {
             CrashReporter.recordLaunch()
             return
         }
@@ -143,10 +157,10 @@ extension AppDelegate {
         // Record now so a second launch doesn't surface the same crash again
         // even if the user force-quits before dismissing the sheet.
         CrashReporter.recordLaunch()
-        showCrashReportWindow(url: url, content: content)
+        showCrashReportWindow(url: url, content: content, companionFiles: companionFiles)
     }
 
-    func showCrashReportWindow(url: URL, content: String) {
+    func showCrashReportWindow(url: URL, content: String, companionFiles: [URL] = []) {
         let dismiss: () -> Void = { [weak self] in
             self?.dismissCrashReportWindow()
         }
@@ -154,6 +168,7 @@ extension AppDelegate {
         let view = CrashReportView(
             crashURL: url,
             crashLog: content,
+            companionFiles: companionFiles,
             onDismiss: dismiss
         )
 
@@ -227,6 +242,7 @@ extension AppDelegate {
         0   vellum-assistant    0x0000000100abc123 main + 0
         1   dyld                0x00007fff6bc123ab start + 1
         """,
+        companionFiles: [],
         onDismiss: {}
     )
 }

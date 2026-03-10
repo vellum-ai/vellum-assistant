@@ -217,6 +217,7 @@ struct TokensGallerySection: View {
             VCard {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     let animations: [(String, String)] = [
+                        ("snappy", "0.12s easeOut"),
                         ("fast", "0.15s easeOut"),
                         ("standard", "0.25s easeInOut"),
                         ("slow", "0.4s easeInOut"),

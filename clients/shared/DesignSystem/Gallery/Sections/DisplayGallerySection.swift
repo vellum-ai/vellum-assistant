@@ -3,6 +3,8 @@ import SwiftUI
 
 struct DisplayGallerySection: View {
     @State private var cardPadding: CGFloat = 24
+    @State private var waveformAmplitude: Float = 0.5
+    @State private var waveformActive: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -163,6 +165,61 @@ struct DisplayGallerySection: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.textSecondary)
                     }
+                }
+            }
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VStreamingWaveform
+            GallerySectionHeader(
+                title: "VStreamingWaveform",
+                description: "Animated audio waveform driven by amplitude. Two styles: conversation (centered) and dictation (bottom-aligned)."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(spacing: VSpacing.sm) {
+                            Text("Conversation")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.textSecondary)
+                            VStreamingWaveform(
+                                amplitude: waveformAmplitude,
+                                isActive: waveformActive,
+                                style: .conversation
+                            )
+                            .frame(width: 120, height: 60)
+                        }
+
+                        VStack(spacing: VSpacing.sm) {
+                            Text("Dictation")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.textSecondary)
+                            VStreamingWaveform(
+                                amplitude: waveformAmplitude,
+                                isActive: waveformActive,
+                                style: .dictation,
+                                foregroundColor: VColor.textSecondary
+                            )
+                            .frame(width: 100, height: 30)
+                        }
+                    }
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    HStack {
+                        Text("Amplitude: \(String(format: "%.2f", waveformAmplitude))")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Slider(value: Binding(
+                            get: { Double(waveformAmplitude) },
+                            set: { waveformAmplitude = Float($0) }
+                        ), in: 0...1)
+                        .frame(maxWidth: 200)
+                    }
+
+                    Toggle("Active", isOn: $waveformActive)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textPrimary)
                 }
             }
         }

@@ -92,7 +92,7 @@ Follow the [Agent Skills specification](https://agentskills.io/specification) fo
 
 ## Multi-Instance Path Invariant
 
-When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures socket paths, PID files, tokens, and config are correctly scoped per instance.
+When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures PID files, tokens, and config are correctly scoped per instance.
 
 ## Qdrant Port Override
 
@@ -104,7 +104,11 @@ Memory conflicts must never surface as user-facing clarification prompts. The co
 
 ## Release Update Hygiene
 
-When shipping a release with user/assistant-facing changes, update `assistant/src/config/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly. Checkpoint keys (`updates:active_releases`, `updates:completed_releases`) in `memory_checkpoints` track bulletin lifecycle — don't manipulate directly.
+When shipping a release with user/assistant-facing changes, update `assistant/src/prompts/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly. Checkpoint keys (`updates:active_releases`, `updates:completed_releases`) in `memory_checkpoints` track bulletin lifecycle — don't manipulate directly.
+
+## Companion Repos
+
+- **[`vellum-assistant-platform`](../vellum-assistant-platform)** — Django backend that manages platform-hosted ("managed") assistants. Handles authentication (WorkOS OIDC), organization management, assistant lifecycle, and runtime proxying. The desktop app authenticates against it and proxies all runtime traffic through it. Stack: Python 3.14, Django, DRF, PostgreSQL, Redis/Valkey. See `../vellum-assistant-platform/AGENTS.md` for development instructions.
 
 ## See Also
 

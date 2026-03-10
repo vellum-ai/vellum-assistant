@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import cliPkg from "../package.json";
+import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
@@ -15,6 +16,7 @@ import { use } from "./commands/use";
 import { wake } from "./commands/wake";
 
 const commands = {
+  clean,
   client,
   hatch,
   login,
@@ -46,6 +48,7 @@ async function main() {
     console.log("Usage: vellum <command> [options]");
     console.log("");
     console.log("Commands:");
+    console.log("  clean    Kill orphaned vellum processes");
     console.log("  client   Connect to a hatched assistant");
     console.log("  hatch    Create a new assistant instance");
     console.log("  login    Log in to the Vellum platform");

@@ -170,7 +170,7 @@ struct QuickInputView: View {
                     Button(action: { onMicrophoneToggle?() }) {
                         ZStack {
                             VIconView(.mic, size: 14)
-                                .foregroundColor(adaptiveColor(light: Forest._500, dark: Moss._400))
+                                .foregroundColor(VColor.micIcon)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -237,13 +237,7 @@ struct QuickInputView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .onHover { inside in
-                        if inside {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                    .pointerCursor()
                 }
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.bottom, VSpacing.md)

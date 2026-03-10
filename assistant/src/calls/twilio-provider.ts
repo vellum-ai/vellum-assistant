@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { loadConfig } from "../config/loader.js";
+import { getSecureKey } from "../security/secure-keys.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -275,17 +275,12 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   // ── Webhook signature verification ──────────────────────────────────
 
   /**
-   * Returns the Twilio auth token from config, or null if not configured.
+   * Returns the Twilio auth token from the credential store, or null if not configured.
    * Exposed as a static method so callers (e.g. the HTTP server webhook
    * middleware) can check availability independently.
    */
   static getAuthToken(): string | null {
-    try {
-      const config = loadConfig();
-      return config.twilio?.authToken || null;
-    } catch {
-      return null;
-    }
+    return getSecureKey("credential:twilio:auth_token") || null;
   }
 
   /**

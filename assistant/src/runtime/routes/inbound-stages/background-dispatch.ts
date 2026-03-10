@@ -8,7 +8,6 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { resolveGuardianName } from "../../../config/user-reference.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
 import * as deliveryChannels from "../../../memory/delivery-channels.js";
@@ -19,6 +18,7 @@ import {
   extractThreadTsFromCallbackUrl,
   setThreadTs,
 } from "../../../memory/slack-thread-store.js";
+import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import {
@@ -31,11 +31,30 @@ import type {
   ApprovalCopyGenerator,
   MessageProcessor,
 } from "../../http-types.js";
+import { TelegramStreamingDelivery } from "../../telegram-streaming-delivery.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
-import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
+import {
+  deliverAttachmentsOnly,
+  deliverReplyViaCallback,
+} from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
 
 const log = getLogger("runtime-http");
+
+export function isBoundGuardianActor(params: {
+  trustClass: TrustContext["trustClass"];
+  guardianExternalUserId?: string;
+  requesterExternalUserId?: string;
+}): boolean {
+  const { trustClass, guardianExternalUserId, requesterExternalUserId } =
+    params;
+
+  return (
+    trustClass === "guardian" &&
+    !!guardianExternalUserId &&
+    requesterExternalUserId === guardianExternalUserId
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -93,6 +112,12 @@ export function processChannelMessageInBackground(
   } = params;
 
   (async () => {
+    const boundGuardianActor = isBoundGuardianActor({
+      trustClass: trustCtx.trustClass,
+      guardianExternalUserId: trustCtx.guardianExternalUserId,
+      requesterExternalUserId: trustCtx.requesterExternalUserId,
+    });
+
     const typingCallbackUrl = shouldEmitTelegramTyping(
       sourceChannel,
       replyCallbackUrl,
@@ -156,6 +181,16 @@ export function processChannelMessageInBackground(
       }
     }
 
+    const telegramStreaming =
+      sourceChannel === "telegram" && replyCallbackUrl
+        ? new TelegramStreamingDelivery({
+            callbackUrl: replyCallbackUrl,
+            chatId: externalChatId,
+            mintBearerToken,
+            assistantId,
+          })
+        : undefined;
+
     try {
       const cmdIntent =
         commandIntent && typeof commandIntent.type === "string"
@@ -183,6 +218,9 @@ export function processChannelMessageInBackground(
           trustContext: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          ...(telegramStreaming
+            ? { onEvent: (msg) => telegramStreaming.onEvent(msg) }
+            : {}),
         },
         sourceChannel,
         sourceInterface,
@@ -190,18 +228,94 @@ export function processChannelMessageInBackground(
       deliveryCrud.linkMessage(eventId, userMessageId);
       deliveryStatus.markProcessed(eventId);
 
+      if (telegramStreaming) {
+        // Retrieve approval metadata from pending interactions (if any)
+        // so approval buttons can be attached to the final streamed message.
+        // Approval prompts are guardian-only and must never be attached for
+        // non-guardian or unverified actors.
+        const prompt = boundGuardianActor
+          ? getChannelApprovalPrompt(conversationId)
+          : undefined;
+        const pending = boundGuardianActor
+          ? getApprovalInfoByConversation(conversationId)
+          : [];
+        const approvalMeta =
+          prompt && pending.length > 0
+            ? buildApprovalUIMetadata(prompt, pending[0])
+            : undefined;
+        try {
+          await telegramStreaming.finish(approvalMeta);
+          deliveryChannels.updateDeliveredSegmentCount(eventId, 1);
+        } catch (err) {
+          log.error(
+            { err, conversationId },
+            "Telegram streaming finalization failed",
+          );
+          // Fallback: deliver approval as a standalone message so buttons
+          // are not permanently lost when finish() fails.
+          if (approvalMeta && replyCallbackUrl) {
+            try {
+              await deliverChannelReply(
+                replyCallbackUrl,
+                {
+                  chatId: externalChatId,
+                  text: approvalMeta.plainTextFallback ?? "Action needed:",
+                  approval: approvalMeta,
+                  assistantId,
+                },
+                mintBearerToken(),
+              );
+            } catch (fallbackErr) {
+              log.error(
+                { err: fallbackErr, conversationId },
+                "Fallback approval delivery also failed",
+              );
+            }
+          }
+        }
+      }
+
       if (replyCallbackUrl) {
-        await deliverReplyViaCallback(
-          conversationId,
-          externalChatId,
-          replyCallbackUrl,
-          mintBearerToken(),
-          assistantId,
-          {
-            onSegmentDelivered: (count) =>
-              deliveryChannels.updateDeliveredSegmentCount(eventId, count),
-          },
-        );
+        // Streaming fully succeeded — only send attachments since text
+        // was already delivered via streaming edits.
+        const streamingFullyDelivered =
+          telegramStreaming?.hasDeliveredText &&
+          telegramStreaming.finishSucceeded;
+
+        if (streamingFullyDelivered) {
+          await deliverAttachmentsOnly(
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            mintBearerToken(),
+            assistantId,
+          );
+        } else {
+          // Non-streaming path, or streaming partially failed (some text
+          // was delivered but finish/finalization threw). In the partial
+          // failure case the user has a truncated message, so we deliver
+          // the full response to ensure nothing is lost.
+          if (
+            telegramStreaming?.hasDeliveredText &&
+            !telegramStreaming.finishSucceeded
+          ) {
+            log.warn(
+              { conversationId },
+              "Telegram streaming partially failed — falling back to full text delivery",
+            );
+          }
+          await deliverReplyViaCallback(
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            mintBearerToken(),
+            assistantId,
+            {
+              onSegmentDelivered: (count) =>
+                deliveryChannels.updateDeliveredSegmentCount(eventId, count),
+            },
+          );
+        }
       }
     } catch (err) {
       log.error(
@@ -387,11 +501,13 @@ export function startPendingApprovalPromptWatcher(params: {
   // actors must never receive approval prompt broadcasts for the conversation.
   // We also require an explicit identity match against the bound guardian to
   // avoid broadcasting prompts when trustClass is stale/mis-scoped.
-  const isBoundGuardianActor =
-    trustClass === "guardian" &&
-    !!guardianExternalUserId &&
-    requesterExternalUserId === guardianExternalUserId;
-  if (!isBoundGuardianActor) {
+  if (
+    !isBoundGuardianActor({
+      trustClass,
+      guardianExternalUserId,
+      requesterExternalUserId,
+    })
+  ) {
     return () => {};
   }
 

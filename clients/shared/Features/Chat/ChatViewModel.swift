@@ -164,6 +164,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.isRecording }
         set { messageManager.isRecording = newValue }
     }
+    public var recordingAmplitude: Float {
+        get { messageManager.recordingAmplitude }
+        set { messageManager.recordingAmplitude = newValue }
+    }
     public var isWorkspaceRefinementInFlight: Bool {
         get { messageManager.isWorkspaceRefinementInFlight }
         set { messageManager.isWorkspaceRefinementInFlight = newValue }
@@ -1404,6 +1408,17 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Actions
 
     public func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
+        // For relay_prompt / agent_prompt actions from history-restored surfaces,
+        // send the prompt as a regular message instead of a surface action.
+        // This avoids requiring in-memory surface state on the daemon (which is
+        // lost after restart) and ensures the full message send pipeline runs
+        // (session creation, hub publisher setup, SSE event delivery).
+        let isRelay = actionId == "relay_prompt" || actionId == "agent_prompt"
+        if isRelay, let prompt = data?["prompt"]?.value as? String, !prompt.isEmpty {
+            _ = sendSilently(prompt)
+            return
+        }
+
         guard let sessionId = sessionId else { return }
         let msg = UiSurfaceActionMessage(
             sessionId: sessionId,
@@ -2200,7 +2215,6 @@ public final class ChatViewModel: ObservableObject {
             var inlineSurfaces: [InlineSurfaceData] = []
             if let historySurfaces = item.surfaces {
                 for surf in historySurfaces {
-                    // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
                         // Build a lightweight SurfaceRef so the card remains

@@ -17,7 +17,7 @@ import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import { refreshSurfacesForApp } from "./session-surfaces.js";
 import type { ToolSetupContext } from "./session-tool-setup.js";
 
@@ -236,6 +236,8 @@ registerHook(
     } else if (setting === "wake_word_timeout") {
       coerced = typeof raw === "number" ? raw : Number(raw);
     } else if (setting === "wake_word_keyword" && typeof raw === "string") {
+      coerced = raw.trim();
+    } else if (setting === "tts_voice_id" && typeof raw === "string") {
       coerced = raw.trim();
     }
     broadcastToAllClients?.({

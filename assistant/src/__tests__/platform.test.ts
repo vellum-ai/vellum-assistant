@@ -18,7 +18,6 @@ import {
   getHistoryPath,
   getHooksDir,
   getInterfacesDir,
-  getIpcBlobDir,
   getLogPath,
   getPidPath,
   getRootDir,
@@ -66,7 +65,6 @@ describe("baseline path characterization (pre-migration)", () => {
     expect(getDbPath()).toBe(join(data, "db", "assistant.db"));
     expect(getLogPath()).toBe(join(data, "logs", "vellum.log"));
     expect(getHistoryPath()).toBe(join(data, "history"));
-    expect(getIpcBlobDir()).toBe(join(data, "ipc-blobs"));
     expect(getInterfacesDir()).toBe(join(data, "interfaces"));
     expect(getSandboxRootDir()).toBe(join(data, "sandbox"));
     expect(getSandboxWorkingDir()).toBe(join(root, "workspace"));

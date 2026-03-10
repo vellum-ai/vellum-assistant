@@ -11,7 +11,7 @@ import {
   removeChannelPermissionProfile,
   setAllChannelPermissions,
   setChannelPermissionProfile,
-} from "../../../../config/channel-permission-profiles.js";
+} from "../../../../channels/permission-profiles.js";
 import type {
   ToolContext,
   ToolExecutionResult,

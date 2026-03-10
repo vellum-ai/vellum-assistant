@@ -174,6 +174,11 @@ struct SettingsAdvancedDevTab: View {
             set: { newValue in
                 macOSFlagStates[index].enabled = newValue
                 MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
+                NotificationCenter.default.post(
+                    name: .assistantFeatureFlagDidChange,
+                    object: nil,
+                    userInfo: ["key": entry.key, "enabled": newValue]
+                )
             }
         )
         return HStack {
@@ -244,7 +249,7 @@ struct SettingsAdvancedDevTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "View...", style: .secondary) {
+                    VButton(label: "View", style: .secondary) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }

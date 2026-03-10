@@ -1,4 +1,3 @@
-import type * as net from "node:net";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { HandlerContext } from "../daemon/handlers/shared.js";
@@ -101,14 +100,10 @@ const { watchSessions } = await import("../tools/watch/watch-state.js");
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function makeMockSocket(): net.Socket {
-  return { destroyed: false } as unknown as net.Socket;
-}
-
 function makeMockCtx() {
   const sent: unknown[] = [];
   return {
-    send: (_socket: net.Socket, msg: unknown) => sent.push(msg),
+    send: (msg: unknown) => sent.push(msg),
     sent,
   } as unknown as HandlerContext & { sent: unknown[] };
 }
@@ -157,7 +152,6 @@ describe("ride-shotgun-handler", () => {
   });
 
   test("learn mode calls ensureChromeWithCdp before starting recorder", async () => {
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -169,7 +163,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -188,7 +181,6 @@ describe("ride-shotgun-handler", () => {
       userDataDir: "/tmp/cdp-custom",
     };
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -200,7 +192,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -212,7 +203,6 @@ describe("ride-shotgun-handler", () => {
   test("learn mode does not start recorder when ensureChromeWithCdp fails", async () => {
     mockEnsureChromeShouldThrow = true;
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -224,7 +214,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -241,7 +230,6 @@ describe("ride-shotgun-handler", () => {
       userDataDir: "/tmp/cdp-test",
     };
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -253,7 +241,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -263,7 +250,6 @@ describe("ride-shotgun-handler", () => {
     const watchId = [...watchSessions.keys()][0]!;
     await handleRideShotgunStop(
       { type: "ride_shotgun_stop", watchId },
-      socket,
       ctx,
     );
 
@@ -278,7 +264,6 @@ describe("ride-shotgun-handler", () => {
       userDataDir: "/tmp/cdp-test",
     };
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -290,7 +275,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -300,7 +284,6 @@ describe("ride-shotgun-handler", () => {
     const watchId = [...watchSessions.keys()][0]!;
     await handleRideShotgunStop(
       { type: "ride_shotgun_stop", watchId },
-      socket,
       ctx,
     );
 
@@ -308,7 +291,6 @@ describe("ride-shotgun-handler", () => {
   });
 
   test("observe mode does not call ensureChromeWithCdp", async () => {
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -318,7 +300,6 @@ describe("ride-shotgun-handler", () => {
         intervalSeconds: 5,
         mode: "observe",
       },
-      socket,
       ctx,
     );
 
@@ -332,13 +313,11 @@ describe("ride-shotgun-handler", () => {
     const watchId = [...watchSessions.keys()][0]!;
     await handleRideShotgunStop(
       { type: "ride_shotgun_stop", watchId },
-      socket,
       ctx,
     );
   });
 
   test("sends watch_started message with session IDs", async () => {
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -350,7 +329,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -366,7 +344,6 @@ describe("ride-shotgun-handler", () => {
     const watchId = startMsg.watchId;
     await handleRideShotgunStop(
       { type: "ride_shotgun_stop", watchId },
-      socket,
       ctx,
     );
   });
@@ -374,7 +351,6 @@ describe("ride-shotgun-handler", () => {
   test("sends ride_shotgun_error when ensureChromeWithCdp fails", async () => {
     mockEnsureChromeShouldThrow = true;
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -386,7 +362,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -405,7 +380,6 @@ describe("ride-shotgun-handler", () => {
   test("cleans up session when ensureChromeWithCdp fails", async () => {
     mockEnsureChromeShouldThrow = true;
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -417,7 +391,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -432,7 +405,6 @@ describe("ride-shotgun-handler", () => {
   test("reports failure summary when no recorder ever started", async () => {
     mockEnsureChromeShouldThrow = true;
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -444,7 +416,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 
@@ -465,7 +436,6 @@ describe("ride-shotgun-handler", () => {
     mockRecorderStartShouldThrow = true;
     mockRecorderStartThrowCount = 10;
 
-    const socket = makeMockSocket();
     const ctx = makeMockCtx();
 
     await handleRideShotgunStart(
@@ -477,7 +447,6 @@ describe("ride-shotgun-handler", () => {
         targetDomain: "example.com",
         autoNavigate: false,
       },
-      socket,
       ctx,
     );
 

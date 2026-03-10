@@ -1140,7 +1140,7 @@ extension ChatViewModel {
             flushStreamingBuffer()
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
-            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
+            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" {
                 break
             }
             // Tool chip is now visible — hide the thinking indicator
@@ -1319,6 +1319,10 @@ extension ChatViewModel {
                     toolResult: truncatedResult,
                     isError: toolErrored
                 )
+                if toolErrored, Self.isOSPermissionDeniedError(truncatedResult),
+                   messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
+                    messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
+                }
                 for stepIdx in messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.indices {
                     if !messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete {
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete = true
@@ -1341,20 +1345,9 @@ extension ChatViewModel {
             // message or the daemon echoes it back.
 
         case .uiSurfaceShow(let msg):
-            log.info("Received ui_surface_show: surfaceId=\(msg.surfaceId), messageId=\(msg.messageId ?? "nil"), display=\(msg.display ?? "nil")")
-            log.info("Current messages count: \(self.messages.count), IDs: \(self.messages.map { $0.id.uuidString }.joined(separator: ", "))")
-            guard belongsToSession(msg.sessionId) else {
-                log.info("Skipping surface - wrong session")
-                return
-            }
-            guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else {
-                log.info("Skipping surface - display mode is '\(msg.display ?? "nil")'")
-                break
-            }
-            guard let surface = Surface.from(msg) else {
-                log.info("Skipping surface - failed to create Surface from message")
-                break
-            }
+            guard belongsToSession(msg.sessionId) else { return }
+            guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else { break }
+            guard let surface = Surface.from(msg) else { break }
 
             // Show floating overlay for task_progress cards (macOS only)
             #if os(macOS)
@@ -1393,22 +1386,17 @@ extension ChatViewModel {
 
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
-                log.info("Attaching surface to currentAssistantMessage: \(existingId)")
                 let surfIdx = messages[index].inlineSurfaces.count
                 messages[index].inlineSurfaces.append(inlineSurface)
                 messages[index].contentOrder.append(.surface(surfIdx))
                 lastContentWasToolCall = true
             } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
                       let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
-                // Scope to the current turn so we never attach to an assistant message
-                // from a previous conversation turn.
-                log.info("Attaching surface to last assistant message in current turn")
                 let surfIdx = messages[idx].inlineSurfaces.count
                 messages[idx].inlineSurfaces.append(inlineSurface)
                 messages[idx].contentOrder.append(.surface(surfIdx))
                 lastContentWasToolCall = true
             } else {
-                log.info("Creating new assistant message for surface")
                 var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
                 newMsg.contentOrder = [.surface(0)]
                 currentAssistantMessageId = newMsg.id

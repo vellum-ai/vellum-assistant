@@ -46,7 +46,7 @@ extension ChatBubble {
                 decidedConfirmations: effectiveConfirmations,
                 onRehydrate: onRehydrate
             )
-            .frame(maxWidth: 520, alignment: .leading)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
             VStack(alignment: .leading, spacing: 0) {
@@ -92,8 +92,8 @@ extension ChatBubble {
                 }
             }
 
-            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
-                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
+            Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :
+                 "Timed Out")
                 .font(VFont.captionMedium)
                 .foregroundColor(chipColor)
         }

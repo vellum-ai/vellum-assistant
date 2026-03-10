@@ -1,4 +1,6 @@
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
@@ -134,13 +136,13 @@ async function callSlackApiWithRetries(
  * 3. Complete the upload via files.completeUploadExternal, sharing to the channel
  */
 async function uploadFileToSlack(
-  config: GatewayConfig,
+  botToken: string,
   channelId: string,
   buffer: Buffer,
   filename: string,
   threadTs?: string,
 ): Promise<void> {
-  const token = config.slackChannelBotToken!;
+  const token = botToken;
 
   // Step 1: Get an upload URL
   const urlRes = await fetchImpl(
@@ -223,6 +225,7 @@ async function uploadFileToSlack(
 
 export async function sendSlackAttachments(
   config: GatewayConfig,
+  botToken: string,
   channelId: string,
   attachments: RuntimeAttachmentMeta[],
   threadTs?: string,
@@ -263,7 +266,7 @@ export async function sendSlackAttachments(
         continue;
       }
 
-      await uploadFileToSlack(config, channelId, buffer, filename, threadTs);
+      await uploadFileToSlack(botToken, channelId, buffer, filename, threadTs);
 
       log.debug(
         { channelId, attachmentId: meta.id, filename, mimeType },
@@ -293,7 +296,7 @@ export async function sendSlackAttachments(
       await fetchImpl("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${config.slackChannelBotToken!}`,
+          Authorization: `Bearer ${botToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(slackBody),
@@ -307,6 +310,7 @@ export async function sendSlackAttachments(
 export function createSlackDeliverHandler(
   config: GatewayConfig,
   onThreadReply?: (threadTs: string) => void,
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -316,14 +320,30 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(
-      req,
-      config,
-      "slackDeliverAuthBypass",
-    );
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("slack", "deliverAuthBypass") ?? false);
+    const authResponse = checkDeliverAuth(req, isBypassed);
     if (authResponse) return authResponse;
 
-    if (!config.slackChannelBotToken) {
+    // Resolve bot token from cache
+    let botToken = caches?.credentials
+      ? await caches.credentials.get("credential:slack_channel:bot_token")
+      : undefined;
+
+    // One-shot force retry: if token is missing and caches are available,
+    // force-refresh and retry once.
+    if (!botToken && caches?.credentials) {
+      botToken = await caches.credentials.get(
+        "credential:slack_channel:bot_token",
+        { force: true },
+      );
+      if (botToken) {
+        tlog.info("Slack bot token resolved after forced credential refresh");
+      }
+    }
+
+    if (!botToken) {
       tlog.error("Slack bot token not configured");
       return Response.json(
         { error: "Slack integration not configured" },
@@ -540,7 +560,7 @@ export function createSlackDeliverHandler(
           const res = await fetchImpl(`https://slack.com/api/${method}`, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              Authorization: `Bearer ${botToken}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify(reactionBody),
@@ -589,7 +609,7 @@ export function createSlackDeliverHandler(
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              Authorization: `Bearer ${botToken}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify(placeholderBody),
@@ -668,7 +688,7 @@ export function createSlackDeliverHandler(
           result = await callSlackApiWithRetries(
             "https://slack.com/api/chat.update",
             updateBody,
-            config.slackChannelBotToken,
+            botToken,
             chatId,
             tlog,
           );
@@ -682,7 +702,7 @@ export function createSlackDeliverHandler(
             result = await callSlackApiWithRetries(
               "https://slack.com/api/chat.postMessage",
               slackBody,
-              config.slackChannelBotToken,
+              botToken,
               chatId,
               tlog,
             );
@@ -695,7 +715,7 @@ export function createSlackDeliverHandler(
           result = await callSlackApiWithRetries(
             `https://slack.com/api/${slackMethod}`,
             slackBody,
-            config.slackChannelBotToken,
+            botToken,
             chatId,
             tlog,
           );
@@ -708,7 +728,13 @@ export function createSlackDeliverHandler(
       }
 
       if (attachments && attachments.length > 0) {
-        await sendSlackAttachments(config, chatId, attachments, threadTs);
+        await sendSlackAttachments(
+          config,
+          botToken,
+          chatId,
+          attachments,
+          threadTs,
+        );
       }
 
       tlog.info(

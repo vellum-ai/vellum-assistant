@@ -1,9 +1,5 @@
 import { v4 as uuid } from "uuid";
 
-import {
-  findSeededHomeBaseApp,
-  getPrebuiltHomeBasePreview,
-} from "../home-base/prebuilt/seed.js";
 import { getApp, getAppPreview, updateApp } from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -11,7 +7,6 @@ import { isPlainObject } from "../util/object.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
-  FileUploadSurfaceData,
   ListSurfaceData,
   ServerMessage,
   SurfaceData,
@@ -20,8 +15,8 @@ import type {
   TableRow,
   TableSurfaceData,
   UiSurfaceShow,
-} from "./ipc-protocol.js";
-import { INTERACTIVE_SURFACE_TYPES } from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { buildSessionErrorMessage } from "./session-error.js";
 
 const log = getLogger("session-surfaces");
@@ -78,14 +73,27 @@ function normalizeCardShowData(
     normalized.templateData = input.templateData;
   }
 
-  // task_progress cards need a title for Swift parsing; fall back when missing.
+  // The LLM sometimes sends `title` or `body` at the top-level tool input
+  // instead of nesting them inside `data`. The Swift client requires `title`
+  // inside the card data dict — without it `parseCardData` returns nil and
+  // the surface is silently dropped. Copy them from input when missing.
+  if (
+    typeof normalized.title !== "string" &&
+    typeof input.title === "string" &&
+    input.title.trim().length > 0
+  ) {
+    normalized.title = input.title;
+  }
+  if (typeof normalized.body !== "string" && typeof input.body === "string") {
+    normalized.body = input.body;
+  }
+
+  // task_progress cards: additional fallbacks for title from templateData.
   if (
     normalized.template === "task_progress" &&
     typeof normalized.title !== "string"
   ) {
-    if (typeof input.title === "string" && input.title.trim().length > 0) {
-      normalized.title = input.title;
-    } else if (
+    if (
       isPlainObject(normalized.templateData) &&
       typeof normalized.templateData.title === "string"
     ) {
@@ -166,7 +174,17 @@ export interface SurfaceSessionContext {
   >;
   surfaceState: Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >;
   surfaceUndoStacks: Map<string, string[]>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
@@ -176,7 +194,12 @@ export interface SurfaceSessionContext {
     surfaceType: SurfaceType;
     title?: string;
     data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
+    actions?: Array<{
+      id: string;
+      label: string;
+      style?: string;
+      data?: Record<string, unknown>;
+    }>;
     display?: string;
   }>;
   onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
@@ -517,8 +540,75 @@ export function handleSurfaceAction(
   data?: Record<string, unknown>,
 ): void {
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
+
+  // When surfaces are restored from history (e.g. onboarding cards), there is
+  // no in-memory pendingSurfaceActions entry.  For relay_prompt / agent_prompt
+  // actions the client already sends the full payload (including { prompt }),
+  // so we can handle them without stored state.
   if (!pending) {
-    log.warn({ surfaceId, actionId }, "No pending surface action found");
+    const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
+    const prompt =
+      isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
+
+    if (!prompt) {
+      log.warn({ surfaceId, actionId }, "No pending surface action found");
+      return;
+    }
+
+    const requestId = uuid();
+    ctx.surfaceActionRequestIds.add(requestId);
+    const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+
+    ctx.traceEmitter.emit("request_received", "Surface action received", {
+      requestId,
+      status: "info",
+      attributes: { source: "surface_action", surfaceId, actionId },
+    });
+
+    const result = ctx.enqueueMessage(
+      prompt,
+      [],
+      onEvent,
+      requestId,
+      surfaceId,
+    );
+    // Echo the prompt to the client so it appears in the chat UI.
+    ctx.sendToClient({
+      type: "user_message_echo",
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+
+    if (result.queued) {
+      log.info(
+        { surfaceId, actionId, requestId },
+        "Relay prompt queued (session busy, history-restored)",
+      );
+      return;
+    }
+
+    // Session is idle — process the message immediately.
+    log.info(
+      { surfaceId, actionId, requestId },
+      "Processing relay prompt immediately (history-restored)",
+    );
+    ctx
+      .processMessage(prompt, [], onEvent, requestId, surfaceId)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          { err, surfaceId, actionId },
+          "Failed to process history-restored relay prompt",
+        );
+        onEvent(
+          buildSessionErrorMessage(ctx.conversationId, {
+            code: "SESSION_PROCESSING_FAILED",
+            userMessage: `Something went wrong: ${message}`,
+            retryable: false,
+            debugDetails: `History-restored relay prompt processing failed: ${message}`,
+          }),
+        );
+      });
     return;
   }
   const retainPending = pending.surfaceType === "dynamic_page";
@@ -538,32 +628,39 @@ export function handleSurfaceAction(
     handleDocumentContentChanged(ctx, surfaceId, data);
     return;
   }
-  ctx.lastSurfaceAction.set(surfaceId, { actionId, data });
+  // Merge stored action-level data (from ui_show definition) with client-sent
+  // data. This is critical for relay_prompt buttons: the client only sends the
+  // actionId, but the prompt payload lives in the action definition's data.
+  const stored = ctx.surfaceState.get(surfaceId);
+  const actionDef = stored?.actions?.find((a) => a.id === actionId);
+  const mergedData: Record<string, unknown> | undefined =
+    actionDef?.data || data ? { ...actionDef?.data, ...data } : undefined;
+
+  ctx.lastSurfaceAction.set(surfaceId, { actionId, data: mergedData });
   const shouldRelayPrompt =
     actionId === "relay_prompt" || actionId === "agent_prompt";
   const prompt =
-    shouldRelayPrompt && typeof data?.prompt === "string"
-      ? data.prompt.trim()
+    shouldRelayPrompt && typeof mergedData?.prompt === "string"
+      ? mergedData.prompt.trim()
       : "";
 
   // Build a human-readable summary so the LLM clearly understands the
   // user's decision instead of parsing raw JSON.
-  const stored = ctx.surfaceState.get(surfaceId);
   const surfaceData = stored?.data as Record<string, unknown> | undefined;
   const summary = buildCompletionSummary(
     pending.surfaceType,
     actionId,
-    data,
+    mergedData,
     surfaceData,
   );
   let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
   // Append structured data so the LLM has access to IDs/values it needs
   // to act on (e.g. selectedIds for archiving).
-  if (data && Object.keys(data).length > 0) {
-    fallbackContent += `\n\nAction data: ${JSON.stringify(data)}`;
+  if (mergedData && Object.keys(mergedData).length > 0) {
+    fallbackContent += `\n\nAction data: ${JSON.stringify(mergedData)}`;
   }
   // Append deselection context for table/list surfaces so the LLM knows what the user chose to keep.
-  const selectedIds = data?.selectedIds as string[] | undefined;
+  const selectedIds = mergedData?.selectedIds as string[] | undefined;
   if (
     selectedIds &&
     (pending.surfaceType === "table" || pending.surfaceType === "list")
@@ -574,11 +671,28 @@ export function handleSurfaceAction(
       selectedIds,
     );
   }
-  const content = prompt || fallbackContent;
+  // When a relay_prompt button also carries selection data (e.g. list/table
+  // surface with a canned prompt + user-selected rows), append the selection
+  // context so the LLM sees both the prompt and the user's selections.
+  let content = prompt || fallbackContent;
+  if (prompt && selectedIds && mergedData) {
+    if (pending.surfaceType === "table" || pending.surfaceType === "list") {
+      content += buildDeselectionDescription(
+        pending.surfaceType,
+        stored,
+        selectedIds,
+      );
+    }
+  }
   // Show the user plain-text instead of raw JSON action data.
   const displayContent = prompt
     ? undefined
-    : buildUserFacingLabel(pending.surfaceType, actionId, data, surfaceData);
+    : buildUserFacingLabel(
+        pending.surfaceType,
+        actionId,
+        mergedData,
+        surfaceData,
+      );
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
@@ -634,29 +748,6 @@ export function handleSurfaceAction(
       requestId,
       position,
     });
-    return;
-  }
-
-  if (result.rejected) {
-    log.error({ surfaceId, actionId }, "Surface action rejected — queue full");
-    ctx.traceEmitter.emit(
-      "request_error",
-      "Surface action rejected — queue full",
-      {
-        requestId,
-        status: "error",
-        attributes: { reason: "queue_full", source: "surface_action" },
-      },
-    );
-    onEvent(
-      buildSessionErrorMessage(ctx.conversationId, {
-        code: "QUEUE_FULL",
-        userMessage:
-          "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-        retryable: true,
-        debugDetails: "Surface action rejected — session queue is full",
-      }),
-    );
     return;
   }
 
@@ -828,7 +919,7 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, request_file, computer_use_request_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
@@ -849,56 +940,6 @@ export async function surfaceProxyResolver(
     }
   }
 
-  if (toolName === "request_file") {
-    const surfaceId = uuid();
-    const prompt =
-      typeof input.prompt === "string" ? input.prompt : "Please share a file";
-    const acceptedTypes = Array.isArray(input.accepted_types)
-      ? (input.accepted_types as string[])
-      : undefined;
-    const maxFiles = typeof input.max_files === "number" ? input.max_files : 1;
-
-    const data: FileUploadSurfaceData = {
-      prompt,
-      acceptedTypes,
-      maxFiles,
-    };
-
-    ctx.surfaceState.set(surfaceId, { surfaceType: "file_upload", data });
-
-    ctx.sendToClient({
-      type: "ui_surface_show",
-      sessionId: ctx.conversationId,
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    } as UiSurfaceShow);
-
-    // Track surface for persistence
-    ctx.currentTurnSurfaces.push({
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    });
-
-    // Non-blocking: return immediately, user action arrives as follow-up message
-    ctx.pendingSurfaceActions.set(surfaceId, {
-      surfaceType: "file_upload" as SurfaceType,
-    });
-    return {
-      content: JSON.stringify({
-        surfaceId,
-        status: "awaiting_user_action",
-        message:
-          "File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.",
-      }),
-      isError: false,
-      yieldToUser: true,
-    };
-  }
-
   if (toolName === "ui_show") {
     const surfaceId = uuid();
     const surfaceType = input.surface_type as SurfaceType;
@@ -912,7 +953,12 @@ export async function surfaceProxyResolver(
           : rawData
     ) as SurfaceData;
     const actions = input.actions as
-      | Array<{ id: string; label: string; style?: string }>
+      | Array<{
+          id: string;
+          label: string;
+          style?: string;
+          data?: Record<string, unknown>;
+        }>
       | undefined;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
@@ -942,9 +988,6 @@ export async function surfaceProxyResolver(
       }
     }
 
-    // Track surface state for ui_update merging
-    ctx.surfaceState.set(surfaceId, { surfaceType, data, title });
-
     const display = (input.display as string) === "panel" ? "panel" : "inline";
 
     const mappedActions = actions?.map((a) => ({
@@ -954,7 +997,30 @@ export async function surfaceProxyResolver(
         | "primary"
         | "secondary"
         | "destructive",
+      ...(a.data ? { data: a.data } : {}),
     }));
+
+    // Track surface state for ui_update merging (includes actions so we can
+    // look up per-action data payloads when the client sends an action back).
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType,
+      data,
+      title,
+      actions: mappedActions,
+    });
+
+    log.info(
+      {
+        surfaceId,
+        surfaceType,
+        title,
+        dataKeys: Object.keys(data),
+        actionCount: mappedActions?.length ?? 0,
+        display,
+        conversationId: ctx.conversationId,
+      },
+      "Sending ui_surface_show to client",
+    );
 
     ctx.sendToClient({
       type: "ui_surface_show",
@@ -1106,14 +1172,10 @@ export async function surfaceProxyResolver(
     const openMode = input.open_mode as string | undefined;
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
-    const seededHomeBase = findSeededHomeBaseApp();
-    const defaultPreview =
-      seededHomeBase && seededHomeBase.id === app.id
-        ? getPrebuiltHomeBasePreview()
-        : // Generate a minimal fallback preview from app metadata so that the
-          // surface is always rendered as a clickable preview card (not an
-          // un-clickable fallback chip) after session restart.
-          { title: app.name, subtitle: app.description };
+    // Generate a minimal fallback preview from app metadata so that the
+    // surface is always rendered as a clickable preview card (not an
+    // un-clickable fallback chip) after session restart.
+    const defaultPreview = { title: app.name, subtitle: app.description };
 
     const storedPreview = getAppPreview(app.id);
     const surfaceData: DynamicPageSurfaceData = {

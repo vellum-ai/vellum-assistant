@@ -33,7 +33,7 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type Confidence,
@@ -91,6 +91,7 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
+import { appManagementRouteDefinitions } from "./routes/app-management-routes.js";
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
@@ -108,6 +109,7 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
+import { computerUseRouteDefinitions } from "./routes/computer-use-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -115,6 +117,8 @@ import {
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
+import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
+import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
@@ -135,11 +139,20 @@ import {
   handlePairingStatus,
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
+import { recordingRouteDefinitions } from "./routes/recording-routes.js";
+import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
+import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
+import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
+import { settingsRouteDefinitions } from "./routes/settings-routes.js";
+import { skillRouteDefinitions } from "./routes/skills-routes.js";
+import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
+import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -195,6 +208,12 @@ export class RuntimeHttpServer {
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
+  private findSessionBySurfaceId?: RuntimeHttpServerOptions["findSessionBySurfaceId"];
+  private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
+  private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
+  private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
+  private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
+  private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -210,6 +229,12 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
+    this.findSessionBySurfaceId = options.findSessionBySurfaceId;
+    this.getSkillContext = options.getSkillContext;
+    this.sessionManagementDeps = options.sessionManagementDeps;
+    this.getModelSetContext = options.getModelSetContext;
+    this.getComputerUseDeps = options.getComputerUseDeps;
+    this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -248,10 +273,9 @@ export class RuntimeHttpServer {
       featureFlagToken: this.readFeatureFlagToken(),
       pairingBroadcast: ipcBroadcast
         ? (msg) => {
-            // Broadcast to IPC socket clients (local Unix socket)
+            // Broadcast to all clients via the event hub so HTTP/SSE clients
+            // (e.g. macOS app) receive pairing approval requests.
             ipcBroadcast(msg);
-            // Also publish to the event hub so HTTP/SSE clients (e.g. macOS
-            // app with localHttpEnabled) receive pairing approval requests.
             void assistantEventHub.publish(
               buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
             );
@@ -685,11 +709,45 @@ export class RuntimeHttpServer {
         getPairingContext: () => this.pairingContext,
       }),
       ...appRouteDefinitions(),
+      ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...mcpRouteDefinitions(),
       ...usageRouteDefinitions(),
+      ...workspaceRouteDefinitions(),
+      ...settingsRouteDefinitions(),
+      ...scheduleRouteDefinitions({
+        sendMessageDeps: this.sendMessageDeps,
+      }),
+      ...diagnosticsRouteDefinitions(),
+      ...documentRouteDefinitions(),
+      ...workItemRouteDefinitions(
+        this.sendMessageDeps
+          ? {
+              getOrCreateSession: (conversationId) =>
+                this.sendMessageDeps!.getOrCreateSession(conversationId),
+              findSession: this.findSession
+                ? (conversationId) => {
+                    const s = this.findSession!(conversationId);
+                    if (!s || !("abort" in s)) return undefined;
+                    return s as import("../daemon/session.js").Session;
+                  }
+                : undefined,
+            }
+          : undefined,
+      ),
+      ...subagentRouteDefinitions(),
+      ...sessionQueryRouteDefinitions({
+        getModelSetContext: this.getModelSetContext,
+        findSessionForQueue: this.findSession
+          ? (id) => {
+              const s = this.findSession!(id);
+              if (!s?.removeQueuedMessage) return undefined;
+              return { removeQueuedMessage: s.removeQueuedMessage.bind(s) };
+            }
+          : undefined,
+      }),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
@@ -796,6 +854,10 @@ export class RuntimeHttpServer {
 
       ...conversationAttentionRouteDefinitions(),
 
+      ...(this.sessionManagementDeps
+        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
+        : []),
+
       {
         endpoint: "conversations/seen",
         method: "POST",
@@ -869,8 +931,16 @@ export class RuntimeHttpServer {
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
+      ...(this.getSkillContext
+        ? skillRouteDefinitions({
+            getSkillContext: this.getSkillContext,
+          })
+        : []),
       ...trustRulesRouteDefinitions(),
-      ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceActionRouteDefinitions({
+        findSession: this.findSession,
+        findSessionBySurfaceId: this.findSessionBySurfaceId,
+      }),
       ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 
@@ -886,6 +956,17 @@ export class RuntimeHttpServer {
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
+
+      ...(this.getComputerUseDeps
+        ? computerUseRouteDefinitions({
+            getComputerUseDeps: this.getComputerUseDeps,
+          })
+        : []),
+      ...(this.getRecordingDeps
+        ? recordingRouteDefinitions({
+            getRecordingDeps: this.getRecordingDeps,
+          })
+        : []),
 
       {
         endpoint: "interfaces/:path*",

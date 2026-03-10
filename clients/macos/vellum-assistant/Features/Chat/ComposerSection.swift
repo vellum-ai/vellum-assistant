@@ -41,6 +41,9 @@ struct ComposerSection: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
+    var recordingAmplitude: Float = 0
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
 
     var body: some View {
@@ -96,6 +99,9 @@ struct ComposerSection: View {
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,
                 onEndVoiceMode: onEndVoiceMode,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: isSending ? "Working on it..." : "What would you like to do?",
                 threadId: threadId
             )

@@ -27,7 +27,7 @@ mock.module("node:fs", () => ({
 
 // Import after mocks are in place
 const { resolveUserReference, resolveGuardianName, DEFAULT_USER_REFERENCE } =
-  await import("../config/user-reference.js");
+  await import("../prompts/user-reference.js");
 
 describe("resolveUserReference", () => {
   beforeEach(() => {

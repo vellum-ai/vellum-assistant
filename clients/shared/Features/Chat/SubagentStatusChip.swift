@@ -9,7 +9,7 @@ public struct SubagentStatusChip: View {
         switch subagent.status {
         case .completed: return VColor.success
         case .failed, .aborted: return VColor.error
-        default: return adaptiveColor(light: Forest._600, dark: Forest._400)
+        default: return VColor.statusRunning
         }
     }
 

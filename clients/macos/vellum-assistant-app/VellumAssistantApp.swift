@@ -18,6 +18,13 @@ struct VellumAssistantApp: App {
                     appDelegate.updateManager.checkForUpdates()
                 }
                 .disabled(!appDelegate.updateManager.canCheckForUpdates)
+                Divider()
+                Button("Export Logs...") {
+                    appDelegate.exportAssistantLogs()
+                }
+                Button("Send Logs to Vellum") {
+                    appDelegate.sendLogsToSentry()
+                }
             }
             // Replace the default Settings menu item (which opens the SwiftUI
             // Settings scene window) with one that opens the in-app panel.

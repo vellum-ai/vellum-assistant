@@ -33,7 +33,7 @@ import {
   unregisterWatchCompletionNotifier,
   unregisterWatchStartNotifier,
 } from "../tools/watch/watch-state.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
 import {
   lastCommentaryBySession,

@@ -65,16 +65,6 @@ extension AppDelegate {
         markAllSeenItem.target = self
         fileMenu.addItem(markAllSeenItem)
 
-        fileMenu.addItem(NSMenuItem.separator())
-
-        let exportLogsItem = NSMenuItem(
-            title: "Export Logs...",
-            action: #selector(exportAssistantLogs),
-            keyEquivalent: ""
-        )
-        exportLogsItem.target = self
-        fileMenu.addItem(exportLogsItem)
-
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
@@ -335,6 +325,11 @@ extension AppDelegate {
         exportLogsItem.image = VIcon.fileArchive.nsImage
         menu.addItem(exportLogsItem)
 
+        let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
+        sendLogsItem.target = self
+        sendLogsItem.image = VIcon.upload.nsImage
+        menu.addItem(sendLogsItem)
+
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
         restartItem.image = VIcon.refreshCw.nsImage
@@ -402,14 +397,17 @@ extension AppDelegate {
     @objc func openNewChat() {
         guard !isBootstrapping else { return }
         showMainWindow()
-        mainWindow?.threadManager.enterDraftMode()
+        mainWindow?.threadManager.createThread()
+        if let id = mainWindow?.threadManager.activeThreadId {
+            mainWindow?.windowState.selection = .thread(id)
+        }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc func openAppCollection() {
         guard !isBootstrapping else { return }
         showMainWindow()
-        mainWindow?.windowState.selection = .panel(.directory)
+        mainWindow?.windowState.selection = .panel(.apps)
     }
 
     @objc func checkForUpdates() {
@@ -523,8 +521,12 @@ extension AppDelegate {
         }
     }
 
-    @objc func exportAssistantLogs() {
+    @objc public func exportAssistantLogs() {
         LogExporter.exportLogs()
+    }
+
+    @objc public func sendLogsToSentry() {
+        LogExporter.sendLogsToSentry()
     }
 
     func refreshSkillsCache() {

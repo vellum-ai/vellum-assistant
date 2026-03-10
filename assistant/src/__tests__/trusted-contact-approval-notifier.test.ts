@@ -135,8 +135,8 @@ mock.module("../config/env.js", () => ({
 
 // ── User reference mock ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "my human",
   resolveGuardianName: (guardianDisplayName?: string | null): string => {
@@ -152,9 +152,9 @@ mock.module("../config/user-reference.js", () => ({
 
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
-import { resolveGuardianName } from "../config/user-reference.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { resolveGuardianName } from "../prompts/user-reference.js";
 
 // We need to test the private functions by importing the module.
 // Since startTrustedContactApprovalNotifier is not exported, we test it

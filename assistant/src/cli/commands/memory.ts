@@ -10,10 +10,9 @@ import {
 } from "../../memory/admin.js";
 import { listPendingConflictDetails } from "../../memory/conflict-store.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { initializeDb, rawGet } from "../../memory/db.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { rawGet } from "../../memory/db.js";
+import { initializeDb } from "../db.js";
+import { log } from "../logger.js";
 
 const SHORT_HASH_LENGTH = 8;
 

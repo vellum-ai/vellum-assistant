@@ -11,6 +11,9 @@ extension Notification.Name {
     static let activationKeyChanged = Notification.Name("activationKeyChanged")
     static let identityChanged = Notification.Name("identityChanged")
     static let shareAppCloud = Notification.Name("MainWindow.shareAppCloud")
+    static let pinApp = Notification.Name("MainWindow.pinApp")
+    static let unpinApp = Notification.Name("MainWindow.unpinApp")
+    static let queryAppPinState = Notification.Name("MainWindow.queryAppPinState")
     static let appPreviewImageCaptured = Notification.Name("MainWindow.appPreviewImageCaptured")
     static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
     static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
@@ -21,9 +24,21 @@ extension Notification.Name {
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
 
+    /// All provider identifiers whose API keys should be synced to the daemon.
+    /// Every call site that iterates over syncable providers must use this list
+    /// to keep key sync, hasAnyKey checks, and reconnect flows consistent.
+    static let allSyncableProviders = [
+        "anthropic",
+        "brave",
+        "fireworks",
+        "gemini",
+        "openai",
+        "perplexity",
+    ]
+
     /// Returns true if any known provider has a key configured.
     static func hasAnyKey() -> Bool {
-        for provider in ["anthropic", "openai", "gemini", "fireworks"] {
+        for provider in allSyncableProviders {
             if getKey(for: provider) != nil { return true }
         }
         return false
@@ -53,8 +68,14 @@ enum APIKeyManager {
         Task.detached {
             guard let token = await ActorTokenManager.waitForToken(timeout: 15),
                   !token.isEmpty else { return }
-            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-                .flatMap(Int.init) ?? 7821
+            // Resolve port from the connected assistant's lockfile entry so
+            // multi-instance switching targets the correct daemon.
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let lockfilePort = connectedId
+                .flatMap { LockfileAssistant.loadByName($0) }?.daemonPort
+            let port = lockfilePort
+                ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+                ?? 7821
             guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { return }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"

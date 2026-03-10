@@ -11,7 +11,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { Session, type SessionMemoryPolicy } from "../daemon/session.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
@@ -380,7 +380,7 @@ export class SubagentManager {
   async sendMessage(
     subagentId: string,
     content: string,
-  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "queue_full"> {
+  ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
     const trimmed = content?.trim();
     if (!trimmed) return "empty";
 
@@ -398,7 +398,6 @@ export class SubagentManager {
       onEvent,
       requestId,
     );
-    if (result.rejected) return "queue_full";
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = await managed.session.persistUserMessage(trimmed, []);

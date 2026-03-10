@@ -5,16 +5,14 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Command } from "commander";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/mcp-schema.js";
+import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { McpClient } from "../../mcp/client.js";
 import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
-import { getCliLogger } from "../../util/logger.js";
-import { sendOneMessage } from "../ipc-client.js";
-
-const log = getCliLogger("cli");
+import { httpSend } from "../http-client.js";
+import { log } from "../logger.js";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
@@ -265,33 +263,41 @@ Examples:
     .action(async () => {
       log.info("Sending reload request to assistant...");
       try {
-        const response = await sendOneMessage({ type: "mcp_reload_request" });
-        if (response.type === "mcp_reload_response") {
-          if (response.success) {
-            log.info(
-              `MCP servers reloaded: ${response.serverCount} server(s), ${response.toolCount} tool(s)\n`,
-            );
-            if (response.servers && response.servers.length > 0) {
-              for (const server of response.servers) {
-                const status = server.disabled
-                  ? "⊘ Disabled"
-                  : server.connected
-                    ? "\u2713 Connected"
-                    : "\u2717 Not connected";
-                log.info(`  ${server.id}`);
-                log.info(`    Status: ${status}`);
-                log.info(
-                  `    Tools:  ${server.toolCount > 0 ? server.tools.join(", ") : "(none)"}`,
-                );
-                log.info("");
-              }
+        const res = await httpSend("/v1/mcp/reload", { method: "POST" });
+        const response = (await res.json()) as {
+          success: boolean;
+          serverCount?: number;
+          toolCount?: number;
+          servers?: {
+            id: string;
+            connected: boolean;
+            disabled?: boolean;
+            toolCount: number;
+            tools: string[];
+          }[];
+          error?: string;
+        };
+        if (response.success) {
+          log.info(
+            `MCP servers reloaded: ${response.serverCount} server(s), ${response.toolCount} tool(s)\n`,
+          );
+          if (response.servers && response.servers.length > 0) {
+            for (const server of response.servers) {
+              const status = server.disabled
+                ? "⊘ Disabled"
+                : server.connected
+                  ? "\u2713 Connected"
+                  : "\u2717 Not connected";
+              log.info(`  ${server.id}`);
+              log.info(`    Status: ${status}`);
+              log.info(
+                `    Tools:  ${server.toolCount > 0 ? server.tools.join(", ") : "(none)"}`,
+              );
+              log.info("");
             }
-          } else {
-            log.error(`Failed to reload: ${response.error}`);
-            process.exitCode = 1;
           }
         } else {
-          log.error(`Unexpected response: ${JSON.stringify(response)}`);
+          log.error(`Failed to reload: ${response.error}`);
           process.exitCode = 1;
         }
       } catch (err) {

@@ -15,14 +15,12 @@ import { gunzipSync } from "node:zlib";
 
 import type { Command } from "commander";
 
-import { getCliLogger } from "../../util/logger.js";
 import {
   getWorkspaceConfigPath,
   getWorkspaceSkillsDir,
   readPlatformToken,
 } from "../../util/platform.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -39,8 +37,8 @@ function getSkillsIndexPath(): string {
 function getRepoSkillsDir(): string | undefined {
   if (!process.env.VELLUM_DEV) return undefined;
 
-  // assistant/src/cli/skills.ts -> ../../../skills/
-  const candidate = join(import.meta.dir, "..", "..", "..", "skills");
+  // assistant/src/cli/commands/skills.ts -> ../../../../skills/
+  const candidate = join(import.meta.dir, "..", "..", "..", "..", "skills");
   if (existsSync(join(candidate, "catalog.json"))) {
     return candidate;
   }

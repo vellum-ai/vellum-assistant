@@ -429,29 +429,36 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
     public let style: SurfaceActionStyle
+    /// Optional data payload sent back to the daemon when this action is clicked.
+    public let data: [String: AnyCodable]?
     private let index: Int
 
     /// Unique identity for SwiftUI ForEach. Multiple actions can share the same
     /// `id` (e.g. "relay_prompt"), so we combine id + index to disambiguate.
     public var uniqueId: String { "\(id)-\(index)" }
 
-    public init(id: String, label: String, style: SurfaceActionStyle, index: Int = 0) {
+    public init(id: String, label: String, style: SurfaceActionStyle, data: [String: AnyCodable]? = nil, index: Int = 0) {
         self.id = id
         self.label = label
         self.style = style
+        self.data = data
         self.index = index
+    }
+
+    public static func == (lhs: SurfaceActionButton, rhs: SurfaceActionButton) -> Bool {
+        lhs.id == rhs.id && lhs.label == rhs.label && lhs.style == rhs.style && lhs.index == rhs.index && lhs.data == rhs.data
     }
 }
 
 public struct Surface: Identifiable, Sendable {
     public let id: String
-    public let sessionId: String
+    public let sessionId: String?
     public let type: SurfaceType
     public let title: String?
     public let data: SurfaceData
     public let actions: [SurfaceActionButton]
 
-    public init(id: String, sessionId: String, type: SurfaceType, title: String? = nil, data: SurfaceData, actions: [SurfaceActionButton]) {
+    public init(id: String, sessionId: String?, type: SurfaceType, title: String? = nil, data: SurfaceData, actions: [SurfaceActionButton]) {
         self.id = id
         self.sessionId = sessionId
         self.type = type
@@ -471,7 +478,15 @@ public extension Surface {
             return nil
         }
 
-        let dict = message.data.value as? [String: Any?] ?? [:]
+        var dict = message.data.value as? [String: Any?] ?? [:]
+
+        // For cards, the LLM sometimes puts `title` at the top-level tool input
+        // rather than inside `data`. If `data` has no title, fall back to the
+        // message-level title so the card isn't silently dropped.
+        if surfaceType == .card, dict["title"] == nil || (dict["title"] as? String)?.isEmpty == true,
+           let fallbackTitle = message.title, !fallbackTitle.isEmpty {
+            dict["title"] = fallbackTitle
+        }
 
         guard let surfaceData = parseSurfaceData(type: surfaceType, dict: dict) else {
             return nil
@@ -482,6 +497,7 @@ public extension Surface {
                 id: action.id,
                 label: action.label,
                 style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                data: action.data,
                 index: index
             )
         }
@@ -496,14 +512,20 @@ public extension Surface {
         )
     }
 
-    /// Create a Surface from a history response surface (without sessionId).
+    /// Create a Surface from a history response surface.
     /// Used when populating messages from history.
-    static func from(_ historySurface: IPCHistoryResponseSurface, sessionId: String) -> Surface? {
+    static func from(_ historySurface: IPCHistoryResponseSurface, sessionId: String?) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: historySurface.surfaceType) else {
             return nil
         }
 
-        let dict = historySurface.data.mapValues { $0.value } as [String: Any?]
+        var dict = historySurface.data.mapValues { $0.value } as [String: Any?]
+
+        // Same card-title fallback as the live path (see from(UiSurfaceShowMessage)).
+        if surfaceType == .card, dict["title"] == nil || (dict["title"] as? String)?.isEmpty == true,
+           let fallbackTitle = historySurface.title, !fallbackTitle.isEmpty {
+            dict["title"] = fallbackTitle
+        }
 
         guard let surfaceData = parseSurfaceData(type: surfaceType, dict: dict) else {
             return nil
@@ -514,6 +536,7 @@ public extension Surface {
                 id: action.id,
                 label: action.label,
                 style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                data: action.data,
                 index: index
             )
         }
@@ -776,7 +799,11 @@ public extension Surface {
     // MARK: - Full Parse Helpers
 
     private static func parseCardData(_ dict: [String: Any?]) -> CardSurfaceData? {
-        guard let title = dict["title"] as? String else {
+        // Title is required for cards, but fall back to empty string rather
+        // than silently dropping the entire surface when the LLM omits it.
+        let title = (dict["title"] as? String) ?? ""
+        guard !title.isEmpty || (dict["body"] as? String) != nil || dict["template"] != nil else {
+            // Neither title, body, nor template — genuinely invalid card data.
             return nil
         }
 

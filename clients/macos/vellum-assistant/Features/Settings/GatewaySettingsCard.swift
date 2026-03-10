@@ -8,6 +8,7 @@ import VellumAssistantShared
 struct GatewaySettingsCard: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    var isManaged: Bool = false
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
@@ -20,108 +21,132 @@ struct GatewaySettingsCard: View {
                 Text("Gateway")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
-                Text("Local gateway that forwards requests to this assistant")
+                Text(isManaged
+                    ? "Gateway that forwards requests to this assistant"
+                    : "Local gateway that forwards requests to this assistant")
                     .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
-            // Local Gateway Target (read-only copyable address)
-            Text("Local Gateway Target")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+            if !isManaged {
+                // Local Gateway Target (read-only copyable address)
+                Text("Local Gateway Target")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.textSecondary)
 
-            HStack(spacing: VSpacing.sm) {
-                Text(store.localGatewayTarget)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.surface.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                    )
+                HStack(spacing: VSpacing.sm) {
+                    Text(store.localGatewayTarget)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(height: 28, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
 
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                    gatewayTargetCopied = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        gatewayTargetCopied = false
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                        gatewayTargetCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            gatewayTargetCopied = false
+                        }
+                    } label: {
+                        VIconView(gatewayTargetCopied ? .check : .copy, size: 12)
+                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    VIconView(gatewayTargetCopied ? .check : .copy, size: 12)
-                        .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
+
+                    // Retry button — always visible so user can recheck gateway status
+                    Button {
+                        Task { await store.testGatewayOnly() }
+                    } label: {
+                        SpinningRefreshIcon(isSpinning: store.isCheckingGateway)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Refresh gateway status")
+                    .help(store.gatewayLastChecked != nil ? "Last checked: \(relativeGatewayTime)" : "Test gateway")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy gateway address")
-                .help("Copy address")
 
-                // Retry button — always visible so user can recheck gateway status
-                Button {
-                    Task { await store.testGatewayOnly() }
-                } label: {
-                    SpinningRefreshIcon(isSpinning: store.isCheckingGateway)
+                // Running badge — only shown when gateway is reachable
+                if store.gatewayReachable == true {
+                    VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh gateway status")
-                .help(store.gatewayLastChecked != nil ? "Last checked: \(relativeGatewayTime)" : "Test gateway")
-            }
 
-            // Running badge — only shown when gateway is reachable
-            if store.gatewayReachable == true {
-                VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
+                Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
             }
-
-            Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
 
             // Gateway URL field
             Text("Gateway URL")
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
-            HStack(spacing: VSpacing.sm) {
-                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                    .vInputStyle()
+            if isManaged {
+                // For managed assistants, show the gateway URL as read-only
+                Text(store.localGatewayTarget)
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
-                    .focused($isGatewayUrlFocused)
-
-                Button {
-                    Task { await store.testTunnelOnly() }
-                } label: {
-                    SpinningRefreshIcon(isSpinning: store.isCheckingTunnel)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh tunnel status")
-                .help(store.tunnelLastChecked != nil ? "Last checked: \(relativeTunnelTime)" : "Test tunnel")
-            }
-
-            // Save button at the bottom
-            HStack {
-                VButton(label: "Save", style: .primary) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    isGatewayUrlFocused = false
-                }
-            }
-
-            // Diagnostic message when gateway is up but tunnel is down
-            if store.gatewayReachable == true,
-               !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               store.ingressReachable == false {
+                    .textSelection(.enabled)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .frame(height: 28, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+            } else {
                 HStack(spacing: VSpacing.sm) {
-                    VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
-                    Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
+                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .focused($isGatewayUrlFocused)
+
+                    Button {
+                        Task { await store.testTunnelOnly() }
+                    } label: {
+                        SpinningRefreshIcon(isSpinning: store.isCheckingTunnel)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Refresh tunnel status")
+                    .help(store.tunnelLastChecked != nil ? "Last checked: \(relativeTunnelTime)" : "Test tunnel")
+                }
+
+                // Save button at the bottom
+                HStack {
+                    VButton(label: "Save", style: .primary) {
+                        store.saveIngressPublicBaseUrl(gatewayUrlText)
+                        isGatewayUrlFocused = false
+                    }
+                }
+
+                // Diagnostic message when gateway is up but tunnel is down
+                if store.gatewayReachable == true,
+                   !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   store.ingressReachable == false {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.triangleAlert, size: 12)
+                            .foregroundColor(VColor.warning)
+                        Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                    }
                 }
             }
         }

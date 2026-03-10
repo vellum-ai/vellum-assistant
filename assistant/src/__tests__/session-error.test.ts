@@ -225,15 +225,6 @@ describe("classifySessionError", () => {
     });
   });
 
-  describe("queue phase", () => {
-    it("always returns QUEUE_FULL regardless of message content", () => {
-      const ctx: ErrorContext = { phase: "queue" };
-      const result = classifySessionError(new Error("random error"), ctx);
-      expect(result.code).toBe("QUEUE_FULL");
-      expect(result.retryable).toBe(true);
-    });
-  });
-
   describe("regenerate phase", () => {
     it("returns REGENERATE_FAILED with nested classification info", () => {
       const ctx: ErrorContext = { phase: "regenerate" };

@@ -48,6 +48,16 @@ extension AppDelegate {
 
         guard let assistant else { return nil }
 
+        // If the assistant changed (e.g. user hatched a new one via CLI),
+        // clear the stale actor token so ensureActorCredentials() triggers
+        // a fresh bootstrap against the new daemon's JWT secret.
+        if let storedId, storedId != assistant.assistantId, ActorTokenManager.hasToken {
+            log.info("Assistant changed from \(storedId, privacy: .public) to \(assistant.assistantId, privacy: .public) — clearing stale actor token")
+            actorTokenBootstrapTask?.cancel()
+            actorTokenBootstrapTask = nil
+            ActorTokenManager.deleteToken()
+        }
+
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         assistant.writeToWorkspaceConfig()
         return assistant
@@ -56,11 +66,11 @@ extension AppDelegate {
     /// Configure the daemon client's transport based on the lockfile assistant.
     /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
     /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
-    /// Local assistants use the default Unix domain socket, unless the
-    /// `localHttpEnabled` flag redirects them to the daemon's runtime HTTP server.
+    /// Local assistants use HTTP+SSE via the daemon's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
+        let launchEnvironment = ProcessInfo.processInfo.environment
 
         // Managed assistant: use platform proxy URLs with session token auth.
         if let assistant, assistant.isManaged {
@@ -84,31 +94,21 @@ extension AppDelegate {
         }
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
-            // Local assistant or no assistant.
-            if MacOSClientFeatureFlagManager.shared.isEnabled("local_http_enabled") {
-                // Use HTTP transport for the local daemon instead of IPC.
-                // Bearer token is nil; resolved lazily at connect time.
-                let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-                let port = Int(portString) ?? 7821
-                let baseURL = "http://localhost:\(port)"
-                let conversationKey = assistant?.assistantId ?? UUID().uuidString
-                let config = DaemonConfig(transport: .http(
-                    baseURL: baseURL,
-                    bearerToken: nil,
-                    conversationKey: conversationKey
-                ))
-                services.reconfigureDaemonClient(config: config)
-                log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
-            } else {
-                // Use the specific assistant's socket path and instance dir so
-                // switching between local instances connects to the correct daemon
-                // and authenticates with the correct session token.
-                let socketPath = assistant?.socketPath ?? DaemonClient.resolveSocketPath()
-                let instanceDir = assistant?.instanceDir
-                let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
-                let config = DaemonConfig(transport: .socket(path: socketPath), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
-                services.reconfigureDaemonClient(config: config)
-            }
+            // Local assistant or no assistant — use HTTP transport to the local daemon.
+            // Bearer token is nil; resolved lazily at connect time.
+            let port = assistant?.resolvedDaemonPort(environment: launchEnvironment)
+                ?? (Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821)
+            let baseURL = "http://localhost:\(port)"
+            let conversationKey = assistant?.assistantId ?? UUID().uuidString
+            let instanceDir = assistant?.instanceDir
+            let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
+            let config = DaemonConfig(transport: .http(
+                baseURL: baseURL,
+                bearerToken: nil,
+                conversationKey: conversationKey
+            ), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
+            services.reconfigureDaemonClient(config: config)
+            log.info("Configured local HTTP transport on port \(port)")
             return
         }
 
@@ -132,11 +132,16 @@ extension AppDelegate {
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
+        let launchEnvironment = ProcessInfo.processInfo.environment
 
         // Ensure the daemon starts its runtime HTTP server so the
-        // gateway can proxy iOS traffic to it.
-        if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
-            setenv("RUNTIME_HTTP_PORT", "7821", 0)
+        // gateway can proxy iOS traffic to it. When a local assistant has a
+        // lockfile-assigned daemon port, use that instead of the generic default.
+        if let assistant, !assistant.isRemote {
+            let port = assistant.resolvedDaemonPort(environment: launchEnvironment)
+            setenv("RUNTIME_HTTP_PORT", String(port), 1)
+        } else {
+            setenv("RUNTIME_HTTP_PORT", "7821", 1)
         }
 
         // Start the keychain broker before the daemon so it is listening
@@ -147,6 +152,10 @@ extension AppDelegate {
         #endif
 
         configureDaemonTransport(for: assistant)
+
+        // Set recovery credentials for automatic 401 re-bootstrap
+        daemonClient.recoveryPlatform = "macos"
+        daemonClient.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
 
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
@@ -408,14 +417,18 @@ extension AppDelegate {
             // Skip connect if the bootstrap retry coordinator already connected
             // or has a connect in flight (hatch can take a long time; the
             // coordinator connects independently). Checking isConnecting
-            // prevents tearing down the coordinator's in-flight NWConnection
+            // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
             if !daemonClient.isConnected && !daemonClient.isConnecting {
+                log.info("setupDaemonClient: calling connect()")
                 do {
                     try await daemonClient.connect()
+                    log.info("setupDaemonClient: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
                 } catch {
                     log.error("Failed to connect to daemon during setup: \(error)")
                 }
+            } else {
+                log.info("setupDaemonClient: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.daemonClient.isConnecting)")
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {

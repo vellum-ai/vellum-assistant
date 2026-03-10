@@ -208,7 +208,7 @@ struct CommandPaletteView: View {
 
     private func actionRow(_ action: CommandPaletteAction, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            VIconView(SFSymbolMapping.icon(forSFSymbol: action.icon, fallback: .puzzle), size: 13)
+            VIconView(.resolve(action.icon), size: 13)
                 .foregroundColor(VColor.textSecondary)
                 .frame(width: 20, alignment: .center)
 

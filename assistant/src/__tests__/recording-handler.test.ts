@@ -1,4 +1,3 @@
-import * as net from "node:net";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
@@ -158,7 +157,7 @@ import {
   recordingHandlers,
 } from "../daemon/handlers/recording.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
-import type { RecordingStatus } from "../daemon/ipc-contract/computer-use.js";
+import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
@@ -166,28 +165,24 @@ import { DebouncerMap } from "../util/debounce.js";
 function createCtx(): {
   ctx: HandlerContext;
   sent: Array<{ type: string; [k: string]: unknown }>;
-  fakeSocket: net.Socket;
 } {
   const sent: Array<{ type: string; [k: string]: unknown }> = [];
-  const fakeSocket = {} as net.Socket;
-  const socketToSession = new Map<net.Socket, string>();
 
   const ctx: HandlerContext = {
     sessions: new Map(),
-    socketToSession,
     cuSessions: new Map(),
-    socketToCuSession: new Map(),
     cuObservationParseSequence: new Map(),
-    socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: noop,
     updateConfigFingerprint: noop,
-    send: (_socket, msg) => {
+    send: (msg) => {
       sent.push(msg as { type: string; [k: string]: unknown });
     },
-    broadcast: noop,
+    broadcast: (msg) => {
+      sent.push(msg as { type: string; [k: string]: unknown });
+    },
     clearAllSessions: () => 0,
     getOrCreateSession: () => {
       throw new Error("not implemented");
@@ -195,7 +190,7 @@ function createCtx(): {
     touchSession: noop,
   };
 
-  return { ctx, sent, fakeSocket };
+  return { ctx, sent };
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -212,13 +207,12 @@ describe("handleRecordingStart", () => {
   });
 
   test("sends recording_start IPC and returns a UUID", () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-1";
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
 
@@ -235,21 +229,21 @@ describe("handleRecordingStart", () => {
   });
 
   test("passes recording options through", () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const options = { captureScope: "window" as const, includeAudio: true };
 
-    handleRecordingStart("conv-2", options, fakeSocket, ctx);
+    handleRecordingStart("conv-2", options, ctx);
 
     expect(sent[0].options).toEqual(options);
   });
 
   test("returns null when recording already active and sends no messages", () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
 
-    const id1 = handleRecordingStart("conv-3", undefined, fakeSocket, ctx);
+    const id1 = handleRecordingStart("conv-3", undefined, ctx);
     expect(id1).toBeTruthy();
 
-    const id2 = handleRecordingStart("conv-3", undefined, fakeSocket, ctx);
+    const id2 = handleRecordingStart("conv-3", undefined, ctx);
 
     // Should return null (callers handle messaging)
     expect(id2).toBeNull();
@@ -260,12 +254,11 @@ describe("handleRecordingStart", () => {
   });
 
   test("returns null when a different conversation already has an active recording (global guard)", () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
 
     const id1 = handleRecordingStart(
       "conv-global-a",
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(id1).toBeTruthy();
@@ -274,7 +267,6 @@ describe("handleRecordingStart", () => {
     const id2 = handleRecordingStart(
       "conv-global-b",
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(id2).toBeNull();
@@ -298,17 +290,13 @@ describe("handleRecordingStop", () => {
   });
 
   test("sends recording_stop for an active recording", () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-stop-1";
-
-    // Bind socket to session so findSocketForSession can locate it
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Start a recording first
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -331,15 +319,14 @@ describe("handleRecordingStop", () => {
   });
 
   test("resolves to globally active recording from a different conversation", () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const convA = "conv-owner";
     const convB = "conv-stopper";
 
     // Bind socket to conv-A (the owning conversation)
-    ctx.socketToSession.set(fakeSocket, convA);
 
     // Start a recording on conv-A
-    const recordingId = handleRecordingStart(convA, undefined, fakeSocket, ctx);
+    const recordingId = handleRecordingStart(convA, undefined, ctx);
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
@@ -352,18 +339,17 @@ describe("handleRecordingStop", () => {
     expect(sent[0].recordingId).toBe(recordingId!);
   });
 
-  test("returns undefined when no socket bound to conversation", () => {
-    const { ctx, fakeSocket } = createCtx();
-    const conversationId = "conv-no-socket";
+  test("returns recordingId when stopped via broadcast", () => {
+    const { ctx } = createCtx();
+    const conversationId = "conv-broadcast-stop";
 
-    // Start a recording (socket is used for the start message)
-    handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
-    // Do NOT bind the socket to the session in socketToSession
+    const recordingId = handleRecordingStart(conversationId, undefined, ctx);
+    expect(recordingId).not.toBeNull();
 
     const result = handleRecordingStop(conversationId, ctx);
 
-    // No socket -> returns undefined after cleanup
-    expect(result).toBeUndefined();
+    // Broadcast-based stop always returns the recordingId
+    expect(result).toBe(recordingId!);
   });
 });
 
@@ -379,13 +365,12 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles started status without errors", async () => {
-    const { ctx, fakeSocket } = createCtx();
+    const { ctx } = createCtx();
     const conversationId = "conv-status-1";
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -397,20 +382,18 @@ describe("recordingHandlers.recording_status", () => {
     };
 
     // Should not throw
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
   });
 
   test("handles stopped status with file — creates attachment and notifies client", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-stopped";
 
     // Bind socket
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -431,7 +414,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 5000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // Should have sent assistant_text_delta and message_complete
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
@@ -456,15 +439,13 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles stopped status and creates assistant message when none exists", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-no-msg";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -480,7 +461,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 3000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // An assistant message should have been created via addMessage mock
     expect(mockMessages.length).toBeGreaterThanOrEqual(1);
@@ -489,16 +470,14 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles stopped status when file does not exist — notifies client", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-no-file";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
     mockFileExists = false;
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -513,7 +492,7 @@ describe("recordingHandlers.recording_status", () => {
     };
 
     // Should not throw — the handler logs the error and notifies the client
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // No attachment should have been created
     expect(mockAttachments.length).toBe(0);
@@ -529,17 +508,15 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles stopped status with zero-length file — treated as failure", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-zero-file";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
     mockFileExists = true;
     mockFileSize = 0;
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -553,7 +530,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 2000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // No attachment should have been created for a zero-length file
     expect(mockAttachments.length).toBe(0);
@@ -576,17 +553,15 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("successful finalization — attachment created and success message sent", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-success";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
     mockFileExists = true;
     mockFileSize = 4096;
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -600,7 +575,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 5000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // Attachment should have been created
     expect(mockAttachments.length).toBe(1);
@@ -619,17 +594,15 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("rejects file path outside allowed directory", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-outside-dir";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
     mockFileExists = true;
     mockFileSize = 4096;
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -643,7 +616,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 5000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // No attachment should have been created — path is outside allowlist
     expect(mockAttachments.length).toBe(0);
@@ -661,15 +634,13 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("failed finalization — failure status sent and no success message", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-fail-final";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -683,7 +654,7 @@ describe("recordingHandlers.recording_status", () => {
       error: "Video writer finished with non-completed status 3",
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // No attachment should have been created
     expect(mockAttachments.length).toBe(0);
@@ -702,15 +673,13 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles failed status and notifies client", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-failed";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -723,7 +692,7 @@ describe("recordingHandlers.recording_status", () => {
       error: "Permission denied",
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     // Should send error notification
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
@@ -736,15 +705,13 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles failed status with no error message", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-status-failed-no-err";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(
       conversationId,
       undefined,
-      fakeSocket,
       ctx,
     );
     expect(recordingId).not.toBeNull();
@@ -756,7 +723,7 @@ describe("recordingHandlers.recording_status", () => {
       status: "failed",
     };
 
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThanOrEqual(1);
@@ -764,10 +731,9 @@ describe("recordingHandlers.recording_status", () => {
   });
 
   test("handles status with attachToConversationId fallback", async () => {
-    const { ctx, sent, fakeSocket } = createCtx();
+    const { ctx, sent } = createCtx();
     const conversationId = "conv-fallback";
 
-    ctx.socketToSession.set(fakeSocket, conversationId);
 
     // Send a recording_status directly with attachToConversationId
     // without having started a recording through handleRecordingStart
@@ -780,7 +746,7 @@ describe("recordingHandlers.recording_status", () => {
     };
 
     // Should not throw — uses attachToConversationId as fallback
-    await recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
+    await recordingHandlers.recording_status(statusMsg, ctx);
 
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThanOrEqual(1);

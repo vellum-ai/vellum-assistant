@@ -17,6 +17,7 @@ import {
 
 import { z } from "zod";
 
+import { stripCommentLines } from "../prompts/system-prompt.js";
 import {
   extractAllText,
   getConfiguredProvider,
@@ -29,7 +30,6 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
-import { stripCommentLines } from "./system-prompt.js";
 
 const log = getLogger("skills");
 

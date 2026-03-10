@@ -469,6 +469,7 @@ export class SlackSocketModeClient {
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
+        this.config.botToken,
       );
     } else if (isMessageChanged) {
       normalized = normalizeSlackMessageEdit(
@@ -483,6 +484,7 @@ export class SlackSocketModeClient {
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,
+        this.config.botToken,
       );
     } else if (isDm) {
       normalized = normalizeSlackDirectMessage(
@@ -490,6 +492,7 @@ export class SlackSocketModeClient {
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,
+        this.config.botToken,
       );
     } else {
       log.warn(

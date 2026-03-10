@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getRootDir } from "../../util/platform.js";
 
 export interface BrowserRuntimeStatus {
   playwrightAvailable: boolean;
@@ -73,7 +73,9 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
   // Compiled binary fallback: install playwright to disk and import
   // from an absolute path so the JS runtime resolves it from the
   // filesystem instead of the compiled module cache.
-  const externalDir = join(getWorkspaceDir(), "external");
+  // Use the internal assistant root (outside tool sandbox working dir)
+  // so untrusted workspace writes cannot plant a forged playwright package.
+  const externalDir = join(getRootDir(), "external");
   const pwPkg = join(externalDir, "node_modules", "playwright");
 
   if (!existsSync(join(pwPkg, "package.json"))) {

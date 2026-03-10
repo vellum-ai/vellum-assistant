@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import { v4 as uuid } from "uuid";
 
 import {
@@ -36,7 +34,7 @@ import type {
   ServerMessage,
   UserMessage,
   UserMessageAttachment,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { executeRecordingIntent } from "../recording-executor.js";
 import { resolveRecordingIntent } from "../recording-intent.js";
 import {
@@ -74,15 +72,14 @@ async function persistRecordingExchange(
   messageText: string,
   responseText: string,
   session: Session,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  ctx.send(socket, {
+  ctx.send({
     type: "assistant_text_delta",
     text: responseText,
     sessionId,
   });
-  ctx.send(socket, {
+  ctx.send({
     type: "message_complete",
     sessionId,
   });
@@ -113,7 +110,6 @@ async function persistRecordingExchange(
 function handleSecretIngress(
   msg: UserMessage,
   messageText: string,
-  socket: net.Socket,
   ctx: HandlerContext,
   session: Session,
   rlog: typeof log,
@@ -128,7 +124,7 @@ function handleSecretIngress(
     { detectedTypes: ingressCheck.detectedTypes },
     "Blocked user message containing secrets",
   );
-  ctx.send(socket, {
+  ctx.send({
     type: "error",
     message: ingressCheck.userNotice!,
     category: "secret_blocked",
@@ -149,12 +145,12 @@ function handleSecretIngress(
 
   session.redirectToSecurePrompt(ingressCheck.detectedTypes, {
     onStored: (record) => {
-      ctx.send(socket, {
+      ctx.send({
         type: "assistant_text_delta",
         sessionId: msg.sessionId,
         text: "Saved your secret securely. Continuing with your request.",
       });
-      ctx.send(socket, {
+      ctx.send({
         type: "message_complete",
         sessionId: msg.sessionId,
       });
@@ -188,7 +184,6 @@ async function handleStructuredRecordingIntent(
   msg: UserMessage,
   messageText: string,
   session: Session,
-  socket: net.Socket,
   ctx: HandlerContext,
   rlog: typeof log,
 ): Promise<boolean> {
@@ -210,7 +205,6 @@ async function handleStructuredRecordingIntent(
     const recordingId = handleRecordingStart(
       msg.sessionId,
       { promptForSource: true },
-      socket,
       ctx,
     );
     const responseText = recordingId
@@ -221,7 +215,6 @@ async function handleStructuredRecordingIntent(
       messageText,
       responseText,
       session,
-      socket,
       ctx,
     );
     return true;
@@ -235,18 +228,16 @@ async function handleStructuredRecordingIntent(
       messageText,
       responseText,
       session,
-      socket,
       ctx,
     );
     return true;
   } else if (action === "restart") {
-    const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
+    const restartResult = handleRecordingRestart(msg.sessionId, ctx);
     await persistRecordingExchange(
       msg.sessionId,
       messageText,
       restartResult.responseText,
       session,
-      socket,
       ctx,
     );
     return true;
@@ -260,7 +251,6 @@ async function handleStructuredRecordingIntent(
       messageText,
       responseText,
       session,
-      socket,
       ctx,
     );
     return true;
@@ -274,7 +264,6 @@ async function handleStructuredRecordingIntent(
       messageText,
       responseText,
       session,
-      socket,
       ctx,
     );
     return true;
@@ -296,7 +285,6 @@ async function handleStandaloneRecordingIntent(
   msg: UserMessage,
   messageText: string,
   session: Session,
-  socket: net.Socket,
   ctx: HandlerContext,
   rlog: typeof log,
 ): Promise<{
@@ -324,7 +312,6 @@ async function handleStandaloneRecordingIntent(
   ) {
     const execResult = executeRecordingIntent(intentResult, {
       conversationId: msg.sessionId,
-      socket,
       ctx,
     });
 
@@ -338,7 +325,6 @@ async function handleStandaloneRecordingIntent(
         messageText,
         execResult.responseText!,
         session,
-        socket,
         ctx,
       );
       return { handled: true, updatedMessageText: messageText };
@@ -354,7 +340,6 @@ async function handleStandaloneRecordingIntent(
   ) {
     const execResult = executeRecordingIntent(intentResult, {
       conversationId: msg.sessionId,
-      socket,
       ctx,
     });
 
@@ -369,7 +354,6 @@ async function handleStandaloneRecordingIntent(
       handleRecordingStart(
         msg.sessionId,
         { promptForSource: true },
-        socket,
         ctx,
       );
     }
@@ -377,7 +361,7 @@ async function handleStandaloneRecordingIntent(
       intentResult.kind === "restart_with_remainder" ||
       intentResult.kind === "start_and_stop_with_remainder"
     ) {
-      const restartResult = handleRecordingRestart(msg.sessionId, socket, ctx);
+      const restartResult = handleRecordingRestart(msg.sessionId, ctx);
       if (
         !restartResult.initiated &&
         restartResult.reason === "no_active_recording" &&
@@ -386,7 +370,6 @@ async function handleStandaloneRecordingIntent(
         handleRecordingStart(
           msg.sessionId,
           { promptForSource: true },
-          socket,
           ctx,
         );
       }
@@ -431,7 +414,6 @@ async function handleStandaloneRecordingIntent(
       if (mapped) {
         const execResult = executeRecordingIntent(mapped, {
           conversationId: msg.sessionId,
-          socket,
           ctx,
         });
 
@@ -445,7 +427,6 @@ async function handleStandaloneRecordingIntent(
             messageText,
             execResult.responseText!,
             session,
-            socket,
             ctx,
           );
           return { handled: true, updatedMessageText: messageText };
@@ -466,7 +447,6 @@ async function handlePendingConfirmationReply(
   session: Session,
   ipcChannel: ChannelId,
   ipcInterface: InterfaceId,
-  socket: net.Socket,
   ctx: HandlerContext,
   rlog: typeof log,
 ): Promise<boolean> {
@@ -584,26 +564,26 @@ async function handlePendingConfirmationReply(
         session.messages.push(consumedUserMessage, consumedAssistantMessage);
       }
 
-      ctx.send(socket, {
+      ctx.send({
         type: "message_queued",
         sessionId: msg.sessionId,
         requestId,
         position: 0,
       });
-      ctx.send(socket, {
+      ctx.send({
         type: "message_dequeued",
         sessionId: msg.sessionId,
         requestId,
       });
 
       if (!session.isProcessing()) {
-        ctx.send(socket, {
+        ctx.send({
           type: "assistant_text_delta",
           text: replyText,
           sessionId: msg.sessionId,
         });
       }
-      ctx.send(socket, {
+      ctx.send({
         type: "message_request_complete",
         sessionId: msg.sessionId,
         requestId,
@@ -695,7 +675,6 @@ function buildDispatchUserMessage(params: {
   sendEvent: (event: ServerMessage) => void;
   ipcChannel: ChannelId;
   ipcInterface: InterfaceId;
-  socket: net.Socket;
   ctx: HandlerContext;
   rlog: typeof log;
 }): DispatchUserMessageFn {
@@ -705,7 +684,6 @@ function buildDispatchUserMessage(params: {
     sendEvent,
     ipcChannel,
     ipcInterface,
-    socket,
     ctx,
     rlog,
   } = params;
@@ -752,33 +730,6 @@ function buildDispatchUserMessage(params: {
       undefined,
       displayContent,
     );
-    if (result.rejected) {
-      rlog.warn({ source }, "Message rejected — queue is full");
-      session.traceEmitter.emit(
-        "request_error",
-        "Message rejected — queue is full",
-        {
-          requestId: dispatchRequestId,
-          status: "error",
-          attributes: {
-            reason: "queue_full",
-            queueDepth: session.getQueueDepth(),
-            source,
-          },
-        },
-      );
-      ctx.send(
-        socket,
-        buildSessionErrorMessage(msg.sessionId, {
-          code: "QUEUE_FULL",
-          userMessage:
-            "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-          retryable: true,
-          debugDetails: "Message rejected — session queue is full",
-        }),
-      );
-      return;
-    }
     if (result.queued) {
       const position = session.getQueueDepth();
       rlog.info({ source, position }, queuedDescription);
@@ -791,7 +742,7 @@ function buildDispatchUserMessage(params: {
           attributes: { position, source },
         },
       );
-      ctx.send(socket, {
+      ctx.send({
         type: "message_queued",
         sessionId: msg.sessionId,
         requestId: dispatchRequestId,
@@ -836,37 +787,34 @@ function buildDispatchUserMessage(params: {
           { err, source },
           "Error processing user message (session or provider failure)",
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "error",
           message: `Failed to process message: ${message}`,
         });
         const classified = classifySessionError(err, { phase: "agent_loop" });
-        ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+        ctx.send( buildSessionErrorMessage(msg.sessionId, classified));
       });
   };
 }
 
 export async function handleUserMessage(
   msg: UserMessage,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const requestId = uuid();
   const rlog = log.child({ sessionId: msg.sessionId, requestId });
   try {
-    ctx.socketToSession.set(socket, msg.sessionId);
-    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    const session = await ctx.getOrCreateSession(msg.sessionId);
     // Only wire the escalation handler if one isn't already set — handleTaskSubmit
     // sets a handler with the client's actual screen dimensions, and overwriting it
     // here would replace those dimensions with the daemon's defaults.
     if (!session.hasEscalationHandler()) {
-      wireEscalationHandler(session, socket, ctx);
+      wireEscalationHandler(session, ctx);
     }
 
     const ipcChannel = parseChannelId(msg.channel) ?? "vellum";
     const sendEvent = makeIpcEventSender({
       ctx,
-      socket,
       session,
       conversationId: msg.sessionId,
       sourceChannel: ipcChannel,
@@ -877,7 +825,7 @@ export async function handleUserMessage(
     session.updateClient(sendEvent, false);
     const ipcInterface = parseInterfaceId(msg.interface);
     if (!ipcInterface) {
-      ctx.send(socket, {
+      ctx.send({
         type: "error",
         message:
           "Invalid user_message: interface is required and must be valid",
@@ -900,7 +848,6 @@ export async function handleUserMessage(
       sendEvent,
       ipcChannel,
       ipcInterface,
-      socket,
       ctx,
       rlog,
     });
@@ -912,7 +859,6 @@ export async function handleUserMessage(
       handleSecretIngress(
         msg,
         messageText,
-        socket,
         ctx,
         session,
         rlog,
@@ -928,7 +874,6 @@ export async function handleUserMessage(
         msg,
         messageText,
         session,
-        socket,
         ctx,
         rlog,
       )
@@ -941,7 +886,6 @@ export async function handleUserMessage(
       msg,
       messageText,
       session,
-      socket,
       ctx,
       rlog,
     );
@@ -959,7 +903,6 @@ export async function handleUserMessage(
         session,
         ipcChannel,
         ipcInterface,
-        socket,
         ctx,
         rlog,
       )
@@ -982,11 +925,11 @@ export async function handleUserMessage(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, "Error setting up user message processing");
-    ctx.send(socket, {
+    ctx.send( {
       type: "error",
       message: `Failed to process message: ${message}`,
     });
     const classified = classifySessionError(err, { phase: "handler" });
-    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+    ctx.send( buildSessionErrorMessage(msg.sessionId, classified));
   }
 }

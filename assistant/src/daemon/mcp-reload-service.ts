@@ -1,19 +1,27 @@
 /**
  * Shared MCP reload business logic.
  *
- * Used by both the IPC handler (`config-mcp.ts`) and the HTTP route
- * (`runtime/routes/mcp-routes.ts`) so the reload behaviour is defined
- * in exactly one place.
+ * Used by the HTTP route (`runtime/routes/mcp-routes.ts`) so the reload
+ * behaviour is defined in exactly one place.
  */
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
-import type { McpReloadServerResult } from "../daemon/ipc-contract/settings.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("mcp-reload-service");
+
+/** Per-server reload result. */
+export interface McpReloadServerResult {
+  id: string;
+  connected: boolean;
+  /** True when the server is explicitly disabled in config. */
+  disabled?: boolean;
+  toolCount: number;
+  tools: string[];
+}
 
 export interface McpReloadResult {
   success: boolean;

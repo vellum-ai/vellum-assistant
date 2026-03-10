@@ -720,6 +720,14 @@ jobs:
           echo "Main executable architecture:"
           file "$APP_PATH/Contents/MacOS/Vellum"
 
+      - name: Upload dSYMs to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          npm install -g @sentry/cli@2.42.2
+          sentry-cli debug-files upload --org vellum --project vellum-assistant-macos dist/*.dSYM
+
       - name: Free disk space
         run: |
           rm -rf .build daemon-bin cli-bin gateway-bin
@@ -1015,12 +1023,12 @@ jobs:
           rm -rf daemon-bin/bundled-skills
           cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
           rm -rf daemon-bin/templates
-          cp -R "$ASSISTANT_SRC_DIR/src/config/templates" daemon-bin/templates
+          cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" daemon-bin/templates
           rm -rf daemon-bin/hook-templates
           cp -R "$ASSISTANT_SRC_DIR/hook-templates" daemon-bin/hook-templates
-          rm -rf daemon-bin/prebuilt
-          mkdir -p daemon-bin/prebuilt
-          cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" daemon-bin/prebuilt/
+          rm -rf daemon-bin/brain-graph
+          mkdir -p daemon-bin/brain-graph
+          cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" daemon-bin/brain-graph/
 
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -1051,6 +1059,14 @@ jobs:
 
           echo "Main executable architecture:"
           file "$APP_PATH/Contents/MacOS/Vellum"
+
+      - name: Upload dSYMs to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          npm install -g @sentry/cli@2.42.2
+          sentry-cli debug-files upload --org vellum --project vellum-assistant-macos dist/*.dSYM
 
       - name: Free disk space
         run: |

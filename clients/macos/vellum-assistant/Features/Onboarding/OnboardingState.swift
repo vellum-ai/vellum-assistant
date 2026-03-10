@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 8
+    private static let currentFlowVersion = 9
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -40,6 +40,12 @@ final class OnboardingState {
     var interviewCompleted: Bool = false
     var cloudProvider: String = "local"
     var onboardingVariant: OnboardingVariant = .default
+
+    /// Whether the user's hosting choice requires cloud credentials (not local/docker).
+    var needsCloudCredentials: Bool {
+        let userHosted = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+        return userHosted && cloudProvider != "local" && cloudProvider != "docker"
+    }
 
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
@@ -135,9 +141,9 @@ final class OnboardingState {
         // conversation entry point (step 2). Prevent stale persisted indices
         // from reopening legacy permission-request steps.
         // When userHostedEnabled is on and a cloud provider is selected, the flow
-        // has 3 steps (0–2); otherwise it stays at 2 steps (0–1).
-        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local"
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 2 : 1)
+        // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
+        let hasCloudStep = MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled") && cloudProvider != "local" && cloudProvider != "docker"
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
         if currentStep > maxStep {
             currentStep = maxStep
         }

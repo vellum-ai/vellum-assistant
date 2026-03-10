@@ -502,7 +502,6 @@ describe("credential metadata store", () => {
             allowedDomains: ["github.com"],
             usageDescription: "GitHub PAT",
             grantedScopes: ["repo", "user"],
-            accountInfo: "octocat",
             createdAt: 1700000000000,
             updatedAt: 1700000000000,
           },
@@ -542,7 +541,6 @@ describe("credential metadata store", () => {
 
       // Original v1 fields preserved
       expect(records[0].grantedScopes).toEqual(["repo", "user"]);
-      expect(records[0].accountInfo).toBe("octocat");
       expect(records[1].expiresAt).toBe(1800000000000);
       expect(records[2].oauth2TokenUrl).toBe(
         "https://connect.stripe.com/oauth/token",

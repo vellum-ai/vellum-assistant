@@ -152,7 +152,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      setStateSignalListener: () => {},
+      updateClient: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -223,7 +223,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      setStateSignalListener: () => {},
+      updateClient: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -289,7 +289,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      setStateSignalListener: () => {},
+      updateClient: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -361,7 +361,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      setStateSignalListener: () => {},
+      updateClient: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -428,7 +428,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      setStateSignalListener: () => {},
+      updateClient: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
@@ -489,7 +489,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setTrustContext: () => {},
-      setStateSignalListener: () => {},
+      updateClient: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
       setTurnChannelContext: () => {},

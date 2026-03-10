@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type {
   DynamicPageSurfaceData,
   UiSurfaceShowDynamicPage,
-} from "../daemon/ipc-protocol.js";
-import { INTERACTIVE_SURFACE_TYPES } from "../daemon/ipc-protocol.js";
+} from "../daemon/message-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
 
 // ---------------------------------------------------------------------------

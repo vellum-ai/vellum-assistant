@@ -16,7 +16,6 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
-import { initializeDb } from "../../memory/db.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -24,7 +23,8 @@ import {
   redeemVoiceInviteCode,
   revokeIngressInvite,
 } from "../../runtime/invite-service.js";
-import { writeOutput } from "../utils.js";
+import { initializeDb } from "../db.js";
+import { writeOutput } from "../output.js";
 
 export function registerContactsCommand(program: Command): void {
   const contacts = program

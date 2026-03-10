@@ -207,7 +207,6 @@ final class UsageDashboardViewTests: XCTestCase {
 @MainActor
 private final class StubUsageDaemonClient: DaemonClientProtocol {
     var isConnected: Bool = false
-    var isBlobTransportAvailable: Bool = false
 
     func subscribe() -> AsyncStream<ServerMessage> {
         AsyncStream { $0.finish() }

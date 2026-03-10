@@ -1,13 +1,11 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public enum VIconButtonVariant {
     case ghost
     case primary
     case secondary
     case danger
+    case success
     case outlined
     case neutral
 }
@@ -58,22 +56,17 @@ public struct VIconButton: View {
         }
         .focused($isFocused)
         .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused, size: size, variant: variant))
-        #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
         }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
+        .pointerCursor()
         .accessibilityLabel(label)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
     }
 
     private var iconForegroundForVariant: Color {
         switch variant {
-        case .primary, .danger, .neutral:
+        case .primary, .danger, .success, .neutral:
             return .white
         case .ghost, .secondary, .outlined:
             return iconForegroundColor
@@ -82,9 +75,9 @@ public struct VIconButton: View {
 
     private var iconForegroundColor: Color {
         if isActive {
-            return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
+            return VColor.activeIconForeground
         }
-        return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
+        return VColor.buttonSecondaryText
     }
 }
 
@@ -156,6 +149,12 @@ public struct VIconButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonDangerHover }
             return VColor.buttonDanger
 
+        case .success:
+            guard isEnabled else { return VColor.buttonSuccessBg.opacity(0.5) }
+            if isPressed { return VColor.buttonSuccessBgPressed }
+            if isHovered { return VColor.buttonSuccessBgHover }
+            return VColor.buttonSuccessBg
+
         case .neutral:
             guard isEnabled else { return VColor.buttonNeutral.opacity(0.5) }
             if isPressed { return VColor.buttonNeutralPressed }
@@ -175,15 +174,15 @@ public struct VIconButtonStyle: ButtonStyle {
 
         case .ghost:
             guard isEnabled else {
-                return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
+                return isActive ? VColor.iconGhostActiveDisabled.opacity(0.5) : .clear
             }
             if isActive {
-                if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-                if isHovered { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-                return adaptiveColor(light: Moss._100, dark: Moss._700)
+                if isPressed { return VColor.iconGhostActivePressed }
+                if isHovered { return VColor.iconGhostActivePressed }
+                return VColor.iconGhostActiveBg
             } else {
-                if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-                if isHovered { return adaptiveColor(light: Moss._100, dark: Moss._700) }
+                if isPressed { return VColor.iconGhostActivePressed }
+                if isHovered { return VColor.iconGhostActiveBg }
                 return .clear
             }
         }
@@ -196,7 +195,7 @@ public struct VIconButtonStyle: ButtonStyle {
 
     private var borderColor: Color {
         switch variant {
-        case .primary, .danger, .neutral:
+        case .primary, .danger, .success, .neutral:
             return .clear
         case .outlined:
             return VColor.buttonSecondaryBorder

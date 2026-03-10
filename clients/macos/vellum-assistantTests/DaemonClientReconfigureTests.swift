@@ -64,7 +64,6 @@ final class DaemonClientReconfigureTests: XCTestCase {
         XCTAssertNil(client.currentModel, "currentModel should be reset after reconfigure")
         XCTAssertNil(client.daemonVersion, "daemonVersion should be reset after reconfigure")
         XCTAssertNil(client.latestMemoryStatus, "latestMemoryStatus should be reset after reconfigure")
-        XCTAssertFalse(client.isBlobTransportAvailable, "isBlobTransportAvailable should be false after reconfigure")
         XCTAssertFalse(client.isConnected, "isConnected should be false after reconfigure")
     }
 
@@ -89,11 +88,11 @@ final class DaemonClientReconfigureTests: XCTestCase {
         XCTAssertTrue(callbackInvoked, "Preserved callback should still be invocable")
     }
 
-    func testReconfigureFromSocketToHTTP() {
-        // Start with default socket config
+    func testReconfigureBetweenHTTPEndpoints() {
+        // Start with default HTTP config
         XCTAssertNotNil(client.config)
 
-        // Reconfigure to HTTP
+        // Reconfigure to a different HTTP endpoint
         let httpConfig = DaemonConfig(transport: .http(
             baseURL: "http://remote-host:8080",
             bearerToken: "bearer-123",
@@ -129,7 +128,7 @@ final class DaemonClientReconfigureTests: XCTestCase {
         )))
         XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
 
-        // Third reconfigure back to socket
+        // Third reconfigure back to default
         client.reconfigure(config: .default)
         XCTAssertEqual(ObjectIdentifier(client!), originalIdentity)
     }

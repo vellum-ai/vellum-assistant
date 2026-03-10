@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { hostname, platform, userInfo } from "os";
+import { hostname, userInfo } from "os";
 import { basename } from "path";
 import qrcode from "qrcode-terminal";
 import {
@@ -145,11 +145,24 @@ interface PendingInteractionsResponse {
   pendingSecret: (PendingSecret & { requestId?: string }) | null;
 }
 
-type TrustDecision = "always_allow" | "always_allow_high_risk" | "always_deny";
+type TrustDecision = "always_allow" | "always_deny";
 
 interface HealthResponse {
   status: string;
   message?: string;
+}
+
+/** Extract human-readable message from a daemon JSON error response. */
+function friendlyErrorMessage(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } };
+    if (parsed?.error?.message) {
+      return parsed.error.message;
+    }
+  } catch {
+    // Not JSON — fall through
+  }
+  return `HTTP ${status}: ${body || "Unknown error"}`;
 }
 
 async function runtimeRequest<T>(
@@ -158,25 +171,20 @@ async function runtimeRequest<T>(
   path: string,
   init?: RequestInit,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<T> {
   const url = `${baseUrl}/v1/assistants/${assistantId}${path}`;
-  // Prefer the JWT access token (from bootstrap) over the shared-secret
-  // bearer token. The JWT carries identity claims and is the canonical
-  // auth mechanism in the single-header auth model.
-  const authToken = accessToken ?? bearerToken;
   const response = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
+    throw new Error(friendlyErrorMessage(response.status, body));
   }
 
   if (response.status === 204) {
@@ -205,50 +213,10 @@ async function checkHealthRuntime(baseUrl: string): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-async function bootstrapAccessToken(
-  baseUrl: string,
-  bearerToken?: string,
-): Promise<string> {
-  if (!bearerToken) {
-    throw new Error("Missing bearer token; cannot bootstrap actor identity");
-  }
-
-  const deviceId = `vellum-cli:${platform()}:${hostname()}:${userInfo().username}`;
-  const url = `${baseUrl}/v1/guardian/init`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${bearerToken}`,
-    },
-    body: JSON.stringify({ platform: "cli", deviceId }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
-  }
-
-  const json: unknown = await response.json();
-
-  if (typeof json !== "object" || json === null) {
-    throw new Error("Invalid bootstrap response from gateway/runtime");
-  }
-
-  const accessToken = (json as Record<string, unknown>).accessToken;
-  if (typeof accessToken !== "string" || accessToken.length === 0) {
-    throw new Error("Invalid bootstrap response from gateway/runtime");
-  }
-
-  return accessToken;
-}
-
 async function pollMessages(
   baseUrl: string,
   assistantId: string,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<ListMessagesResponse>(
@@ -257,7 +225,6 @@ async function pollMessages(
     `/messages?${params.toString()}`,
     undefined,
     bearerToken,
-    accessToken,
   );
 }
 
@@ -267,7 +234,6 @@ async function sendMessage(
   content: string,
   signal?: AbortSignal,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<SendMessageResponse> {
   return runtimeRequest<SendMessageResponse>(
     baseUrl,
@@ -284,7 +250,6 @@ async function sendMessage(
       signal,
     },
     bearerToken,
-    accessToken,
   );
 }
 
@@ -294,7 +259,6 @@ async function submitDecision(
   requestId: string,
   decision: "allow" | "deny",
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<SubmitDecisionResponse> {
   return runtimeRequest<SubmitDecisionResponse>(
     baseUrl,
@@ -305,7 +269,6 @@ async function submitDecision(
       body: JSON.stringify({ requestId, decision }),
     },
     bearerToken,
-    accessToken,
   );
 }
 
@@ -317,7 +280,6 @@ async function addTrustRule(
   scope: string,
   decision: "allow" | "deny",
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<AddTrustRuleResponse> {
   return runtimeRequest<AddTrustRuleResponse>(
     baseUrl,
@@ -328,7 +290,6 @@ async function addTrustRule(
       body: JSON.stringify({ requestId, pattern, scope, decision }),
     },
     bearerToken,
-    accessToken,
   );
 }
 
@@ -336,7 +297,6 @@ async function pollPendingInteractions(
   baseUrl: string,
   assistantId: string,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<PendingInteractionsResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<PendingInteractionsResponse>(
@@ -345,7 +305,6 @@ async function pollPendingInteractions(
     `/pending-interactions?${params.toString()}`,
     undefined,
     bearerToken,
-    accessToken,
   );
 }
 
@@ -388,7 +347,6 @@ async function handleConfirmationPrompt(
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<void> {
   const preview = formatConfirmationPreview(
     confirmation.toolName,
@@ -420,7 +378,6 @@ async function handleConfirmationPrompt(
       requestId,
       "allow",
       bearerToken,
-      accessToken,
     );
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
@@ -434,7 +391,6 @@ async function handleConfirmationPrompt(
       chatApp,
       "always_allow",
       bearerToken,
-      accessToken,
     );
     return;
   }
@@ -447,7 +403,6 @@ async function handleConfirmationPrompt(
       chatApp,
       "always_deny",
       bearerToken,
-      accessToken,
     );
     return;
   }
@@ -458,7 +413,6 @@ async function handleConfirmationPrompt(
     requestId,
     "deny",
     bearerToken,
-    accessToken,
   );
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
@@ -471,7 +425,6 @@ async function handlePatternSelection(
   chatApp: ChatAppHandle,
   trustDecision: TrustDecision,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<void> {
   const allowlistOptions = confirmation.allowlistOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -493,7 +446,6 @@ async function handlePatternSelection(
       selectedPattern,
       trustDecision,
       bearerToken,
-      accessToken,
     );
     return;
   }
@@ -504,7 +456,6 @@ async function handlePatternSelection(
     requestId,
     "deny",
     bearerToken,
-    accessToken,
   );
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
@@ -518,7 +469,6 @@ async function handleScopeSelection(
   selectedPattern: string,
   trustDecision: TrustDecision,
   bearerToken?: string,
-  accessToken?: string,
 ): Promise<void> {
   const scopeOptions = confirmation.scopeOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -536,7 +486,6 @@ async function handleScopeSelection(
       scopeOptions[index].scope,
       ruleDecision,
       bearerToken,
-      accessToken,
     );
     await submitDecision(
       baseUrl,
@@ -544,7 +493,6 @@ async function handleScopeSelection(
       requestId,
       ruleDecision === "deny" ? "deny" : "allow",
       bearerToken,
-      accessToken,
     );
     const ruleLabel =
       trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
@@ -562,7 +510,6 @@ async function handleScopeSelection(
     requestId,
     "deny",
     bearerToken,
-    accessToken,
   );
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
@@ -1220,7 +1167,6 @@ function ChatApp({
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doctorSessionIdRef = useRef(randomUUID());
   const handleRef_ = useRef<ChatAppHandle | null>(null);
-  const accessTokenRef = useRef<string | undefined>(undefined);
 
   const { stdout } = useStdout();
   const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
@@ -1458,12 +1404,6 @@ function ChatApp({
 
     try {
       const health = await checkHealthRuntime(runtimeUrl);
-      if (!accessTokenRef.current) {
-        accessTokenRef.current = await bootstrapAccessToken(
-          runtimeUrl,
-          bearerToken,
-        );
-      }
       h.hideSpinner();
       h.updateHealthStatus(health.status);
       if (health.status === "healthy" || health.status === "ok") {
@@ -1486,7 +1426,6 @@ function ChatApp({
           runtimeUrl,
           assistantId,
           bearerToken,
-          accessTokenRef.current,
         );
         h.hideSpinner();
         if (historyResponse.messages.length > 0) {
@@ -1505,7 +1444,6 @@ function ChatApp({
             runtimeUrl,
             assistantId,
             bearerToken,
-            accessTokenRef.current,
           );
           for (const msg of response.messages) {
             if (!seenMessageIdsRef.current.has(msg.id)) {
@@ -1821,7 +1759,6 @@ function ChatApp({
             trimmed,
             controller.signal,
             bearerToken,
-            accessTokenRef.current,
           );
           clearTimeout(timeoutId);
           if (!sendResult.accepted) {
@@ -1834,7 +1771,8 @@ function ChatApp({
           clearTimeout(timeoutId);
           h.setBusy(false);
           h.hideSpinner();
-          const errorMsg = `Failed to send: ${sendErr instanceof Error ? sendErr.message : sendErr}`;
+          const errorMsg =
+            sendErr instanceof Error ? sendErr.message : String(sendErr);
           h.showError(errorMsg);
           chatLogRef.current.push({ role: "error", content: errorMsg });
           return;
@@ -1853,7 +1791,6 @@ function ChatApp({
               runtimeUrl,
               assistantId,
               bearerToken,
-              accessTokenRef.current,
             );
 
             if (pending.pendingConfirmation) {
@@ -1865,7 +1802,6 @@ function ChatApp({
                 pending.pendingConfirmation,
                 h,
                 bearerToken,
-                accessTokenRef.current,
               );
               h.showSpinner("Working...");
               continue;
@@ -1890,7 +1826,6 @@ function ChatApp({
                       }),
                     },
                     bearerToken,
-                    accessTokenRef.current,
                   );
                 },
               );
@@ -1907,7 +1842,6 @@ function ChatApp({
               runtimeUrl,
               assistantId,
               bearerToken,
-              accessTokenRef.current,
             );
             for (const msg of pollResult.messages) {
               if (!seenMessageIdsRef.current.has(msg.id)) {

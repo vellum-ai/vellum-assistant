@@ -57,7 +57,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";

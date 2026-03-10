@@ -9,7 +9,6 @@
  */
 
 import { compileApp } from "../../bundler/app-compiler.js";
-import { setHomeBaseAppLink } from "../../home-base/app-link-store.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type {
   AppDefinition,
@@ -115,7 +114,6 @@ export interface AppCreateInput {
   html?: string;
   pages?: Record<string, string>;
   auto_open?: boolean;
-  set_as_home_base?: boolean;
   preview?: Record<string, unknown>;
   /** When provided, controls multifile scaffold behavior. */
   featureFlags?: { multifileEnabled: boolean };
@@ -238,10 +236,6 @@ render(<App />, document.getElementById('app')!);
         isError: false,
       };
     }
-  }
-
-  if (input.set_as_home_base) {
-    setHomeBaseAppLink(app.id, "personalized");
   }
 
   // Emit the inline preview card via the proxy without opening a workspace panel.

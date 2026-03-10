@@ -54,21 +54,10 @@ interface MockEnsureLocalGatewayReadyResult extends MockGatewayHealthResult {
   recoverySkipped: boolean;
 }
 
-interface MockGatewayReconcileResult {
-  ok: boolean;
-  status?: number;
-  error?: string;
-}
-
 let probeLocalGatewayHealthResults: MockGatewayHealthResult[] = [];
 let probeLocalGatewayHealthCallCount = 0;
 let ensureLocalGatewayReadyResult: MockEnsureLocalGatewayReadyResult;
 let ensureLocalGatewayReadyCallCount = 0;
-let twilioReconcileResult: MockGatewayReconcileResult = {
-  ok: true,
-  status: 200,
-};
-let twilioReconcileCalls: Array<string | undefined> = [];
 
 function makeGatewayHealthResult(
   overrides: Partial<MockGatewayHealthResult> = {},
@@ -186,10 +175,8 @@ mock.module("../runtime/local-gateway-health.js", () => ({
 }));
 
 mock.module("../daemon/handlers/config-ingress.js", () => ({
-  triggerGatewayTwilioReconcile: async (publicBaseUrl: string | undefined) => {
-    twilioReconcileCalls.push(publicBaseUrl);
-    return twilioReconcileResult;
-  },
+  computeGatewayTarget: () => "http://127.0.0.1:7830",
+  handleIngressConfig: async () => {},
   syncTwilioWebhooks: async () => ({ success: true }),
 }));
 
@@ -225,8 +212,6 @@ beforeEach(() => {
   probeLocalGatewayHealthCallCount = 0;
   ensureLocalGatewayReadyResult = makeRecoveryResult();
   ensureLocalGatewayReadyCallCount = 0;
-  twilioReconcileResult = { ok: true, status: 200 };
-  twilioReconcileCalls = [];
 });
 
 let ensuredConvIds = new Set<string>();
@@ -428,7 +413,8 @@ describe("startCall — pointer message regression", () => {
         statusCallbackUrl: "https://test.example.com/webhooks/twilio/status",
       },
     ]);
-    expect(twilioReconcileCalls).toEqual(["https://test.example.com"]);
+    // Gateway reconcile triggers have been removed; the gateway reads
+    // credentials and config via TTL caches.
     if (result.ok) {
       expect(getActiveCallLease(result.session.id)).toEqual({
         callSessionId: result.session.id,
@@ -463,7 +449,7 @@ describe("startCall — pointer message regression", () => {
     }
     expect(probeLocalGatewayHealthCallCount).toBe(0);
     expect(ensureLocalGatewayReadyCallCount).toBe(0);
-    expect(twilioReconcileCalls).toHaveLength(0);
+    // No reconcile calls expected (reconcile triggers removed).
     expect(twilioInitiateCallCount).toBe(0);
 
     await new Promise((r) => setTimeout(r, 50));
@@ -507,7 +493,7 @@ describe("startCall — pointer message regression", () => {
     }
     expect(probeLocalGatewayHealthCallCount).toBe(2);
     expect(ensureLocalGatewayReadyCallCount).toBe(1);
-    expect(twilioReconcileCalls).toHaveLength(0);
+    // No reconcile calls expected (reconcile triggers removed).
     expect(twilioInitiateCallCount).toBe(0);
   });
 
@@ -536,7 +522,8 @@ describe("startCall — pointer message regression", () => {
     expect(result.ok).toBe(true);
     expect(probeLocalGatewayHealthCallCount).toBe(2);
     expect(ensureLocalGatewayReadyCallCount).toBe(1);
-    expect(twilioReconcileCalls).toEqual(["https://test.example.com"]);
+    // Gateway reconcile triggers have been removed; the gateway reads
+    // credentials and config via TTL caches.
     expect(twilioInitiateCallCount).toBe(1);
   });
 

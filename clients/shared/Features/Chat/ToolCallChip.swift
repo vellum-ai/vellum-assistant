@@ -104,6 +104,7 @@ public struct ToolCallChip: View {
                 .padding(.vertical, VSpacing.sm)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
 
             // Expanded details
             if isExpanded, hasExpandableContent {
@@ -159,10 +160,7 @@ public struct ToolCallChip: View {
                                 .onTapGesture(count: 2) {
                                     NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputRawValue))
                                 }
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() }
-                                    else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         } else {
                             Image(nsImage: cachedImage)
                                 .resizable()

@@ -500,32 +500,23 @@ describe("host_bash — environment setup", () => {
     expect(result.content.trim()).not.toBe("HOME=");
   });
 
-  test("injects INTERNAL_GATEWAY_BASE_URL and GATEWAY_BASE_URL for host_bash commands", async () => {
+  test("injects INTERNAL_GATEWAY_BASE_URL for host_bash commands", async () => {
     const originalGatewayBase = process.env.GATEWAY_INTERNAL_BASE_URL;
-    const originalIngressBase = process.env.INGRESS_PUBLIC_BASE_URL;
     process.env.GATEWAY_INTERNAL_BASE_URL = "http://gateway.internal:9000/";
-    process.env.INGRESS_PUBLIC_BASE_URL = "https://gw.example.com/";
     try {
       const result = await hostShellTool.execute(
         {
-          command: 'echo "$INTERNAL_GATEWAY_BASE_URL|$GATEWAY_BASE_URL"',
+          command: 'echo "$INTERNAL_GATEWAY_BASE_URL"',
         },
         makeContext(),
       );
       expect(result.isError).toBe(false);
-      expect(result.content.trim()).toBe(
-        "http://gateway.internal:9000|https://gw.example.com",
-      );
+      expect(result.content.trim()).toBe("http://gateway.internal:9000");
     } finally {
       if (originalGatewayBase === undefined) {
         delete process.env.GATEWAY_INTERNAL_BASE_URL;
       } else {
         process.env.GATEWAY_INTERNAL_BASE_URL = originalGatewayBase;
-      }
-      if (originalIngressBase === undefined) {
-        delete process.env.INGRESS_PUBLIC_BASE_URL;
-      } else {
-        process.env.INGRESS_PUBLIC_BASE_URL = originalIngressBase;
       }
     }
   });

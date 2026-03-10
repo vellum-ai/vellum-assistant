@@ -189,20 +189,15 @@ struct MicrophoneButton: View {
 
                 VIconView(.mic, size: 16)
                     .frame(width: 18, height: 18)
-                    .foregroundColor(isRecording ? VColor.error : adaptiveColor(light: Forest._500, dark: Moss._400))
+                    .foregroundColor(isRecording ? VColor.error : VColor.micIcon)
             }
         }
         .buttonStyle(VIconButtonStyle(isHovered: isHovered, isFocused: isFocused, size: size))
         .focused($isFocused)
-        #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
         }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
+        .pointerCursor()
         .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
         .onChange(of: isRecording) {
             isPulsing = isRecording

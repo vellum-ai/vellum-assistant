@@ -769,13 +769,7 @@ struct ContactDetailView: View {
                         .foregroundColor(VColor.accent)
                     }
                     .buttonStyle(.plain)
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                    .pointerCursor()
                 }
             }
         }

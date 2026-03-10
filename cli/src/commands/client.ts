@@ -49,7 +49,7 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  let entry: ReturnType<typeof findAssistantByName>;
+  let entry: ReturnType<typeof findAssistantByName> = null;
   if (positionalName) {
     entry = findAssistantByName(positionalName);
     if (!entry) {
@@ -58,24 +58,25 @@ function parseArgs(): ParsedArgs {
       );
       process.exit(1);
     }
-  } else if (
-    process.env.RUNTIME_URL ||
-    flagArgs.includes("--url") ||
-    flagArgs.includes("-u")
-  ) {
-    // Explicit URL provided via env var or flag — skip assistant resolution
-    entry = loadLatestAssistant();
   } else {
+    const hasExplicitUrl =
+      process.env.RUNTIME_URL ||
+      flagArgs.includes("--url") ||
+      flagArgs.includes("-u");
     const active = getActiveAssistant();
     if (active) {
       entry = findAssistantByName(active);
-      if (!entry) {
+      if (!entry && !hasExplicitUrl) {
         console.error(
           `Active assistant '${active}' not found in lockfile. Set an active assistant with 'vellum use <name>'.`,
         );
         process.exit(1);
       }
-    } else {
+    }
+    if (!entry && hasExplicitUrl) {
+      // URL provided but active assistant missing or unset — use latest for remaining defaults
+      entry = loadLatestAssistant();
+    } else if (!entry) {
       console.error(
         "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
       );

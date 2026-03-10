@@ -1,11 +1,12 @@
 import { execSync } from "node:child_process";
-import * as net from "node:net";
 
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
+import { RateLimitProvider } from "../../providers/ratelimit.js";
+import { getFailoverProvider } from "../../providers/registry.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
@@ -13,10 +14,9 @@ import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { ComputerUseSession } from "../computer-use-session.js";
 import type {
   ClientMessage,
-  CuSessionCreate,
   ServerMessage,
   SessionTransportMetadata,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { Session } from "../session.js";
 import type { TrustContext } from "../session-runtime-assembly.js";
 
@@ -141,6 +141,8 @@ export interface SessionCreateOptions {
   strictPrivateSideEffects?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
+  onEvent?: (msg: ServerMessage) => void;
 }
 
 /**
@@ -149,23 +151,18 @@ export interface SessionCreateOptions {
  */
 export interface HandlerContext {
   sessions: Map<string, Session>;
-  socketToSession: Map<net.Socket, string>;
   cuSessions: Map<string, ComputerUseSession>;
-  socketToCuSession: Map<net.Socket, Set<string>>;
   cuObservationParseSequence: Map<string, number>;
-  socketSandboxOverride: Map<net.Socket, boolean>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
-  send(socket: net.Socket, msg: ServerMessage): void;
+  send(msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
   clearAllSessions(): number;
   getOrCreateSession(
     conversationId: string,
-    socket?: net.Socket,
-    rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session>;
   /** Refresh the eviction timestamp for a session that was accessed directly. */
@@ -182,7 +179,6 @@ export type DispatchableType = Exclude<MessageType, "auth">;
 type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
 type MessageHandler<T extends MessageType> = (
   msg: MessageOfType<T>,
-  socket: net.Socket,
   ctx: HandlerContext,
 ) => void | Promise<void>;
 export type DispatchMap = { [T in DispatchableType]: MessageHandler<T> };
@@ -224,38 +220,18 @@ export function getScreenDimensions(): { width: number; height: number } {
 }
 
 /**
- * Find the current socket bound to a given session by reversing the
- * `socketToSession` map. Returns `undefined` if no socket is bound.
- */
-export function findSocketForSession(
-  sessionId: string,
-  ctx: HandlerContext,
-): net.Socket | undefined {
-  for (const [sock, id] of ctx.socketToSession) {
-    if (id === sessionId) return sock;
-  }
-  return undefined;
-}
-
-/**
  * Wire the escalation handler on a text_qa session so that invoking
  * `computer_use_request_control` creates a CU session and notifies the client.
  *
- * Instead of closing over the original `socket`, the handler looks up the
- * current socket for the session at call time via `ctx.socketToSession`.
- * This ensures the handler targets the correct socket even after a
- * disconnect-and-rebind cycle.
+ * In the HTTP-only world, the escalation handler broadcasts events via
+ * `ctx.broadcast` instead of targeting a specific socket.
  */
 export function wireEscalationHandler(
   session: Session,
-  _socket: net.Socket,
   ctx: HandlerContext,
   explicitWidth?: number,
   explicitHeight?: number,
 ): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require to avoid circular dependency
-  const { handleCuSessionCreate } = require("./computer-use.js");
-
   const dims =
     explicitWidth && explicitHeight
       ? { width: explicitWidth, height: explicitHeight }
@@ -264,27 +240,65 @@ export function wireEscalationHandler(
   const screenHeight = dims.height;
   session.setEscalationHandler(
     (task: string, sourceSessionId: string): boolean => {
-      const currentSocket = findSocketForSession(sourceSessionId, ctx);
-      if (!currentSocket) {
-        log.warn(
-          { sourceSessionId },
-          "Escalation handler: no active socket found for session",
-        );
-        return false;
+      const cuSessionId = uuid();
+
+      // Inline CU session creation (previously delegated to deleted handlers/computer-use.ts)
+      const existingSession = ctx.cuSessions.get(cuSessionId);
+      if (existingSession) {
+        existingSession.abort();
+        ctx.cuSessions.delete(cuSessionId);
+        ctx.cuObservationParseSequence.delete(cuSessionId);
       }
 
-      const cuSessionId = uuid();
-      const cuMsg: CuSessionCreate = {
-        type: "cu_session_create",
-        sessionId: cuSessionId,
+      const config = getConfig();
+      let provider = getFailoverProvider(config.provider, config.providerOrder);
+      const { rateLimit } = config;
+      if (
+        rateLimit.maxRequestsPerMinute > 0 ||
+        rateLimit.maxTokensPerSession > 0
+      ) {
+        provider = new RateLimitProvider(
+          provider,
+          rateLimit,
+          ctx.sharedRequestTimestamps,
+        );
+      }
+
+      const sendToClient = (serverMsg: ServerMessage) => {
+        ctx.send(serverMsg);
+      };
+
+      const sessionRef: { current?: ComputerUseSession } = {};
+      const onTerminal = (sid: string) => {
+        const current = ctx.cuSessions.get(sid);
+        if (sessionRef.current && current && current !== sessionRef.current) {
+          return;
+        }
+        ctx.cuSessions.delete(sid);
+        ctx.cuObservationParseSequence.delete(sid);
+        log.info({ sessionId: sid }, "Computer-use session cleaned up after terminal state");
+      };
+
+      const cuSession = new ComputerUseSession(
+        cuSessionId,
         task,
         screenWidth,
         screenHeight,
-        interactionType: "computer_use",
-      };
-      handleCuSessionCreate(cuMsg, currentSocket, ctx);
+        provider,
+        sendToClient,
+        "computer_use",
+        onTerminal,
+      );
+      sessionRef.current = cuSession;
 
-      ctx.send(currentSocket, {
+      ctx.cuSessions.set(cuSessionId, cuSession);
+
+      log.info(
+        { sessionId: cuSessionId, taskLength: task.length },
+        "Computer-use session created via escalation",
+      );
+
+      ctx.broadcast({
         type: "task_routed",
         sessionId: cuSessionId,
         interactionType: "computer_use",
@@ -569,7 +583,6 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
  * outside of a session context (e.g. from handler-level code like publish_page).
  */
 export function requestSecretStandalone(
-  socket: net.Socket,
   ctx: HandlerContext,
   params: {
     service: string;
@@ -590,7 +603,7 @@ export function requestSecretStandalone(
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
-    ctx.send(socket, {
+    ctx.send({
       type: "secret_request",
       requestId,
       service: params.service,
@@ -613,7 +626,6 @@ const SIGNING_TIMEOUT_MS = 30_000;
  * over IPC and waits for the `sign_bundle_payload_response`.
  */
 export function createSigningCallback(
-  socket: net.Socket,
   ctx: HandlerContext,
 ): (
   payload: string,
@@ -626,7 +638,7 @@ export function createSigningCallback(
         reject(new Error("Signing request timed out"));
       }, SIGNING_TIMEOUT_MS);
       pendingSignBundlePayload.set(requestId, { resolve, reject, timer });
-      ctx.send(socket, { type: "sign_bundle_payload", requestId, payload });
+      ctx.send({ type: "sign_bundle_payload", requestId, payload });
     });
 }
 

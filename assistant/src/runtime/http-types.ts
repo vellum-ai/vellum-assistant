@@ -2,7 +2,12 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
-import type { SurfaceData, SurfaceType } from "../daemon/ipc-contract/surfaces.js";
+import type { SkillOperationContext } from "../daemon/handlers/skills.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  SurfaceData,
+  SurfaceType,
+} from "../daemon/message-types/surfaces.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
@@ -14,6 +19,7 @@ import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
+import type { SessionManagementDeps } from "./routes/session-management-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -122,6 +128,8 @@ export interface RuntimeMessageSessionOptions {
   isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
+  onEvent?: (msg: ServerMessage) => void;
 }
 
 export type MessageProcessor = (
@@ -170,6 +178,8 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
+  /** Context provider for skill management HTTP routes. */
+  getSkillContext?: () => SkillOperationContext;
   /** Lookup an active session by ID (for surface actions and content fetches). */
   findSession?: (sessionId: string) =>
     | {
@@ -189,8 +199,31 @@ export interface RuntimeHttpServerOptions {
           data: SurfaceData;
           actions?: Array<{ id: string; label: string; style?: string }>;
         }>;
+        removeQueuedMessage?: (requestId: string) => boolean;
       }
     | undefined;
+  /** Lookup an active session by surfaceId (fallback when sessionId is absent). */
+  findSessionBySurfaceId?: (surfaceId: string) =>
+    | {
+        handleSurfaceAction(
+          surfaceId: string,
+          actionId: string,
+          data?: Record<string, unknown>,
+        ): void;
+        surfaceState: Map<
+          string,
+          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+        >;
+      }
+    | undefined;
+  /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
+  sessionManagementDeps?: SessionManagementDeps;
+  /** Lazy factory for model config set context (session eviction, config reload suppression). */
+  getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
+  /** Provider for computer-use session dependencies (CU routes). */
+  getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
+  /** Provider for recording dependencies (recording routes). */
+  getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
 }
 
 export interface RuntimeAttachmentMetadata {
@@ -214,4 +247,14 @@ export interface RuntimeMessagePayload {
     isError?: boolean;
   }>;
   interfaces?: string[];
+  surfaces?: Array<{
+    surfaceId: string;
+    surfaceType: string;
+    title?: string;
+    data: Record<string, unknown>;
+    actions?: unknown[];
+    display?: string;
+  }>;
+  textSegments?: string[];
+  contentOrder?: string[];
 }

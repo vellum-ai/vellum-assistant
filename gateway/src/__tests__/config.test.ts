@@ -1,7 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { describe, test, expect } from "bun:test";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { loadConfig } from "../config.js";
 
 const BASE_ENV = {
@@ -29,11 +26,9 @@ async function withEnv(
     "GATEWAY_RUNTIME_TIMEOUT_MS",
     "GATEWAY_RUNTIME_MAX_RETRIES",
     "GATEWAY_RUNTIME_INITIAL_BACKOFF_MS",
-    "GATEWAY_TELEGRAM_TIMEOUT_MS",
     "GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES",
     "GATEWAY_MAX_ATTACHMENT_BYTES",
     "GATEWAY_MAX_ATTACHMENT_CONCURRENCY",
-    "GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS",
     "VELLUM_HTTP_TOKEN_PATH",
     "BASE_DATA_DIR",
   ];
@@ -123,34 +118,4 @@ describe("config: runtime proxy flags", () => {
   });
 });
 
-describe("config: twilio assistant phone number mapping", () => {
-  test("loads assistantPhoneNumbers from workspace config on startup", async () => {
-    const testBaseDir = mkdtempSync(join(tmpdir(), "gateway-config-test-"));
-    try {
-      const workspaceDir = join(testBaseDir, ".vellum", "workspace");
-      mkdirSync(workspaceDir, { recursive: true });
-      writeFileSync(
-        join(workspaceDir, "config.json"),
-        JSON.stringify({
-          twilio: {
-            phoneNumber: "+15550001111",
-            assistantPhoneNumbers: {
-              "asst-alpha": "+15550002222",
-              "asst-beta": "+15550003333",
-            },
-          },
-        }),
-      );
-
-      await withEnv({ BASE_DATA_DIR: testBaseDir }, async () => {
-        const config = await loadConfig();
-        expect(config.assistantPhoneNumbers).toEqual({
-          "asst-alpha": "+15550002222",
-          "asst-beta": "+15550003333",
-        });
-      });
-    } finally {
-      rmSync(testBaseDir, { recursive: true, force: true });
-    }
-  });
-});
+// assistantPhoneNumbers is now read via ConfigFileCache, tested in config-file-cache.test.ts

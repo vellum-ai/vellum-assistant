@@ -18,7 +18,7 @@ struct SidebarPrimaryRow: View {
         Button(action: action) {
             HStack(spacing: isExpanded ? VSpacing.xs : 0) {
                 VIconView(.resolve(icon), size: 13)
-                    .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                    .foregroundColor(VColor.buttonSecondaryText)
                     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                 Text(label)
                     .font(VFont.body)
@@ -33,7 +33,7 @@ struct SidebarPrimaryRow: View {
                     Spacer()
                     if let trailingIcon {
                         VIconView(.resolve(trailingIcon), size: 10)
-                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                            .foregroundColor(VColor.buttonSecondaryText)
                     }
                 }
             }
@@ -44,7 +44,7 @@ struct SidebarPrimaryRow: View {
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(
                 (isActive ? VColor.navActive : isHovered ? VColor.navHover : .clear)
-                    .animation(VAnimation.fast, value: isHovered)
+                    .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
@@ -54,8 +54,8 @@ struct SidebarPrimaryRow: View {
         .help(isExpanded ? "" : label)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 }
 

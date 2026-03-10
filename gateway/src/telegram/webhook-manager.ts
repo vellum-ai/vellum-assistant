@@ -1,6 +1,5 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
-import type { GatewayConfig } from "../config.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
 
@@ -31,10 +30,9 @@ export type WebhookManagerCaches = {
  * setWebhook is idempotent, so calling it unconditionally is safe.
  */
 export async function reconcileTelegramWebhook(
-  config: GatewayConfig,
   caches?: WebhookManagerCaches,
 ): Promise<void> {
-  // Resolve credentials — prefer cache, fall back to config
+  // Resolve credentials from cache
   let botToken: string | undefined;
   let webhookSecret: string | undefined;
   if (caches?.credentials) {
@@ -43,8 +41,6 @@ export async function reconcileTelegramWebhook(
       "credential:telegram:webhook_secret",
     );
   }
-  botToken ??= config.telegramBotToken;
-  webhookSecret ??= config.telegramWebhookSecret;
 
   if (!botToken || !webhookSecret) {
     log.debug(
@@ -53,12 +49,11 @@ export async function reconcileTelegramWebhook(
     return;
   }
 
-  // Resolve ingress URL — prefer cache, fall back to config
+  // Resolve ingress URL from cache
   let ingressUrl: string | undefined;
   if (caches?.configFile) {
     ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
   }
-  ingressUrl ??= config.ingressPublicBaseUrl;
 
   if (!ingressUrl) {
     log.debug(
@@ -72,11 +67,14 @@ export async function reconcileTelegramWebhook(
   const baseUrl = ingressUrl.replace(/\/+$/, "");
   const expectedUrl = `${baseUrl}/webhooks/telegram`;
 
+  const apiOpts = caches?.credentials
+    ? { credentials: caches.credentials, configFile: caches?.configFile }
+    : undefined;
+
   const info = await callTelegramApi<WebhookInfo>(
-    config,
     "getWebhookInfo",
     {},
-    caches?.credentials ? { credentials: caches.credentials } : undefined,
+    apiOpts,
   );
 
   log.info(
@@ -89,14 +87,13 @@ export async function reconcileTelegramWebhook(
   );
 
   await callTelegramApi(
-    config,
     "setWebhook",
     {
       url: expectedUrl,
       secret_token: webhookSecret,
       allowed_updates: ALLOWED_UPDATES,
     },
-    caches?.credentials ? { credentials: caches.credentials } : undefined,
+    apiOpts,
   );
 
   log.info({ url: expectedUrl }, "Telegram webhook registered successfully");

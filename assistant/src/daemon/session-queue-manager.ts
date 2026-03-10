@@ -10,7 +10,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage, UserMessageAttachment } from "./ipc-protocol.js";
+import type { ServerMessage, UserMessageAttachment } from "./message-protocol.js";
 
 const log = getLogger("session-queue");
 
@@ -32,10 +32,8 @@ export interface QueuedMessage {
   displayContent?: string;
 }
 
-export const MAX_QUEUE_DEPTH = 10;
 /** Messages older than this (ms) are auto-expired from the queue. */
 export const DEFAULT_MAX_WAIT_MS = 60_000;
-const CAPACITY_WARNING_THRESHOLD = 0.8;
 
 /**
  * Describes why a queued message was promoted from the queue.
@@ -55,7 +53,6 @@ export interface QueuePolicy {
 
 export interface QueueMetrics {
   currentDepth: number;
-  totalDropped: number;
   totalExpired: number;
   /** Average wait time (ms) of dequeued messages. 0 when no messages have been dequeued. */
   averageWaitMs: number;
@@ -64,46 +61,24 @@ export interface QueueMetrics {
 /**
  * Typed wrapper around the queued-message array.
  *
- * Session owns one instance; the wrapper handles capacity checks,
- * expiry, metrics, and iteration so the rest of Session doesn't
- * touch the raw array.
+ * Session owns one instance; the wrapper handles expiry, metrics,
+ * and iteration so the rest of Session doesn't touch the raw array.
  */
 export class MessageQueue {
   private items: QueuedMessage[] = [];
   private maxWaitMs: number;
-  private droppedCount = 0;
   private expiredCount = 0;
   private totalWaitMs = 0;
   private dequeuedCount = 0;
-  private capacityWarned = false;
 
   constructor(maxWaitMs: number = DEFAULT_MAX_WAIT_MS) {
     this.maxWaitMs = maxWaitMs;
   }
 
-  push(item: QueuedMessage): boolean {
+  push(item: QueuedMessage): void {
     this.expireStale();
-
-    if (this.items.length >= MAX_QUEUE_DEPTH) {
-      this.droppedCount++;
-      return false;
-    }
-
     item.queuedAt = Date.now();
     this.items.push(item);
-
-    const ratio = this.items.length / MAX_QUEUE_DEPTH;
-    if (ratio >= CAPACITY_WARNING_THRESHOLD && !this.capacityWarned) {
-      this.capacityWarned = true;
-      log.warn(
-        { depth: this.items.length, max: MAX_QUEUE_DEPTH },
-        "Queue nearing capacity",
-      );
-    } else if (ratio < CAPACITY_WARNING_THRESHOLD) {
-      this.capacityWarned = false;
-    }
-
-    return true;
   }
 
   shift(): QueuedMessage | undefined {
@@ -113,15 +88,11 @@ export class MessageQueue {
       this.dequeuedCount++;
       this.totalWaitMs += Date.now() - item.queuedAt;
     }
-    if (this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
-      this.capacityWarned = false;
-    }
     return item;
   }
 
   clear(): void {
     this.items = [];
-    this.capacityWarned = false;
   }
 
   get length(): number {
@@ -145,7 +116,6 @@ export class MessageQueue {
   getMetrics(): QueueMetrics {
     return {
       currentDepth: this.items.length,
-      totalDropped: this.droppedCount,
       totalExpired: this.expiredCount,
       averageWaitMs:
         this.dequeuedCount > 0 ? this.totalWaitMs / this.dequeuedCount : 0,
@@ -183,12 +153,6 @@ export class MessageQueue {
           "Failed to notify client of expired message",
         );
       }
-    }
-    if (
-      expired.length > 0 &&
-      this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD
-    ) {
-      this.capacityWarned = false;
     }
   }
 

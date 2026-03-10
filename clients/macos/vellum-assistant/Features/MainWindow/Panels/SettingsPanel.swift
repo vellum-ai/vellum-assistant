@@ -12,9 +12,10 @@ enum SettingsTab: String {
     case privacy = "Privacy"
     case contacts = "Contacts"
     case advanced = "Advanced"
+    case sentryTesting = "Sentry Testing"
 
     /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
-    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false) -> [SettingsTab] {
+    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
             .automation, .appearance, .permissions, .privacy
@@ -25,13 +26,16 @@ enum SettingsTab: String {
         if isDevMode {
             tabs.append(.advanced)
         }
+        if sentryTestingEnabled {
+            tabs.append(.sentryTesting)
+        }
         return tabs
     }
 
     /// Maps legacy tab names (from IPC or saved state) to current tabs.
     /// The `isDevMode` parameter gates dev-only tabs so external callers
     /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
-    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false) -> SettingsTab? {
+    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> SettingsTab? {
         let tab: SettingsTab?
         // Try current values first
         if let direct = SettingsTab(rawValue: value) {
@@ -52,6 +56,7 @@ enum SettingsTab: String {
         if tab == .contacts && !contactsEnabled { return nil }
         // Block dev-only tabs when dev mode is disabled
         if tab == .advanced && !isDevMode { return nil }
+        if tab == .sentryTesting && !sentryTestingEnabled { return nil }
         return tab
     }
 }
@@ -83,11 +88,6 @@ struct SettingsPanel: View {
     @State private var showingHeartbeatRuns = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
-    @State private var integrations: [IPCIntegrationListResponseIntegration] = []
-    @State private var connectingIntegration: String?
-    @State private var integrationError: (id: String, message: String)?
-    /// Tracks integrations that need setup (e.g. missing Google Cloud client ID).
-    @State private var setupRequired: (id: String, skillId: String, hint: String)?
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var microphoneGranted: Bool = false
@@ -97,7 +97,9 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
     @State private var isContactsEnabled: Bool = false
+    @State private var isSentryTestingEnabled: Bool = false
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
+    private static let sentryTestingFeatureFlagKey = "sentry_testing_enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -119,9 +121,11 @@ struct SettingsPanel: View {
 
                 Spacer()
             }
+            .padding(.trailing, VSpacing.xl)
             .padding(.bottom, VSpacing.md)
 
             VColor.surfaceBorder.frame(height: 1)
+                .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
             HStack(alignment: .top, spacing: 0) {
@@ -130,11 +134,16 @@ struct SettingsPanel: View {
 
                 if selectedTab == .contacts {
                     selectedTabContent
+                        .padding(.trailing, VSpacing.xl)
+                        .padding(.bottom, VSpacing.xl)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
                     ScrollView {
                         selectedTabContent
-                            .padding(VSpacing.lg)
+                            .padding(.top, VSpacing.lg)
+                            .padding(.leading, VSpacing.lg)
+                            .padding(.trailing, VSpacing.xl)
+                            .padding(.bottom, VSpacing.xl)
                             .frame(maxWidth: 700, alignment: .top)
                             .frame(maxWidth: .infinity)
                     }
@@ -142,24 +151,25 @@ struct SettingsPanel: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(VSpacing.xl)
+        .padding(.top, VSpacing.xl)
+        .padding(.leading, VSpacing.xl)
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
-            // Refresh permission status and contacts feature flag when the view appears
+            // Refresh permission status and feature flags when the view appears
             await refreshPermissionStatus()
             await loadContactsFeatureFlag()
+            isSentryTestingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.sentryTestingFeatureFlagKey)
         }
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
+            store.refreshManagedTwitterStatus()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
-            setupIntegrationCallbacks()
-            try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(pending) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
@@ -167,30 +177,34 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
             }
         }
         .onDisappear {
-            daemonClient?.onIntegrationListResponse = nil
-            daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTask?.cancel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
-                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) else { return }
+                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(tab) else { return }
                 selectedTab = tab
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
-               let enabled = notification.userInfo?["enabled"] as? Bool,
-               key == Self.contactsFeatureFlagKey {
-                isContactsEnabled = enabled
-                if !enabled && selectedTab == .contacts {
-                    selectedTab = .account
+               let enabled = notification.userInfo?["enabled"] as? Bool {
+                if key == Self.contactsFeatureFlagKey {
+                    isContactsEnabled = enabled
+                    if !enabled && selectedTab == .contacts {
+                        selectedTab = .account
+                    }
+                } else if key == Self.sentryTestingFeatureFlagKey {
+                    isSentryTestingEnabled = enabled
+                    if !enabled && selectedTab == .sentryTesting {
+                        selectedTab = .account
+                    }
                 }
             }
         }
@@ -203,6 +217,9 @@ struct SettingsPanel: View {
             Task { @MainActor in
                 await refreshPermissionStatus()
             }
+            // Refresh managed Twitter status when app regains focus (e.g. after
+            // completing the OAuth flow in the browser).
+            store.refreshManagedTwitterStatus()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -235,7 +252,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -275,6 +292,8 @@ struct SettingsPanel: View {
             } else {
                 SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
             }
+        case .sentryTesting:
+            SettingsDebugTab()
         }
     }
 
@@ -340,9 +359,7 @@ struct SettingsPanel: View {
                             Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -406,9 +423,7 @@ struct SettingsPanel: View {
                             Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -472,9 +487,7 @@ struct SettingsPanel: View {
                             Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -559,9 +572,7 @@ struct SettingsPanel: View {
                             Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -586,22 +597,6 @@ struct SettingsPanel: View {
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
-
-            // INTEGRATIONS section (hidden when empty)
-            if daemonClient != nil && !integrations.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Integrations")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    ForEach(integrations, id: \.id) { integration in
-                        integrationRow(integration)
-                    }
-                }
-                .padding(VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceSubtle)
-            }
 
             // TWITTER / X section
             twitterSection
@@ -642,14 +637,75 @@ struct SettingsPanel: View {
                 }
             }
 
-            // Managed mode "coming soon"
+            // Managed mode status
             if store.twitterMode == "managed" {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.info, size: 14)
-                        .foregroundStyle(VColor.textSecondary)
-                    Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
-                        .font(VFont.caption)
-                        .foregroundStyle(VColor.textSecondary)
+                if !authManager.isAuthenticated {
+                    // State 1: Not signed in
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {}
+                            .disabled(true)
+                    }
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.info, size: 14)
+                            .foregroundStyle(VColor.textSecondary)
+                        Text("Sign in to Vellum to use Managed")
+                            .font(VFont.caption)
+                            .foregroundStyle(VColor.textSecondary)
+                    }
+                } else if !store.isManagedTwitterEligible {
+                    // State 2/3: Signed in but prerequisites not met
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {}
+                            .disabled(true)
+                    }
+                    if let reason = store.managedTwitterBlockReason {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.info, size: 14)
+                                .foregroundStyle(VColor.textSecondary)
+                            Text(reason)
+                                .font(VFont.caption)
+                                .foregroundStyle(VColor.textSecondary)
+                        }
+                    }
+                } else if store.managedTwitterConnected {
+                    // State 5: Connected
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
+                            VButton(label: "Disconnect", style: .danger) {
+                                store.disconnectManagedTwitter()
+                            }
+                            .disabled(store.managedTwitterConnectInProgress)
+                        }
+                        if let account = store.managedTwitterAccountInfo {
+                            Text(account)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                } else if store.managedTwitterConnectInProgress {
+                    // State 6: In progress
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {}
+                            .disabled(true)
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Opening browser...")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                } else {
+                    // State 4: Eligible + disconnected
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {
+                            store.connectManagedTwitter()
+                        }
+                        if let error = store.managedTwitterError {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                        }
+                    }
                 }
             }
 
@@ -728,9 +784,7 @@ struct SettingsPanel: View {
                             Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.accent)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         }
 
                         HStack(spacing: VSpacing.sm) {
@@ -847,7 +901,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary) {
+                        VButton(label: "Manage", style: .secondary) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
@@ -884,143 +938,6 @@ struct SettingsPanel: View {
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Integration Row
-
-    private func integrationRow(_ integration: IPCIntegrationListResponseIntegration) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.md) {
-                Text(integrationIcon(integration.id))
-                    .font(.system(size: 14))
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(integrationDisplayName(integration.id))
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    if let account = integration.accountInfo {
-                        Text(account)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    if let error = integrationError, error.id == integration.id, setupRequired?.id != integration.id {
-                        Text(error.message)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
-                    }
-                }
-
-                Spacer()
-
-                if integration.connected {
-                    VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.success)
-                    VButton(label: "Disconnect", style: .danger) {
-                        try? daemonClient?.sendIntegrationDisconnect(integrationId: integration.id)
-                    }
-                } else if connectingIntegration == integration.id {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    VButton(label: "Connect", style: .primary) {
-                        integrationError = nil
-                        setupRequired = nil
-                        connectingIntegration = integration.id
-                        do {
-                            try daemonClient?.sendIntegrationConnect(integrationId: integration.id)
-                        } catch {
-                            connectingIntegration = nil
-                        }
-                    }
-                }
-            }
-
-            // Setup required card — shown when integration needs configuration
-            if let setup = setupRequired, setup.id == integration.id {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text(setup.hint)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    VButton(label: "Set Up \(integrationDisplayName(integration.id))", style: .primary) {
-                        startIntegrationSetup(skillId: setup.skillId, integrationName: integrationDisplayName(integration.id))
-                    }
-                }
-                .padding(.leading, 32) // Align with text after icon
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    private func integrationDisplayName(_ id: String) -> String {
-        switch id {
-        case "gmail": return "Gmail"
-        default: return id.capitalized
-        }
-    }
-
-    private func integrationIcon(_ id: String) -> String {
-        switch id {
-        case "gmail": return "\u{1F4E7}"
-        default: return "\u{1F517}"
-        }
-    }
-
-    private func setupIntegrationCallbacks() {
-        daemonClient?.onIntegrationListResponse = { [self] response in
-            Task { @MainActor in
-                self.integrations = response.integrations
-            }
-        }
-        daemonClient?.onIntegrationConnectResult = { [self] result in
-            Task { @MainActor in
-                self.connectingIntegration = nil
-                if result.setupRequired == true, let skillId = result.setupSkillId {
-                    // Integration needs setup — show the setup card instead of an error
-                    self.integrationError = nil
-                    self.setupRequired = (
-                        id: result.integrationId,
-                        skillId: skillId,
-                        hint: result.setupHint ?? "This integration requires additional setup before it can be connected."
-                    )
-                } else if !result.success {
-                    self.integrationError = (id: result.integrationId, message: result.error ?? "Connection failed")
-                } else {
-                    self.integrationError = nil
-                    self.setupRequired = nil
-                }
-                // Refresh the list after connect/disconnect
-                try? self.daemonClient?.sendIntegrationList()
-            }
-        }
-    }
-
-    /// Creates a new chat session with the setup skill pre-activated and navigates to it.
-    private func startIntegrationSetup(skillId: String, integrationName: String) {
-        guard daemonClient != nil else { return }
-
-        // Create a new thread — its ChatViewModel will claim the session_info
-        // response via correlationId.
-        threadManager.createThread()
-
-        guard let activeVM = threadManager.activeViewModel else { return }
-
-        // Pre-activate the setup skill so the daemon deterministically
-        // activates it instead of relying on model inference.
-        activeVM.preactivatedSkillIds = [skillId]
-
-        // Set the input text and send via ChatViewModel so it properly
-        // bootstraps (claims session_info, sets up message loop, shows the
-        // message in chat, etc.).
-        activeVM.inputText = "Please set up \(integrationName) for me."
-        activeVM.sendMessage()
-
-        // Close the settings panel so the user sees the chat
-        onClose()
     }
 
     // MARK: - Permission Row
@@ -1128,7 +1045,7 @@ private struct SettingsNavRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 (isSelected ? VColor.navActive : isHovered ? VColor.navHover : .clear)
-                    .animation(VAnimation.fast, value: isHovered)
+                    .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
@@ -1137,8 +1054,8 @@ private struct SettingsNavRow: View {
         .padding(.trailing, VSpacing.md)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 }
 

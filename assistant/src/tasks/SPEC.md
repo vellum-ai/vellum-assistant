@@ -95,7 +95,7 @@ Each task run creates a new conversation thread with `threadType: 'background'`.
    template placeholders, sets up ephemeral permission rules for the approved
    tools, and processes the rendered prompt through a daemon `Session`. Status
    updates are broadcast to all connected clients via `work_item_status_changed`
-   and `tasks_changed` IPC messages.
+   and `tasks_changed` SSE events.
 3. **Completion**: When the session finishes, the work item transitions to
    `awaiting_review` (on success) or `failed` (on error). The daemon broadcasts
    the final status to all clients.
@@ -135,5 +135,5 @@ The implementation is complete. Key modules:
 | `task-store.ts`                  | `tasks` and `task_runs` tables, CRUD functions.                                                    |
 | `task-runner.ts`                 | `runTask()` — creates background conversation, renders template, processes through daemon Session. |
 | `ephemeral-permissions.ts`       | Scoped permission rules for the duration of a single task run.                                     |
-| `work-items.ts` (daemon handler) | IPC handlers for preflight, run, cancel, and status queries.                                       |
+| `work-items.ts` (daemon handler) | HTTP handlers for preflight, run, cancel, and status queries.                                      |
 | Bundled skill (`tasks/`)         | Tool definitions (`task_save`, `task_run`, `task_list`, `task_delete`, `task_list_*`) for the LLM. |

@@ -1190,32 +1190,6 @@ describe("isSideEffectTool", () => {
   });
 
   describe("action-aware classification for mixed-action tools", () => {
-    test("account_manage create is a side-effect", () => {
-      expect(isSideEffectTool("account_manage", { action: "create" })).toBe(
-        true,
-      );
-    });
-
-    test("account_manage update is a side-effect", () => {
-      expect(isSideEffectTool("account_manage", { action: "update" })).toBe(
-        true,
-      );
-    });
-
-    test("account_manage list is NOT a side-effect", () => {
-      expect(isSideEffectTool("account_manage", { action: "list" })).toBe(
-        false,
-      );
-    });
-
-    test("account_manage get is NOT a side-effect", () => {
-      expect(isSideEffectTool("account_manage", { action: "get" })).toBe(false);
-    });
-
-    test("account_manage without input is NOT a side-effect", () => {
-      expect(isSideEffectTool("account_manage")).toBe(false);
-    });
-
     test("reminder_create is a side-effect", () => {
       expect(isSideEffectTool("reminder_create")).toBe(true);
     });
@@ -1524,7 +1498,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
       },
       { name: "document_create", input: { title: "doc", content: "body" } },
       { name: "document_update", input: { id: "doc-1", content: "updated" } },
-      { name: "account_manage", input: { action: "create", name: "acct" } },
       {
         name: "reminder_create",
         input: {
@@ -1826,37 +1799,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     // file_write is a side-effect tool, so forcePromptSideEffects must promote
     // the workspace mode allow → prompt, requiring explicit user approval
     expect(promptCalled).toBe(true);
-  });
-
-  // ── Action-aware mixed-action tools (PR fix5) ──────────
-
-  test("account_manage create forces prompt in private thread", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "account_manage",
-      { action: "create", name: "test-account" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("account_manage list does NOT force prompt in private thread", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "account_manage",
-      { action: "list" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    // list is read-only — must NOT trigger forced prompting
-    expect(promptCalled).toBe(false);
   });
 
   test("reminder_create forces prompt in private thread", async () => {
@@ -2248,7 +2190,7 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
       "GPG_TTY",
       "GNUPGHOME",
       "INTERNAL_GATEWAY_BASE_URL",
-      "GATEWAY_BASE_URL",
+      "VELLUM_DATA_DIR",
     ];
 
     const env = buildSanitizedEnv();

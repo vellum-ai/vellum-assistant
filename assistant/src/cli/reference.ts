@@ -23,17 +23,16 @@ Commands:
   mcp                                      Manage MCP (Model Context Protocol) servers
   email [options]                          Email operations (provider-agnostic)
   contacts [options]                       Manage and query the contact graph
-  channels [options]                       Query channel status
   channel-verification-sessions [options]  Manage channel verification sessions
-  amazon [options]                         Shop on Amazon and Amazon Fresh. Requires a session imported from a Ride Shotgun recording.
+  amazon [options]                         Shop on Amazon and Amazon Fresh. Requires an active session (use "refresh" to authenticate).
   autonomy [options]                       View and configure autonomy tiers
   completions <shell>                      Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)
   notifications [options]                  Send and inspect notifications through the unified notification router
   platform [options]                       Manage platform integration for containerized deployments
   oauth [options]                          Manage OAuth tokens for connected integrations
   skills                                   Browse and install skills from the Vellum catalog
-  x|twitter [options]                      Post on X and manage connections. Supports OAuth (official API) and browser session paths.
+  browser                                  Browser automation, extension relay, and Chrome CDP management
+  x|twitter [options]                      Post on X and manage connections. Supports managed (platform proxy) and OAuth (official API) paths.
   map [options] <domain>                   Auto-navigate a domain and produce a deduplicated API map. Launches Chrome with CDP, starts a Ride Shotgun learn session, then analyzes captured network traffic.
-  influencer [options]                     Research influencers on Instagram, TikTok, and X/Twitter. Uses the Chrome extension relay to browse each platform. Requires the user to be logged in on each platform in Chrome.
   sequence [options]                       Manage email sequences
 `;

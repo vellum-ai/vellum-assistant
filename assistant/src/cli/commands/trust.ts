@@ -5,9 +5,7 @@ import {
   getAllRules,
   removeRule,
 } from "../../permissions/trust-store.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 const SHORT_HASH_LENGTH = 8;
 

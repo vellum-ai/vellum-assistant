@@ -3,8 +3,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  statSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -13,7 +11,6 @@ import { join } from "node:path";
 import {
   getBaseDataDir,
   getDaemonIosPairing,
-  getDaemonSocket,
   getDaemonTcpEnabled,
   getDaemonTcpHost,
   getDaemonTcpPort,
@@ -226,14 +223,6 @@ export function getEmbeddingModelsDir(): string {
 }
 
 /**
- * Returns the IPC blob directory (~/.vellum/workspace/data/ipc-blobs).
- * Temporary blob files for zero-copy IPC payloads live here.
- */
-export function getIpcBlobDir(): string {
-  return join(getDataDir(), "ipc-blobs");
-}
-
-/**
  * Returns the sandbox root directory (~/.vellum/data/sandbox).
  * Global sandbox state lives under this directory.
  */
@@ -252,18 +241,6 @@ export function getSandboxWorkingDir(): string {
 
 export function getInterfacesDir(): string {
   return join(getDataDir(), "interfaces");
-}
-
-export function getSocketPath(): string {
-  const override = getDaemonSocket();
-  if (override) {
-    return expandHomePath(override);
-  }
-  return join(getRootDir(), "vellum.sock");
-}
-
-export function getSessionTokenPath(): string {
-  return join(getRootDir(), "session-token");
 }
 
 /**
@@ -344,46 +321,6 @@ export function readPlatformToken(): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Read the daemon session token from disk. Returns null if the file
- * doesn't exist or can't be read (daemon not running).
- */
-export function readSessionToken(): string | null {
-  try {
-    return readFileSync(getSessionTokenPath(), "utf-8").trim();
-  } catch {
-    return null;
-  }
-}
-
-function expandHomePath(p: string): string {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
-  return p;
-}
-
-/**
- * Remove a socket file only if it is actually a Unix socket.
- * Refuses to delete regular files, directories, etc. to prevent
- * accidental data loss when VELLUM_DAEMON_SOCKET points to a non-socket path.
- */
-export function removeSocketFile(socketPath: string): void {
-  if (!existsSync(socketPath)) return;
-  const stat = statSync(socketPath);
-  if (!stat.isSocket()) {
-    throw new Error(
-      `Refusing to remove ${socketPath}: not a Unix socket (found ${
-        stat.isFile()
-          ? "regular file"
-          : stat.isDirectory()
-            ? "directory"
-            : "non-socket"
-      })`,
-    );
-  }
-  unlinkSync(socketPath);
 }
 
 export function getPidPath(): string {

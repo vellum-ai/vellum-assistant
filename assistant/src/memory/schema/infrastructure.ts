@@ -7,19 +7,6 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-export const accounts = sqliteTable("accounts", {
-  id: text("id").primaryKey(),
-  service: text("service").notNull(),
-  username: text("username"),
-  email: text("email"),
-  displayName: text("display_name"),
-  status: text("status").notNull().default("active"),
-  credentialRef: text("credential_ref"),
-  metadataJson: text("metadata_json"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 export const reminders = sqliteTable("reminders", {
   id: text("id").primaryKey(),
   label: text("label").notNull(),
@@ -81,14 +68,6 @@ export const sharedAppLinks = sqliteTable("shared_app_links", {
   downloadCount: integer("download_count").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   expiresAt: integer("expires_at"),
-});
-
-export const homeBaseAppLinks = sqliteTable("home_base_app_links", {
-  id: text("id").primaryKey(),
-  appId: text("app_id").notNull(),
-  source: text("source").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
 });
 
 export const publishedPages = sqliteTable("published_pages", {

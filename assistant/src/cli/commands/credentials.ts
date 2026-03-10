@@ -14,10 +14,8 @@ import {
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
-import { getCliLogger } from "../../util/logger.js";
-import { shouldOutputJson, writeOutput } from "../utils.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -68,7 +66,6 @@ function buildCredentialOutput(
     usageDescription: metadata.usageDescription ?? null,
     allowedTools: metadata.allowedTools,
     allowedDomains: metadata.allowedDomains,
-    accountInfo: metadata.accountInfo ?? null,
     grantedScopes: metadata.grantedScopes ?? null,
     expiresAt: metadata.expiresAt
       ? new Date(metadata.expiresAt).toISOString()
@@ -103,7 +100,6 @@ function printCredentialHuman(output: Record<string, unknown>): void {
     log.info(
       `    Domains:     ${(output.allowedDomains as string[]).join(", ")}`,
     );
-  if (output.accountInfo) log.info(`    Account:     ${output.accountInfo}`);
   if (output.grantedScopes)
     log.info(
       `    Scopes:      ${(output.grantedScopes as string[]).join(", ")}`,
@@ -258,7 +254,11 @@ Examples:
       async (
         name: string,
         value: string,
-        opts: { label?: string; description?: string; allowedTools?: string },
+        opts: {
+          label?: string;
+          description?: string;
+          allowedTools?: string;
+        },
         cmd: Command,
       ) => {
         try {
@@ -463,7 +463,6 @@ Examples:
             usageDescription: null,
             allowedTools: [],
             allowedDomains: [],
-            accountInfo: null,
             grantedScopes: null,
             expiresAt: null,
             createdAt: null,

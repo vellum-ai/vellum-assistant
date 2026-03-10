@@ -128,7 +128,7 @@ struct SurfaceContainerView: View {
                     label: action.label,
                     style: buttonStyle(for: action.style)
                 ) {
-                    viewModel.onAction(action.id, nil)
+                    viewModel.onAction(action.id, action.data?.compactMapValues { $0.value })
                 }
             }
         }

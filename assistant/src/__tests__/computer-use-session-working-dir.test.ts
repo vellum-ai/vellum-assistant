@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { CuObservation } from "../daemon/ipc-protocol.js";
+import type { CuObservation } from "../daemon/message-protocol.js";
 import type { Provider } from "../providers/types.js";
 
 let capturedWorkingDir: string | undefined;
@@ -28,7 +28,7 @@ mock.module("../util/platform.js", () => ({
   ...realPlatform,
   getRootDir: () => "/tmp",
   getDataDir: () => "/tmp/data",
-  getIpcBlobDir: () => "/tmp/data/ipc-blobs",
+
   getSandboxRootDir: () => "/tmp/sandbox",
   getSandboxWorkingDir: () => "/tmp/workspace",
   getInterfacesDir: () => "/tmp/interfaces",
@@ -46,7 +46,6 @@ mock.module("../util/platform.js", () => ({
   getHistoryPath: () => "/tmp/data/history",
   getHooksDir: () => "/tmp/hooks",
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   ensureDataDir: () => {},
   isMacOS: () => false,
   isLinux: () => true,

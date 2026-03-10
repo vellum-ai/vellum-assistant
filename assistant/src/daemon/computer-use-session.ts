@@ -9,11 +9,11 @@
 import { v4 as uuid } from "uuid";
 
 import { AgentLoop } from "../agent/loop.js";
-import { buildComputerUseSystemPrompt } from "../config/computer-use-prompt.js";
 import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { buildComputerUseSystemPrompt } from "../prompts/computer-use-prompt.js";
 import type {
   ContentBlock,
   Message,
@@ -29,13 +29,12 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import type {
   CuObservation,
-  FileUploadSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
   UiSurfaceShow,
-} from "./ipc-protocol.js";
-import { INTERACTIVE_SURFACE_TYPES } from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,
@@ -360,9 +359,7 @@ export class ComputerUseSession {
 
     const toolDefs: ToolDefinition[] = [
       ...cuToolDefs,
-      ...allUiSurfaceTools
-        .filter((t) => t.name !== "request_file")
-        .map((t) => t.getDefinition()),
+      ...allUiSurfaceTools.map((t) => t.getDefinition()),
     ];
 
     this.prompter = new PermissionPrompter(this.sendToClient);
@@ -459,42 +456,6 @@ export class ComputerUseSession {
         this.pendingSurfaceActions.delete(surfaceId);
         this.surfaceState.delete(surfaceId);
         return { content: "Surface dismissed", isError: false };
-      }
-
-      // ── File request proxying ──────────────────────────────────────
-      if (toolName === "request_file") {
-        const surfaceId = uuid();
-        const prompt =
-          typeof input.prompt === "string"
-            ? input.prompt
-            : "Please share a file";
-        const acceptedTypes = Array.isArray(input.accepted_types)
-          ? (input.accepted_types as string[])
-          : undefined;
-        const maxFiles =
-          typeof input.max_files === "number" ? input.max_files : 1;
-
-        const data: FileUploadSurfaceData = {
-          prompt,
-          acceptedTypes,
-          maxFiles,
-        };
-
-        this.surfaceState.set(surfaceId, { surfaceType: "file_upload", data });
-
-        this.sendToClient({
-          type: "ui_surface_show",
-          sessionId: this.sessionId,
-          surfaceId,
-          surfaceType: "file_upload",
-          title: "File Request",
-          data,
-        } as UiSurfaceShow);
-
-        // Always await — file upload is interactive
-        return new Promise<ToolExecutionResult>((resolve) => {
-          this.pendingSurfaceActions.set(surfaceId, { resolve });
-        });
       }
 
       // ── Computer-use tool proxying ─────────────────────────────────

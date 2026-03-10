@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
-import type { UserMessageAttachment } from "../daemon/ipc-protocol.js";
+import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 
@@ -127,7 +127,7 @@ mock.module("../daemon/context-overflow-approval.js", () => ({
   CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 

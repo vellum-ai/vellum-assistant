@@ -421,13 +421,6 @@ export function injectActiveSurfaceContext(
       "8. Keep your text response to 1 brief sentence confirming what you changed.",
     );
 
-    if (ctx.html.includes('data-vellum-home-base="v1"')) {
-      lines.push(
-        "9. This is the prebuilt Home Base scaffold. Preserve layout anchors:",
-        "   `home-base-root`, `home-base-onboarding-lane`, and `home-base-starter-lane`.",
-      );
-    }
-
     // File tree with sizes (capped at 50 files to bound prompt size)
     const files = ctx.appFiles ?? listAppFiles(ctx.appId);
     const MAX_FILE_TREE_ENTRIES = 50;

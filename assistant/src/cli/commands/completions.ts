@@ -1,8 +1,6 @@
 import type { Command } from "commander";
 
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export function registerCompletionsCommand(program: Command): void {
   program

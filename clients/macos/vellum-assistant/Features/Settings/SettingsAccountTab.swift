@@ -25,6 +25,10 @@ struct SettingsAccountTab: View {
     @State private var devModeMessage: String?
     @State private var isHatchFlagEnabled: Bool = true
     @State private var isLoadingHatchFlag: Bool = false
+    @State private var showingHatchConfirmation: Bool = false
+
+    // -- Display names (resolved from IDENTITY.md, keyed by assistant ID) --
+    @State private var displayNames: [String: String] = [:]
 
     // -- Wake/sleep toggle state --
     @State private var awakeStates: [String: Bool] = [:]
@@ -41,7 +45,11 @@ struct SettingsAccountTab: View {
             accountSection
             assistantInfoSection
             switchAssistantSection
-            GatewaySettingsCard(store: store, daemonClient: daemonClient)
+            GatewaySettingsCard(
+                store: store,
+                daemonClient: daemonClient,
+                isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
+            )
             hatchNewAssistantSection
             retireAssistantSection
         }
@@ -52,6 +60,7 @@ struct SettingsAccountTab: View {
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             refreshAwakeStates()
+            refreshDisplayNames()
             identity = IdentityInfo.load()
             if identity == nil,
                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
@@ -273,10 +282,12 @@ struct SettingsAccountTab: View {
                 ForEach(lockfileAssistants, id: \.assistantId) { assistant in
                     HStack(spacing: VSpacing.sm) {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                            Text(assistant.assistantId)
+                            Text(displayLabel(for: assistant))
                                 .font(VFont.bodyMedium)
                                 .foregroundColor(VColor.textPrimary)
-                            Text(assistant.home.displayLabel)
+                            Text(displayNames[assistant.assistantId] != nil
+                                ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
+                                : assistant.home.displayLabel)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
@@ -303,12 +314,11 @@ struct SettingsAccountTab: View {
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Picker("", selection: $selectedAssistantId) {
-                        ForEach(awakeAssistants, id: \.assistantId) { assistant in
-                            Text(assistant.assistantId).tag(assistant.assistantId)
-                        }
-                    }
-                    .labelsHidden()
+                    VDropdown(
+                        placeholder: "",
+                        selection: $selectedAssistantId,
+                        options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) }
+                    )
                     .frame(maxWidth: 200)
                 }
             }
@@ -341,6 +351,19 @@ struct SettingsAccountTab: View {
         // Mid-transition — prevent double-toggle
         if transitioningStates.contains(assistant.assistantId) { return true }
         return false
+    }
+
+    private func refreshDisplayNames() {
+        for assistant in lockfileAssistants {
+            if let name = assistant.loadDisplayName() {
+                displayNames[assistant.assistantId] = name
+            }
+        }
+    }
+
+    /// Returns the display name for an assistant, falling back to the assistant ID.
+    private func displayLabel(for assistant: LockfileAssistant) -> String {
+        displayNames[assistant.assistantId] ?? assistant.assistantId
     }
 
     private func refreshAwakeStates() {
@@ -414,7 +437,7 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                VButton(label: "Retire...", style: .danger) {
+                VButton(label: "Retire", style: .danger) {
                     showingRetireConfirmation = true
                 }
             }
@@ -443,7 +466,6 @@ struct SettingsAccountTab: View {
             // Gateway unreachable — fall through to local config fallback
         }
 
-        // Fallback: read from local workspace config
         let config = WorkspaceConfigIO.read()
 
         // Check canonical assistantFeatureFlagValues first (new format)
@@ -477,8 +499,16 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                     VButton(label: "Hatch...", style: .primary) {
-                        AppDelegate.shared?.replayOnboarding()
-                        onClose()
+                        showingHatchConfirmation = true
+                    }
+                    .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Continue") {
+                            AppDelegate.shared?.hatchNewAssistant()
+                            onClose()
+                        }
+                    } message: {
+                        Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
                     }
                 }
             }

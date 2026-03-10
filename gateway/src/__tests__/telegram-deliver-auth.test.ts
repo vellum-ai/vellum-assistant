@@ -1,5 +1,7 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
+import type { CredentialCache } from "../credential-cache.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
@@ -36,9 +38,6 @@ const TOKEN = mintDeliverToken();
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "tok",
-    telegramWebhookSecret: "wh-sec",
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -50,39 +49,68 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
   return merged;
 }
 
+function makeConfigFile(
+  overrides: Record<string, Record<string, string | number | boolean>> = {},
+): ConfigFileCache {
+  const data: Record<string, Record<string, string | number | boolean>> = {
+    ...overrides,
+  };
+  return {
+    getString: (section: string, key: string) =>
+      data[section]?.[key] as string | undefined,
+    getNumber: (section: string, key: string) =>
+      data[section]?.[key] as number | undefined,
+    getBoolean: (section: string, key: string) =>
+      data[section]?.[key] as boolean | undefined,
+    getRecord: () => undefined,
+    refreshNow: () => {},
+    invalidate: () => {},
+  } as unknown as ConfigFileCache;
+}
+
+const savedAppVersion = process.env.APP_VERSION;
+
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  // Restore APP_VERSION after each test
+  if (savedAppVersion === undefined) {
+    delete process.env.APP_VERSION;
+  } else {
+    process.env.APP_VERSION = savedAppVersion;
+  }
 });
+
+/** Create a mock CredentialCache that returns the bot token. */
+function makeCaches(configFile?: ConfigFileCache) {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:telegram:bot_token") return "test-bot-token";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials, configFile: configFile ?? makeConfigFile() };
+}
+
+const bypassConfigFile = makeConfigFile({
+  telegram: { deliverAuthBypass: true },
+});
+
+/** Enable the deliver auth bypass for tests. Requires APP_VERSION=0.0.0-dev. */
+function enableBypass() {
+  process.env.APP_VERSION = "0.0.0-dev";
+}
 
 function mockTelegramApi() {
   fetchMock = mock(async () => {
@@ -124,8 +152,10 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
       });
     });
 
+    enableBypass();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
+      makeConfig(),
+      makeCaches(bypassConfigFile),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -188,8 +218,10 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
       });
     });
 
+    enableBypass();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
+      makeConfig(),
+      makeCaches(bypassConfigFile),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -250,8 +282,10 @@ describe("/deliver/telegram ID-only attachment validation", () => {
       });
     });
 
+    enableBypass();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
+      makeConfig(),
+      makeCaches(bypassConfigFile),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -277,8 +311,10 @@ describe("/deliver/telegram ID-only attachment validation", () => {
   });
 
   test("rejects attachment missing id with 400", async () => {
+    enableBypass();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
+      makeConfig(),
+      makeCaches(bypassConfigFile),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -323,8 +359,10 @@ describe("/deliver/telegram ID-only attachment validation", () => {
       });
     });
 
+    enableBypass();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
+      makeConfig(),
+      makeCaches(bypassConfigFile),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -352,7 +390,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
 describe("/deliver/telegram bearer auth enforcement", () => {
   test("rejects request without Authorization header with 401", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -366,7 +404,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("rejects request with wrong bearer token with 401", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {
@@ -383,7 +421,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("rejects request with empty bearer token with 401", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {
@@ -399,7 +437,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
 
   test("accepts request with correct bearer token", async () => {
     mockTelegramApi();
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {
@@ -417,8 +455,10 @@ describe("/deliver/telegram bearer auth enforcement", () => {
 
   test("allows unauthenticated access when bypass flag is set and no token configured", async () => {
     mockTelegramApi();
+    enableBypass();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
+      makeConfig(),
+      makeCaches(bypassConfigFile),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -433,7 +473,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("still rejects non-POST methods before auth check", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "GET",
     });
@@ -443,7 +483,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("still validates request body after successful auth", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {

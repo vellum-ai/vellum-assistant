@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "../../config/mcp-schema.js";
+import type { McpServerConfig } from "../../config/schemas/mcp.js";
 import type { McpServerManager } from "../../mcp/manager.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";

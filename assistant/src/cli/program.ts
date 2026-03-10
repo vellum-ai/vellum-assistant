@@ -3,11 +3,11 @@ import { createRequire } from "node:module";
 import { Command } from "commander";
 
 import { registerHooksCommand } from "../hooks/cli.js";
-import { registerAmazonCommand } from "./commands/amazon.js";
+import { registerAmazonCommand } from "./commands/amazon/index.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
+import { registerBrowserRelayCommand } from "./commands/browser-relay.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
-import { registerChannelsCommand } from "./commands/channels.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
@@ -16,7 +16,6 @@ import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDevCommand } from "./commands/dev.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerEmailCommand } from "./commands/email.js";
-import { registerInfluencerCommand } from "./commands/influencer.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMapCommand } from "./commands/map.js";
 import { registerMcpCommand } from "./commands/mcp.js";
@@ -28,7 +27,7 @@ import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
-import { registerTwitterCommand } from "./commands/twitter.js";
+import { registerTwitterCommand } from "./commands/twitter/index.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
@@ -52,7 +51,6 @@ export function buildCliProgram(): Command {
   registerMcpCommand(program);
   registerEmailCommand(program);
   registerContactsCommand(program);
-  registerChannelsCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerAmazonCommand(program);
   registerAutonomyCommand(program);
@@ -61,10 +59,10 @@ export function buildCliProgram(): Command {
   registerPlatformCommand(program);
   registerOAuthCommand(program);
   registerSkillsCommand(program);
+  registerBrowserRelayCommand(program);
 
   registerTwitterCommand(program);
   registerMapCommand(program);
-  registerInfluencerCommand(program);
   registerSequenceCommand(program);
 
   return program;

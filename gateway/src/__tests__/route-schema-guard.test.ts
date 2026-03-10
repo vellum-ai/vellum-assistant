@@ -122,12 +122,6 @@ function regexToOpenApiPath(escaped: string): string | null {
 // ── Routes that are intentionally undocumented in the OpenAPI schema ──
 // Each entry must have a comment explaining why it's excluded.
 const EXCLUDED_FROM_SCHEMA = new Set([
-  // Internal-only route, not reachable from the public internet
-  "/internal/telegram/reconcile",
-
-  // Internal-only route, used only for daemon-triggered Twilio refreshes
-  "/internal/twilio/reconcile",
-
   // Browser relay WebSocket upgrade — handled pre-router, not a REST endpoint
   "/v1/browser-relay",
 

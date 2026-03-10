@@ -4,17 +4,20 @@ import VellumAssistantShared
 // MARK: - Domain Types
 
 public enum NativePanelId: String, Equatable, Sendable {
-    case chat, threadList, settings, debug, directory, generated, avatarCustomization, apps, intelligence, usageDashboard
+    case chat, threadList, settings, debug, generated, avatarCustomization, apps, intelligence, usageDashboard
 }
 
 extension NativePanelId: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
-        // Legacy values from older builds — map to the unified Intelligence panel
+        // Legacy values from older builds — map appropriately
         switch rawValue {
         case "identity", "agent":
             self = .intelligence
+        // Legacy Home Base panel — map to apps as a reasonable fallback
+        case "directory":
+            self = .apps
         default:
             guard let value = NativePanelId(rawValue: rawValue) else {
                 throw DecodingError.dataCorruptedError(
@@ -127,11 +130,14 @@ extension SlotContent {
         switch wire.type {
         case "native":
             guard let panel = wire.panel else { return nil }
-            // Handle legacy panel IDs that were renamed to intelligence
+            // Handle legacy panel IDs that were renamed or removed
             let id: NativePanelId
             switch panel {
             case "identity", "agent":
                 id = .intelligence
+            // Legacy Home Base panel — map to apps as a reasonable fallback
+            case "directory":
+                id = .apps
             default:
                 guard let parsed = NativePanelId(rawValue: panel) else { return nil }
                 id = parsed

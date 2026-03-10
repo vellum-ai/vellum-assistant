@@ -46,10 +46,10 @@ clients/
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
-- **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with the assistant
-  - macOS: Unix domain socket (`~/.vellum/vellum.sock`)
-  - iOS: HTTP+SSE through the gateway (no direct TCP or Unix socket connection)
-  - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
+- **Network layer** (`DaemonClient`, `IPCMessages`, `Generated/GeneratedAPITypes`) - HTTP+SSE communication with the assistant
+  - macOS: HTTP+SSE to the local daemon runtime server
+  - iOS: HTTP+SSE through the gateway
+  - Wire types are auto-generated from the TS contract; `IPCMessages.swift` provides
     typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
     types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
 - **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
@@ -184,7 +184,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 ### iOS Gateway Networking
 - iOS connects to the assistant exclusively via the HTTP gateway
 - Pair via QR code (Settings → Connect on both devices); all pairings require Mac-side approval
-- LAN pairing works automatically when both devices are on the same network
+- LAN pairing is disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1` on the Mac; when enabled, the QR code includes the local gateway URL for direct LAN connections
 
 ### iOS Computer-Use
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)

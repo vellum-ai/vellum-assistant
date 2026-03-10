@@ -216,13 +216,18 @@ public struct InlineSurfaceRouter: View {
                                 )
                             }
                         },
-                        onShareApp: {
-                            guard let appId = data.appId else { return }
-                            NotificationCenter.default.post(
-                                name: Notification.Name("MainWindow.shareAppCloud"),
-                                object: nil,
-                                userInfo: ["appId": appId]
-                            )
+                        onTogglePin: data.appId.map { appId in
+                            { isPinned in
+                                NotificationCenter.default.post(
+                                    name: Notification.Name(isPinned ? "MainWindow.unpinApp" : "MainWindow.pinApp"),
+                                    object: nil,
+                                    userInfo: [
+                                        "appId": appId,
+                                        "appName": preview.title,
+                                        "appIcon": preview.icon as Any
+                                    ]
+                                )
+                            }
                         }
                     )
                 } else {
@@ -334,7 +339,14 @@ public struct InlineSurfaceRouter: View {
                 ForEach(surface.actions, id: \.uniqueId) { action in
                     Button {
                         clickedActionLabel = action.label
-                        onAction(surface.id, action.id, selectionPayload)
+                        // Merge action.data (button payload) with selectionPayload (list selection)
+                        var merged = selectionPayload ?? [:]
+                        if let actionData = action.data {
+                            for (key, value) in actionData {
+                                merged[key] = value
+                            }
+                        }
+                        onAction(surface.id, action.id, merged.isEmpty ? nil : merged)
                     } label: {
                         Text(action.label)
                             .font(VFont.bodyMedium)

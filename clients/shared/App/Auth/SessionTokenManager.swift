@@ -16,7 +16,7 @@ public enum SessionTokenManager {
 
     /// Path to the platform token file the daemon reads.
     private static var platformTokenPath: String {
-        resolveVellumDir() + "/platform-token"
+        connectedAssistantPlatformTokenPath() ?? defaultPlatformTokenPath()
     }
 
     public static func getToken() -> String? {
@@ -36,6 +36,48 @@ public enum SessionTokenManager {
     }
 
     // MARK: - Platform token file bridge
+
+    /// Scope platform-token writes to the active assistant instance when the
+    /// current lockfile entry exposes assistant-specific storage paths.
+    private static func connectedAssistantPlatformTokenPath() -> String? {
+        guard let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let json = LockfilePaths.read(),
+              let assistants = json["assistants"] as? [[String: Any]],
+              let assistant = assistants.first(where: { ($0["assistantId"] as? String) == connectedAssistantId }) else {
+            return nil
+        }
+
+        if let baseDataDir = assistant["baseDataDir"] as? String {
+            let trimmed = baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed + "/platform-token"
+            }
+        }
+
+        if let resources = assistant["resources"] as? [String: Any],
+           let instanceDir = resources["instanceDir"] as? String {
+            let trimmed = instanceDir.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed + "/.vellum/platform-token"
+            }
+        }
+
+        return nil
+    }
+
+    private static func defaultPlatformTokenPath() -> String {
+        let launchEnvironment = ProcessInfo.processInfo.environment
+        if let baseDir = launchEnvironment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !baseDir.isEmpty {
+            let resolved = baseDir == "~"
+                ? NSHomeDirectory()
+                : (baseDir.hasPrefix("~/")
+                    ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2))
+                    : baseDir)
+            return resolved + "/.vellum/platform-token"
+        }
+        return NSHomeDirectory() + "/.vellum/platform-token"
+    }
 
     private static func writePlatformTokenFile(_ token: String) {
         let path = platformTokenPath
@@ -68,6 +110,7 @@ public enum SessionTokenManager {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = APIKeyManager.shared.setAPIKey(token, provider: provider)
+                writePlatformTokenFile(token)
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
                 }
@@ -80,6 +123,7 @@ public enum SessionTokenManager {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
+                removePlatformTokenFile()
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
                 }

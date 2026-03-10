@@ -16,7 +16,9 @@ import { probePort } from "./port-probe.js";
  */
 export interface LocalInstanceResources {
   /**
-   * Instance-specific data root at `~/.local/share/vellum/assistants/<name>/`.
+   * Instance-specific data root. The first local assistant uses `~` (home
+   * directory) with default ports. Subsequent instances are placed under
+   * `~/.local/share/vellum/assistants/<name>/`.
    * The daemon's `.vellum/` directory lives inside it.
    */
   instanceDir: string;
@@ -26,10 +28,9 @@ export interface LocalInstanceResources {
   gatewayPort: number;
   /** HTTP port for the Qdrant vector store */
   qdrantPort: number;
-  /** Absolute path to the Unix domain socket for IPC */
-  socketPath: string;
   /** Absolute path to the daemon PID file */
   pidFile: string;
+  [key: string]: unknown;
 }
 
 export interface AssistantEntry {
@@ -50,10 +51,11 @@ export interface AssistantEntry {
   hatchedAt?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
+  [key: string]: unknown;
 }
 
 interface LockfileData {
-  assistants?: AssistantEntry[];
+  assistants?: Record<string, unknown>[];
   activeAssistant?: string;
   platformBaseUrl?: string;
   [key: string]: unknown;
@@ -63,8 +65,13 @@ function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || homedir();
 }
 
+/** The lockfile always lives under the home directory. */
+function getLockfileDir(): string {
+  return process.env.VELLUM_LOCKFILE_DIR?.trim() || homedir();
+}
+
 function readLockfile(): LockfileData {
-  const base = getBaseDir();
+  const base = getLockfileDir();
   const candidates = [
     join(base, ".vellum.lock.json"),
     join(base, ".vellum.lockfile.json"),
@@ -85,8 +92,114 @@ function readLockfile(): LockfileData {
 }
 
 function writeLockfile(data: LockfileData): void {
-  const lockfilePath = join(getBaseDir(), ".vellum.lock.json");
+  const lockfilePath = join(getLockfileDir(), ".vellum.lock.json");
   writeFileSync(lockfilePath, JSON.stringify(data, null, 2) + "\n");
+}
+
+/**
+ * Try to extract a port number from a URL string (e.g. `http://localhost:7830`).
+ * Returns undefined if the URL is malformed or has no explicit port.
+ */
+function parsePortFromUrl(url: unknown): number | undefined {
+  if (typeof url !== "string") return undefined;
+  try {
+    const parsed = new URL(url);
+    const port = parseInt(parsed.port, 10);
+    return isNaN(port) ? undefined : port;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Detect and migrate legacy lockfile entries to the current format.
+ *
+ * Legacy entries stored `baseDataDir` as a top-level field. The current
+ * format nests this under `resources.instanceDir`. This function also
+ * synthesises a full `resources` object when one is missing by inferring
+ * ports from the entry's `runtimeUrl` and falling back to defaults.
+ *
+ * Returns `true` if the entry was mutated (so the caller can persist).
+ */
+export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
+  if (typeof raw.cloud === "string" && raw.cloud !== "local") {
+    return false;
+  }
+
+  let mutated = false;
+
+  // Migrate top-level `baseDataDir` → `resources.instanceDir`
+  if (typeof raw.baseDataDir === "string" && raw.baseDataDir) {
+    if (!raw.resources || typeof raw.resources !== "object") {
+      raw.resources = {};
+    }
+    const res = raw.resources as Record<string, unknown>;
+    if (!res.instanceDir) {
+      res.instanceDir = raw.baseDataDir;
+      mutated = true;
+    }
+    delete raw.baseDataDir;
+    mutated = true;
+  }
+
+  // Synthesise missing `resources` for local entries
+  if (!raw.resources || typeof raw.resources !== "object") {
+    const gatewayPort =
+      parsePortFromUrl(raw.runtimeUrl) ?? DEFAULT_GATEWAY_PORT;
+    const instanceDir = join(
+      homedir(),
+      ".local",
+      "share",
+      "vellum",
+      "assistants",
+      typeof raw.assistantId === "string" ? raw.assistantId : "default",
+    );
+    raw.resources = {
+      instanceDir,
+      daemonPort: DEFAULT_DAEMON_PORT,
+      gatewayPort,
+      qdrantPort: DEFAULT_QDRANT_PORT,
+      pidFile: join(instanceDir, ".vellum", "vellum.pid"),
+    };
+    mutated = true;
+  } else {
+    // Backfill any missing fields on an existing partial `resources` object
+    const res = raw.resources as Record<string, unknown>;
+    if (!res.instanceDir) {
+      res.instanceDir = join(
+        homedir(),
+        ".local",
+        "share",
+        "vellum",
+        "assistants",
+        typeof raw.assistantId === "string" ? raw.assistantId : "default",
+      );
+      mutated = true;
+    }
+    if (typeof res.daemonPort !== "number") {
+      res.daemonPort = DEFAULT_DAEMON_PORT;
+      mutated = true;
+    }
+    if (typeof res.gatewayPort !== "number") {
+      res.gatewayPort =
+        parsePortFromUrl(raw.runtimeUrl) ?? DEFAULT_GATEWAY_PORT;
+      mutated = true;
+    }
+    if (typeof res.qdrantPort !== "number") {
+      res.qdrantPort = DEFAULT_QDRANT_PORT;
+      mutated = true;
+    }
+    if (typeof res.pidFile !== "string") {
+      res.pidFile = join(
+        res.instanceDir as string,
+        ".vellum",
+        "vellum.pid",
+      );
+      mutated = true;
+    }
+  }
+
+  return mutated;
 }
 
 function readAssistants(): AssistantEntry[] {
@@ -95,8 +208,20 @@ function readAssistants(): AssistantEntry[] {
   if (!Array.isArray(entries)) {
     return [];
   }
+
+  let migrated = false;
+  for (const entry of entries) {
+    if (migrateLegacyEntry(entry)) {
+      migrated = true;
+    }
+  }
+
+  if (migrated) {
+    writeLockfile(data);
+  }
+
   return entries.filter(
-    (e) =>
+    (e): e is AssistantEntry =>
       typeof e.assistantId === "string" && typeof e.runtimeUrl === "string",
   );
 }
@@ -128,12 +253,17 @@ export function findAssistantByName(name: string): AssistantEntry | null {
 export function removeAssistantEntry(assistantId: string): void {
   const data = readLockfile();
   const entries = (data.assistants ?? []).filter(
-    (e: AssistantEntry) => e.assistantId !== assistantId,
+    (e) => e.assistantId !== assistantId,
   );
   data.assistants = entries;
-  // Clear active assistant if it matches the removed entry
+  // Reassign active assistant if it matches the removed entry
   if (data.activeAssistant === assistantId) {
-    delete data.activeAssistant;
+    const remaining = entries[0];
+    if (remaining) {
+      data.activeAssistant = String(remaining.assistantId);
+    } else {
+      delete data.activeAssistant;
+    }
   }
   writeLockfile(data);
 }
@@ -221,12 +351,28 @@ async function findAvailablePort(
 
 /**
  * Allocate an isolated set of resources for a named local instance.
- * Each assistant is placed under
+ * The first local assistant uses the home directory with default ports.
+ * Subsequent assistants are placed under
  * `~/.local/share/vellum/assistants/<name>/` with scanned ports.
  */
 export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
+  // First local assistant gets the home directory with default ports.
+  const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
+  if (existingLocals.length === 0) {
+    const home = homedir();
+    const vellumDir = join(home, ".vellum");
+    mkdirSync(vellumDir, { recursive: true });
+    return {
+      instanceDir: home,
+      daemonPort: DEFAULT_DAEMON_PORT,
+      gatewayPort: DEFAULT_GATEWAY_PORT,
+      qdrantPort: DEFAULT_QDRANT_PORT,
+      pidFile: join(vellumDir, "vellum.pid"),
+    };
+  }
+
   const instanceDir = join(
     homedir(),
     ".local",
@@ -273,7 +419,6 @@ export async function allocateLocalResources(
     daemonPort,
     gatewayPort,
     qdrantPort,
-    socketPath: join(instanceDir, ".vellum", "vellum.sock"),
     pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }

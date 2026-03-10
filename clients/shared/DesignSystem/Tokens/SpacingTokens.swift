@@ -37,4 +37,11 @@ public enum VSpacing {
     public static var page: CGFloat { xxl }
     /// Compact vertical padding for buttons
     public static let buttonV: CGFloat = 5.5
+
+    // MARK: - Layout Constraints
+
+    /// Maximum width for chat message bubbles
+    public static let chatBubbleMaxWidth: CGFloat = 680
+    /// Maximum width for the chat message column (bubble width + horizontal padding)
+    public static let chatColumnMaxWidth: CGFloat = chatBubbleMaxWidth + 2 * xl
 }

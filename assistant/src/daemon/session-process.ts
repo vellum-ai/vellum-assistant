@@ -32,7 +32,7 @@ import type {
   ServerMessage,
   UsageStats,
   UserMessageAttachment,
-} from "./ipc-protocol.js";
+} from "./message-protocol.js";
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";

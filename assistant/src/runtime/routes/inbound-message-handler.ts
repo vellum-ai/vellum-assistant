@@ -4,13 +4,13 @@
  * verification, guardian action answers, approval interception, and
  * invite token redemption.
  */
+import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
-import { getChannelPermissionProfile } from "../../config/channel-permission-profiles.js";
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";

@@ -1,4 +1,4 @@
-import type { ContextOverflowRecoveryConfig } from "../config/core-schema.js";
+import type { ContextOverflowRecoveryConfig } from "../config/schemas/inference.js";
 
 /**
  * Actions the overflow recovery loop can take when the context window is

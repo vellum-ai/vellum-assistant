@@ -58,7 +58,7 @@ struct CloudCredentialsStepView: View {
 
             backButton
 
-            OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: 4)
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
@@ -238,18 +238,16 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.aws.amazon.com/iam/home#/roles")!) {
                 Text("Open AWS IAM Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Forest._400))
+                    .foregroundColor(VColor.onboardingLink)
             }
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+                .fill(VColor.codeBlockBackground)
         )
     }
 
@@ -268,7 +266,7 @@ struct CloudCredentialsStepView: View {
         .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+                .fill(VColor.codeBlockBackground)
         )
     }
 
@@ -285,18 +283,16 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
                 Text("Open Google Cloud Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Forest._400))
+                    .foregroundColor(VColor.onboardingLink)
             }
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+                .fill(VColor.codeBlockBackground)
         )
     }
 
@@ -332,13 +328,11 @@ struct CloudCredentialsStepView: View {
                 )
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
         } else {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.file, size: 14)
-                    .foregroundColor(adaptiveColor(light: Stone._900, dark: Forest._600))
+                    .foregroundColor(VColor.onboardingFileIcon)
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -351,15 +345,13 @@ struct CloudCredentialsStepView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+                .pointerCursor()
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(adaptiveColor(light: Stone._900.opacity(0.3), dark: Forest._600.opacity(0.3)), lineWidth: 1)
+                    .stroke(VColor.onboardingBorderStroke, lineWidth: 1)
             )
         }
     }
@@ -429,7 +421,7 @@ struct CloudCredentialsStepView: View {
 
     private var continueButton: some View {
         OnboardingButton(
-            title: isCustomHardware ? "Pair!" : "Hatch!",
+            title: "Continue",
             style: .primary,
             disabled: continueDisabled
         ) {
@@ -444,9 +436,7 @@ struct CloudCredentialsStepView: View {
                 .foregroundColor(VColor.textMuted)
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointerCursor()
         .padding(.top, VSpacing.xs)
     }
 
@@ -491,7 +481,7 @@ struct CloudCredentialsStepView: View {
 
     private func saveAndContinue() {
         guard !continueDisabled else { return }
-        state.isHatching = true
+        state.advance()
     }
 }
 

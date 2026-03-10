@@ -41,7 +41,7 @@ export type Scope =
 // Principal types — derived from the sub pattern
 // ---------------------------------------------------------------------------
 
-export type PrincipalType = "actor" | "svc_gateway" | "ipc";
+export type PrincipalType = "actor" | "svc_gateway" | "svc_daemon" | "ipc";
 
 // ---------------------------------------------------------------------------
 // Token audience — which service the JWT is intended for

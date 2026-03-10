@@ -397,7 +397,7 @@ public final class MainWindow {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.backgroundColor = NSColor(adaptiveColor(light: Moss._50, dark: Moss._950))
+        window.backgroundColor = NSColor(VColor.backgroundSubtle)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
         window.setFrame(windowRect, display: false)

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { TraceEventKind } from "../daemon/ipc-protocol.js";
+import type { TraceEventKind } from "../daemon/message-protocol.js";
 import type {
   TraceEmitOptions,
   TraceEmitter,
