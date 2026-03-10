@@ -49,7 +49,7 @@ interface GlobalSearchMemory {
 interface GlobalSearchSchedule {
   id: string;
   name: string;
-  expression: string;
+  expression: string | null;
   message: string;
   enabled: boolean;
   nextRunAt: number | null;

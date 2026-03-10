@@ -10,9 +10,10 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function describeSchedule(job: {
   syntax: string;
-  expression: string;
-  cronExpression: string;
+  expression: string | null;
+  cronExpression: string | null;
 }): string {
+  if (job.expression == null) return "One-time";
   if (job.syntax === "rrule") {
     const label = hasSetConstructs(job.expression) ? "[RRULE set] " : "";
     return `${label}${job.expression}`;
@@ -39,7 +40,7 @@ export async function executeScheduleList(
       `Schedule: ${job.name}`,
       `  ID: ${job.id}`,
       `  Syntax: ${job.syntax}`,
-      `  Expression: ${job.expression}`,
+      `  Expression: ${job.expression ?? "(one-time)"}`,
       `  Schedule: ${describeSchedule(job)}${
         job.timezone ? ` (${job.timezone})` : ""
       }`,

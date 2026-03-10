@@ -78,9 +78,11 @@ export async function executeScheduleCreate(
     });
 
     const scheduleDescription =
-      job.syntax === "rrule"
-        ? job.expression
-        : describeCronExpression(job.cronExpression);
+      job.expression == null
+        ? "One-time"
+        : job.syntax === "rrule"
+          ? job.expression
+          : describeCronExpression(job.cronExpression);
 
     const nextRunDate = formatLocalDate(job.nextRunAt);
     const integrations = formatIntegrationSummary();

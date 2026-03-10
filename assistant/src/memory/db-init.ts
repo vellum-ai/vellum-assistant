@@ -48,6 +48,7 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
+  migrateScheduleOneShotRouting,
   migrateDropLegacyMemberGuardianTables,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
@@ -327,6 +328,9 @@ export function initializeDb(): void {
 
   // 49. Drop the unused legacy accounts table after removing account_manage
   migrateDropAccountsTable(database);
+
+  // 50. Extend cron_jobs table with one-shot and routing support
+  migrateScheduleOneShotRouting(database);
 
   validateMigrationState(database);
 

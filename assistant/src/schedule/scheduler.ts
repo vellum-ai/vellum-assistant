@@ -129,7 +129,7 @@ async function runScheduleOnce(
     if (taskMatch) {
       const taskId = taskMatch[1];
       const isRruleSet =
-        job.syntax === "rrule" && hasSetConstructs(job.expression);
+        job.syntax === "rrule" && job.expression != null && hasSetConstructs(job.expression);
       try {
         log.info(
           {
@@ -209,7 +209,7 @@ async function runScheduleOnce(
     });
     const runId = createScheduleRun(job.id, conversation.id);
     const isRruleSetMsg =
-      job.syntax === "rrule" && hasSetConstructs(job.expression);
+      job.syntax === "rrule" && job.expression != null && hasSetConstructs(job.expression);
 
     try {
       log.info(
