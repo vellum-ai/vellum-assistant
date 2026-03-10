@@ -8,7 +8,8 @@ struct DaemonLoadingChatSkeleton: View {
         ZStack {
             VColor.backgroundSubtle
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            VLoadingIndicator(size: 24, color: VColor.textMuted)
+            ChatLoadingSkeleton()
+                .padding(VSpacing.lg)
         }
         .accessibilityHidden(true)
     }

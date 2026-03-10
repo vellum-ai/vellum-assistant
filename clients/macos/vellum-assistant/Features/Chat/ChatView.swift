@@ -108,14 +108,9 @@ struct ChatView: View {
                     APIKeyBanner(onOpenSettings: onOpenSettings)
                 }
                 if messages.isEmpty && !isHistoryLoaded {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                        Spacer()
-                    }
-                    Spacer()
+                    ChatLoadingSkeleton()
+                        .padding(VSpacing.lg)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if isEmptyState && isBootstrapping {
                     // During first-launch bootstrap, suppress the empty state
                     // and show a simple loading panel until the first assistant
@@ -404,21 +399,15 @@ private struct ChatBootstrapLoadingView: View {
     @State private var visible = false
 
     var body: some View {
-        VStack(spacing: VSpacing.lg) {
-            Spacer()
-            VLoadingIndicator(size: 24, color: VColor.accent)
-            Text("Getting ready...")
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .opacity(visible ? 1 : 0)
-        .onAppear {
-            withAnimation(VAnimation.standard) {
-                visible = true
+        ChatLoadingSkeleton()
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(visible ? 1 : 0)
+            .onAppear {
+                withAnimation(VAnimation.standard) {
+                    visible = true
+                }
             }
-        }
     }
 }
 
