@@ -614,6 +614,7 @@ private struct StepDetailRow: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
             )
+            .padding(.horizontal, VSpacing.sm)
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
