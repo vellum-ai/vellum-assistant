@@ -22,9 +22,6 @@ struct ChatLoadingSkeleton: View {
         SkeletonRow(id: 3, isUser: true,  widthFraction: 0.35, boneHeight: 20),
     ]
 
-    /// Avatar reserve: 28pt circle + 8pt gap.
-    private let avatarReserve: CGFloat = 28 + VSpacing.sm
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             ForEach(rows) { row in
@@ -63,6 +60,7 @@ struct ChatLoadingSkeleton: View {
     }
 }
 
+#if DEBUG
 #Preview("ChatLoadingSkeleton") {
     ZStack {
         VColor.background.ignoresSafeArea()
@@ -71,3 +69,4 @@ struct ChatLoadingSkeleton: View {
     }
     .frame(width: 700, height: 400)
 }
+#endif
