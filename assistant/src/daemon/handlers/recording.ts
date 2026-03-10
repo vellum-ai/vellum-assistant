@@ -721,7 +721,7 @@ export async function finalizeAndPublishRecording(params: {
  * after recording stops, broadcasting recording lifecycle events, and
  * triggering deferred recording restarts.
  *
- * Shared by both the IPC handler and the HTTP POST route.
+ * This is the supported entry point for both HTTP routes and tests.
  */
 export async function handleRecordingStatusCore(
   msg: RecordingStatus,
