@@ -45,7 +45,7 @@ struct ChatLoadingSkeleton: View {
 
             // Text bone
             VSkeletonBone(height: row.boneHeight, radius: VRadius.lg)
-                .frame(width: VSpacing.chatBubbleMaxWidth * row.widthFraction)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth * row.widthFraction)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -55,7 +55,7 @@ struct ChatLoadingSkeleton: View {
     @ViewBuilder
     private func userRow(_ row: SkeletonRow) -> some View {
         VSkeletonBone(height: row.boneHeight, radius: VRadius.lg)
-            .frame(width: VSpacing.chatBubbleMaxWidth * row.widthFraction)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth * row.widthFraction)
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
