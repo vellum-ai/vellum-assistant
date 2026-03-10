@@ -170,7 +170,7 @@ struct AssistantProgressView: View {
             // Expanded content
             if isExpanded {
                 expandedContent
-                    .padding(.bottom, VSpacing.xs)
+                    .padding(.bottom, VSpacing.sm)
             }
 
             // Code preview (streaming code phase)
@@ -261,7 +261,7 @@ struct AssistantProgressView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Status Icon
