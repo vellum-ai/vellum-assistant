@@ -31,20 +31,20 @@ public struct VSkillTypePill: View {
 
         var foregroundColor: Color {
             switch self {
-            case .core: return Color(hex: 0x2A2A28)
-            case .installed: return Color(hex: 0x3A6B3A)
-            case .created: return Color(hex: 0x3A4A6B)
-            case .extra: return Color(hex: 0x6B6B5E)
+            case .core: return VColor.skillCoreForeground
+            case .installed: return VColor.skillInstalledForeground
+            case .created: return VColor.skillCreatedForeground
+            case .extra: return VColor.skillExtraForeground
             case .custom(_, _, let fg, _): return fg
             }
         }
 
         var backgroundColor: Color {
             switch self {
-            case .core: return Color(hex: 0xE8E6DA)
-            case .installed: return Color(hex: 0xD4E8D4)
-            case .created: return Color(hex: 0xD4DCE8)
-            case .extra: return Color(hex: 0xDDDBCE)
+            case .core: return VColor.skillCoreBackground
+            case .installed: return VColor.skillInstalledBackground
+            case .created: return VColor.skillCreatedBackground
+            case .extra: return VColor.skillExtraBackground
             case .custom(_, _, _, let bg): return bg
             }
         }
@@ -71,8 +71,8 @@ public struct VSkillTypePill: View {
             self.type = .custom(
                 label: source.replacingOccurrences(of: "-", with: " ").capitalized,
                 icon: VIcon.puzzle.rawValue,
-                foreground: Color(hex: 0x6B6B5E),
-                background: Color(hex: 0xDDDBCE)
+                foreground: VColor.skillExtraForeground,
+                background: VColor.skillExtraBackground
             )
         }
     }

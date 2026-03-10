@@ -128,7 +128,11 @@ struct IdentityInfo {
     let home: AssistantHome?
 
     static func load() -> IdentityInfo? {
-        let path = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
+        load(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
+    }
+
+    /// Load identity from a specific IDENTITY.md path.
+    static func load(from path: String) -> IdentityInfo? {
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
 
         var name = ""
@@ -358,6 +362,18 @@ struct LockfileAssistant {
     /// Find an assistant by its ID in the lockfile.
     static func loadByName(_ name: String) -> LockfileAssistant? {
         loadAll().first { $0.assistantId == name }
+    }
+
+    /// Reads the human-readable name from this assistant's IDENTITY.md.
+    /// Returns `nil` if the file doesn't exist, the name hasn't been set yet,
+    /// or the name is the generic "Assistant" placeholder.
+    func loadDisplayName() -> String? {
+        guard let base = instanceDir else { return nil }
+        let identityPath = base + "/.vellum/workspace/IDENTITY.md"
+        guard let info = IdentityInfo.load(from: identityPath) else { return nil }
+        guard let resolved = AssistantDisplayName.firstUserFacing(from: [info.name]),
+              resolved != AssistantDisplayName.placeholder else { return nil }
+        return resolved
     }
 
     /// Writes this assistant's config to `~/.vellum/workspace/config.json`

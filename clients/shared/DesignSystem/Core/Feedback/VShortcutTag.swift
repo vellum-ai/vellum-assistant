@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 /// A clickable pill that displays an optional icon + keyboard shortcut hint (e.g. "⌘K", "🎤 fn").
 public struct VShortcutTag: View {
@@ -11,8 +8,8 @@ public struct VShortcutTag: View {
 
     @State private var isHovered = false
 
-    private let tagColor = Color(hex: 0xA1A096)
-    private let borderColor = Color(hex: 0xE8E6DA)
+    private let tagColor = VColor.tagText
+    private let borderColor = VColor.tagBorder
 
     public init(_ text: String, icon: String? = nil, action: (() -> Void)? = nil) {
         self.text = text
@@ -43,15 +40,10 @@ public struct VShortcutTag: View {
                 tagContent
             }
             .buttonStyle(.plain)
-            #if os(macOS)
             .onHover { hovering in
                 isHovered = hovering
-                if hovering { NSCursor.pointingHand.set() }
-                else { NSCursor.arrow.set() }
             }
-            #else
-            .onHover { isHovered = $0 }
-            #endif
+            .pointerCursor()
             .accessibilityLabel(text)
         } else {
             tagContent

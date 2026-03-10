@@ -221,10 +221,7 @@ struct AppsGridView: View {
                                 Label { Text("Change Icon") } icon: { VIconView(.paintbrush, size: 14) }
                             }
                             Button(role: .destructive) {
-                                if hoveredAppId != nil {
                                     hoveredAppId = nil
-                                    NSCursor.pop()
-                                }
                                 try? daemonClient.sendAppDelete(appId: app.id)
                                 appListManager.removeApp(id: app.id)
                                 AppPreviewImageStore.remove(appId: app.id)
@@ -286,8 +283,8 @@ struct AppsGridView: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredAppId = hovering ? app.id : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
         .contextMenu {
             Button("Open") {
                 appListManager.recordAppOpen(
@@ -376,8 +373,8 @@ struct AppsGridView: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredAppId = hovering ? "shared-\(app.uuid)" : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 
     private func openSharedApp(_ app: SharedAppItem) {

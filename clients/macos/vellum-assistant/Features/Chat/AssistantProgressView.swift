@@ -481,7 +481,6 @@ private struct StepDetailRow: View {
 
     @State private var isDetailExpanded = false
     @State private var isHovered = false
-    @State private var isImageHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
@@ -723,12 +722,7 @@ private struct StepDetailRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() }
-                        else { NSCursor.pop() }
-                        isImageHovered = hovering
-                    }
-                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+                    .pointerCursor()
             } else if let img = toolCall.cachedImage {
                 Image(nsImage: img)
                     .resizable()
@@ -737,12 +731,7 @@ private struct StepDetailRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() }
-                        else { NSCursor.pop() }
-                        isImageHovered = hovering
-                    }
-                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+                    .pointerCursor()
             }
 
             // Output with diff coloring + copy button

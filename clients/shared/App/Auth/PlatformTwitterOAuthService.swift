@@ -92,8 +92,11 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         "offline.access",
     ]
 
-    /// The redirect path the platform navigates to after OAuth completes.
-    public static let redirectAfterConnect = "/account/oauth/desktop-complete"
+    /// The URL scheme callback the platform redirects to after OAuth completes.
+    /// Uses the app's custom URL scheme so ASWebAuthenticationSession can intercept
+    /// the redirect and return control to the app automatically.
+    public static let callbackURLScheme = "vellum-assistant"
+    public static let redirectAfterConnect = "vellum-assistant://oauth/twitter/callback"
 
     /// Creates a new service instance.
     ///

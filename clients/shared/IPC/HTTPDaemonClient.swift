@@ -1289,8 +1289,32 @@ public final class HTTPTransport {
 
     /// Start the SSE event stream. Call when a chat window opens.
     func startSSE() {
-        guard sseTask == nil else { return }
+        guard sseTask == nil else {
+            log.info("startSSE: already running, skipping")
+            return
+        }
+        log.info("startSSE: starting SSE stream for \(self.baseURL, privacy: .public)")
         startSSEStream()
+    }
+
+    /// Replace the bearer token used for HTTP requests and SSE authentication.
+    /// If SSE is currently disconnected (e.g. due to prior 403 errors), restarts
+    /// the stream so it can authenticate with the new token.
+    func updateBearerToken(_ newToken: String) {
+        bearerToken = newToken
+        // If SSE is not connected, restart it with the new token
+        if !isSSEConnected && sseTask != nil {
+            log.info("Bearer token updated — restarting SSE stream")
+            sseReconnectTask?.cancel()
+            sseReconnectTask = nil
+            sseTask?.cancel()
+            sseTask = nil
+            sseReconnectDelay = 1.0
+            startSSEStream()
+        } else if !isSSEConnected && sseTask == nil && shouldReconnect {
+            log.info("Bearer token updated — starting SSE stream")
+            startSSE()
+        }
     }
 
     /// Stop the SSE event stream. Call when a chat window closes.
@@ -1310,13 +1334,18 @@ public final class HTTPTransport {
             return
         }
 
+        log.info("SSE connecting to \(url.absoluteString, privacy: .public)")
+
         var request = URLRequest(url: url)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.timeoutInterval = .infinity
         applyAuth(&request)
 
         sseTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else {
+                log.warning("SSE task: self was deallocated before stream started")
+                return
+            }
 
             do {
                 let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -1334,6 +1363,13 @@ public final class HTTPTransport {
                             self.setSSEConnected(false)
                             return
                         }
+                    }
+                    if statusCode == 403 {
+                        // 403 during assistant switch: the http-token (gateway_service_v1
+                        // profile) may lack chat.read scope needed for SSE. The actor
+                        // token is still bootstrapping. Use a short retry delay so SSE
+                        // reconnects quickly once the actor token is available.
+                        self.sseReconnectDelay = 1.0
                     }
                     self.handleSSEDisconnect()
                     return
@@ -2265,9 +2301,9 @@ public final class HTTPTransport {
             "surfaceId": action.surfaceId,
             "actionId": action.actionId,
         ]
-        if let sessionId = action.sessionId {
-            body["sessionId"] = sessionId
-        }
+        // Omit sessionId — the server resolves the session via
+        // findSessionBySurfaceId(surfaceId), which is reliable regardless
+        // of conversationKey vs conversationId differences.
         if let data = action.data {
             body["data"] = jsonCompatibleDictionary(data)
         }
@@ -2477,7 +2513,7 @@ public final class HTTPTransport {
         }
     }
 
-    func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false) async {
+    func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false, authRetryCount: Int = 0) async {
         guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
 
         var request = URLRequest(url: url)
@@ -2495,7 +2531,16 @@ public final class HTTPTransport {
                         return
                     }
                 }
-                log.error("Fetch session list failed")
+                // 403 during assistant switch: the actor token hasn't been
+                // bootstrapped yet (http-token lacks chat.read scope). Retry
+                // a few times with a delay to let ensureActorCredentials() finish.
+                if statusCode == 403 && authRetryCount < 6 {
+                    log.info("Session list fetch got 403 — waiting for actor token (attempt \(authRetryCount + 1)/6)")
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    await fetchSessionList(offset: offset, limit: limit, isRetry: isRetry, authRetryCount: authRetryCount + 1)
+                    return
+                }
+                log.error("Fetch session list failed (HTTP \(statusCode))")
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
                 return
             }

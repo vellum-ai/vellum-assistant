@@ -19,8 +19,11 @@ extension DaemonClient {
 
         guard case .http(let baseURL, let bearerToken, let conversationKey) = config.transport else {
             isConnecting = false
+            log.info("connect: non-HTTP transport, skipping")
             return
         }
+
+        log.info("connect: establishing HTTP transport to \(baseURL, privacy: .public)")
 
         // The bearer token may be nil at config time (e.g. managed mode or
         // local HTTP where the token isn't known until bootstrap).
@@ -66,9 +69,11 @@ extension DaemonClient {
             try await transport.connect()
             isAuthenticated = true  // HTTP transport uses bearer token, no IPC auth needed
             isConnecting = false
+            log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {
             isConnecting = false
             httpTransport = nil
+            log.error("connect: transport connection failed for \(baseURL, privacy: .public): \(error)")
             throw error
         }
     }
@@ -83,6 +88,15 @@ extension DaemonClient {
     /// Stop the SSE event stream. Call when a chat window closes.
     public func stopSSE() {
         httpTransport?.stopSSE()
+    }
+
+    // MARK: - Token Update
+
+    /// Push a new bearer token to the active HTTP transport. If SSE is currently
+    /// disconnected (e.g. due to 403 errors with an older token), this restarts
+    /// the SSE stream so it can authenticate with the updated token.
+    public func updateTransportBearerToken(_ token: String) {
+        httpTransport?.updateBearerToken(token)
     }
 
     // MARK: - Disconnect

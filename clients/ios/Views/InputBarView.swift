@@ -126,11 +126,12 @@ struct InputBarView: View {
     private var standardInputRow: some View {
         HStack(spacing: VSpacing.md) {
             // Attachment button — tap opens photo library (most common), long-press shows both options
-            Button(action: { showPhotosPicker = true }) {
-                VIconView(.paperclip, size: 16)
-                    .foregroundColor(VColor.textSecondary)
-            }
-            .accessibilityLabel("Attach file")
+            VIconButton(
+                label: "Attach file",
+                icon: VIcon.paperclip.rawValue,
+                iconOnly: true,
+                action: { showPhotosPicker = true }
+            )
             .contextMenu {
                 Button {
                     showPhotosPicker = true
@@ -184,36 +185,34 @@ struct InputBarView: View {
 
             // Stop button (shown while generating but not yet cancelling)
             if isGenerating && !isCancelling {
-                Button(action: onStop) {
-                    ZStack {
-                        Circle()
-                            .fill(VColor.buttonNeutral)
-                            .frame(width: 32, height: 32)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(VColor.background)
-                            .frame(width: 11, height: 11)
-                    }
-                }
-                .accessibilityLabel("Stop generation")
+                VIconButton(
+                    label: "Stop generation",
+                    icon: VIcon.square.rawValue,
+                    iconOnly: true,
+                    variant: .neutral,
+                    action: onStop
+                )
             } else {
                 // Mic button — tap to expand the animated voice orb
-                Button(action: toggleVoiceInput) {
-                    VIconView(.mic, size: 22)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Start voice input")
+                VIconButton(
+                    label: "Start voice input",
+                    icon: VIcon.mic.rawValue,
+                    iconOnly: true,
+                    action: toggleVoiceInput
+                )
 
                 // Send button
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    onSend()
-                }) {
-                    VIconView(.circleArrowUp, size: 32)
-                        .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
-                }
+                VIconButton(
+                    label: "Send message",
+                    icon: VIcon.arrowUp.rawValue,
+                    iconOnly: true,
+                    variant: .primary,
+                    action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onSend()
+                    }
+                )
                 .disabled(!canSend)
-                .accessibilityLabel("Send message")
             }
         }
         .padding(VSpacing.md)

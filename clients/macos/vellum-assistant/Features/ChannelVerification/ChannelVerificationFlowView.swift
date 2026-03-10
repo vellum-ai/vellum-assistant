@@ -81,9 +81,7 @@ struct ChannelVerificationFlowView: View {
                         Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
                             .font(VFont.body)
                             .lineLimit(1)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                            .pointerCursor()
                     } else {
                         Text(primaryIdentity ?? "Verified")
                             .font(VFont.body)
@@ -95,9 +93,7 @@ struct ChannelVerificationFlowView: View {
                             Link(secondaryIdentity, destination: telegramProfileURL)
                                 .font(VFont.caption)
                                 .lineLimit(1)
-                                .onHover { hovering in
-                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
+                                .pointerCursor()
                         } else {
                             Text(secondaryIdentity)
                                 .font(VFont.caption)
@@ -263,9 +259,7 @@ struct ChannelVerificationFlowView: View {
                             .foregroundColor(VColor.accent)
                         }
                         .buttonStyle(.plain)
-                        .onHover { hovering in
-                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
+                        .pointerCursor()
                     }
                 }
             }
@@ -400,9 +394,7 @@ struct ChannelVerificationFlowView: View {
                             .foregroundColor(VColor.accent)
                     }
                     .buttonStyle(.plain)
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                    }
+                    .pointerCursor()
                 }
             } else if state.channel == "phone" || state.channel == "sms" {
                 Text("This is your personal phone number")

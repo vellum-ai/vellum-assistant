@@ -781,9 +781,7 @@ struct SettingsChannelsTab: View {
                     Link(value, destination: url)
                         .font(valueFont)
                         .lineLimit(1)
-                        .onHover { hovering in
-                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
+                        .pointerCursor()
                 } else {
                     Text(value)
                         .font(valueFont)
@@ -879,9 +877,7 @@ struct SettingsChannelsTab: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Remove \(device.deviceName)")
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
-                            }
+                            .pointerCursor()
                         }
                     }
                 }

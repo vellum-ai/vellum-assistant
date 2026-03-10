@@ -289,7 +289,7 @@ extension MainWindowView {
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .background(VColor.backgroundSubtle)
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -450,7 +450,7 @@ extension MainWindowView {
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+            .background(VColor.backgroundSubtle)
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
@@ -482,7 +482,7 @@ extension MainWindowView {
                 daemonClient: daemonClient
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+            .background(VColor.backgroundSubtle)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -817,7 +817,7 @@ struct DynamicWorkspaceWrapper: View {
 
                 Text(surface.title ?? data.preview?.title ?? "App")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(adaptiveColor(light: VColor.textPrimary, dark: VColor.textSecondary))
+                    .foregroundColor(VColor.contextualText)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -888,7 +888,7 @@ struct DynamicWorkspaceWrapper: View {
             .padding(.trailing, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(
-                adaptiveColor(light: Moss._50, dark: Moss._950)
+                VColor.backgroundSubtle
             )
 
             if let error = sharing.publishError {
@@ -1032,9 +1032,8 @@ private struct PublishedButton: View {
                 }
                 .onHover { hovering in
                     isCopyHovered = hovering
-                    if hovering { NSCursor.pointingHand.set() }
-                    else { NSCursor.arrow.set() }
                 }
+                .pointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
         .foregroundColor(VColor.buttonSecondaryText)
@@ -1105,8 +1104,8 @@ private struct ShareDrawerRow: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 }
 

@@ -14,7 +14,7 @@ struct ThreadSwitcherDrawer: View {
         VStack(spacing: 0) {
             Text("\(regularThreads.count) threads")
                 .font(VFont.caption)
-                .foregroundColor(Color(hex: 0xA1A096))
+                .foregroundColor(VColor.tagText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.sm)

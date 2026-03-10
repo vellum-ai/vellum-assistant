@@ -945,15 +945,10 @@ private struct AlwaysAllowRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
         }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
+        .pointerCursor()
     }
 }
 
@@ -985,15 +980,10 @@ private struct ScopePickerRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
         }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
+        .pointerCursor()
     }
 }
 

@@ -57,16 +57,11 @@ struct ModelSelectionStepView: View {
                     .padding(.vertical, VSpacing.lg)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(adaptiveColor(
-                                light: Stone._900,
-                                dark: Forest._600
-                            ))
+                            .fill(VColor.onboardingStepBackground)
                     )
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
 
             Button(action: { goBack() }) {
                 Text("Back")
@@ -74,9 +69,7 @@ struct ModelSelectionStepView: View {
                     .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            .pointerCursor()
             .padding(.top, VSpacing.xs)
 
             OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
@@ -135,9 +128,7 @@ struct ModelSelectionStepView: View {
             )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        .pointerCursor()
     }
 
     // MARK: - Helpers

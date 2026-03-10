@@ -54,13 +54,14 @@ describe("resolveScopeProfile", () => {
 
   test("gateway_service_v1 includes chat, settings, attachments, and internal scopes", () => {
     const scopes = resolveScopeProfile("gateway_service_v1");
+    expect(scopes.has("chat.read")).toBe(true);
     expect(scopes.has("chat.write")).toBe(true);
     expect(scopes.has("settings.read")).toBe(true);
     expect(scopes.has("settings.write")).toBe(true);
     expect(scopes.has("attachments.read")).toBe(true);
     expect(scopes.has("attachments.write")).toBe(true);
     expect(scopes.has("internal.write")).toBe(true);
-    expect(scopes.size).toBe(6);
+    expect(scopes.size).toBe(7);
   });
 
   test("ipc_v1 includes only ipc.all", () => {
