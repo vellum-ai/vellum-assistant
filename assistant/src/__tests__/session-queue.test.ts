@@ -1810,12 +1810,14 @@ describe("MessageQueue byte budget", () => {
   });
 
   test("reclaims budget when messages are removed by requestId", () => {
-    const q = new MessageQueue(5_000);
+    // Each 500-char item ≈ 1512 bytes (500*2 + 512 overhead).
+    // Budget of 4000 fits two items (3024) but not three (4536).
+    const q = new MessageQueue(4_000);
     expect(q.push(makeItem("a".repeat(500), "r1"))).toBe(true);
     expect(q.push(makeItem("b".repeat(500), "r2"))).toBe(true);
     expect(q.push(makeItem("c".repeat(500), "r3"))).toBe(false);
 
-    q.removeByRequestId("r1");
+    q.removeByRequestId("r1"); // frees 1512 bytes → 1512 remaining
     expect(q.push(makeItem("c".repeat(500), "r3"))).toBe(true);
   });
 
