@@ -82,10 +82,7 @@ import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
 } from "./session-process.js";
-import type {
-  QueueDrainReason,
-  QueueMetrics,
-} from "./session-queue-manager.js";
+import type { QueueDrainReason } from "./session-queue-manager.js";
 import { MessageQueue } from "./session-queue-manager.js";
 import type {
   ChannelCapabilities,
@@ -460,10 +457,6 @@ export class Session {
 
   getQueueDepth(): number {
     return this.queue.length;
-  }
-
-  getQueueMetrics(): QueueMetrics {
-    return this.queue.getMetrics();
   }
 
   hasQueuedMessages(): boolean {
