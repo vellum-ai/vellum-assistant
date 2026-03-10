@@ -37,7 +37,7 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "user.send_notification",
     description: "User-initiated notification via assistant tool",
   },
-  { id: "schedule.notify", description: "Scheduled one-shot notification triggered" },
+  { id: "schedule.notify", description: "Scheduled notification triggered (one-shot or recurring)" },
   { id: "schedule.complete", description: "Scheduled task finished running" },
   {
     id: "guardian.question",
