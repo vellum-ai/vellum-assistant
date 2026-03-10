@@ -336,7 +336,6 @@ export class Session {
         maxInputTokens: config.contextWindow.maxInputTokens,
         thinking: config.thinking,
         effort: config.effort,
-        maxToolUseTurns: config.maxToolUseTurns,
       },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
