@@ -23,7 +23,6 @@ import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { getRootDir } from "../../util/platform.js";
-import { getExternalAssistantId } from "./external-assistant-id.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
@@ -327,31 +326,6 @@ export function mintUiPageToken(): string {
     scope_profile: "ui_page_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 3600,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// CLI edge token
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a long-lived JWT for the CLI to authenticate with the gateway.
- *
- * Written to ~/.vellum/http-token at daemon startup so the CLI can read it
- * and pass it as a Bearer token. Regenerated on each daemon restart. A 30-day
- * TTL avoids expiry between restarts while keeping the window bounded.
- *
- * Uses the actor token pattern (sub=actor:<assistantId>:<guardianPrincipalId>)
- * with aud=vellum-gateway so the gateway's edge-auth middleware accepts it.
- */
-export function mintCliEdgeToken(guardianPrincipalId: string): string {
-  const externalAssistantId = getExternalAssistantId();
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: `actor:${externalAssistantId}:${guardianPrincipalId}`,
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 86400 * 30,
   });
 }
 
