@@ -2,60 +2,68 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Skeleton placeholder for the chat area while a thread is loading.
-/// Shows alternating assistant/user message bones that mimic the real
-/// `ChatBubble` layout, replacing a generic spinner with a content-aware preview.
+/// Mimics the real `ChatBubble` layout — a short user message followed by a
+/// multi-line assistant response — so the transition to real content feels seamless.
 struct ChatLoadingSkeleton: View {
-    /// Defines a skeleton row: either an assistant or user message placeholder.
-    private struct SkeletonRow: Identifiable {
-        let id: Int
-        let isUser: Bool
-        /// Fraction of `chatBubbleMaxWidth` the main bone should occupy.
-        let widthFraction: CGFloat
-        /// Height of the main text bone.
-        let boneHeight: CGFloat
-    }
-
-    private let rows: [SkeletonRow] = [
-        SkeletonRow(id: 0, isUser: false, widthFraction: 0.75, boneHeight: 48),
-        SkeletonRow(id: 1, isUser: true,  widthFraction: 0.40, boneHeight: 20),
-        SkeletonRow(id: 2, isUser: false, widthFraction: 0.60, boneHeight: 32),
-        SkeletonRow(id: 3, isUser: true,  widthFraction: 0.35, boneHeight: 20),
-    ]
+    /// Line widths for the multi-line assistant text block.
+    /// Varying lengths look more natural than uniform bones.
+    private let assistantLineWidths: [CGFloat] = [0.92, 0.85, 0.78, 0.95, 0.70, 0.45]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(rows) { row in
-                if row.isUser {
-                    userRow(row)
-                } else {
-                    assistantRow(row)
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            userMessage
+            assistantMessage
+        }
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+    }
+
+    // MARK: - User Message
+
+    /// Right-aligned user bubble with two short text lines inside,
+    /// matching real ChatBubble user styling (fill + padding + corner radius).
+    private var userMessage: some View {
+        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+            VSkeletonBone(width: 180, height: 14, radius: VRadius.sm)
+            VSkeletonBone(width: 120, height: 14, radius: VRadius.sm)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceBorder.opacity(0.25))
+        )
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    // MARK: - Assistant Message
+
+    /// Left-aligned assistant block with avatar placeholder and six text lines,
+    /// matching real ChatBubble assistant layout (28pt avatar + 8pt gap + content).
+    private var assistantMessage: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(assistantLineWidths.indices, id: \.self) { idx in
+                    VSkeletonBone(
+                        height: 14,
+                        radius: VRadius.sm
+                    )
+                    .frame(
+                        maxWidth: VSpacing.chatBubbleMaxWidth * assistantLineWidths[idx],
+                        alignment: .leading
+                    )
                 }
             }
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+            .overlay(alignment: .topLeading) {
+                // Avatar bone positioned identically to real ChatBubble
+                VSkeletonBone(width: 28, height: 28, radius: VRadius.pill)
+                    .offset(x: -(28 + VSpacing.sm), y: 0)
+            }
+            .padding(.leading, 28 + VSpacing.sm)
+
+            Spacer(minLength: 0)
         }
-    }
-
-    // MARK: - Assistant Row
-
-    @ViewBuilder
-    private func assistantRow(_ row: SkeletonRow) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            // Avatar placeholder
-            VSkeletonBone(width: 28, height: 28, radius: VRadius.pill)
-
-            // Text bone
-            VSkeletonBone(height: row.boneHeight, radius: VRadius.lg)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth * row.widthFraction)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - User Row
-
-    @ViewBuilder
-    private func userRow(_ row: SkeletonRow) -> some View {
-        VSkeletonBone(height: row.boneHeight, radius: VRadius.lg)
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth * row.widthFraction)
-            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
