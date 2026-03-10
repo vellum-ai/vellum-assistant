@@ -225,37 +225,38 @@ The macOS/iOS client listens for this event and surfaces the thread in the sideb
 - **Per-dispatch `options.onThreadCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
 - **Class-level `this.onThreadCreated` (IPC)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` IPC event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
 
-## Reminder Routing Metadata and Trigger-Time Enforcement
+## Schedule Routing Metadata and Trigger-Time Enforcement
 
-Reminders carry optional routing metadata that controls how notifications fan out across channels when the reminder fires. This enables a single reminder to produce multi-channel delivery without requiring the user to create duplicate reminders per channel.
+Schedules (both recurring and one-shot) carry optional routing metadata that controls how notifications fan out across channels when the schedule fires in `notify` mode. This enables a single schedule to produce multi-channel delivery without requiring the user to create duplicate schedules per channel.
 
 ### Routing Intent Model
 
-The `routing_intent` field on each reminder row specifies the desired channel coverage:
+The `routing_intent` field on each `schedule_jobs` row specifies the desired channel coverage:
 
-| Intent           | Behavior                                              | When to use                                                         |
-| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `single_channel` | Default LLM-driven routing (no override)              | Standard reminders where the decision engine picks the best channel |
-| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important reminders the user wants on both desktop and phone        |
-| `all_channels`   | Forces delivery on every connected channel            | Critical reminders that must reach the user everywhere              |
+| Intent           | Behavior                                              | When to use                                                          |
+| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `single_channel` | Default LLM-driven routing (no override)              | Standard schedules where the decision engine picks the best channel  |
+| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone         |
+| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere               |
 
-The default is `single_channel`, preserving backward compatibility. Routing intent is persisted in the `reminders` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
+The default is `all_channels`. Routing intent is persisted in the `schedule_jobs` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
 
 ### Routing Hints
 
-The `routing_hints` field is free-form JSON metadata passed alongside the routing intent. It flows through the signal as `routingHints` and is included in the decision engine prompt, allowing producers to communicate channel preferences or contextual hints without requiring schema changes.
+The `routing_hints_json` field is free-form JSON metadata passed alongside the routing intent. It flows through the signal as `routingHints` and is included in the decision engine prompt, allowing producers to communicate channel preferences or contextual hints without requiring schema changes.
 
 ### Trigger-Time Enforcement Flow
 
-When a reminder fires, the routing metadata flows through the notification pipeline with a post-decision enforcement step:
+When a schedule fires in `notify` mode, the routing metadata flows through the notification pipeline with a post-decision enforcement step:
 
 ```
-Reminder fires (scheduler)
-  → emitNotificationSignal({ routingIntent, routingHints })
-    → Decision Engine (LLM selects channels)
-      → enforceRoutingIntent() (post-decision guard)
-        → Deterministic Checks
-          → Broadcaster → Adapters → Delivery
+Schedule fires (scheduler.ts: notify mode)
+  → notifyScheduleOneShot callback (lifecycle.ts)
+    → emitNotificationSignal({ routingIntent, routingHints })
+      → Decision Engine (LLM selects channels)
+        → enforceRoutingIntent() (post-decision guard)
+          → Deterministic Checks
+            → Broadcaster → Adapters → Delivery
 ```
 
 The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM produces its channel selection but before deterministic checks. It overrides the decision's `selectedChannels` based on the routing intent:
@@ -266,16 +267,16 @@ The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM
 
 When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram]`).
 
-### Single-Reminder Fanout
+### Single-Schedule Fanout
 
-A key design principle: **one reminder produces one notification signal that fans out to multiple channels**. The user never needs to create separate reminders for each channel. The routing intent metadata on the single reminder controls the fanout behavior, and the notification pipeline handles per-channel copy rendering, conversation pairing, and delivery through the existing adapter infrastructure.
+A key design principle: **one schedule produces one notification signal that fans out to multiple channels**. The user never needs to create separate schedules for each channel. The routing intent metadata on the single schedule controls the fanout behavior, and the notification pipeline handles per-channel copy rendering, conversation pairing, and delivery through the existing adapter infrastructure.
 
 ### Data Flow
 
 ```
-reminders table (routing_intent, routing_hints_json)
-  → scheduler.ts: claimDueReminders() reads routing metadata
-    → lifecycle.ts: notifyReminder({ routingIntent, routingHints })
+schedule_jobs table (routing_intent, routing_hints_json)
+  → scheduler.ts: claimDueSchedules() reads routing metadata
+    → lifecycle.ts: notifyScheduleOneShot({ routingIntent, routingHints })
       → emitNotificationSignal({ routingIntent, routingHints })
         → signal.ts: NotificationSignal.routingIntent / routingHints
           → decision-engine.ts: evaluateSignal() → enforceRoutingIntent()
