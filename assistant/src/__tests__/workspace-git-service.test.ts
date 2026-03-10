@@ -629,7 +629,6 @@ describe("WorkspaceGitService", () => {
       // Verify .gitignore does NOT have our rules yet
       const contentBefore = readFileSync(join(testDir, ".gitignore"), "utf-8");
       expect(contentBefore).not.toContain("data/db/");
-      expect(contentBefore).not.toContain("vellum.sock");
 
       // Initialize the service — should append rules
       const service = new WorkspaceGitService(testDir);
@@ -652,7 +651,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const oldGitignore =
-        "# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\n";
+        "# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
       writeFileSync(join(testDir, ".gitignore"), oldGitignore);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
@@ -779,8 +778,6 @@ describe("WorkspaceGitService", () => {
       writeFileSync(join(testDir, "data", "memory", "index.json"), "{}");
       mkdirSync(join(testDir, "data", "apps"), { recursive: true });
       writeFileSync(join(testDir, "data", "apps", "state.json"), "{}");
-      mkdirSync(join(testDir, "data", "ipc-blobs"), { recursive: true });
-      writeFileSync(join(testDir, "data", "ipc-blobs", "blob1"), "ipc content");
 
       // Commit all changes, then verify what was included
       await service.commitChanges("test commit");
@@ -798,7 +795,6 @@ describe("WorkspaceGitService", () => {
       // Non-ignored data subdirectories SHOULD be in the commit
       expect(committedFiles).toContain("data/memory/index.json");
       expect(committedFiles).toContain("data/apps/state.json");
-      expect(committedFiles).toContain("data/ipc-blobs/blob1");
     });
 
     test("respects .gitignore for log files", async () => {
