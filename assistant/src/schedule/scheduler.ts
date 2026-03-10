@@ -35,7 +35,7 @@ export type ScheduleNotifyModeNotifier = (payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
-}) => void;
+}) => Promise<void>;
 
 export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
 
@@ -129,7 +129,7 @@ async function runScheduleOnce(
           { jobId: job.id, name: job.name, isOneShot },
           "Firing schedule notification",
         );
-        notifyScheduleOneShot({
+        await notifyScheduleOneShot({
           id: job.id,
           label: job.name,
           message: job.message,
@@ -138,6 +138,11 @@ async function runScheduleOnce(
         });
         if (isOneShot) {
           completeOneShot(job.id);
+        } else {
+          // Track recurring notify-mode success so lastStatus resets to ok
+          // and retryCount clears after a transient failure.
+          const runId = createScheduleRun(job.id, `notify-ok:${job.id}`);
+          completeScheduleRun(runId, { status: "ok" });
         }
       } catch (err) {
         log.warn(

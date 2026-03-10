@@ -56,7 +56,7 @@ ${buildSourceEventNamesHelpBlock()}
 
 Examples:
   $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build finished"
-  $ assistant notifications send --source-channel scheduler --source-event-name reminder.fired --message "Stand-up in 5 minutes" --urgency high
+  $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Stand-up in 5 minutes" --urgency high
   $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "File changed" --no-requires-action --is-async-background
   $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Deploy complete" --preferred-channels vellum,telegram --json`,
   );
@@ -143,7 +143,7 @@ Behavioral notes:
 
 Examples:
   $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Task complete"
-  $ assistant notifications send --source-channel scheduler --source-event-name reminder.fired --message "Meeting in 5 min" --urgency high --title "Reminder"
+  $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Meeting in 5 min" --urgency high --title "Reminder"
   $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json`,
     )
     .action(
@@ -318,8 +318,8 @@ ${buildSourceEventNamesHelpBlock()}
 Examples:
   $ assistant notifications list
   $ assistant notifications list --limit 5
-  $ assistant notifications list --source-event-name reminder.fired
-  $ assistant notifications list --source-event-name reminder.fired --limit 10 --json`,
+  $ assistant notifications list --source-event-name schedule.notify
+  $ assistant notifications list --source-event-name schedule.notify --limit 10 --json`,
     )
     .action(
       (
