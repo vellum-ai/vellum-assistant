@@ -2,8 +2,7 @@
  * HTTP route definitions for model configuration, conversation search,
  * message content, and queued message deletion.
  *
- * These routes expose IPC-only functionality over the HTTP API, enabling
- * clients to migrate from the Unix socket transport to HTTP+SSE.
+ * These routes expose session query functionality over the HTTP API.
  *
  * GET    /v1/model                   — current model info
  * PUT    /v1/model                   — set model

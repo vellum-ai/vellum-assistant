@@ -188,7 +188,7 @@ export class SubagentManager {
       memoryPolicy,
     );
 
-    // Mark session as having no direct IPC client — it routes through parent.
+    // Mark session as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     session.updateClient(wrappedSendToClient, true);
 

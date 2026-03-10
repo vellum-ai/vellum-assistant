@@ -1,9 +1,8 @@
 /**
  * In-process pub/sub hub for assistant events.
  *
- * Provides subscribe / publish primitives used by both the IPC daemon send
- * paths (PR 3) and the SSE route (PR 5). No runtime route or daemon
- * integration is wired here.
+ * Provides subscribe / publish primitives used by the daemon send paths
+ * and the SSE route. No runtime route or daemon integration is wired here.
  */
 
 import type { AssistantEvent } from "./assistant-event.js";

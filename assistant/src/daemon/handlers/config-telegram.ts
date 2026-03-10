@@ -53,7 +53,7 @@ export function summarizeTelegramError(err: unknown): string {
   return redactTelegramBotTokens(parts.join(" "));
 }
 
-// -- Transport-agnostic result type (omits the IPC `type` discriminant) --
+// -- Transport-agnostic result type (omits the `type` discriminant) --
 
 export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 
@@ -359,7 +359,7 @@ export async function setupTelegram(
   };
 }
 
-// -- IPC handler (thin wrapper over extracted functions) --
+// -- Message handler (thin wrapper over extracted functions) --
 
 export async function handleTelegramConfig(
   msg: TelegramConfigRequest,

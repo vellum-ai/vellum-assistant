@@ -5,7 +5,7 @@ import type {
 } from "./message-protocol.js";
 
 /**
- * Classified session error ready for IPC emission.
+ * Classified session error ready for client emission.
  */
 export interface ClassifiedSessionError {
   code: SessionErrorCode;
@@ -93,11 +93,11 @@ export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   return false;
 }
 
-/** Maximum length for debugDetails to prevent unbounded IPC payloads. */
+/** Maximum length for debugDetails to prevent unbounded event payloads. */
 const MAX_DEBUG_DETAIL_LENGTH = 4000;
 
 /**
- * Truncate debug details to a reasonable size for IPC transport.
+ * Truncate debug details to a reasonable size for transport.
  */
 function truncateDebugDetails(details: string): string {
   if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
@@ -305,7 +305,7 @@ function classifyByMessage(
 }
 
 /**
- * Build a `session_error` IPC message from a classified error.
+ * Build a `session_error` server message from a classified error.
  */
 export function buildSessionErrorMessage(
   sessionId: string,

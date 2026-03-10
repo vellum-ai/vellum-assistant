@@ -59,7 +59,7 @@ export interface OAuth2TokenResult {
 }
 
 export interface OAuth2FlowCallbacks {
-  /** Open a URL in the user's browser (e.g. via IPC `open_url`). */
+  /** Open a URL in the user's browser (e.g. via `open_url` message). */
   openUrl: (url: string) => void;
 }
 

@@ -2,7 +2,7 @@
  * HTTP route definitions for app CRUD, bundling, sharing, versioning,
  * gallery, and signing operations.
  *
- * Business logic is extracted from the IPC handlers in
+ * Business logic is extracted from the handlers in
  * `daemon/handlers/apps.ts`, `daemon/handlers/publish.ts`,
  * `daemon/handlers/signing.ts`, and `daemon/handlers/open-bundle-handler.ts`
  * so that the same operations are available over HTTP.
@@ -887,8 +887,7 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       handler: async ({ params }) => {
         try {
           // Package without signing callback (HTTP clients handle signing
-          // separately or skip it). The IPC flow used a socket-based
-          // signing callback; HTTP callers can use the sign-bundle
+          // separately or skip it). HTTP callers can use the sign-bundle
           // endpoint independently if needed.
           const result = await packageApp(params.id);
           const bundleData = readFileSync(result.bundlePath);

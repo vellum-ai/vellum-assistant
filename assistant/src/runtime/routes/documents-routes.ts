@@ -2,7 +2,7 @@
  * Route handlers for document persistence operations.
  *
  * Exposes document CRUD over HTTP, sharing business logic with the
- * IPC handlers in `daemon/handlers/documents.ts`.
+ * handlers in `daemon/handlers/documents.ts`.
  */
 import { rawAll, rawGet, rawRun } from "../../memory/db.js";
 import { getLogger } from "../../util/logger.js";
@@ -24,7 +24,7 @@ interface DocumentRow {
 type DocumentListRow = Omit<DocumentRow, "content">;
 
 // ---------------------------------------------------------------------------
-// Shared business logic (used by both IPC handlers and HTTP routes)
+// Shared business logic (used by both message handlers and HTTP routes)
 // ---------------------------------------------------------------------------
 
 export function saveDocument(params: {

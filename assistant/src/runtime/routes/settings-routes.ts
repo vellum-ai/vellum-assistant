@@ -2,12 +2,8 @@
  * HTTP route handlers for settings, identity/avatar, voice config,
  * OAuth connect, Twitter auth, and workspace files.
  *
- * Migrated from IPC handlers:
- *   - handlers/config-voice.ts (voice_config_update)
- *   - handlers/avatar.ts (generate_avatar)
- *   - handlers/oauth-connect.ts (oauth_connect_start)
- *   - handlers/twitter-auth.ts (twitter_auth_start, twitter_auth_status)
- *   - handlers/workspace-files.ts (workspace_files_list, workspace_file_read)
+ * Handles settings, identity/avatar, voice config,
+ * OAuth connect, Twitter auth, and workspace files.
  *   - handlers/config-tools.ts (tool_names_list, tool_permission_simulate, env_vars_request)
  */
 
@@ -69,9 +65,8 @@ function handleVoiceConfigUpdate(activationKey: string): Response {
   if (!result.ok) {
     return httpError("BAD_REQUEST", result.reason, 400);
   }
-  // The broadcast to IPC clients happens via the IPC handler. The HTTP
-  // route validates and returns the canonical value; the caller (client)
-  // applies the setting locally.
+  // The HTTP route validates and returns the canonical value; the caller
+  // (client) applies the setting locally.
   return Response.json({ ok: true, activationKey: result.value });
 }
 
@@ -479,7 +474,7 @@ function handleTwitterAuthStatus(): Response {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace files (IPC-style list/read)
+// Workspace files (list/read)
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_FILES = ["IDENTITY.md", "SOUL.md", "USER.md", "skills/"];
@@ -827,7 +822,7 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: () => handleTwitterAuthStatus(),
     },
 
-    // Workspace files (IPC-style list/read -- distinct from workspace-routes.ts tree/file)
+    // Workspace files (list/read -- distinct from workspace-routes.ts tree/file)
     {
       endpoint: "workspace-files",
       method: "GET",

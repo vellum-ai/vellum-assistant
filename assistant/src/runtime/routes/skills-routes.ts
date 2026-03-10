@@ -1,7 +1,7 @@
 /**
  * Route handlers for skill management operations.
  *
- * These HTTP routes expose the same business logic as the IPC skill handlers,
+ * These HTTP routes expose the same business logic as the skill handlers,
  * using the standalone functions extracted in `../../daemon/handlers/skills.ts`.
  */
 

@@ -395,7 +395,7 @@ export async function runDaemon(): Promise<void> {
     const hostname = getRuntimeHttpHost();
 
     // Mint a JWT bearer token for the pairing flow. This replaces the
-    // old static http-token that was removed — the pairing IPC handler
+    // old static http-token that was removed — the pairing handler
     // and HTTP auto-approve logic both guard on a non-empty bearer token.
     const pairingBearerToken = mintPairingBearerToken();
 

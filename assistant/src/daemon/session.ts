@@ -521,7 +521,7 @@ export class Session {
     // guardian trust-class and conversation context are available.
 
     // Emit authoritative confirmation state and activity transition centrally
-    // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
+    // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
       decision === "deny" || decision === "always_deny"

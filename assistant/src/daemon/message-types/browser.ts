@@ -1,5 +1,5 @@
 // Browser interaction types.
-// CDP request/response IPC was removed — Playwright's connectOverCDP is broken
+// CDP request/response messaging was removed — Playwright's connectOverCDP is broken
 // under Bun's runtime. Browser is now launched directly via Playwright.
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

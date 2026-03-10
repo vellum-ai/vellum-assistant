@@ -243,12 +243,12 @@ export class RuntimeHttpServer {
     return this.server?.port ?? this.port;
   }
 
-  /** Expose the pairing store so the daemon server can wire IPC handlers. */
+  /** Expose the pairing store so the daemon server can wire HTTP handlers. */
   getPairingStore(): PairingStore {
     return this.pairingStore;
   }
 
-  /** Set a callback for broadcasting IPC messages (wired by daemon server). */
+  /** Set a callback for broadcasting server messages (wired by daemon server). */
   setPairingBroadcast(fn: (msg: ServerMessage) => void): void {
     this.pairingBroadcast = fn;
   }

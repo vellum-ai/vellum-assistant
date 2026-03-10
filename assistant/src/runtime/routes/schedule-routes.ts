@@ -1,7 +1,7 @@
 /**
  * HTTP route handlers for schedule management.
  *
- * Migrated from IPC handler: handlers/config-scheduling.ts
+ * HTTP route handlers for schedule management.
  */
 
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";

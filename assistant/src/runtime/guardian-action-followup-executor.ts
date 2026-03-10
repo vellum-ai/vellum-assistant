@@ -13,7 +13,7 @@
  * reply text for the guardian's confirmation message.
  *
  * This module is channel-agnostic: both inbound-message-handler (Telegram
- * channels) and session-process (mac/IPC channel) use it.
+ * channels) and session-process (desktop channel) use it.
  */
 
 import { startCall } from "../calls/call-domain.js";
