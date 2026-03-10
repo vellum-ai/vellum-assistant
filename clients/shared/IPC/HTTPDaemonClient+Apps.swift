@@ -62,6 +62,43 @@ extension HTTPTransport {
         }
     }
 
+    // MARK: - REST Response Shapes
+
+    private struct HTTPAppsListResponse: Decodable {
+        let apps: [HTTPAppsListItem]
+    }
+
+    private struct HTTPAppsListItem: Decodable {
+        let id: String
+        let name: String
+        let description: String?
+        let icon: String?
+        let preview: String?
+        let createdAt: Int
+        let version: String?
+        let contentId: String?
+    }
+
+    private struct HTTPSharedAppsListResponse: Decodable {
+        let apps: [HTTPSharedAppsListItem]
+    }
+
+    private struct HTTPSharedAppsListItem: Decodable {
+        let uuid: String
+        let name: String
+        let description: String?
+        let icon: String?
+        let preview: String?
+        let entry: String
+        let trustTier: String
+        let signerDisplayName: String?
+        let bundleSizeBytes: Int
+        let installedAt: String
+        let version: String?
+        let contentId: String?
+        let updateAvailable: Bool?
+    }
+
     // MARK: - Apps HTTP Endpoints
 
     private func fetchAppsList(isRetry: Bool = false) async {
@@ -85,8 +122,23 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppsListResponse.self, from: data)
-            onMessage?(.appsListResponse(decoded))
+            let decoded = try decoder.decode(HTTPAppsListResponse.self, from: data)
+            let apps = decoded.apps.map { app in
+                IPCAppsListResponseApp(
+                    id: app.id,
+                    name: app.name,
+                    description: app.description,
+                    icon: app.icon,
+                    preview: app.preview,
+                    createdAt: app.createdAt,
+                    version: app.version,
+                    contentId: app.contentId
+                )
+            }
+            onMessage?(.appsListResponse(IPCAppsListResponse(
+                type: "apps_list_response",
+                apps: apps
+            )))
         } catch {
             log.error("Fetch apps list error: \(error.localizedDescription)")
         }
@@ -489,14 +541,42 @@ extension HTTPTransport {
                     if case .success = result { await fetchSharedAppsList(isRetry: true) }
                     return
                 }
+                if http.statusCode == 404 {
+                    // Older assistants may not expose the shared-apps route yet.
+                    onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(
+                        type: "shared_apps_list_response",
+                        apps: []
+                    )))
+                    return
+                }
                 guard http.statusCode == 200 else {
                     log.error("Fetch shared apps list failed (\(http.statusCode))")
                     return
                 }
             }
 
-            let decoded = try decoder.decode(IPCSharedAppsListResponse.self, from: data)
-            onMessage?(.sharedAppsListResponse(decoded))
+            let decoded = try decoder.decode(HTTPSharedAppsListResponse.self, from: data)
+            let apps = decoded.apps.map { app in
+                IPCSharedAppsListResponseApp(
+                    uuid: app.uuid,
+                    name: app.name,
+                    description: app.description,
+                    icon: app.icon,
+                    preview: app.preview,
+                    entry: app.entry,
+                    trustTier: app.trustTier,
+                    signerDisplayName: app.signerDisplayName,
+                    bundleSizeBytes: app.bundleSizeBytes,
+                    installedAt: app.installedAt,
+                    version: app.version,
+                    contentId: app.contentId,
+                    updateAvailable: app.updateAvailable
+                )
+            }
+            onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(
+                type: "shared_apps_list_response",
+                apps: apps
+            )))
         } catch {
             log.error("Fetch shared apps list error: \(error.localizedDescription)")
         }

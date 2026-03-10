@@ -185,10 +185,11 @@ describe("tool manifest", () => {
     // Verify they are in eager tools instead
     expect(eagerModuleToolNames).toContain("bash");
     expect(eagerModuleToolNames).toContain("swarm_delegate");
+    expect(eagerModuleToolNames).not.toContain("version");
   });
 
   test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(15);
+    expect(eagerModuleToolNames.length).toBe(14);
   });
 
   test("explicit tools list includes memory, credential, and watch tools", () => {
@@ -197,7 +198,6 @@ describe("tool manifest", () => {
     expect(names).toContain("memory_save");
     expect(names).toContain("memory_update");
     expect(names).toContain("credential_store");
-    expect(names).toContain("account_manage");
     expect(names).toContain("start_screen_watch");
   });
 
@@ -211,6 +211,11 @@ describe("tool manifest", () => {
 });
 
 describe("baseline characterization: hardcoded tool loading", () => {
+  test("version is NOT registered in the global registry after initializeTools()", async () => {
+    await initializeTools();
+    expect(getTool("version")).toBeUndefined();
+  });
+
   test("gmail tools are NOT registered in the global registry after initializeTools()", async () => {
     await initializeTools();
     const allTools = getAllTools();

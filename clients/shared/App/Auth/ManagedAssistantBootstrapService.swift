@@ -17,6 +17,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     case hatchFailed(String)
     case unexpectedResponse(String)
     case multipleOrganizations
+    case assistantUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +33,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
             return "Unexpected response format: \(message)"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+        case .assistantUnavailable(let id):
+            return "Selected assistant \(id) is no longer available. Please sign out and sign in again to set up a new assistant."
         }
     }
 }
@@ -39,8 +42,9 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 /// Orchestrates discovery or creation of a managed assistant on the platform.
 ///
 /// The bootstrap flow:
-/// 1. Try to fetch the current user's managed assistant.
-/// 2. If one exists (200), return it as `.reusedExisting`.
+/// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
+///    If it returns 404/403, surface an error instead of silently hatching a replacement.
+/// 2. Otherwise, fall back to GET /assistants/current/ to discover the user's assistant.
 /// 3. If none exists (404), create one via hatch and return `.createdNew`.
 /// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
 @MainActor
@@ -58,30 +62,34 @@ public final class ManagedAssistantBootstrapService {
         description: String? = nil,
         anthropicApiKey: String? = nil
     ) async throws -> ManagedBootstrapOutcome {
-        // Resolve the user's organization ID first — required for all platform API calls.
-        // Prefer the persisted org to avoid ambiguity for multi-org users.
-        let organizationId: String
-        if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
-            organizationId = persistedOrgId
-            log.info("Using persisted organization: \(organizationId, privacy: .public)")
-        } else {
+        let organizationId = try await resolveOrganizationId()
+
+        // If we already have a selected managed assistant, retrieve it directly.
+        // Do NOT fall back to current/ or hatch/ — surface an error if unavailable.
+        if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+            log.info("Found connectedAssistantId: \(connectedId, privacy: .public), retrieving directly")
+            let result: PlatformAssistantResult
             do {
-                let orgs = try await authService.getOrganizations()
-                switch orgs.count {
-                case 0:
-                    throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
-                case 1:
-                    organizationId = orgs[0].id
-                default:
-                    throw ManagedBootstrapError.multipleOrganizations
-                }
-                UserDefaults.standard.set(organizationId, forKey: "connectedOrganizationId")
-                log.info("Resolved organization: \(organizationId, privacy: .public)")
+                result = try await authService.getAssistant(id: connectedId, organizationId: organizationId)
             } catch let error as PlatformAPIError {
                 throw mapPlatformError(error)
             }
+
+            switch result {
+            case .found(let assistant):
+                log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
+                return .reusedExisting(assistant)
+            case .notFound:
+                // Clear the stale ID so retries fall through to current/ + hatch
+                // instead of hitting the same 404 in a loop.
+                log.error("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
+                UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+                throw ManagedBootstrapError.assistantUnavailable(connectedId)
+            }
         }
 
+        // No selected assistant — discover via current/ or hatch a new one.
+        log.info("No connectedAssistantId set, falling back to current/ discovery")
         let currentResult: PlatformAssistantResult
         do {
             currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
@@ -109,6 +117,31 @@ public final class ManagedAssistantBootstrapService {
             }
             log.info("Created new managed assistant: \(newAssistant.id, privacy: .public)")
             return .createdNew(newAssistant)
+        }
+    }
+
+    /// Resolve the organization ID, preferring the persisted value.
+    private func resolveOrganizationId() async throws -> String {
+        if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            log.info("Using persisted organization: \(persistedOrgId, privacy: .public)")
+            return persistedOrgId
+        }
+
+        do {
+            let orgs = try await authService.getOrganizations()
+            switch orgs.count {
+            case 0:
+                throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
+            case 1:
+                let orgId = orgs[0].id
+                UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+                log.info("Resolved organization: \(orgId, privacy: .public)")
+                return orgId
+            default:
+                throw ManagedBootstrapError.multipleOrganizations
+            }
+        } catch let error as PlatformAPIError {
+            throw mapPlatformError(error)
         }
     }
 

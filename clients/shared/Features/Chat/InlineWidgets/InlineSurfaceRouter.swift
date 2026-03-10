@@ -216,13 +216,18 @@ public struct InlineSurfaceRouter: View {
                                 )
                             }
                         },
-                        onShareApp: {
-                            guard let appId = data.appId else { return }
-                            NotificationCenter.default.post(
-                                name: Notification.Name("MainWindow.shareAppCloud"),
-                                object: nil,
-                                userInfo: ["appId": appId]
-                            )
+                        onTogglePin: data.appId.map { appId in
+                            { isPinned in
+                                NotificationCenter.default.post(
+                                    name: Notification.Name(isPinned ? "MainWindow.unpinApp" : "MainWindow.pinApp"),
+                                    object: nil,
+                                    userInfo: [
+                                        "appId": appId,
+                                        "appName": preview.title,
+                                        "appIcon": preview.icon as Any
+                                    ]
+                                )
+                            }
                         }
                     )
                 } else {

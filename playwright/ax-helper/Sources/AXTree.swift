@@ -46,7 +46,6 @@ final class AXTreeEnumerator {
         "AXTextField", "AXTextArea", "AXComboBox",
     ]
 
-    /// Window titles that should be excluded from enumeration (e.g. test overlays).
     private static let ignoredWindowTitles: Set<String> = [
         "E2E Status Overlay",
     ]
@@ -66,13 +65,11 @@ final class AXTreeEnumerator {
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
 
-        // Enable enhanced AX for web content in browsers
         AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
 
         var windowValue: CFTypeRef?
         let windowResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
 
-        // Use the focused window if available and not in the ignore list
         if windowResult == .success, let windowRef = windowValue,
            CFGetTypeID(windowRef) == AXUIElementGetTypeID() {
             let focusedTitle = getStringAttribute(windowRef as! AXUIElement, kAXTitleAttribute as CFString) ?? ""
@@ -81,7 +78,6 @@ final class AXTreeEnumerator {
             }
         }
 
-        // Fall back to the first non-ignored window
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
               let windows = windowsRef as? [AXUIElement] else {
@@ -131,20 +127,14 @@ final class AXTreeEnumerator {
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
         let isStaticText = role == "AXStaticText" || role == "AXHeading"
 
-        // Enumerate children
         var childElements: [AXElement] = []
         var childrenRef: CFTypeRef?
 
         if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
            let children = childrenRef as? [AXUIElement] {
-            if children.count >= 1000 {
-                // Skip corrupted children
-            } else {
-                for (index, child) in children.enumerated() {
-                    guard totalElementsEnumerated < maxElementsPerEnumeration else {
-                        break
-                    }
-                    _ = index
+            if children.count < 1000 {
+                for child in children {
+                    guard totalElementsEnumerated < maxElementsPerEnumeration else { break }
                     childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
                 }
             }
@@ -331,9 +321,8 @@ final class AXTreeEnumerator {
         return result
     }
 
-    // MARK: - State File (for element-based clicking)
+    // MARK: - State File
 
-    /// Build a map from element ID → center point and write to a JSON state file.
     static func writeStateFile(elements: [AXElement], path: String = "/tmp/ax-helper-state.json") {
         let flat = flattenElements(elements)
         var map: [String: [String: Int]] = [:]
@@ -345,7 +334,6 @@ final class AXTreeEnumerator {
         }
     }
 
-    /// Read the state file and return coordinates for a given element ID.
     static func readCoordinates(forElementId id: Int, path: String = "/tmp/ax-helper-state.json") -> CGPoint? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let map = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Int]],

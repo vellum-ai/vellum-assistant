@@ -792,13 +792,12 @@ async function main() {
 
       // Attach a trace ID to every non-healthcheck request for
       // end-to-end correlation across webhook -> runtime -> reply.
-      const traceId = req.headers.get("x-trace-id") || generateTraceId();
-      const headers = new Headers(req.headers);
-      headers.set("x-trace-id", traceId);
-      const tracedReq = new Request(req, { headers });
+      if (!req.headers.has("x-trace-id")) {
+        req.headers.set("x-trace-id", generateTraceId());
+      }
 
       // ── Route table dispatch ──
-      const response = router(tracedReq, url, resolveClientIp);
+      const response = router(req, url, resolveClientIp);
       if (response !== null) return response;
 
       return Response.json(

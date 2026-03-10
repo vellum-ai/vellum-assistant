@@ -35,7 +35,7 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
  * (i.e. it can modify the filesystem, execute arbitrary commands, or trigger
  * external actions). Read-only and informational tools return `false`.
  *
- * For mixed-action tools (e.g. account_manage, credential_store), the optional
+ * For mixed-action tools (e.g. credential_store), the optional
  * `input` parameter is inspected to distinguish mutating actions (create,
  * update, cancel) from read-only ones (list, get).
  */
@@ -46,10 +46,6 @@ export function isSideEffectTool(
   if (SIDE_EFFECT_TOOLS.has(toolName)) return true;
 
   // Action-aware checks for mixed-action tools
-  if (toolName === "account_manage") {
-    const action = input?.action;
-    return action === "create" || action === "update";
-  }
   if (toolName === "credential_store") {
     const action = input?.action;
     return (

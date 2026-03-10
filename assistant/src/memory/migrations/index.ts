@@ -86,6 +86,7 @@ export { migrateRenameVerificationTable } from "./141-rename-verification-table.
 export { migrateRenameVerificationSessionIdColumn } from "./142-rename-verification-session-id-column.js";
 export { migrateRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
 export { migrateRenameVoiceToPhone } from "./144-rename-voice-to-phone.js";
+export { migrateDropAccountsTable } from "./145-drop-accounts-table.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

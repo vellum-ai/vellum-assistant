@@ -34,6 +34,7 @@ final class E2EStatusOverlayWindow {
             defer: false
         )
         overlayPanel.contentViewController = hostingController
+        overlayPanel.title = "E2E Status Overlay"
         overlayPanel.isFloatingPanel = true
         overlayPanel.level = .statusBar
         overlayPanel.isMovableByWindowBackground = true

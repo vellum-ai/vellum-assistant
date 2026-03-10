@@ -451,7 +451,6 @@ public struct ToolConfirmationData: Equatable {
         case "web_fetch":                             return "Fetch URL"
         case "web_search":                            return "Web Search"
         case "credential_store":                      return "Secure Storage"
-        case "account_manage":                        return "Account"
         case _ where toolName.hasPrefix("browser_"):  return "Browser"
         case _ where toolName.hasPrefix("schedule_"): return "Scheduling"
         case _ where toolName.hasPrefix("watcher_"):  return "Watcher"
@@ -479,7 +478,6 @@ public struct ToolConfirmationData: Equatable {
         case "web_fetch":                             return .circleArrowDown
         case "web_search":                            return .search
         case "credential_store":                      return .shield
-        case "account_manage":                        return .circleUser
         case _ where toolName.hasPrefix("browser_"):  return .globe
         case _ where toolName.hasPrefix("schedule_"): return .calendar
         case _ where toolName.hasPrefix("watcher_"):  return .eye
@@ -1012,8 +1010,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Updated the panel"
         case "ui_dismiss":
             return "Closed the panel"
-        case "request_file":
-            return "Requested a file"
         case "playbook_create":
             return "Created a playbook"
         case "playbook_update":
