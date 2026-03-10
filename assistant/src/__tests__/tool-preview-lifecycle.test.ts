@@ -2,14 +2,13 @@
  * Tests for the tool preview lifecycle feature.
  *
  * Verifies:
- * - handleToolUsePreviewStart emits correct IPC events when feature flag is enabled
+ * - handleToolUsePreviewStart emits correct IPC events
  * - handleToolUsePreviewStart emits activity state with "tool_running" phase
  * - handleInputJsonDelta includes toolUseId in emitted tool_input_delta
  * - handleToolResult includes toolUseId in emitted tool_result
- * - handleToolUsePreviewStart does NOT emit when feature flag is disabled
  * - Event ordering: tool_use_preview_start → input_json_delta → tool_use
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock platform (must precede imports that read it) ─────────────────────────
 mock.module("../util/platform.js", () => ({
@@ -39,14 +38,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// ── Mock config/loader for feature flag control ───────────────────────────────
-let mockFeatureFlagEnabled = false;
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    assistantFeatureFlagValues: {
-      "feature_flags.tool-preview-lifecycle.enabled": mockFeatureFlagEnabled,
-    },
     skills: {
       entries: {},
       load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
@@ -198,18 +191,8 @@ describe("tool preview lifecycle", () => {
     state = createEventHandlerState();
   });
 
-  // ── Feature flag enabled ──────────────────────────────────────────────────
-
-  describe("when feature flag is enabled", () => {
-    beforeEach(() => {
-      mockFeatureFlagEnabled = true;
-    });
-
-    afterEach(() => {
-      mockFeatureFlagEnabled = false;
-    });
-
-    test("handleToolUsePreviewStart emits tool_use_preview_start IPC message", () => {
+  describe("handleToolUsePreviewStart", () => {
+    test("emits tool_use_preview_start IPC message", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({
         onEvent: collector.onEvent,
@@ -233,7 +216,7 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).sessionId).toBe("test-session-id");
     });
 
-    test("handleToolUsePreviewStart emits activity state with tool_running phase and preview_start reason", () => {
+    test("emits activity state with tool_running phase and preview_start reason", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({
         onEvent: collector.onEvent,
@@ -256,7 +239,7 @@ describe("tool preview lifecycle", () => {
       expect(activity.statusText).toMatch(/^Preparing/);
     });
 
-    test("handleInputJsonDelta includes toolUseId in emitted tool_input_delta", () => {
+    test("handleInputJsonDelta includes toolUseId", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({ onEvent: collector.onEvent });
 
@@ -276,7 +259,7 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).sessionId).toBe("test-session-id");
     });
 
-    test("handleToolResult includes toolUseId in emitted tool_result", () => {
+    test("handleToolResult includes toolUseId", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({
         onEvent: collector.onEvent,
@@ -309,45 +292,9 @@ describe("tool preview lifecycle", () => {
     });
   });
 
-  // ── Feature flag disabled ─────────────────────────────────────────────────
-
-  describe("when feature flag is disabled", () => {
-    beforeEach(() => {
-      mockFeatureFlagEnabled = false;
-    });
-
-    test("handleToolUsePreviewStart does NOT emit any events", () => {
-      const collector = createEventCollector();
-      const deps = createMockDeps({
-        onEvent: collector.onEvent,
-        ctx: {
-          ...createMockDeps().ctx,
-          emitActivityState: collector.emitActivityState,
-        } as unknown as EventHandlerDeps["ctx"],
-      });
-
-      handleToolUsePreviewStart(state, deps, {
-        type: "tool_use_preview_start",
-        toolUseId: "toolu_abc123",
-        toolName: "bash",
-      });
-
-      expect(collector.events).toHaveLength(0);
-      expect(collector.activityStates).toHaveLength(0);
-    });
-  });
-
   // ── Event ordering ────────────────────────────────────────────────────────
 
   describe("event ordering", () => {
-    beforeEach(() => {
-      mockFeatureFlagEnabled = true;
-    });
-
-    afterEach(() => {
-      mockFeatureFlagEnabled = false;
-    });
-
     test("events are emitted in correct order: tool_use_preview_start → tool_input_delta → tool_use", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({

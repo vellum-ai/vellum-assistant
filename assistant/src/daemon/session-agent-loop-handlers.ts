@@ -13,8 +13,6 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import {
   addMessage,
   getMessageById,
@@ -311,15 +309,6 @@ export function handleToolUsePreviewStart(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_use_preview_start" }>,
 ): void {
-  const config = getConfig();
-  if (
-    !isAssistantFeatureFlagEnabled(
-      "feature_flags.tool-preview-lifecycle.enabled",
-      config,
-    )
-  ) {
-    return;
-  }
   deps.onEvent({
     type: "tool_use_preview_start",
     toolUseId: event.toolUseId,
