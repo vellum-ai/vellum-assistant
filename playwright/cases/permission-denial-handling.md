@@ -1,5 +1,5 @@
 ---
-fixture: desktop-app-hatched
+fixture: desktop-app
 status: stable
 ---
 
