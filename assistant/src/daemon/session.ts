@@ -440,7 +440,7 @@ export class Session {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; requestId: string } {
+  ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
       content,

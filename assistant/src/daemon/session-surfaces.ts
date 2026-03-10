@@ -214,7 +214,7 @@ export interface SurfaceSessionContext {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; requestId: string };
+  ): { queued: boolean; requestId: string; rejected?: boolean };
   getQueueDepth(): number;
   processMessage(
     content: string,
@@ -579,6 +579,10 @@ export function handleSurfaceAction(
       sessionId: ctx.conversationId,
     });
 
+    if (result.rejected) {
+      return;
+    }
+
     if (result.queued) {
       log.info(
         { surfaceId, actionId, requestId },
@@ -724,6 +728,9 @@ export function handleSurfaceAction(
     undefined,
     displayContent,
   );
+  if (result.rejected) {
+    return;
+  }
   if (result.queued) {
     const position = ctx.getQueueDepth();
     if (!retainPending) {

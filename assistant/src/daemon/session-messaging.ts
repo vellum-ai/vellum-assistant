@@ -212,7 +212,7 @@ export function enqueueMessage(
   metadata?: Record<string, unknown>,
   options?: { isInteractive?: boolean },
   displayContent?: string,
-): { queued: boolean; requestId: string } {
+): { queued: boolean; requestId: string; rejected?: boolean } {
   if (!ctx.processing) {
     return { queued: false, requestId };
   }
@@ -225,7 +225,7 @@ export function enqueueMessage(
     extractTurnInterfaceContext(metadata) ??
     ctx.getTurnInterfaceContext() ??
     undefined;
-  ctx.queue.push({
+  const accepted = ctx.queue.push({
     content,
     attachments,
     requestId,
@@ -239,6 +239,15 @@ export function enqueueMessage(
     queuedAt: Date.now(),
     displayContent,
   });
+  if (!accepted) {
+    onEvent({
+      type: "error",
+      message:
+        "The assistant is busy and cannot accept more messages right now. Please try again shortly.",
+      category: "queue_full",
+    });
+    return { queued: false, requestId, rejected: true };
+  }
   return { queued: true, requestId };
 }
 

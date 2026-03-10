@@ -303,6 +303,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import type { QueueDrainReason, QueuePolicy } from "../daemon/session.js";
 import { Session } from "../daemon/session.js";
+import { MessageQueue } from "../daemon/session-queue-manager.js";
 
 type SessionWithWorkspaceDeps = Session & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -1751,4 +1752,95 @@ describe("Regression: cancel semantics and error channel split", () => {
       turnCommitHangForever = false;
     }
   }, 15_000);
+});
+
+// ---------------------------------------------------------------------------
+// MessageQueue byte budget
+// ---------------------------------------------------------------------------
+
+describe("MessageQueue byte budget", () => {
+  function makeItem(
+    content: string,
+    requestId = "r",
+    attachments: { data: string }[] = [],
+  ) {
+    return {
+      content,
+      attachments: attachments.map((a) => ({
+        id: "a",
+        filename: "f",
+        mimeType: "text/plain",
+        data: a.data,
+      })),
+      requestId,
+      onEvent: () => {},
+      queuedAt: 0,
+    };
+  }
+
+  test("accepts messages within budget", () => {
+    const q = new MessageQueue(10_000);
+    expect(q.push(makeItem("hello", "r1"))).toBe(true);
+    expect(q.length).toBe(1);
+  });
+
+  test("rejects message that would exceed byte budget", () => {
+    // Budget of 2000 bytes — a single message with ~500 chars of content
+    // uses ~1512 bytes (500*2 + 512 overhead). A second should be rejected.
+    const q = new MessageQueue(2_000);
+    expect(q.push(makeItem("x".repeat(500), "r1"))).toBe(true);
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(false);
+    expect(q.length).toBe(1);
+  });
+
+  test("always accepts first message even if it alone exceeds budget", () => {
+    const q = new MessageQueue(100); // tiny budget
+    expect(q.push(makeItem("x".repeat(1000), "r1"))).toBe(true);
+    expect(q.length).toBe(1);
+  });
+
+  test("reclaims budget when messages are shifted", () => {
+    const q = new MessageQueue(3_000);
+    expect(q.push(makeItem("x".repeat(500), "r1"))).toBe(true);
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(false);
+
+    q.shift(); // free up space
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(true);
+    expect(q.length).toBe(1);
+  });
+
+  test("reclaims budget when messages are removed by requestId", () => {
+    const q = new MessageQueue(5_000);
+    expect(q.push(makeItem("a".repeat(500), "r1"))).toBe(true);
+    expect(q.push(makeItem("b".repeat(500), "r2"))).toBe(true);
+    expect(q.push(makeItem("c".repeat(500), "r3"))).toBe(false);
+
+    q.removeByRequestId("r1");
+    expect(q.push(makeItem("c".repeat(500), "r3"))).toBe(true);
+  });
+
+  test("clear resets byte budget to zero", () => {
+    const q = new MessageQueue(3_000);
+    q.push(makeItem("x".repeat(500), "r1"));
+    q.clear();
+    expect(q.totalBytes).toBe(0);
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(true);
+  });
+
+  test("accounts for attachment data in byte estimate", () => {
+    // 1000 chars content = 2512 bytes. Add a 2000 char attachment = +4000 bytes.
+    // Total ~6512 bytes. Budget of 5000 should reject.
+    const q = new MessageQueue(5_000);
+    expect(
+      q.push(
+        makeItem("x".repeat(1000), "r1", [{ data: "a".repeat(2000) }]),
+      ),
+    ).toBe(true); // first message always accepted
+    // Second message of same size should be rejected
+    expect(
+      q.push(
+        makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }]),
+      ),
+    ).toBe(false);
+  });
 });

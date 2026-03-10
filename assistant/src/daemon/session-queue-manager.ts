@@ -9,7 +9,10 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { getLogger } from "../util/logger.js";
 import type { ServerMessage, UserMessageAttachment } from "./message-protocol.js";
+
+const log = getLogger("session-queue");
 
 export interface QueuedMessage {
   content: string;
@@ -28,6 +31,13 @@ export interface QueuedMessage {
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
 }
+
+/**
+ * Maximum total estimated bytes across all queued messages per session.
+ * Limits memory consumption when a sender floods messages while the
+ * session is busy.  50 MB is well above any legitimate usage.
+ */
+export const DEFAULT_MAX_QUEUE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /**
  * Describes why a queued message was promoted from the queue.
@@ -50,21 +60,55 @@ export interface QueuePolicy {
  *
  * Session owns one instance; the wrapper handles iteration
  * so the rest of Session doesn't touch the raw array.
+ *
+ * A byte budget caps total memory held by queued messages so a
+ * high-rate sender cannot exhaust the process.
  */
 export class MessageQueue {
   private items: QueuedMessage[] = [];
+  private currentBytes = 0;
+  private maxBytes: number;
 
-  push(item: QueuedMessage): void {
+  constructor(maxBytes: number = DEFAULT_MAX_QUEUE_BYTES) {
+    this.maxBytes = maxBytes;
+  }
+
+  /**
+   * Attempt to enqueue a message.
+   * Returns `true` if accepted, `false` if rejected (over budget).
+   */
+  push(item: QueuedMessage): boolean {
+    const itemBytes = estimateItemBytes(item);
+    if (this.currentBytes + itemBytes > this.maxBytes && this.items.length > 0) {
+      log.warn(
+        {
+          requestId: item.requestId,
+          queueDepth: this.items.length,
+          currentBytes: this.currentBytes,
+          itemBytes,
+          maxBytes: this.maxBytes,
+        },
+        "Rejecting queued message: queue byte budget exceeded",
+      );
+      return false;
+    }
     item.queuedAt = Date.now();
     this.items.push(item);
+    this.currentBytes += itemBytes;
+    return true;
   }
 
   shift(): QueuedMessage | undefined {
-    return this.items.shift();
+    const item = this.items.shift();
+    if (item) {
+      this.currentBytes -= estimateItemBytes(item);
+    }
+    return item;
   }
 
   clear(): void {
     this.items = [];
+    this.currentBytes = 0;
   }
 
   get length(): number {
@@ -75,6 +119,10 @@ export class MessageQueue {
     return this.items.length === 0;
   }
 
+  get totalBytes(): number {
+    return this.currentBytes;
+  }
+
   /**
    * Remove a queued message by its requestId.
    * Returns the removed message, or undefined if not found.
@@ -82,10 +130,28 @@ export class MessageQueue {
   removeByRequestId(requestId: string): QueuedMessage | undefined {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
     if (idx === -1) return undefined;
-    return this.items.splice(idx, 1)[0];
+    const [removed] = this.items.splice(idx, 1);
+    this.currentBytes -= estimateItemBytes(removed);
+    return removed;
   }
 
   [Symbol.iterator](): Iterator<QueuedMessage> {
     return this.items[Symbol.iterator]();
   }
+}
+
+/**
+ * Estimate the in-memory byte cost of a queued message.
+ * Dominated by content text and attachment `data` (base64 strings).
+ */
+function estimateItemBytes(item: QueuedMessage): number {
+  let bytes = item.content.length * 2; // JS strings are UTF-16
+  for (const a of item.attachments) {
+    bytes += a.data.length * 2;
+    if (a.extractedText) bytes += a.extractedText.length * 2;
+  }
+  // Small fixed overhead for metadata, pointers, etc. (not worth
+  // measuring precisely — the content/attachment data dominates).
+  bytes += 512;
+  return bytes;
 }
