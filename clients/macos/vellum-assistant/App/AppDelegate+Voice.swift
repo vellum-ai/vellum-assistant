@@ -114,7 +114,8 @@ extension AppDelegate {
                 )
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
                 let isDictation = self?.voiceInput?.currentMode == .dictation
-                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation,
+                let isChatComposerOrigin = self?.voiceInput?.activeOrigin == .chatComposer
+                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation && !isChatComposerOrigin,
                    let manager = self?.mainWindow?.voiceModeManager {
                     let window = VoiceTranscriptionWindow(voiceModeManager: manager)
                     window.show()
