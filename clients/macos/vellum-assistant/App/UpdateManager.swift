@@ -17,10 +17,12 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     /// can launch its own bundled daemon cleanly.
     var onWillInstallUpdate: (() -> Void)?
 
-    /// Closure provided by Sparkle to trigger an immediate install-and-relaunch.
-    /// Stored when a background update is ready but the app is actively in use.
-    /// Called later (e.g. on quit or when idle) to apply the deferred update.
-    private var deferredInstallHandler: (() -> Void)?
+    /// Lock-protected storage for the deferred install handler.  Written from
+    /// any thread by the Sparkle delegate callback and read on MainActor by
+    /// `installDeferredUpdateIfAvailable()`.  Using `OSAllocatedUnfairLock`
+    /// eliminates the race between an async `Task` hop and a synchronous
+    /// `applicationWillTerminate` call.
+    private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
 
     override init() {
         super.init()
@@ -53,15 +55,19 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
     /// Whether an update has been downloaded and is waiting to be installed.
     public var hasDeferredUpdate: Bool {
-        deferredInstallHandler != nil
+        deferredInstallLock.withLock { $0 != nil }
     }
 
     /// Install a previously deferred update immediately.
     /// Call this when the app is about to quit or when it becomes idle.
     func installDeferredUpdateIfAvailable() {
-        guard let handler = deferredInstallHandler else { return }
+        let handler = deferredInstallLock.withLock { value -> (() -> Void)? in
+            let h = value
+            value = nil
+            return h
+        }
+        guard let handler else { return }
         log.info("Installing deferred update now")
-        deferredInstallHandler = nil
         onWillInstallUpdate?()
         handler()
     }
@@ -80,7 +86,7 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
             log.info("Will install update \(item.displayVersionString)")
             // Skip the daemon stop if we have a deferred update — the daemon
             // will be stopped when the deferred handler is invoked at quit.
-            guard self.deferredInstallHandler == nil else { return }
+            guard !self.hasDeferredUpdate else { return }
             self.onWillInstallUpdate?()
         }
     }
@@ -89,17 +95,17 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     /// appearing while the user is actively working.  Returns `false` to tell
     /// Sparkle we will handle the relaunch ourselves via the saved handler.
     ///
-    /// The handler is stored inside a `Task` hop to satisfy MainActor
-    /// isolation.  The closure reference remains valid regardless of
-    /// scheduling order, so the brief async gap is benign.
+    /// The handler is stored synchronously under a lock so that a subsequent
+    /// `applicationWillTerminate` → `installDeferredUpdateIfAvailable()` call
+    /// is guaranteed to see it, even if the run loop hasn't drained yet.
     nonisolated public func updater(
         _ updater: SPUUpdater,
         willInstallUpdateOnQuit item: SUAppcastItem,
         immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
     ) -> Bool {
+        deferredInstallLock.withLock { $0 = immediateInstallHandler }
         Task { @MainActor in
             log.info("Update \(item.displayVersionString) ready — deferring install until quit")
-            self.deferredInstallHandler = immediateInstallHandler
         }
         return false
     }
