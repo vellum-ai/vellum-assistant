@@ -17,6 +17,7 @@ private let log = Logger(
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
 /// - `~/.vellum/workspace/data/logs/` — daemon rotating log files (assistant-*.log)
+/// - `~/.vellum/workspace/data/db/assistant.db` — SQLite database containing tool invocation audit log
 /// - `~/.vellum/daemon-stderr.log` — daemon stderr capture
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
@@ -142,7 +143,17 @@ enum LogExporter {
             fileManager: fileManager
         )
 
-        // 4. Daemon stderr — ~/.vellum/daemon-stderr.log
+        // 4. Audit database — ~/.vellum/workspace/data/db/assistant.db
+        let auditDb = URL(fileURLWithPath: home)
+            .appendingPathComponent(".vellum/workspace/data/db/assistant.db")
+        if fileManager.fileExists(atPath: auditDb.path) {
+            try? fileManager.copyItem(
+                at: auditDb,
+                to: tempDir.appendingPathComponent("assistant.db")
+            )
+        }
+
+        // 5. Daemon stderr — ~/.vellum/daemon-stderr.log
         let stderrLog = URL(fileURLWithPath: home)
             .appendingPathComponent(".vellum/daemon-stderr.log")
         if fileManager.fileExists(atPath: stderrLog.path) {
@@ -152,7 +163,7 @@ enum LogExporter {
             )
         }
 
-        // 5. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
+        // 6. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
         let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
             ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
         let xdgLogDir = URL(fileURLWithPath: xdgConfigHome)
@@ -163,17 +174,17 @@ enum LogExporter {
             fileManager: fileManager
         )
 
-        // 6. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
+        // 7. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
         writeSanitizedLockfile(
             to: tempDir.appendingPathComponent("vellum.lock.json")
         )
 
-        // 7. UserDefaults snapshot — app-relevant keys for debugging
+        // 8. UserDefaults snapshot — app-relevant keys for debugging
         writeUserDefaultsSnapshot(
             to: tempDir.appendingPathComponent("user-defaults.json")
         )
 
-        // 8. Auth debug info — non-sensitive token expiry and refresh metadata
+        // 9. Auth debug info — non-sensitive token expiry and refresh metadata
         writeAuthDebugInfo(
             to: tempDir.appendingPathComponent("auth-debug.json")
         )
