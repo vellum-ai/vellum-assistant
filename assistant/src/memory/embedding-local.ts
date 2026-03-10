@@ -6,8 +6,10 @@ import { getEmbeddingModelsDir, getRootDir } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 import type {
   EmbeddingBackend,
+  EmbeddingInput,
   EmbeddingRequestOptions,
 } from "./embedding-backend.js";
+import { normalizeEmbeddingInput } from "./embedding-types.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
 
 const log = getLogger("memory-embedding-local");
@@ -56,10 +58,20 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   async embed(
-    texts: string[],
+    inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
-    if (texts.length === 0) return [];
+    if (inputs.length === 0) return [];
+
+    const texts = inputs.map((i) => {
+      const n = normalizeEmbeddingInput(i);
+      if (n.type !== "text") {
+        throw new Error(
+          "Local embedding backend only supports text inputs",
+        );
+      }
+      return n.text;
+    });
     if (options?.signal?.aborted)
       throw new DOMException("Aborted", "AbortError");
 

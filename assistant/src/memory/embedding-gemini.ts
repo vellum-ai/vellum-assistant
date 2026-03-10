@@ -1,7 +1,9 @@
 import type {
   EmbeddingBackend,
+  EmbeddingInput,
   EmbeddingRequestOptions,
 } from "./embedding-backend.js";
+import { normalizeEmbeddingInput } from "./embedding-types.js";
 
 interface GeminiEmbedResponse {
   embedding?: {
@@ -20,21 +22,29 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
   }
 
   async embed(
-    texts: string[],
+    inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
     const vectors: number[][] = [];
-    for (const text of texts) {
-      const values = await this.embedSingle(text, options);
+    for (const input of inputs) {
+      const values = await this.embedSingle(input, options);
       vectors.push(values);
     }
     return vectors;
   }
 
   private async embedSingle(
-    text: string,
+    input: EmbeddingInput,
     options?: EmbeddingRequestOptions,
   ): Promise<number[]> {
+    const normalized = normalizeEmbeddingInput(input);
+    if (normalized.type !== "text") {
+      throw new Error(
+        "Gemini embedding backend only supports text inputs (multimodal support coming soon)",
+      );
+    }
+    const text = normalized.text;
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       this.model,
     )}:embedContent?key=${encodeURIComponent(this.apiKey)}`;

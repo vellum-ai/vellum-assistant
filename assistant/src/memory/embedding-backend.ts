@@ -6,6 +6,21 @@ import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
+import {
+  type EmbeddingInput,
+  type MultimodalEmbeddingInput,
+  type TextEmbeddingInput,
+  normalizeEmbeddingInput,
+  embeddingInputContentHash,
+  isTextInput,
+} from "./embedding-types.js";
+
+export type {
+  EmbeddingInput,
+  MultimodalEmbeddingInput,
+  TextEmbeddingInput,
+};
+export { normalizeEmbeddingInput, embeddingInputContentHash, isTextInput };
 
 const log = getLogger("memory-embeddings");
 
@@ -34,12 +49,12 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   async embed(
-    texts: string[],
+    inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
     const backend = await this.getDelegate();
     try {
-      return await backend.embed(texts, options);
+      return await backend.embed(inputs, options);
     } catch (err) {
       // The onnxruntime-node failure surfaces here during the first embed() call
       // (via LocalEmbeddingBackend.initialize()). Mark broken so auto mode stops
@@ -103,18 +118,19 @@ function estimateEntryBytes(key: string, vector: number[]): number {
   return key.length * 2 + vector.length * 8;
 }
 
-function vectorCacheKey(provider: string, model: string, text: string): string {
+function vectorCacheKey(provider: string, model: string, input: EmbeddingInput): string {
+  const contentHash = embeddingInputContentHash(input);
   return createHash("sha256")
-    .update(`${provider}\0${model}\0${text}`)
+    .update(`${provider}\0${model}\0${contentHash}`)
     .digest("hex");
 }
 
 function getFromVectorCache(
   provider: string,
   model: string,
-  text: string,
+  input: EmbeddingInput,
 ): number[] | undefined {
-  const key = vectorCacheKey(provider, model, text);
+  const key = vectorCacheKey(provider, model, input);
   const v = vectorCache.get(key);
   if (v !== undefined) {
     // LRU refresh: move to end of insertion order
@@ -127,10 +143,10 @@ function getFromVectorCache(
 function putInVectorCache(
   provider: string,
   model: string,
-  text: string,
+  input: EmbeddingInput,
   vector: number[],
 ): void {
-  const key = vectorCacheKey(provider, model, text);
+  const key = vectorCacheKey(provider, model, input);
   // If replacing an existing entry, subtract its old cost first
   const existing = vectorCache.get(key);
   if (existing !== undefined) {
@@ -188,7 +204,7 @@ export interface EmbeddingBackend {
   readonly provider: EmbeddingProviderName;
   readonly model: string;
   embed(
-    texts: string[],
+    inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]>;
 }
@@ -336,7 +352,7 @@ export function getMemoryBackendStatus(config: AssistantConfig): {
 
 export async function embedWithBackend(
   config: AssistantConfig,
-  texts: string[],
+  inputs: EmbeddingInput[],
   options?: EmbeddingRequestOptions,
 ): Promise<{
   provider: EmbeddingProviderName;
@@ -361,8 +377,8 @@ export async function embedWithBackend(
       : [];
 
   // ── In-memory cache check (primary provider only) ──────────────
-  const cached: (number[] | null)[] = texts.map((t) => {
-    const v = getFromVectorCache(primaryProvider, primaryModel, t);
+  const cached: (number[] | null)[] = inputs.map((input) => {
+    const v = getFromVectorCache(primaryProvider, primaryModel, input);
     if (v && v.length === expectedDim) return v;
     return null;
   });
@@ -378,23 +394,23 @@ export async function embedWithBackend(
     };
   }
 
-  // ── Embed uncached texts ────────────────────────────────────────
+  // ── Embed uncached inputs ───────────────────────────────────────
   const backends: EmbeddingBackend[] = [selection.backend, ...fallbacks];
 
   let lastErr: unknown;
   for (const backend of backends) {
     const isPrimary = backend === selection.backend;
-    // For the primary backend, only embed uncached texts and merge with cached.
-    // For fallback backends, embed ALL texts since the cache was keyed to the primary.
-    const textsToEmbed = isPrimary
-      ? uncachedIndices.map((i) => texts[i])
-      : texts;
+    // For the primary backend, only embed uncached inputs and merge with cached.
+    // For fallback backends, embed ALL inputs since the cache was keyed to the primary.
+    const inputsToEmbed = isPrimary
+      ? uncachedIndices.map((i) => inputs[i])
+      : inputs;
 
     try {
-      const vectors = await backend.embed(textsToEmbed, options);
-      if (vectors.length !== textsToEmbed.length) {
+      const vectors = await backend.embed(inputsToEmbed, options);
+      if (vectors.length !== inputsToEmbed.length) {
         throw new Error(
-          `Embedding backend returned ${vectors.length} vectors for ${textsToEmbed.length} texts`,
+          `Embedding backend returned ${vectors.length} vectors for ${inputsToEmbed.length} inputs`,
         );
       }
       for (const vec of vectors) {
@@ -406,11 +422,11 @@ export async function embedWithBackend(
       }
 
       // Populate cache with freshly embedded vectors
-      for (let i = 0; i < textsToEmbed.length; i++) {
+      for (let i = 0; i < inputsToEmbed.length; i++) {
         putInVectorCache(
           backend.provider,
           backend.model,
-          textsToEmbed[i],
+          inputsToEmbed[i],
           vectors[i],
         );
       }
