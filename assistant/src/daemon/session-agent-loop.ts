@@ -1349,8 +1349,27 @@ export async function runAgentLoopImpl(
         });
       }
 
-      // Emit completion event
-      if (yieldedForHandoff) {
+      // Re-check: the user may have cancelled during attachment resolution
+      if (abortController.signal.aborted) {
+        ctx.emitActivityState(
+          "idle",
+          "generation_cancelled",
+          "global",
+          reqId,
+        );
+        ctx.traceEmitter.emit(
+          "generation_cancelled",
+          "Generation cancelled by user",
+          {
+            requestId: reqId,
+            status: "warning",
+          },
+        );
+        onEvent({
+          type: "generation_cancelled",
+          sessionId: ctx.conversationId,
+        });
+      } else if (yieldedForHandoff) {
         ctx.traceEmitter.emit(
           "generation_handoff",
           "Handing off to next queued message",
