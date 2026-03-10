@@ -114,12 +114,12 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcTrustContext: () => ({
+  resolveLocalTrustContext: () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
     guardianPrincipalId: "local-principal",
   }),
-  resolveLocalIpcAuthContext: () => ({
+  resolveLocalAuthContext: () => ({
     scope: "local_v1",
     actorPrincipalId: "local-principal",
   }),

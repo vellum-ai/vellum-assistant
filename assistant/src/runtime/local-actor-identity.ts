@@ -45,11 +45,6 @@ export function buildLocalAuthContext(sessionId: string): AuthContext {
 }
 
 /**
- * @deprecated Use `buildLocalAuthContext` instead.
- */
-export const buildIpcAuthContext = buildLocalAuthContext;
-
-/**
  * Resolve the guardian runtime context for a local connection.
  *
  * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
@@ -61,7 +56,7 @@ export const buildIpcAuthContext = buildLocalAuthContext;
  * bootstrap), falls back to a minimal guardian context so the local
  * user is not incorrectly denied.
  */
-export function resolveLocalIpcTrustContext(
+export function resolveLocalTrustContext(
   sourceChannel: ChannelId = "vellum",
 ): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
@@ -81,7 +76,7 @@ export function resolveLocalIpcTrustContext(
 
   // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
   // to self-heal (creates the binding + contact if missing).
-  log.debug("No vellum guardian contact found; bootstrapping binding for IPC");
+  log.debug("No vellum guardian contact found; bootstrapping binding for local session");
   try {
     const principalId = ensureVellumGuardianBinding(assistantId);
     const trustCtx = resolveTrustContext({
@@ -115,7 +110,7 @@ export function resolveLocalIpcTrustContext(
  * downstream code to resolve guardian context using the same
  * `authContext.actorPrincipalId` path as HTTP sessions.
  */
-export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
+export function resolveLocalAuthContext(sessionId: string): AuthContext {
   const authContext = buildLocalAuthContext(sessionId);
 
   // Enrich with the guardian principal ID from contacts-first path
@@ -128,10 +123,10 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
   }
 
   // Self-heal: no guardian contact with principalId — bootstrap via
-  // ensureVellumGuardianBinding (mirrors resolveLocalIpcTrustContext).
+  // ensureVellumGuardianBinding (mirrors resolveLocalTrustContext).
   try {
     log.debug(
-      "No vellum guardian contact found; bootstrapping binding for IPC auth",
+      "No vellum guardian contact found; bootstrapping binding for local auth",
     );
     const principalId = ensureVellumGuardianBinding(authContext.assistantId);
     return { ...authContext, actorPrincipalId: principalId };

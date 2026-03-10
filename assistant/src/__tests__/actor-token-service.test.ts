@@ -63,8 +63,8 @@ import {
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import {
-  resolveLocalIpcAuthContext,
-  resolveLocalIpcTrustContext,
+  resolveLocalAuthContext,
+  resolveLocalTrustContext,
 } from "../runtime/local-actor-identity.js";
 
 // ---------------------------------------------------------------------------
@@ -357,20 +357,20 @@ describe("bootstrap endpoint idempotency", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Local IPC identity resolution
+// Local identity resolution
 // ---------------------------------------------------------------------------
 
-describe("resolveLocalIpcTrustContext", () => {
+describe("resolveLocalTrustContext", () => {
   test("returns guardian context when vellum binding exists", () => {
     ensureVellumGuardianBinding("self");
 
-    const ctx = resolveLocalIpcTrustContext();
+    const ctx = resolveLocalTrustContext();
     expect(ctx.trustClass).toBe("guardian");
     expect(ctx.sourceChannel).toBe("vellum");
   });
 
   test("returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)", () => {
-    const ctx = resolveLocalIpcTrustContext();
+    const ctx = resolveLocalTrustContext();
     expect(ctx.trustClass).toBe("guardian");
     expect(ctx.sourceChannel).toBe("vellum");
     expect(ctx.guardianPrincipalId).toBeDefined();
@@ -378,33 +378,33 @@ describe("resolveLocalIpcTrustContext", () => {
 
   test("respects custom sourceChannel parameter", () => {
     ensureVellumGuardianBinding("self");
-    const ctx = resolveLocalIpcTrustContext("vellum");
+    const ctx = resolveLocalTrustContext("vellum");
     expect(ctx.sourceChannel).toBe("vellum");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Local IPC AuthContext resolution
+// Local AuthContext resolution
 // ---------------------------------------------------------------------------
 
-describe("resolveLocalIpcAuthContext", () => {
+describe("resolveLocalAuthContext", () => {
   test("returns AuthContext with local principal type", () => {
-    const ctx = resolveLocalIpcAuthContext("session-123");
+    const ctx = resolveLocalAuthContext("session-123");
     expect(ctx.principalType).toBe("local");
   });
 
   test("subject follows local:self:<sessionId> pattern", () => {
-    const ctx = resolveLocalIpcAuthContext("session-abc");
+    const ctx = resolveLocalAuthContext("session-abc");
     expect(ctx.subject).toBe("local:self:session-abc");
   });
 
   test("assistantId is always self", () => {
-    const ctx = resolveLocalIpcAuthContext("session-123");
+    const ctx = resolveLocalAuthContext("session-123");
     expect(ctx.assistantId).toBe("self");
   });
 
   test("uses local_v1 scope profile with local.all scope", () => {
-    const ctx = resolveLocalIpcAuthContext("session-123");
+    const ctx = resolveLocalAuthContext("session-123");
     expect(ctx.scopeProfile).toBe("local_v1");
     expect(ctx.scopes.has("local.all")).toBe(true);
   });
@@ -414,7 +414,7 @@ describe("resolveLocalIpcAuthContext", () => {
     const guardianResult = findGuardianForChannel("vellum");
     expect(guardianResult).toBeTruthy();
 
-    const ctx = resolveLocalIpcAuthContext("session-123");
+    const ctx = resolveLocalAuthContext("session-123");
     expect(ctx.actorPrincipalId).toBe(
       guardianResult!.contact.principalId ?? undefined,
     );
@@ -425,14 +425,14 @@ describe("resolveLocalIpcAuthContext", () => {
     resetDb();
     initializeDb();
 
-    const ctx = resolveLocalIpcAuthContext("session-123");
+    const ctx = resolveLocalAuthContext("session-123");
     // Self-heal creates a vellum guardian binding automatically
     expect(ctx.actorPrincipalId).toBeDefined();
     expect(ctx.actorPrincipalId).toMatch(/^vellum-principal-/);
   });
 
   test("sessionId matches the provided argument", () => {
-    const ctx = resolveLocalIpcAuthContext("my-session");
+    const ctx = resolveLocalAuthContext("my-session");
     expect(ctx.sessionId).toBe("my-session");
   });
 });
