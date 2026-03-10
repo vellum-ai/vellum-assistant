@@ -261,36 +261,6 @@ struct MarkdownSegmentView: View {
         return result
     }
 
-    /// Applies inline code styling (background + text color) to an AttributedString.
-    private static func applyInlineCodeStyles(
-        to input: AttributedString,
-        codeTextColor: Color,
-        codeBackgroundColor: Color
-    ) -> AttributedString {
-        var result = input
-        var codeRanges: [Range<AttributedString.Index>] = []
-        for run in result.runs {
-            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
-                codeRanges.append(run.range)
-            }
-        }
-        for range in codeRanges.reversed() {
-            result[range].foregroundColor = codeTextColor
-            result[range].backgroundColor = codeBackgroundColor
-            var trailing = AttributedString("\u{2009}")
-            trailing.backgroundColor = codeBackgroundColor
-            result.insert(trailing, at: range.upperBound)
-            var leading = AttributedString("\u{2009}")
-            leading.backgroundColor = codeBackgroundColor
-            result.insert(leading, at: range.lowerBound)
-        }
-        // Underline links so they are visually distinct from plain text
-        for run in result.runs where result[run.range].link != nil {
-            result[run.range].underlineStyle = .single
-        }
-        return result
-    }
-
     /// Pure builder with no side effects — separated for caching.
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
@@ -326,11 +296,20 @@ struct MarkdownSegmentView: View {
 
                     var prefixAttr = AttributedString(indentString + prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
-                    result += prefixAttr
 
                     let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
                         ?? AttributedString(item.text)
-                    result += itemAttr
+
+                    // Apply hanging indent so wrapped lines align with item text
+                    let prefixText = indentString + prefix
+                    let prefixWidth = CGFloat(prefixText.count) * 7.5 * zoomScale
+                    let paragraphStyle = NSMutableParagraphStyle()
+                    paragraphStyle.headIndent = prefixWidth
+                    paragraphStyle.firstLineHeadIndent = 0
+
+                    var itemCombined = prefixAttr + itemAttr
+                    itemCombined.applyParagraphStyle(paragraphStyle)
+                    result += itemCombined
                 }
 
             default:
