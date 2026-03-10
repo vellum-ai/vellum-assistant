@@ -52,13 +52,13 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> [AppItem]? in
                 if case .appsListResponse(let response) = message {
-                    self.localApps = response.apps
-                    self.isLoadingApps = false
-                    return
+                    return response.apps
                 }
+                return nil
             }
+            self.localApps = result ?? self.localApps
             isLoadingApps = false
         }
     }
@@ -79,13 +79,14 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let success = await stream.firstMatch { message -> Bool? in
                 if case .appDeleteResponse(let response) = message {
-                    if response.success {
-                        fetchApps()
-                    }
-                    return
+                    return response.success
                 }
+                return nil
+            }
+            if success == true {
+                fetchApps()
             }
         }
     }
@@ -100,30 +101,13 @@ public final class DirectoryStore: ObservableObject {
             return false
         }
 
-        // Race the stream listener against a 15-second timeout to avoid waiting
-        // indefinitely when the transport returns early without emitting a response.
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask {
-                for await message in stream {
-                    if case .shareAppCloudResponse(let response) = message {
-                        return response.success
-                    }
-                }
-                return false
+        let result = await stream.firstMatch { message -> Bool? in
+            if case .shareAppCloudResponse(let response) = message {
+                return response.success
             }
-
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                return nil // sentinel indicating timeout
-            }
-
-            let first = await group.next() ?? nil
-
-            // Cancel the remaining task (timeout or stream listener)
-            group.cancelAll()
-
-            return first ?? false
+            return nil
         }
+        return result ?? false
     }
 
     // MARK: - Shared Apps
@@ -142,13 +126,13 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> [SharedAppItem]? in
                 if case .sharedAppsListResponse(let response) = message {
-                    self.sharedApps = response.apps
-                    self.isLoadingSharedApps = false
-                    return
+                    return response.apps
                 }
+                return nil
             }
+            self.sharedApps = result ?? self.sharedApps
             isLoadingSharedApps = false
         }
     }
@@ -164,13 +148,14 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let success = await stream.firstMatch { message -> Bool? in
                 if case .sharedAppDeleteResponse(let response) = message {
-                    if response.success {
-                        fetchSharedApps()
-                    }
-                    return
+                    return response.success
                 }
+                return nil
+            }
+            if success == true {
+                fetchSharedApps()
             }
         }
     }
@@ -185,36 +170,16 @@ public final class DirectoryStore: ObservableObject {
             return false
         }
 
-        // Race the stream listener against a 15-second timeout to avoid waiting
-        // indefinitely when the transport returns early without emitting a response.
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask {
-                for await message in stream {
-                    if case .forkSharedAppResponse(let response) = message {
-                        return response.success
-                    }
-                }
-                return false
+        let result = await stream.firstMatch { message -> Bool? in
+            if case .forkSharedAppResponse(let response) = message {
+                return response.success
             }
-
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                return nil // sentinel indicating timeout
-            }
-
-            let first = await group.next() ?? nil
-
-            // Cancel the remaining task (timeout or stream listener)
-            group.cancelAll()
-
-            if let result = first {
-                if result {
-                    await MainActor.run { self.fetchApps() }
-                }
-                return result
-            }
-            return false // timeout
+            return nil
         }
+        if result == true {
+            fetchApps()
+        }
+        return result ?? false
     }
 
     /// Bundle a local app for sharing.
@@ -238,9 +203,9 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> [DocumentListItem]? in
                 if case .documentListResponse(let response) = message {
-                    self.documents = response.documents.map { doc in
+                    return response.documents.map { doc in
                         DocumentListItem(
                             id: doc.surfaceId,
                             title: doc.title,
@@ -248,10 +213,10 @@ public final class DirectoryStore: ObservableObject {
                             updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
                         )
                     }
-                    self.isLoadingDocuments = false
-                    return
                 }
+                return nil
             }
+            self.documents = result ?? self.documents
             isLoadingDocuments = false
         }
     }
@@ -267,10 +232,11 @@ public final class DirectoryStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            _ = await stream.firstMatch { message -> Bool? in
                 if case .documentLoadResponse = message {
-                    return
+                    return true
                 }
+                return nil
             }
         }
     }

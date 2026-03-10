@@ -37,7 +37,7 @@ public final class SkillsStore: ObservableObject {
 
     // MARK: - Result Types
 
-    public struct InstallResult {
+    public struct InstallResult: Sendable {
         public let slug: String
         public let success: Bool
         public let error: String?
@@ -49,7 +49,7 @@ public final class SkillsStore: ObservableObject {
         }
     }
 
-    public struct UninstallResult {
+    public struct UninstallResult: Sendable {
         public let id: String
         public let success: Bool
         public let error: String?
@@ -61,7 +61,7 @@ public final class SkillsStore: ObservableObject {
         }
     }
 
-    public struct SkillDraftResult {
+    public struct SkillDraftResult: Sendable {
         public let skillId: String
         public let name: String
         public let description: String
@@ -113,13 +113,13 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> [SkillInfo]? in
                 if case .skillsListResponse(let response) = message {
-                    skills = response.skills
-                    isLoading = false
-                    return
+                    return response.skills
                 }
+                return nil
             }
+            skills = result ?? skills
             isLoading = false
         }
     }
@@ -138,16 +138,18 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let body = await stream.firstMatch { message -> String? in
                 if case .skillDetailResponse(let response) = message,
                    response.skillId == skillId {
                     if let error = response.error {
-                        loadedBodies[skillId] = "Error: \(error)"
-                    } else {
-                        loadedBodies[skillId] = response.body
+                        return "Error: \(error)"
                     }
-                    return
+                    return response.body
                 }
+                return nil
+            }
+            if let body {
+                loadedBodies[skillId] = body
             }
         }
     }
@@ -169,16 +171,19 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> [ClawhubSkillItem]? in
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "search" {
                     if response.success, let data = response.data {
-                        searchResults = data.skills
-                        lastSearchQuery = query
+                        return data.skills
                     }
-                    isSearching = false
-                    return
+                    return [] // signal completion with empty on failure
                 }
+                return nil
+            }
+            if let result, !result.isEmpty {
+                searchResults = result
+                lastSearchQuery = query
             }
             isSearching = false
         }
@@ -199,23 +204,28 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> InstallResult? in
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "install" {
                     if response.success {
-                        installResult = InstallResult(slug: slug, success: true, error: nil)
-                        inspectCache.removeValue(forKey: slug)
-                        fetchSkills(force: true)
+                        return InstallResult(slug: slug, success: true, error: nil)
                     } else {
-                        installResult = InstallResult(slug: slug, success: false, error: response.error)
+                        return InstallResult(slug: slug, success: false, error: response.error)
                     }
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        if self.installResult?.slug == slug {
-                            self.installResult = nil
-                        }
+                }
+                return nil
+            }
+            if let result {
+                installResult = result
+                if result.success {
+                    inspectCache.removeValue(forKey: slug)
+                    fetchSkills(force: true)
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    if self.installResult?.slug == slug {
+                        self.installResult = nil
                     }
-                    return
                 }
             }
         }
@@ -248,23 +258,21 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let data = await stream.firstMatch { message -> ClawhubInspectData? in
                 if case .skillsInspectResponse(let response) = message,
                    response.slug == slug {
-                    guard currentInspectSlug == slug else { return }
-                    if let data = response.data {
-                        inspectedSkill = data
-                        inspectCache[slug] = data
-                    } else {
-                        inspectError = response.error ?? "Unknown error"
-                    }
-                    isInspecting = false
-                    return
+                    return response.data
                 }
+                return nil
             }
-            if currentInspectSlug == slug {
-                isInspecting = false
+            guard currentInspectSlug == slug else { return }
+            if let data {
+                inspectedSkill = data
+                inspectCache[slug] = data
+            } else {
+                inspectError = "Inspection timed out"
             }
+            isInspecting = false
         }
     }
 
@@ -286,24 +294,28 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
+            let result = await stream.firstMatch { message -> UninstallResult? in
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "uninstall" {
                     if response.success {
-                        uninstallResult = UninstallResult(id: id, success: true, error: nil)
-                        inspectCache.removeAll()
-                        fetchSkills(force: true)
+                        return UninstallResult(id: id, success: true, error: nil)
                     } else {
-                        uninstallResult = UninstallResult(id: id, success: false, error: response.error)
+                        return UninstallResult(id: id, success: false, error: response.error)
                     }
-                    isUninstalling = false
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        if self.uninstallResult?.id == id {
-                            self.uninstallResult = nil
-                        }
+                }
+                return nil
+            }
+            if let result {
+                uninstallResult = result
+                if result.success {
+                    inspectCache.removeAll()
+                    fetchSkills(force: true)
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    if self.uninstallResult?.id == id {
+                        self.uninstallResult = nil
                     }
-                    return
                 }
             }
             isUninstalling = false
@@ -358,29 +370,29 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
-                guard !Task.isCancelled else { break }
-                guard generation == self.draftGeneration else { break }
+            // Extract the raw response; handle success/failure outside.
+            let response = await stream.firstMatch { message -> SkillsDraftResponseMessage? in
                 if case .skillsDraftResponse(let response) = message {
-                    if response.success, let draft = response.draft {
-                        draftResult = SkillDraftResult(
-                            skillId: draft.skillId,
-                            name: draft.name,
-                            description: draft.description,
-                            emoji: draft.emoji,
-                            bodyMarkdown: draft.bodyMarkdown,
-                            warnings: response.warnings ?? []
-                        )
-                    } else {
-                        draftError = response.error ?? "Draft generation failed"
-                    }
-                    isDrafting = false
-                    return
+                    return response
+                }
+                return nil
+            }
+            guard generation == self.draftGeneration else { return }
+            if let response {
+                if response.success, let draft = response.draft {
+                    draftResult = SkillDraftResult(
+                        skillId: draft.skillId,
+                        name: draft.name,
+                        description: draft.description,
+                        emoji: draft.emoji,
+                        bodyMarkdown: draft.bodyMarkdown,
+                        warnings: response.warnings ?? []
+                    )
+                } else {
+                    draftError = response.error ?? "Draft generation failed"
                 }
             }
-            if generation == self.draftGeneration {
-                isDrafting = false
-            }
+            isDrafting = false
         }
     }
 
@@ -412,23 +424,20 @@ public final class SkillsStore: ObservableObject {
                 return
             }
 
-            for await message in stream {
-                guard !Task.isCancelled else { break }
-                guard generation == self.createGeneration else { break }
+            let success = await stream.firstMatch { message -> Bool? in
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "create" {
-                    if !response.success {
-                        createError = response.error ?? "Failed to create skill"
-                    } else {
-                        fetchSkills(force: true)
-                    }
-                    isCreating = false
-                    return
+                    return response.success
                 }
+                return nil
             }
-            if generation == self.createGeneration {
-                isCreating = false
+            guard generation == self.createGeneration else { return }
+            if success == true {
+                fetchSkills(force: true)
+            } else if success == false {
+                createError = "Failed to create skill"
             }
+            isCreating = false
         }
     }
 

@@ -61,7 +61,7 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            let result = await Self.raceWithTimeout(stream: stream) { message -> [ContactPayload]? in
+            let result = await stream.firstMatch { message -> [ContactPayload]? in
                 if case .contactsResponse(let response) = message {
                     guard response.contacts != nil else { return nil }
                     return response.contacts ?? []
@@ -84,7 +84,7 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            let contact = await Self.raceWithTimeout(stream: stream) { message -> ContactPayload? in
+            let contact = await stream.firstMatch { message -> ContactPayload? in
                 if case .contactsResponse(let response) = message {
                     guard response.contact != nil else { return nil }
                     return response.contact
@@ -108,7 +108,7 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            let success = await Self.raceWithTimeout(stream: stream) { message -> Bool? in
+            let success = await stream.firstMatch { message -> Bool? in
                 if case .contactsResponse(let response) = message {
                     guard response.contact != nil || !response.success else { return nil }
                     return response.success
@@ -132,7 +132,7 @@ public final class ContactsStore: ObservableObject {
                 return
             }
 
-            let success = await Self.raceWithTimeout(stream: stream) { message -> Bool? in
+            let success = await stream.firstMatch { message -> Bool? in
                 if case .contactsResponse(let response) = message {
                     guard response.contact == nil && response.contacts == nil else { return nil }
                     return response.success
@@ -146,30 +146,6 @@ public final class ContactsStore: ObservableObject {
     }
 
     // MARK: - Private
-
-    /// Race a stream listener against a 15-second timeout.
-    /// Returns `nil` on timeout. The `extract` closure returns `nil` to skip
-    /// non-matching messages, or a value to resolve the race.
-    private static func raceWithTimeout<T: Sendable>(
-        stream: AsyncStream<ServerMessage>,
-        extract: @Sendable @escaping (ServerMessage) -> T?
-    ) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask {
-                for await message in stream {
-                    if let value = extract(message) { return value }
-                }
-                return nil
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-    }
 
     /// Subscribe to contactsChanged broadcasts with 500ms debounce.
     private func subscribeToContactsChanged() {

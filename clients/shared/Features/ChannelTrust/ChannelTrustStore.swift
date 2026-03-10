@@ -85,15 +85,14 @@ public final class ChannelTrustStore: ObservableObject {
                 self?.isLoadingActions = false
                 return
             }
-            for await message in stream {
-                guard let self, !Task.isCancelled else { return }
+            let prompts = await stream.firstMatch { message -> [GuardianDecisionPromptWire]? in
                 if case .guardianActionsPendingResponse(let response) = message {
-                    guard response.conversationId == conversationId else { continue }
-                    self.pendingActions = response.prompts
-                    self.isLoadingActions = false
-                    return
+                    guard response.conversationId == conversationId else { return nil }
+                    return response.prompts
                 }
+                return nil
             }
+            self?.pendingActions = prompts ?? []
             self?.isLoadingActions = false
         }
     }
@@ -107,15 +106,15 @@ public final class ChannelTrustStore: ObservableObject {
             do {
                 try daemonClient.sendGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId)
             } catch { return }
-            for await message in stream {
-                guard let self, !Task.isCancelled else { return }
+            let applied = await stream.firstMatch { message -> Bool? in
                 if case .guardianActionDecisionResponse(let response) = message {
-                    guard response.requestId == requestId else { continue }
-                    if response.applied {
-                        self.pendingActions.removeAll { $0.requestId == requestId }
-                    }
-                    return
+                    guard response.requestId == requestId else { return nil }
+                    return response.applied
                 }
+                return nil
+            }
+            if applied == true {
+                self?.pendingActions.removeAll { $0.requestId == requestId }
             }
         }
     }

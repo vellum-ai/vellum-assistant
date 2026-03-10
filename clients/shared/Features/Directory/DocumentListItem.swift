@@ -1,7 +1,7 @@
 import Foundation
 
 /// A cross-platform model representing a document in the directory listing.
-public struct DocumentListItem: Identifiable {
+public struct DocumentListItem: Identifiable, Sendable {
     public let id: String  // surfaceId
     public let title: String
     public let wordCount: Int
