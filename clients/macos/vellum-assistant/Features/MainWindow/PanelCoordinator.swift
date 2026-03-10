@@ -530,8 +530,7 @@ extension MainWindowView {
                             enterAppEditing(appId: appId)
                         }
                     }
-                },
-                onMicrophoneToggle: toggleVoiceMode
+                }
             )
         }
     }
@@ -601,7 +600,7 @@ struct ActiveChatViewWrapper: View {
                 windowState.selection = .panel(.settings)
             },
             onSend: {
-                if viewModel.isRecording { onMicrophoneToggle() }
+                if viewModel.isRecording { voiceModeManager?.deactivate() }
                 viewModel.sendMessage()
             },
             onStop: viewModel.stopGenerating,
@@ -769,7 +768,6 @@ struct DynamicWorkspaceWrapper: View {
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
-    let onMicrophoneToggle: () -> Void
 
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false

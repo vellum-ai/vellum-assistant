@@ -450,9 +450,6 @@ extension AppDelegate {
     func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
         if let existing = mainWindow { return existing }
         let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
-        main.onMicrophoneToggle = { [weak self] in
-            self?.voiceInput?.toggleRecording()
-        }
         main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
             guard let self else { return }
             self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
