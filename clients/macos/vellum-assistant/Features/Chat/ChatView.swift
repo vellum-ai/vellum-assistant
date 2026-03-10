@@ -75,6 +75,9 @@ struct ChatView: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
+    var recordingAmplitude: Float = 0
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
@@ -139,6 +142,9 @@ struct ChatView: View {
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
                             onDismissError: onDismissError,
+                            recordingAmplitude: recordingAmplitude,
+                            onDictateToggle: onDictateToggle,
+                            onVoiceModeToggle: onVoiceModeToggle,
                             threadId: threadId
                         )
                     } else {
@@ -161,6 +167,9 @@ struct ChatView: View {
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
                             onDismissError: onDismissError,
+                            recordingAmplitude: recordingAmplitude,
+                            onDictateToggle: onDictateToggle,
+                            onVoiceModeToggle: onVoiceModeToggle,
                             threadId: threadId
                         )
                     }
@@ -254,6 +263,9 @@ struct ChatView: View {
                             voiceModeManager: voiceModeManager,
                             voiceService: voiceService,
                             onEndVoiceMode: onEndVoiceMode,
+                            recordingAmplitude: recordingAmplitude,
+                            onDictateToggle: onDictateToggle,
+                            onVoiceModeToggle: onVoiceModeToggle,
                             threadId: threadId
                         )
                     }
