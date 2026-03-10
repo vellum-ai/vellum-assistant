@@ -3555,8 +3555,8 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     public let name: String
     public let enabled: Bool
     public let syntax: String
-    public let expression: String
-    public let cronExpression: String
+    public let expression: String?
+    public let cronExpression: String?
     public let timezone: String?
     public let message: String
     public let nextRunAt: Int
@@ -3568,7 +3568,7 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     public let routingIntent: String
     public let isOneShot: Bool
 
-    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String, cronExpression: String, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
+    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
         self.id = id
         self.name = name
         self.enabled = enabled

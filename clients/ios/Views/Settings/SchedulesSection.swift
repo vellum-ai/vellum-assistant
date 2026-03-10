@@ -71,9 +71,11 @@ struct SchedulesSection: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 HStack(spacing: 4) {
-                    Text(schedule.expression)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    if let expression = schedule.expression {
+                        Text(expression)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                     if schedule.enabled, schedule.nextRunAt > 0, let nextRun = formatTimestamp(schedule.nextRunAt) {
                         Text("Next: \(nextRun)")
                             .font(.caption2)
