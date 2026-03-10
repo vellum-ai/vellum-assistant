@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+
 import {
-  normalizeEmbeddingInput,
+  type EmbeddingInput,
   embeddingInputContentHash,
   isTextInput,
-  type EmbeddingInput,
   type MultimodalEmbeddingInput,
+  normalizeEmbeddingInput,
 } from "./embedding-types.js";
 
 describe("normalizeEmbeddingInput", () => {
