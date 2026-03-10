@@ -16,7 +16,7 @@ enum WakeWordIndicatorState {
 /// A floating NSPanel that displays a small indicator pill in the top-right
 /// area of the screen when the wake word is detected or the app returns to
 /// passive listening. Uses AppKit + design system tokens to match the
-/// the app's overlay style and respect light/dark mode.
+/// app's overlay style and respect light/dark mode.
 @MainActor
 final class WakeWordActivationWindow {
     private var panel: NSPanel?
