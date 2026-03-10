@@ -40,7 +40,7 @@ export const pendingStandaloneSecrets = new Map<
   }
 >();
 
-// Pending IPC signing responses (bundle signing orchestration), keyed by unique requestId
+// Pending signing responses (bundle signing orchestration), keyed by unique requestId
 interface PendingSigningResolve {
   resolve: (result: {
     signature: string;
@@ -131,7 +131,7 @@ export interface SessionCreateOptions {
   transport?: SessionTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
-  /** Normalized auth context for the session (IPC or HTTP-derived). */
+  /** Normalized auth context for the session. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
@@ -602,7 +602,7 @@ const SIGNING_TIMEOUT_MS = 30_000;
 
 /**
  * Create a SigningCallback that sends `sign_bundle_payload` to the Swift client
- * over IPC and waits for the `sign_bundle_payload_response`.
+ * over HTTP and waits for the `sign_bundle_payload_response`.
  */
 export function createSigningCallback(
   ctx: HandlerContext,

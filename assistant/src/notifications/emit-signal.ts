@@ -49,9 +49,9 @@ let broadcasterInstance: NotificationBroadcaster | null = null;
 let registeredBroadcastFn: BroadcastFn | null = null;
 
 /**
- * Register the IPC broadcast function so the vellum adapter can deliver
- * notifications through the daemon's IPC socket. Must be called once
- * during daemon startup (before any signals are emitted).
+ * Register the broadcast function so the vellum adapter can deliver
+ * notifications to connected clients. Must be called once during
+ * daemon startup (before any signals are emitted).
  */
 export function registerBroadcastFn(fn: BroadcastFn): void {
   registeredBroadcastFn = fn;
@@ -69,7 +69,7 @@ function getBroadcaster(): NotificationBroadcaster {
 
     // Wire the thread-created callback so the macOS client is notified
     // immediately when a vellum notification thread is paired — before
-    // slower channel deliveries (e.g. Telegram) delay the IPC push.
+    // slower channel deliveries (e.g. Telegram) delay the push.
     if (registeredBroadcastFn) {
       const broadcastFn = registeredBroadcastFn;
       broadcasterInstance.setOnThreadCreated((info) => {
@@ -104,8 +104,8 @@ function getConnectedChannels(): NotificationChannel[] {
   for (const channel of getDeliverableChannels()) {
     switch (channel) {
       case "vellum":
-        // Vellum is always considered connected (IPC socket is always
-        // available when the daemon is running).
+        // Vellum is always considered connected (the local transport is
+        // always available when the daemon is running).
         channels.push(channel);
         break;
       case "telegram": {
@@ -320,7 +320,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 4: Dispatch through the broadcaster
-    // Note: notification_thread_created IPC events are emitted eagerly inside
+    // Note: notification_thread_created events are emitted eagerly inside
     // the broadcaster as soon as vellum conversation pairing succeeds, rather
     // than after all channel deliveries complete. This avoids a race where
     // slow Telegram delivery delays the push past the macOS deep-link retry.

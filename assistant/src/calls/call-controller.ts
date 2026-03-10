@@ -108,7 +108,7 @@ export class CallController {
   private awaitingOpeningAck = false;
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
-  /** Optional broadcast function for emitting IPC events to connected clients. */
+  /** Optional broadcast function for emitting events to connected clients. */
   private broadcast?: (msg: ServerMessage) => void;
   /** Assistant identity for scoping guardian bindings. */
   private assistantId: string;

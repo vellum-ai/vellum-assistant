@@ -94,7 +94,7 @@ export function syncCanonicalStatusFromIpcConfirmationDecision(
   } catch (err) {
     log.debug(
       { err, requestId, targetStatus },
-      "Failed to resolve canonical request from IPC confirmation response",
+      "Failed to resolve canonical request from local confirmation response",
     );
   }
 }
@@ -142,7 +142,7 @@ export function makeIpcEventSender(params: {
       } catch (err) {
         log.debug(
           { err, requestId: event.requestId, conversationId },
-          "Failed to create canonical request from IPC confirmation event",
+          "Failed to create canonical request from local confirmation event",
         );
       }
     } else if (event.type === "secret_request") {
@@ -325,7 +325,7 @@ export function handleSessionList(
  */
 export function clearAllSessions(ctx: HandlerContext): number {
   const cleared = ctx.clearAllSessions();
-  // Also clear DB conversations. When a new IPC connection triggers
+  // Also clear DB conversations. When a new local connection triggers
   // sendInitialSession, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
@@ -380,7 +380,7 @@ export async function handleSessionCreate(
     if (title === GENERATING_TITLE) {
       queueGenerateConversationTitle({
         conversationId: conversation.id,
-        context: { origin: "ipc" },
+        context: { origin: "local" },
         userMessage: msg.initialMessage,
         onTitleUpdated: (newTitle) => {
           ctx.send({
@@ -598,7 +598,7 @@ export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
 
 /**
  * Regenerate the last assistant response for a session. The caller provides
- * a `sendEvent` callback for delivering streaming events (IPC or HTTP/SSE).
+ * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
  * Returns null if the session is not found. Throws on regeneration errors.
  */
 export async function regenerateResponse(
@@ -722,7 +722,7 @@ export function deleteQueuedMessage(
 }
 
 // ---------------------------------------------------------------------------
-// IPC handler (delegates to shared logic)
+// HTTP handler (delegates to shared logic)
 // ---------------------------------------------------------------------------
 
 export function handleDeleteQueuedMessage(

@@ -374,7 +374,7 @@ function makeHubPublisher(
         },
       });
 
-      // Create a canonical guardian request so IPC/HTTP handlers can find it
+      // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
         const trustContext = session.trustContext;
@@ -528,7 +528,7 @@ export async function handleSendMessage(
   }
 
   // Block inbound messages containing secrets before they reach the model.
-  // This mirrors the legacy IPC handleUserMessage behavior: secrets are
+  // This mirrors the legacy handleUserMessage behavior: secrets are
   // detected and the message is rejected with a safe notice. The client
   // should prompt the user to use the secure credential flow instead.
   if (trimmedContent.length > 0) {
@@ -589,10 +589,7 @@ export async function handleSendMessage(
     sourceInterface === "ios" ||
     sourceInterface === "cli" ||
     sourceInterface === "vellum";
-  // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
-  // resolver, notifiers, trace emitter) can reach the HTTP client.  The
-  // IPC socket removal (PR #14431) left sendToClient as a no-op; this
-  // restores the delivery path using the SSE hub instead.
+  // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   session.updateClient(onEvent, !isInteractiveInterface);
 
   const attachments = hasAttachments
@@ -608,7 +605,7 @@ export async function handleSendMessage(
 
   // Try to consume the message as a canonical guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
-  // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
+  // surfacing a 500 — mirrors the handler's catch-and-fallback.
   try {
     const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
       conversationId: mapping.conversationId,

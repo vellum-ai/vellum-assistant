@@ -2,7 +2,7 @@
  * Tests for the tool preview lifecycle feature.
  *
  * Verifies:
- * - handleToolUsePreviewStart emits correct IPC events
+ * - handleToolUsePreviewStart emits correct events
  * - handleToolUsePreviewStart emits activity state with "tool_running" phase
  * - handleInputJsonDelta includes toolUseId in emitted tool_input_delta
  * - handleToolResult includes toolUseId in emitted tool_result
@@ -192,7 +192,7 @@ describe("tool preview lifecycle", () => {
   });
 
   describe("handleToolUsePreviewStart", () => {
-    test("emits tool_use_preview_start IPC message", () => {
+    test("emits tool_use_preview_start message", () => {
       const collector = createEventCollector();
       const deps = createMockDeps({
         onEvent: collector.onEvent,

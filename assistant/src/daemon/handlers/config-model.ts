@@ -41,7 +41,7 @@ export function getModelInfo(): ModelInfo {
 
 /**
  * Minimal interface for the side-effects needed by setModel / setImageGenModel.
- * Keeps the business logic decoupled from IPC-specific HandlerContext.
+ * Keeps the business logic decoupled from transport-specific HandlerContext.
  */
 export interface ModelSetContext {
   sessions: Map<
@@ -155,7 +155,7 @@ export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
 }
 
 // ---------------------------------------------------------------------------
-// IPC handlers (delegate to shared logic)
+// HTTP handlers (delegate to shared logic)
 // ---------------------------------------------------------------------------
 
 export function handleModelGet(ctx: HandlerContext): void {
