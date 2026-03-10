@@ -67,8 +67,8 @@ server uses one of three transport types:
   sse               Remote server using Server-Sent Events
   streamable-http   Remote server using Streamable HTTP transport
 
-Changes to MCP server configuration require an assistant restart to take effect
-(vellum sleep && vellum wake).
+After changing MCP server configuration, run 'vellum mcp reload' to apply
+changes without restarting the assistant.
 
 Examples:
   $ assistant mcp list
@@ -444,8 +444,8 @@ OAuth flow. If the server already has valid cached tokens, the command succeeds
 immediately without opening a browser. Tokens are cached locally for future use
 by the assistant.
 
-After successful authentication, restart the assistant for changes to take effect
-(vellum sleep && vellum wake).
+After successful authentication, run 'vellum mcp reload' to apply changes
+without restarting the assistant.
 
 Examples:
   $ assistant mcp auth my-server
@@ -621,8 +621,8 @@ any stored OAuth credentials (tokens, client info, discovery metadata) for
 sse/streamable-http servers. If no OAuth credentials exist, the cleanup is
 silently skipped.
 
-After removal, restart the assistant for changes to take effect
-(vellum sleep && vellum wake).
+After removal, run 'vellum mcp reload' to apply changes without restarting
+the assistant.
 
 Examples:
   $ assistant mcp remove my-server
