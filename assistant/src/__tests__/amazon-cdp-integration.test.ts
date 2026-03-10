@@ -1,7 +1,7 @@
 /**
- * Verify that the Amazon CLI does NOT define its own CDP launch/window logic.
+ * Verify that the Amazon skill scripts do NOT define their own CDP launch/window logic.
  *
- * The Amazon CLI now uses browser extension relay instead of CDP for session
+ * The Amazon skill now uses browser extension relay instead of CDP for session
  * management, so we only verify that old inline CDP patterns are absent.
  */
 
@@ -9,21 +9,23 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-const AMAZON_CLI_DIR = join(
+const AMAZON_SCRIPTS_DIR = join(
   import.meta.dirname ?? __dirname,
   "..",
-  "cli",
-  "commands",
+  "..",
+  "..",
+  "skills",
   "amazon",
+  "scripts",
 );
 
-// Read all .ts files in the amazon/ directory and concatenate their source
-const amazonSource = readdirSync(AMAZON_CLI_DIR)
+// Read all .ts files in the amazon/scripts/ directory and concatenate their source
+const amazonSource = readdirSync(AMAZON_SCRIPTS_DIR)
   .filter((f) => f.endsWith(".ts"))
-  .map((f) => readFileSync(join(AMAZON_CLI_DIR, f), "utf-8"))
+  .map((f) => readFileSync(join(AMAZON_SCRIPTS_DIR, f), "utf-8"))
   .join("\n");
 
-describe("Amazon CLI CDP integration", () => {
+describe("Amazon skill CDP integration", () => {
   test("does not define its own CDP_BASE constant", () => {
     // The old inline constant was: const CDP_BASE = "http://localhost:9222";
     expect(amazonSource).not.toMatch(/const\s+CDP_BASE\s*=/);
