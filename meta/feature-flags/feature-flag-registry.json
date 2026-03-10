@@ -112,6 +112,14 @@
       "label": "Sentry Testing",
       "description": "Show the Sentry Testing tab in Settings for triggering test crash reports and error events",
       "defaultEnabled": false
+    },
+    {
+      "id": "tool-preview-lifecycle",
+      "scope": "assistant",
+      "key": "feature_flags.tool_preview_lifecycle.enabled",
+      "label": "Tool Preview Lifecycle",
+      "description": "Emit tool_use_preview_start events during LLM tool input streaming for immediate UI feedback",
+      "defaultEnabled": false
     }
   ]
 }
