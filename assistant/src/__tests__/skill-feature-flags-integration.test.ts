@@ -1,217 +1,212 @@
 /**
- * Integration tests for skill feature flag enforcement at system prompt,
- * skill_load, and session-skill-tools projection layers.
+ * Integration test: end-to-end frontmatter parsing → feature flag resolution.
+ *
+ * Creates a SKILL.md with a `"feature-flag"` field in its metadata JSON,
+ * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
+ * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import type { AssistantConfig } from "../config/schema.js";
+import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
+import type { SkillSummary } from "../config/skills.js";
+import { parseFrontmatterFields } from "../skills/frontmatter.js";
 
 // ---------------------------------------------------------------------------
-// Test-scoped temp directory and config state
+// Fixtures
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-skill-flags-test-${crypto.randomUUID()}`,
-);
+/** A SKILL.md with `"feature-flag": "contacts"` declared in its vellum metadata. */
+const SKILL_MD_WITH_FLAG = `---
+name: "Contacts"
+description: "View and manage contacts"
+metadata: {"vellum": {"feature-flag": "contacts"}}
+---
 
-let currentConfig: Record<string, unknown> = {
-  sandbox: { enabled: false, backend: "native" },
-};
+Instructions for the contacts skill.
+`;
 
-const DECLARED_SKILL_ID = "hatch-new-assistant";
-const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+/** A SKILL.md with no feature-flag field at all. */
+const SKILL_MD_WITHOUT_FLAG = `---
+name: "Plain Skill"
+description: "A skill with no feature flag"
+metadata: {"vellum": {}}
+---
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getRootDir: () => TEST_DIR,
-  getDataDir: () => TEST_DIR,
-  getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-  getPlatformName: () => "linux",
-  getClipboardCommand: () => null,
-  readSessionToken: () => null,
-}));
-
-const noopLogger = new Proxy({} as Record<string, unknown>, {
-  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
-});
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realLogger = require("../util/logger.js");
-mock.module("../util/logger.js", () => ({
-  ...realLogger,
-  getLogger: () => noopLogger,
-  getCliLogger: () => noopLogger,
-  isDebug: () => false,
-  truncateForLog: (v: string) => v,
-  initLogger: () => {},
-  pruneOldLogFiles: () => 0,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  loadConfig: () => currentConfig,
-  loadRawConfig: () => ({}),
-  saveConfig: () => {},
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  syncConfigToLockfile: () => {},
-}));
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../prompts/user-reference.js");
-mock.module("../prompts/user-reference.js", () => ({
-  ...realUserReference,
-  resolveUserReference: () => "TestUser",
-  resolveUserPronouns: () => null,
-}));
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realCredentialMetadataStore = require("../tools/credentials/metadata-store.js");
-mock.module("../tools/credentials/metadata-store.js", () => ({
-  ...realCredentialMetadataStore,
-  listCredentialMetadata: () => [],
-}));
-
-const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
-
-// ---------------------------------------------------------------------------
-// Setup / Teardown
-// ---------------------------------------------------------------------------
-
-beforeEach(() => {
-  mkdirSync(TEST_DIR, { recursive: true });
-  // Reset config to defaults before each test
-  currentConfig = {
-    sandbox: { enabled: false, backend: "native" },
-  };
-});
-
-afterEach(() => {
-  if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true, force: true });
-  }
-});
+Instructions for the plain skill.
+`;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createSkillOnDisk(
+/** Create a minimal AssistantConfig with optional feature flag values. */
+function makeConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
+  return {
+    skills: {
+      entries: {},
+      load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
+      install: { nodeManager: "npm" },
+      allowBundled: null,
+      remoteProviders: {
+        skillssh: { enabled: true },
+        clawhub: { enabled: true },
+      },
+      remotePolicy: {
+        blockSuspicious: true,
+        blockMalware: true,
+        maxSkillsShRisk: "medium",
+      },
+    },
+    ...overrides,
+  } as AssistantConfig;
+}
+
+/**
+ * Build a SkillSummary from parsed frontmatter, mimicking what the real
+ * skill catalog loader does.
+ */
+function buildSkillSummary(
   id: string,
-  name: string,
-  description: string,
-): void {
-  const skillsDir = join(TEST_DIR, "skills");
-  mkdirSync(join(skillsDir, id), { recursive: true });
-  writeFileSync(
-    join(skillsDir, id, "SKILL.md"),
-    `---\nname: "${name}"\ndescription: "${description}"\n---\n\nInstructions for ${id}.\n`,
-  );
-  // Ensure SKILLS.md index references the skill
-  const indexPath = join(skillsDir, "SKILLS.md");
-  const existing = existsSync(indexPath)
-    ? readFileSync(indexPath, "utf-8")
-    : "";
-  writeFileSync(indexPath, existing + `- ${id}\n`);
+  skillMd: string,
+  source: "bundled" | "managed" = "bundled",
+): SkillSummary | null {
+  const parsed = parseFrontmatterFields(skillMd);
+  if (!parsed) return null;
+
+  const metadataRaw = parsed.fields.metadata?.trim();
+  let featureFlag: string | undefined;
+  if (metadataRaw) {
+    try {
+      const json = JSON.parse(metadataRaw);
+      featureFlag =
+        typeof json?.vellum?.["feature-flag"] === "string"
+          ? json.vellum["feature-flag"]
+          : undefined;
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  return {
+    id,
+    name: parsed.fields.name ?? id,
+    displayName: parsed.fields.name ?? id,
+    description: parsed.fields.description ?? "",
+    directoryPath: `/fake/skills/${id}`,
+    skillFilePath: `/fake/skills/${id}/SKILL.md`,
+    bundled: source === "bundled",
+    userInvocable: true,
+    disableModelInvocation: false,
+    source,
+    featureFlag,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// System prompt — feature flag filtering
+// Tests
 // ---------------------------------------------------------------------------
 
-describe("buildSystemPrompt feature flag filtering", () => {
-  test("flag OFF skill does not appear in <available_skills> section", () => {
-    createSkillOnDisk(
-      DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
-    );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
+describe("frontmatter feature-flag integration", () => {
+  test("parses feature-flag from frontmatter metadata JSON", () => {
+    const parsed = parseFrontmatterFields(SKILL_MD_WITH_FLAG);
+    expect(parsed).not.toBeNull();
 
-    currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
-      assistantFeatureFlagValues: {
-        [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": true,
-      },
-    };
+    const metadataRaw = parsed!.fields.metadata?.trim();
+    expect(metadataRaw).toBeTruthy();
 
-    const result = buildSystemPrompt();
-
-    // twitter is explicitly enabled, declared flagged skill is explicitly off
-    expect(result).toContain('id="twitter"');
-    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
+    const json = JSON.parse(metadataRaw!);
+    expect(json.vellum["feature-flag"]).toBe("contacts");
   });
 
-  test("declared skills hidden when no overrides set (registry defaults to false)", () => {
-    createSkillOnDisk(
-      DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
-    );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
+  test("skillFlagKey returns correct key for parsed skill", () => {
+    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG);
+    expect(skill).not.toBeNull();
+    expect(skill!.featureFlag).toBe("contacts");
 
-    currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
-      assistantFeatureFlagValues: {},
-    };
-
-    const result = buildSystemPrompt();
-
-    // Both skills are declared in the registry with defaultEnabled: false
-    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="twitter"');
+    const key = skillFlagKey(skill!);
+    expect(key).toBe("feature_flags.contacts.enabled");
   });
 
-  test("flagged-off skills hidden even when all workspace skill flags are OFF", () => {
-    createSkillOnDisk(
-      DECLARED_SKILL_ID,
-      "Hatch New Assistant",
-      "Toggle hatch new assistant behavior",
-    );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
+  test("skillFlagKey returns undefined for skill without feature-flag", () => {
+    const skill = buildSkillSummary("plain-skill", SKILL_MD_WITHOUT_FLAG);
+    expect(skill).not.toBeNull();
+    expect(skill!.featureFlag).toBeUndefined();
 
-    currentConfig = {
-      sandbox: { enabled: false, backend: "native" },
+    const key = skillFlagKey(skill!);
+    expect(key).toBeUndefined();
+  });
+
+  test("resolveSkillStates gates skill with featureFlag when flag is OFF", () => {
+    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
+    // "contacts" is in the registry with defaultEnabled: false
+    const config = makeConfig();
+
+    const resolved = resolveSkillStates([skill], config);
+    // Flag defaults to false → skill is filtered out
+    expect(resolved.length).toBe(0);
+  });
+
+  test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
+    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
+    const config = makeConfig({
       assistantFeatureFlagValues: {
-        [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": false,
+        "feature_flags.contacts.enabled": true,
       },
-    };
+    });
 
-    const result = buildSystemPrompt();
+    const resolved = resolveSkillStates([skill], config);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe("contacts");
+  });
 
-    // Both are hidden: declared skill via registry, undeclared via persisted override.
-    expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="twitter"');
+  test("resolveSkillStates never gates skill without featureFlag", () => {
+    const skill = buildSkillSummary("plain-skill", SKILL_MD_WITHOUT_FLAG)!;
+    // Even with an explicit false override for this skill ID, it should pass through
+    const config = makeConfig({
+      assistantFeatureFlagValues: {
+        "feature_flags.plain-skill.enabled": false,
+      },
+    });
+
+    const resolved = resolveSkillStates([skill], config);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].summary.id).toBe("plain-skill");
+  });
+
+  test("end-to-end: parse frontmatter → skillFlagKey → flag check → resolveSkillStates", () => {
+    // Step 1: Parse SKILL.md with feature-flag in metadata
+    const parsed = parseFrontmatterFields(SKILL_MD_WITH_FLAG);
+    expect(parsed).not.toBeNull();
+    const json = JSON.parse(parsed!.fields.metadata!);
+    const flagId = json.vellum["feature-flag"];
+    expect(flagId).toBe("contacts");
+
+    // Step 2: Build SkillSummary (as the catalog loader would)
+    const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
+    expect(skill.featureFlag).toBe("contacts");
+
+    // Step 3: Derive the flag key
+    const key = skillFlagKey(skill);
+    expect(key).toBe("feature_flags.contacts.enabled");
+
+    // Step 4: Check flag state — "contacts" has defaultEnabled: false in registry
+    const configOff = makeConfig();
+    expect(isAssistantFeatureFlagEnabled(key!, configOff)).toBe(false);
+
+    // Step 5: resolveSkillStates correctly filters it out
+    const resolvedOff = resolveSkillStates([skill], configOff);
+    expect(resolvedOff.length).toBe(0);
+
+    // Step 6: With override enabled, skill passes through
+    const configOn = makeConfig({
+      assistantFeatureFlagValues: { [key!]: true },
+    });
+    expect(isAssistantFeatureFlagEnabled(key!, configOn)).toBe(true);
+
+    const resolvedOn = resolveSkillStates([skill], configOn);
+    expect(resolvedOn.length).toBe(1);
+    expect(resolvedOn[0].summary.id).toBe("contacts");
   });
 });
