@@ -55,13 +55,15 @@ async function doReload(): Promise<McpReloadResult> {
   try {
     const manager = getMcpServerManager();
 
-    // 1. Stop existing MCP servers + unregister their tools
-    await manager.stop();
-    unregisterAllMcpTools();
-
-    // 2. Reload config from disk (picks up new tokens, added/removed servers)
+    // 1. Validate new config before tearing down existing servers.
+    //    If the config is broken we abort early, preserving the current
+    //    working MCP setup instead of leaving zero servers.
     invalidateConfigCache();
     const config = getConfig();
+
+    // 2. Stop existing MCP servers + unregister their tools
+    await manager.stop();
+    unregisterAllMcpTools();
     const serverIds = config.mcp?.servers
       ? Object.keys(config.mcp.servers)
       : [];
