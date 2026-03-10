@@ -173,7 +173,16 @@ struct TaskOutputView: View {
 
     private func statusColor(for status: String) -> Color {
         let normalized = WorkItemStatus(rawStatus: status)
-        return TasksTableContract.statusStyle(for: normalized).color
+        switch normalized {
+        case .running:
+            return VColor.accent
+        case .failed, .cancelled:
+            return VColor.error
+        case .done, .awaitingReview:
+            return VColor.success
+        default:
+            return VColor.textSecondary
+        }
     }
 
     private func statusLabel(for status: String) -> String {
@@ -182,7 +191,7 @@ struct TaskOutputView: View {
     }
 
     private func formattedDate(from timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
