@@ -373,14 +373,6 @@ async function buildCommandCandidates(
   }
 
   if (
-    toolName === "scaffold_managed_skill" ||
-    toolName === "delete_managed_skill"
-  ) {
-    const skillId = getStringField(input, "skill_id").trim();
-    return [`${toolName}:${skillId}`];
-  }
-
-  if (
     toolName === "web_fetch" ||
     toolName === "browser_navigate" ||
     toolName === "network_request"
@@ -961,29 +953,6 @@ function urlAllowlistStrategy(
   });
 }
 
-function managedSkillAllowlistStrategy(
-  toolName: string,
-  input: Record<string, unknown>,
-): AllowlistOption[] {
-  const skillId = getStringField(input, "skill_id").trim();
-  const toolLabel =
-    toolName === "scaffold_managed_skill" ? "scaffold" : "delete";
-  const options: AllowlistOption[] = [];
-  if (skillId) {
-    options.push({
-      label: skillId,
-      description: `This skill only`,
-      pattern: `${toolName}:${skillId}`,
-    });
-  }
-  options.push({
-    label: `${toolName}:*`,
-    description: `All managed skill ${toolLabel}s`,
-    pattern: `${toolName}:*`,
-  });
-  return options;
-}
-
 function skillLoadAllowlistStrategy(
   _toolName: string,
   input: Record<string, unknown>,
@@ -1031,8 +1000,6 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
   web_fetch: urlAllowlistStrategy,
   browser_navigate: urlAllowlistStrategy,
   network_request: urlAllowlistStrategy,
-  scaffold_managed_skill: managedSkillAllowlistStrategy,
-  delete_managed_skill: managedSkillAllowlistStrategy,
   skill_load: skillLoadAllowlistStrategy,
 };
 

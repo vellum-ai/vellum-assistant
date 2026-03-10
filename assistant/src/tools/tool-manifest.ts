@@ -39,9 +39,7 @@ import "./filesystem/view-image.js";
 import "./filesystem/write.js";
 import "./network/web-fetch.js";
 import "./network/web-search.js";
-import "./skills/delete-managed.js";
 import "./skills/load.js";
-import "./skills/scaffold-managed.js";
 import "./swarm/delegate.js";
 import "./system/request-permission.js";
 import "./system/version.js";
@@ -65,8 +63,6 @@ export const eagerModuleToolNames: string[] = [
   "web_search",
   "web_fetch",
   "skill_load",
-  "scaffold_managed_skill",
-  "delete_managed_skill",
   "request_system_permission",
   "asset_search",
   "asset_materialize",

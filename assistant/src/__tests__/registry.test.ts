@@ -128,14 +128,10 @@ describe("tool registry host tools", () => {
 });
 
 describe("tool registry dynamic-tools tools", () => {
-  test("registers scaffold, delete, and skill_load tools", async () => {
+  test("registers skill_load", async () => {
     await initializeTools();
 
-    const dynamicToolNames = [
-      "scaffold_managed_skill",
-      "delete_managed_skill",
-      "skill_load",
-    ] as const;
+    const dynamicToolNames = ["skill_load"] as const;
 
     for (const toolName of dynamicToolNames) {
       const tool = getTool(toolName);
@@ -145,15 +141,6 @@ describe("tool registry dynamic-tools tools", () => {
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
     for (const toolName of dynamicToolNames) {
       expect(definitionNames).toContain(toolName);
-    }
-  });
-
-  test("scaffold and delete are registered as High risk", async () => {
-    await initializeTools();
-    for (const name of ["scaffold_managed_skill", "delete_managed_skill"]) {
-      const tool = getTool(name);
-      expect(tool).toBeDefined();
-      expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
     }
   });
 
@@ -188,7 +175,7 @@ describe("tool manifest", () => {
   });
 
   test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(15);
+    expect(eagerModuleToolNames.length).toBe(13);
   });
 
   test("explicit tools list includes memory, credential, and watch tools", () => {
