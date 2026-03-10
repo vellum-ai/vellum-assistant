@@ -408,6 +408,9 @@ extension AppDelegate {
                    !lockfileToken.isEmpty {
                     ActorTokenManager.setToken(lockfileToken)
                     log.info("Seeded actor token from lockfile bearer token")
+                    if self.daemonClient.isConnected {
+                        self.daemonClient.updateTransportBearerToken(lockfileToken)
+                    }
                 } else {
                     await self.performInitialBootstrap()
                 }
