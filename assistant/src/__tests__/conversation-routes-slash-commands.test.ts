@@ -196,6 +196,7 @@ function makeSession() {
     persistUserMessage,
     runAgentLoop,
     setPreactivatedSkillIds,
+    drainQueue: async () => {},
     getMessages: () => messages,
     assistantId: "self",
     trustContext: undefined,

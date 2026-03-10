@@ -760,6 +760,7 @@ export async function handleSendMessage(
       );
     } finally {
       session.processing = false;
+      session.drainQueue().catch(() => {});
     }
   }
 
