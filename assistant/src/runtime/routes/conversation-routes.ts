@@ -331,6 +331,8 @@ export function handleListMessages(
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
       ...(interfaces ? { interfaces } : {}),
+      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
     };
   });
 
