@@ -95,9 +95,8 @@ describe("ephemeral-permissions", () => {
       expect(fileReadRule.priority).toBe(75);
       expect(fileReadRule.createdAt).toBeGreaterThan(0);
 
-      // allowHighRisk is set because task runs execute asynchronously
-      // without interactive confirmation — pre-approved via preflight
-      expect(fileReadRule.allowHighRisk).toBe(true);
+      // Ephemeral task rules should not auto-allow high-risk tools
+      expect(fileReadRule.allowHighRisk).toBeUndefined();
 
       // Check other rules have correct tool names
       expect(rules[1].tool).toBe("bash");
