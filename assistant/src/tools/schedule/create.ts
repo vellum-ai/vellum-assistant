@@ -69,19 +69,19 @@ export async function executeScheduleCreate(
 
   // ── One-shot schedule (fire_at) ──────────────────────────────────
   if (fireAt) {
-    // Require explicit timezone (Z or ±HH:MM offset) to avoid host-timezone ambiguity
-    if (!/(?:Z|[+-]\d{2}:\d{2})\s*$/.test(fireAt)) {
-      return {
-        content:
-          "Error: fire_at must include a timezone offset (e.g. 2025-06-15T09:00:00Z or 2025-06-15T09:00:00+05:30)",
-        isError: true,
-      };
-    }
     const fireAtMs = Date.parse(fireAt);
     if (isNaN(fireAtMs)) {
       return {
         content:
           "Error: fire_at must be a valid ISO 8601 timestamp (e.g. 2025-06-15T09:00:00Z)",
+        isError: true,
+      };
+    }
+    // Require explicit timezone (Z or ±HH:MM offset) to avoid host-timezone ambiguity
+    if (!/(?:Z|[+-]\d{2}:\d{2})\s*$/.test(fireAt)) {
+      return {
+        content:
+          "Error: fire_at must include a timezone offset (e.g. 2025-06-15T09:00:00Z or 2025-06-15T09:00:00+05:30)",
         isError: true,
       };
     }

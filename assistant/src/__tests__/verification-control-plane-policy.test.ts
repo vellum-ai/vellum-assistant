@@ -737,8 +737,8 @@ describe("ToolExecutor verification control-plane policy gate", () => {
   test("unverified channel actor is blocked from side-effect tools", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
-      "reminder_create",
-      { fire_at: "2026-02-27T12:00:00-05:00", label: "test", message: "hello" },
+      "schedule_create",
+      { name: "test", fire_at: "2026-02-27T12:00:00-05:00", message: "hello" },
       makeContext({ trustClass: "unknown" }),
     );
     expect(result.isError).toBe(true);
@@ -748,8 +748,8 @@ describe("ToolExecutor verification control-plane policy gate", () => {
   test("guardian actor can execute side-effect tools", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
-      "reminder_create",
-      { fire_at: "2026-02-27T12:00:00-05:00", label: "test", message: "hello" },
+      "schedule_create",
+      { name: "test", fire_at: "2026-02-27T12:00:00-05:00", message: "hello" },
       makeContext({ trustClass: "guardian" }),
     );
     expect(result.isError).toBe(false);
