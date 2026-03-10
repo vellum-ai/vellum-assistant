@@ -32,7 +32,7 @@ export type ParseSubResult =
  *   actor:<assistantId>:<actorPrincipalId>
  *   svc:gateway:<assistantId>
  *   svc:daemon:<identifier>
- *   ipc:<assistantId>:<sessionId>
+ *   local:<assistantId>:<sessionId>
  */
 export function parseSub(sub: string): ParseSubResult {
   if (!sub || typeof sub !== "string") {
@@ -68,15 +68,15 @@ export function parseSub(sub: string): ParseSubResult {
     return { ok: true, principalType: "svc_daemon", assistantId: identifier };
   }
 
-  if (parts[0] === "ipc" && parts.length === 3) {
+  if (parts[0] === "local" && parts.length === 3) {
     const [, assistantId, sessionId] = parts;
     if (!assistantId || !sessionId) {
       return {
         ok: false,
-        reason: "ipc sub has empty assistantId or sessionId",
+        reason: "local sub has empty assistantId or sessionId",
       };
     }
-    return { ok: true, principalType: "ipc", assistantId, sessionId };
+    return { ok: true, principalType: "local", assistantId, sessionId };
   }
 
   return { ok: false, reason: `unrecognized sub pattern: ${sub}` };
