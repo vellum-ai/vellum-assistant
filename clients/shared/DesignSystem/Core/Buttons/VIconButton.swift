@@ -5,6 +5,7 @@ public enum VIconButtonVariant {
     case primary
     case secondary
     case danger
+    case success
     case outlined
     case neutral
 }
@@ -65,7 +66,7 @@ public struct VIconButton: View {
 
     private var iconForegroundForVariant: Color {
         switch variant {
-        case .primary, .danger, .neutral:
+        case .primary, .danger, .success, .neutral:
             return .white
         case .ghost, .secondary, .outlined:
             return iconForegroundColor
@@ -148,6 +149,12 @@ public struct VIconButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonDangerHover }
             return VColor.buttonDanger
 
+        case .success:
+            guard isEnabled else { return VColor.buttonSuccessBg.opacity(0.5) }
+            if isPressed { return VColor.buttonSuccessBgPressed }
+            if isHovered { return VColor.buttonSuccessBgHover }
+            return VColor.buttonSuccessBg
+
         case .neutral:
             guard isEnabled else { return VColor.buttonNeutral.opacity(0.5) }
             if isPressed { return VColor.buttonNeutralPressed }
@@ -188,7 +195,7 @@ public struct VIconButtonStyle: ButtonStyle {
 
     private var borderColor: Color {
         switch variant {
-        case .primary, .danger, .neutral:
+        case .primary, .danger, .success, .neutral:
             return .clear
         case .outlined:
             return VColor.buttonSecondaryBorder

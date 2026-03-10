@@ -73,6 +73,8 @@ const MIME_BY_FORMAT: Record<string, string> = {
   mov: "video/quicktime",
 };
 
+const ALLOWED_OUTPUT_FORMATS = new Set(Object.keys(MIME_BY_FORMAT));
+
 // ---------------------------------------------------------------------------
 // Tool entry point
 // ---------------------------------------------------------------------------
@@ -105,7 +107,16 @@ export async function run(
 
   const preRoll = (input.pre_roll as number) ?? 3;
   const postRoll = (input.post_roll as number) ?? 2;
-  const outputFormat = (input.output_format as string) ?? "mp4";
+  const outputFormatInput =
+    typeof input.output_format === "string" ? input.output_format : "mp4";
+  const outputFormat = outputFormatInput.toLowerCase();
+  if (!ALLOWED_OUTPUT_FORMATS.has(outputFormat)) {
+    return {
+      content:
+        "output_format must be one of: mp4, webm, mov (defaults to mp4).",
+      isError: true,
+    };
+  }
   const title = input.title as string | undefined;
 
   const asset = getMediaAssetById(assetId);

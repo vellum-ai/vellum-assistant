@@ -715,32 +715,6 @@ function buildDispatchUserMessage(params: {
       undefined,
       displayContent,
     );
-    if (result.rejected) {
-      rlog.warn({ source }, "Message rejected — queue is full");
-      session.traceEmitter.emit(
-        "request_error",
-        "Message rejected — queue is full",
-        {
-          requestId: dispatchRequestId,
-          status: "error",
-          attributes: {
-            reason: "queue_full",
-            queueDepth: session.getQueueDepth(),
-            source,
-          },
-        },
-      );
-      ctx.send(
-        buildSessionErrorMessage(msg.sessionId, {
-          code: "QUEUE_FULL",
-          userMessage:
-            "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-          retryable: true,
-          debugDetails: "Message rejected — session queue is full",
-        }),
-      );
-      return;
-    }
     if (result.queued) {
       const position = session.getQueueDepth();
       rlog.info({ source, position }, queuedDescription);

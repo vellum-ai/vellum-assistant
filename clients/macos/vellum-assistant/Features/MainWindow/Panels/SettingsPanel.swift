@@ -121,9 +121,11 @@ struct SettingsPanel: View {
 
                 Spacer()
             }
+            .padding(.trailing, VSpacing.xl)
             .padding(.bottom, VSpacing.md)
 
             VColor.surfaceBorder.frame(height: 1)
+                .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
             HStack(alignment: .top, spacing: 0) {
@@ -132,11 +134,16 @@ struct SettingsPanel: View {
 
                 if selectedTab == .contacts {
                     selectedTabContent
+                        .padding(.trailing, VSpacing.xl)
+                        .padding(.bottom, VSpacing.xl)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
                     ScrollView {
                         selectedTabContent
-                            .padding(VSpacing.lg)
+                            .padding(.top, VSpacing.lg)
+                            .padding(.leading, VSpacing.lg)
+                            .padding(.trailing, VSpacing.xl)
+                            .padding(.bottom, VSpacing.xl)
                             .frame(maxWidth: 700, alignment: .top)
                             .frame(maxWidth: .infinity)
                     }
@@ -144,7 +151,8 @@ struct SettingsPanel: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(VSpacing.xl)
+        .padding(.top, VSpacing.xl)
+        .padding(.leading, VSpacing.xl)
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
@@ -893,7 +901,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary) {
+                        VButton(label: "Manage", style: .secondary) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
@@ -1037,7 +1045,7 @@ private struct SettingsNavRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 (isSelected ? VColor.navActive : isHovered ? VColor.navHover : .clear)
-                    .animation(VAnimation.fast, value: isHovered)
+                    .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())

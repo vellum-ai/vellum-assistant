@@ -556,17 +556,17 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+  // Desktop, CLI, and web interfaces have an SSE client that can display
+  // permission prompts. Channel interfaces (telegram, slack, etc.) route
+  // approvals through the guardian system and have no interactive prompter UI.
+  const isInteractiveInterface =
+    sourceInterface === "macos" ||
+    sourceInterface === "ios" ||
+    sourceInterface === "cli" ||
+    sourceInterface === "vellum";
   // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
   // resolver, notifiers, trace emitter) can reach the HTTP client.
-  // Desktop app (sourceChannel "vellum") is a real interactive client even
-  // though it connects over HTTP+SSE rather than IPC. Channel sessions
-  // (telegram, sms) have no interactive client attached.
-  const hasNoClient = sourceChannel !== "vellum";
-  log.info(
-    { sourceChannel, hasNoClient, conversationId: mapping.conversationId },
-    "updateClient: setting hasNoClient for HTTP session",
-  );
-  session.updateClient(onEvent, hasNoClient);
+  session.updateClient(onEvent, !isInteractiveInterface);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -640,7 +640,7 @@ export async function handleSendMessage(
 
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
-    const result = session.enqueueMessage(
+    session.enqueueMessage(
       content ?? "",
       attachments,
       onEvent,
@@ -653,15 +653,8 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       },
-      { isInteractive: sourceChannel === "vellum" },
+      { isInteractive: isInteractiveInterface },
     );
-    if (result.rejected) {
-      return httpError(
-        "RATE_LIMITED",
-        "Message queue is full. Please retry later.",
-        429,
-      );
-    }
     return Response.json({ accepted: true, queued: true }, { status: 202 });
   }
 
@@ -682,12 +675,9 @@ export async function handleSendMessage(
   );
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  // Desktop app (sourceChannel "vellum") is interactive — OAuth flows can
-  // block and wait for the localhost callback. Channel sessions (telegram,
-  // sms) are non-interactive and use the deferred OAuth path.
   session
     .runAgentLoop(content ?? "", messageId, onEvent, {
-      isInteractive: sourceChannel === "vellum",
+      isInteractive: isInteractiveInterface,
       isUserMessage: true,
     })
     .catch((err) => {

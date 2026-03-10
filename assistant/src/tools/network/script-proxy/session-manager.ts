@@ -528,15 +528,13 @@ export function getSessionEnv(sessionId: ProxySessionId): ProxyEnvVars {
     NO_PROXY: "localhost,127.0.0.1,::1",
   };
 
-  if (managed.dataDir) {
+  // Only set cert env vars when the CA was actually initialized (MITM mode).
+  // Without this guard, NODE_EXTRA_CA_CERTS points to a nonexistent file
+  // when the proxy runs in pass-through mode (no credentials/MITM),
+  // causing Bun/BoringSSL to fail with SSL load errors.
+  if (managed.dataDir && managed.combinedCABundlePath) {
     env.NODE_EXTRA_CA_CERTS = getCAPath(managed.dataDir);
-    // Combined bundle lets non-Node clients (curl, Python, Go) trust
-    // the proxy CA alongside system roots via SSL_CERT_FILE.
-    // Only set when the bundle was actually created — pointing at a
-    // missing file would replace the system trust store with nothing.
-    if (managed.combinedCABundlePath) {
-      env.SSL_CERT_FILE = managed.combinedCABundlePath;
-    }
+    env.SSL_CERT_FILE = managed.combinedCABundlePath;
   }
 
   return env;

@@ -1,5 +1,8 @@
 import { ProviderError } from "../util/errors.js";
-import type { SessionErrorCode, SessionErrorMessage } from "./message-protocol.js";
+import type {
+  SessionErrorCode,
+  SessionErrorMessage,
+} from "./message-protocol.js";
 
 /**
  * Classified session error ready for IPC emission.
@@ -73,7 +76,7 @@ const CANCEL_PATTERNS = [/abort/i, /cancel/i];
  */
 export interface ErrorContext {
   /** Where in the processing pipeline the error occurred. */
-  phase: "agent_loop" | "queue" | "regenerate" | "handler" | "persist";
+  phase: "agent_loop" | "regenerate" | "handler" | "persist";
   /** Whether the abort signal was active when the error occurred. */
   aborted?: boolean;
 }
@@ -121,15 +124,6 @@ export function classifySessionError(
   const debugDetails = truncateDebugDetails(rawDetails);
 
   // Phase-specific overrides
-  if (ctx.phase === "queue") {
-    return {
-      code: "QUEUE_FULL",
-      userMessage: "Message queue is full (10 messages pending).",
-      retryable: true,
-      debugDetails: truncateDebugDetails(message),
-    };
-  }
-
   if (ctx.phase === "regenerate") {
     const base = classifyCore(error, message);
     return {

@@ -11,6 +11,7 @@ import type { Page } from "playwright";
 import * as applescriptTool from "./applescript";
 import * as check from "./check";
 import * as click from "./click";
+import * as clickElement from "./click-element";
 import * as fill from "./fill";
 import * as fillSecureCredential from "./fill-secure-credential";
 import * as getCurrentUrl from "./get-current-url";
@@ -19,13 +20,18 @@ import * as getText from "./get-text";
 import * as goto from "./goto";
 import * as httpRequest from "./http-request";
 import * as launchApp from "./launch-app";
+import * as queryAndClick from "./query-and-click";
+import * as queryAndType from "./query-and-type";
+import * as queryElements from "./query-elements";
 import * as readChatMessages from "./read-chat-messages";
 import * as reportResult from "./report-result";
 import * as runShell from "./run-shell";
 import * as screenshot from "./screenshot";
 import * as sendChatMessage from "./send-chat-message";
 import * as typeEnvVar from "./type-env-var";
+import * as typeIntoElement from "./type-into-element";
 import * as waitTool from "./wait";
+import * as waitForElement from "./wait-for-element";
 import type { ToolContext, ToolHandlerResult, ToolModule } from "./types";
 
 export type { TestResult, ToolResult } from "./types";
@@ -36,6 +42,7 @@ const TOOLS: ToolModule[] = [
   applescriptTool,
   check,
   click,
+  clickElement,
   fill,
   fillSecureCredential,
   getCurrentUrl,
@@ -44,13 +51,18 @@ const TOOLS: ToolModule[] = [
   goto,
   httpRequest,
   launchApp,
+  queryAndClick,
+  queryAndType,
+  queryElements,
   readChatMessages,
   reportResult,
   runShell,
   screenshot,
   sendChatMessage,
   typeEnvVar,
+  typeIntoElement,
   waitTool,
+  waitForElement,
 ];
 
 const toolsByName = new Map<string, ToolModule>(

@@ -28,13 +28,6 @@ export async function executeSubagentMessage(
 
   const result = await manager.sendMessage(subagentId, content);
 
-  if (result === "queue_full") {
-    return {
-      content: `Subagent "${subagentId}" message queue is full. Please wait for current messages to be processed.`,
-      isError: true,
-    };
-  }
-
   if (result === "empty") {
     return {
       content: "Message content is empty or whitespace-only.",

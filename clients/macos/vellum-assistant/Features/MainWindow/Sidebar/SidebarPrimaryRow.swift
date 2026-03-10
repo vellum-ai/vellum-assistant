@@ -44,7 +44,7 @@ struct SidebarPrimaryRow: View {
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(
                 (isActive ? VColor.navActive : isHovered ? VColor.navHover : .clear)
-                    .animation(VAnimation.fast, value: isHovered)
+                    .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())

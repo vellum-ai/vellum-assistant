@@ -84,7 +84,7 @@ struct OnboardingFlowView: View {
                                     },
                                     onContinueWithVellum: {
                                         Task {
-                                            await authManager.startWorkOSLogin()
+                                            await continueWithManagedAssistant()
                                         }
                                     }
                                 )
@@ -128,6 +128,11 @@ struct OnboardingFlowView: View {
         }
         }
         .ignoresSafeArea()
+        .task {
+            if !authManager.isAuthenticated {
+                await authManager.checkSession()
+            }
+        }
         .onChange(of: state.currentStep) { _, newStep in
             if newStep == 0 {
                 isAdvancingFromWakeUp = false
@@ -174,6 +179,15 @@ struct OnboardingFlowView: View {
     }
 
     // MARK: - Managed Bootstrap
+
+    private func continueWithManagedAssistant() async {
+        switch onboardingManagedContinuationAction(isAuthenticated: authManager.isAuthenticated) {
+        case .startLogin:
+            await authManager.startWorkOSLogin()
+        case .bootstrap:
+            await performManagedBootstrap()
+        }
+    }
 
     @ViewBuilder
     private var managedBootstrapView: some View {

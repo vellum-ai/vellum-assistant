@@ -299,6 +299,10 @@ if (artifactJson) {
     const artifactUrl = `https://github.com/${REPO}/actions/runs/${runId}/artifacts/${artifact.id}`;
     console.log(`  ${artifactUrl}`);
 
+    const qaBaseUrl = process.env.QA_APP_URL || "https://qa.vellum.ai";
+    const qaUrl = `${qaBaseUrl}/runs/${runId}`;
+    console.log(`  ${qaUrl}`);
+
     console.log("\nDownloading artifacts...");
     rmSync("test-results/ci-artifacts", { recursive: true, force: true });
     ghPassthrough(["run", "download", runId, "-R", REPO, "-D", "test-results/ci-artifacts"]);

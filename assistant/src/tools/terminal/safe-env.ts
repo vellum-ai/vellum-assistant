@@ -27,6 +27,7 @@ const SAFE_ENV_VARS = [
   "SSH_AGENT_PID",
   "GPG_TTY",
   "GNUPGHOME",
+  "VELLUM_DEV",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {

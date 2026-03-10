@@ -666,11 +666,12 @@ describe("bundled public-ingress skill", () => {
 
 describe("setup skills declare required includes", () => {
   const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
-  const BUNDLED_SKILLS_DIR = join(
+  const FIRST_PARTY_SKILLS_DIR = join(
     import.meta.dir,
     "..",
-    "config",
-    "bundled-skills",
+    "..",
+    "..",
+    "skills",
   );
 
   function readSkillIncludes(
@@ -710,14 +711,17 @@ describe("setup skills declare required includes", () => {
   }
 
   test("telegram-setup includes public-ingress", () => {
-    const includes = readSkillIncludes(BUNDLED_SKILLS_DIR, "telegram-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "telegram-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("public-ingress");
   });
 
   test("google-oauth-setup includes browser", () => {
     const includes = readSkillIncludes(
-      BUNDLED_SKILLS_DIR,
+      FIRST_PARTY_SKILLS_DIR,
       "google-oauth-setup",
     );
     expect(includes).toBeDefined();
@@ -725,7 +729,10 @@ describe("setup skills declare required includes", () => {
   });
 
   test("slack-oauth-setup includes browser", () => {
-    const includes = readSkillIncludes(BUNDLED_SKILLS_DIR, "slack-oauth-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "slack-oauth-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("browser");
   });

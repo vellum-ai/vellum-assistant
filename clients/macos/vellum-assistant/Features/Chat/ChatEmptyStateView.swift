@@ -25,6 +25,9 @@ struct ChatEmptyStateView: View {
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
+    var recordingAmplitude: Float = 0
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
 
     @State private var visible = false
@@ -117,6 +120,9 @@ struct ChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
+                    recordingAmplitude: recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
                     placeholderText: placeholder,
                     threadId: threadId
                 )
@@ -164,6 +170,9 @@ struct ChatTemporaryChatEmptyStateView: View {
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
+    var recordingAmplitude: Float = 0
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
 
     var body: some View {
@@ -224,6 +233,9 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
+                    recordingAmplitude: recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
                     placeholderText: "Ask anything...",
                     threadId: threadId
                 )

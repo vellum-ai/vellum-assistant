@@ -5,39 +5,27 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "PermissionPrompt")
 
-/// Lightweight overlay that explains why microphone/speech permissions are needed
-/// and provides action buttons to grant access or open System Settings.
+/// Overlay shown when microphone or speech recognition permissions have been denied,
+/// directing the user to System Settings.
 @MainActor
 final class PermissionPromptOverlay {
     private var panel: NSPanel?
 
-    /// Which permission(s) are currently denied, so the overlay can show the correct
-    /// guidance and open the right System Settings pane.
+    /// Which permission(s) are currently denied.
     enum DeniedPermission {
         case microphone
         case speechRecognition
         case both
     }
 
-    enum PromptKind {
-        /// Permission has never been requested — show explanation and "Grant Access" button.
-        case notDetermined(keyName: String)
-        /// Permission was denied — show guidance to System Settings.
-        case denied(keyName: String, deniedPermission: DeniedPermission)
-    }
-
-    /// Show the permission prompt overlay centered near the top of the screen.
-    /// - Parameters:
-    ///   - kind: Whether this is a first-ask or a denied state.
-    ///   - onGrantAccess: Called when the user taps "Grant Access" (notDetermined only).
-    ///   - onDismiss: Called when the user taps "Not Now" or the overlay is dismissed.
-    func show(kind: PromptKind, onGrantAccess: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+    /// Show the denied-permission overlay centered on screen.
+    func show(kind: DeniedPermission, keyName: String, onDismiss: @escaping () -> Void) {
         dismiss()
 
         let width: CGFloat = 360
-        let height: CGFloat = 180
+        let height: CGFloat = 200
 
-        let contentView = buildContentView(kind: kind, onGrantAccess: onGrantAccess, onDismiss: onDismiss)
+        let contentView = buildContentView(deniedPermission: kind, keyName: keyName, onDismiss: onDismiss)
 
         let newPanel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -52,6 +40,7 @@ final class PermissionPromptOverlay {
         newPanel.hasShadow = true
         newPanel.contentView = contentView
         newPanel.isMovableByWindowBackground = false
+        newPanel.appearance = NSAppearance(named: .darkAqua)
 
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
@@ -63,7 +52,7 @@ final class PermissionPromptOverlay {
         self.panel = newPanel
         newPanel.orderFront(nil)
 
-        log.info("Showing permission prompt overlay: \(String(describing: kind))")
+        log.info("Showing denied-permission overlay: \(String(describing: kind))")
     }
 
     func dismiss() {
@@ -74,8 +63,8 @@ final class PermissionPromptOverlay {
     // MARK: - Content Building
 
     private func buildContentView(
-        kind: PromptKind,
-        onGrantAccess: @escaping () -> Void,
+        deniedPermission: DeniedPermission,
+        keyName: String,
         onDismiss: @escaping () -> Void
     ) -> NSView {
         let container = PermissionOverlayBackground()
@@ -84,18 +73,43 @@ final class PermissionPromptOverlay {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = 12
+        stack.spacing = VSpacing.md
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
+        stack.edgeInsets = NSEdgeInsets(top: VSpacing.xl, left: VSpacing.xl, bottom: VSpacing.xl, right: VSpacing.xl)
 
-        let (title, body, primaryTitle, primaryAction, secondaryTitle, secondaryAction) = content(
-            for: kind,
-            onGrantAccess: onGrantAccess,
-            onDismiss: onDismiss
-        )
+        let title: String
+        let body: String
+        let openSettings: () -> Void
+        let vicon: VIcon
+
+        switch deniedPermission {
+        case .microphone:
+            title = "Microphone Access Required"
+            body = "Dictation requires microphone access. Grant access in System Settings."
+            vicon = .micOff
+            openSettings = { PermissionManager.openMicrophoneSettings() }
+        case .speechRecognition:
+            title = "Speech Recognition Required"
+            body = "Dictation requires speech recognition access. Grant access in System Settings."
+            vicon = .audioWaveform
+            openSettings = { PermissionManager.openSpeechRecognitionSettings() }
+        case .both:
+            title = "Permissions Required"
+            body = "Dictation requires microphone and speech recognition access. Grant access in System Settings."
+            vicon = .micOff
+            openSettings = {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
+            }
+        }
 
         // Icon
-        let iconView = makeIconView(for: kind)
+        let imageView = NSImageView()
+        if let img = vicon.nsImage(size: 32) {
+            imageView.image = img
+            imageView.contentTintColor = NSColor(VColor.warning)
+        }
+        imageView.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        imageView.heightAnchor.constraint(equalToConstant: 32).isActive = true
 
         // Title
         let titleLabel = NSTextField(labelWithString: title)
@@ -114,15 +128,22 @@ final class PermissionPromptOverlay {
         // Buttons
         let buttonStack = NSStackView()
         buttonStack.orientation = .horizontal
-        buttonStack.spacing = 10
+        buttonStack.spacing = VSpacing.sm
 
-        let secondaryButton = makeButton(title: secondaryTitle, isPrimary: false, action: secondaryAction)
-        let primaryButton = makeButton(title: primaryTitle, isPrimary: true, action: primaryAction)
+        let dismissButton = makeButton(title: "Dismiss", isPrimary: false) { [weak self] in
+            self?.dismiss()
+            onDismiss()
+        }
+        let settingsButton = makeButton(title: "Open System Settings", isPrimary: true) { [weak self] in
+            self?.dismiss()
+            openSettings()
+            onDismiss()
+        }
 
-        buttonStack.addArrangedSubview(secondaryButton)
-        buttonStack.addArrangedSubview(primaryButton)
+        buttonStack.addArrangedSubview(dismissButton)
+        buttonStack.addArrangedSubview(settingsButton)
 
-        stack.addArrangedSubview(iconView)
+        stack.addArrangedSubview(imageView)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(bodyLabel)
         stack.addArrangedSubview(buttonStack)
@@ -138,108 +159,25 @@ final class PermissionPromptOverlay {
         return container
     }
 
-    private func content(
-        for kind: PromptKind,
-        onGrantAccess: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
-    ) -> (title: String, body: String, primaryTitle: String, primaryAction: () -> Void, secondaryTitle: String, secondaryAction: () -> Void) {
-        switch kind {
-        case .notDetermined(let keyName):
-            return (
-                title: "Microphone Access Needed",
-                body: "Hold \(keyName) to dictate text or start a voice conversation. Vellum uses on-device speech recognition — nothing you say leaves your Mac.",
-                primaryTitle: "Grant Access",
-                primaryAction: { [weak self] in
-                    self?.dismiss()
-                    onGrantAccess()
-                },
-                secondaryTitle: "Not Now",
-                secondaryAction: { [weak self] in
-                    self?.dismiss()
-                    onDismiss()
-                }
-            )
-        case .denied(let keyName, let deniedPermission):
-            let title: String
-            let body: String
-            let openSettings: () -> Void
-
-            switch deniedPermission {
-            case .microphone:
-                title = "Microphone Access Required"
-                body = "Push-to-talk requires microphone access. You can grant access in System Settings. (Triggered by \(keyName) key)"
-                openSettings = { PermissionManager.openMicrophoneSettings() }
-            case .speechRecognition:
-                title = "Speech Recognition Required"
-                body = "Push-to-talk requires speech recognition access. You can grant access in System Settings. (Triggered by \(keyName) key)"
-                openSettings = { PermissionManager.openSpeechRecognitionSettings() }
-            case .both:
-                title = "Permissions Required"
-                body = "Push-to-talk requires microphone and speech recognition access. You can grant access in System Settings. (Triggered by \(keyName) key)"
-                openSettings = {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
-                }
-            }
-
-            return (
-                title: title,
-                body: body,
-                primaryTitle: "Open System Settings",
-                primaryAction: { [weak self] in
-                    self?.dismiss()
-                    openSettings()
-                    onDismiss()
-                },
-                secondaryTitle: "Dismiss",
-                secondaryAction: { [weak self] in
-                    self?.dismiss()
-                    onDismiss()
-                }
-            )
-        }
-    }
-
-    private func makeIconView(for kind: PromptKind) -> NSView {
-        let vicon: VIcon
-        let color: NSColor
-
-        switch kind {
-        case .notDetermined:
-            vicon = .mic
-            color = .systemBlue
-        case .denied(_, let deniedPermission):
-            color = .systemOrange
-            switch deniedPermission {
-            case .microphone:
-                vicon = .micOff
-            case .speechRecognition:
-                vicon = .audioWaveform
-            case .both:
-                vicon = .micOff
-            }
-        }
-
-        let imageView = NSImageView()
-        if let img = vicon.nsImage(size: 36) {
-            imageView.image = img
-            imageView.contentTintColor = color
-        }
-        imageView.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        imageView.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        return imageView
-    }
-
     private func makeButton(title: String, isPrimary: Bool, action: @escaping () -> Void) -> NSButton {
         let button = OverlayActionButton(title: title, action: action)
-        button.bezelStyle = .rounded
-        button.font = NSFont.systemFont(ofSize: 12, weight: isPrimary ? .medium : .regular)
+        button.isBordered = false
+        button.wantsLayer = true
+        button.font = NSFont.systemFont(ofSize: 12, weight: .medium)
 
         if isPrimary {
             button.contentTintColor = .white
-            button.wantsLayer = true
             button.layer?.backgroundColor = NSColor(VColor.accent).cgColor
-            button.layer?.cornerRadius = VRadius.sm
+            button.layer?.cornerRadius = VRadius.md
+        } else {
+            button.contentTintColor = NSColor(VColor.textSecondary)
+            button.layer?.backgroundColor = NSColor(VColor.backgroundSubtle).cgColor
+            button.layer?.cornerRadius = VRadius.md
         }
+
+        let widthConstraint = button.widthAnchor.constraint(greaterThanOrEqualToConstant: 100)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: 30)
+        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
 
         return button
     }

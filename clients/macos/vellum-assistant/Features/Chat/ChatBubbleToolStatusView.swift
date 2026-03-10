@@ -92,8 +92,8 @@ extension ChatBubble {
                 }
             }
 
-            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
-                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
+            Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :
+                 "Timed Out")
                 .font(VFont.captionMedium)
                 .foregroundColor(chipColor)
         }
