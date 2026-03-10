@@ -2,7 +2,11 @@
 name: influencer
 description: Research influencers on Instagram, TikTok, and X/Twitter using the Chrome extension relay
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🔍","vellum":{"display-name":"Influencer Research","user-invocable":true}}
+metadata:
+  emoji: "🔍"
+  vellum:
+    display-name: "Influencer Research"
+    user-invocable: true
 ---
 
 You can research and discover influencers across Instagram, TikTok, and X/Twitter using the bundled influencer scripts.

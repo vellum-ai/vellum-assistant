@@ -2,7 +2,10 @@
 name: time-based-actions
 description: Unified routing guide for reminders, schedules, notifications, and tasks — prevents common misrouting
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"⏰","vellum":{"display-name":"Time-Based Actions"}}
+metadata:
+  emoji: "⏰"
+  vellum:
+    display-name: "Time-Based Actions"
 ---
 
 Quick-reference decision guide for choosing the right tool when users ask about time-triggered actions, recurring automation, notifications, or task tracking.

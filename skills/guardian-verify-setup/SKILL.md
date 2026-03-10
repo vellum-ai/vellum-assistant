@@ -2,7 +2,11 @@
 name: guardian-verify-setup
 description: Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🔐","vellum":{"display-name":"Guardian Verify Setup","user-invocable":true}}
+metadata:
+  emoji: "🔐"
+  vellum:
+    display-name: "Guardian Verify Setup"
+    user-invocable: true
 ---
 
 You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.

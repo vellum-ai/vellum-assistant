@@ -2,7 +2,11 @@
 name: skills-catalog
 description: Discover bundled skills and search/install community skills from Clawhub
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🧩","vellum":{"display-name":"Skills Catalog","user-invocable":true}}
+metadata:
+  emoji: "🧩"
+  vellum:
+    display-name: "Skills Catalog"
+    user-invocable: true
 ---
 
 You can help the user discover what skills are available and find community skills to extend the assistant's capabilities.

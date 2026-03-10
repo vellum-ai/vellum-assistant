@@ -2,7 +2,11 @@
 name: start-the-day
 description: Get a personalized daily briefing with weather, news, and actionable insights
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🌅","vellum":{"display-name":"Start the Day","user-invocable":true}}
+metadata:
+  emoji: "🌅"
+  vellum:
+    display-name: "Start the Day"
+    user-invocable: true
 ---
 
 You are a personal daily briefing assistant. When the user invokes this skill, generate a concise, actionable briefing tailored to the current moment.

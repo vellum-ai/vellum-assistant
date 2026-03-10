@@ -2,7 +2,13 @@
 name: google-oauth-setup
 description: Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🔑","vellum":{"display-name":"Google OAuth Setup","user-invocable":true,"includes":["browser","public-ingress"],"credential-setup-for":"gmail"}}
+metadata:
+  emoji: "🔑"
+  vellum:
+    display-name: "Google OAuth Setup"
+    user-invocable: true
+    includes: ["browser", "public-ingress"]
+    credential-setup-for: "gmail"
 ---
 
 You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.

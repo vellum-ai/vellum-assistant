@@ -2,7 +2,11 @@
 name: notion
 description: Read and write Notion pages and databases using the Notion API
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📝","vellum":{"display-name":"Notion","user-invocable":false}}
+metadata:
+  emoji: "📝"
+  vellum:
+    display-name: "Notion"
+    user-invocable: false
 ---
 
 You have access to the Notion API via the stored OAuth token for `integration:notion`. Use `bash` with `network_mode: "proxied"` to call the Notion API — the proxy automatically injects the Bearer token for `api.notion.com`.

@@ -2,7 +2,12 @@
 name: slack-oauth-setup
 description: Create Slack App and OAuth credentials for Slack integration using browser automation
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🔑","vellum":{"display-name":"Slack OAuth Setup","user-invocable":true,"includes":["browser"]}}
+metadata:
+  emoji: "🔑"
+  vellum:
+    display-name: "Slack OAuth Setup"
+    user-invocable: true
+    includes: ["browser"]
 ---
 
 You are helping your user create a Slack App and OAuth credentials so the Messaging integration can connect to their Slack workspace. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.

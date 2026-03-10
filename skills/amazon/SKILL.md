@@ -2,7 +2,11 @@
 name: amazon
 description: Shop on Amazon and Amazon Fresh using the built-in CLI integration
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📦","vellum":{"display-name":"Amazon","user-invocable":true}}
+metadata:
+  emoji: "📦"
+  vellum:
+    display-name: "Amazon"
+    user-invocable: true
 ---
 
 You can shop on Amazon (and Amazon Fresh for groceries) for the user using the `assistant amazon` CLI.

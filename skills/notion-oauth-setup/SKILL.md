@@ -2,7 +2,12 @@
 name: notion-oauth-setup
 description: Create a Notion integration and OAuth credentials for Notion integration using browser automation
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🔑","vellum":{"display-name":"Notion OAuth Setup","user-invocable":true,"includes":["browser","public-ingress"]}}
+metadata:
+  emoji: "🔑"
+  vellum:
+    display-name: "Notion OAuth Setup"
+    user-invocable: true
+    includes: ["browser", "public-ingress"]
 ---
 
 You are helping your user create a Notion integration (OAuth app) so Vellum can connect to their Notion workspace. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.

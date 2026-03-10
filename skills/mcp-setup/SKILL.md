@@ -2,7 +2,11 @@
 name: mcp-setup
 description: Add, authenticate, list, and remove MCP (Model Context Protocol) servers
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🔌","vellum":{"display-name":"MCP Setup","user-invocable":false}}
+metadata:
+  emoji: "🔌"
+  vellum:
+    display-name: "MCP Setup"
+    user-invocable: false
 ---
 
 Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion) become available in conversations.

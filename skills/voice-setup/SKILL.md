@@ -2,7 +2,13 @@
 name: voice-setup
 description: Complete voice configuration in chat — PTT key, wake word, microphone permissions, ElevenLabs TTS, and troubleshooting
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🎙️","vellum":{"display-name":"Voice Setup","user-invocable":true,"includes":["elevenlabs-voice"],"os":["darwin"]}}
+metadata:
+  emoji: "🎙️"
+  vellum:
+    display-name: "Voice Setup"
+    user-invocable: true
+    os: ["darwin"]
+    includes: ["elevenlabs-voice"]
 ---
 
 You are helping the user set up and troubleshoot voice features (push-to-talk, wake word, text-to-speech) entirely within this conversation. Do NOT direct the user to the Settings page for initial setup — handle everything in-chat using the tools below.

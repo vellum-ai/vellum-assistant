@@ -2,7 +2,11 @@
 name: screen-recording
 description: Record the user's screen as a video file
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🎬","vellum":{"display-name":"Screen Recording","os":["darwin"]}}
+metadata:
+  emoji: "🎬"
+  vellum:
+    display-name: "Screen Recording"
+    os: ["darwin"]
 ---
 
 Capture screen recordings as video files attached to the conversation.
