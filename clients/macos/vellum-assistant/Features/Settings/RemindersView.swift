@@ -112,7 +112,9 @@ struct RemindersView: View {
     }
 
     @MainActor private func cancelSchedule(id: String) {
-        try? daemonClient.sendRemoveSchedule(id: id)
+        try? daemonClient.sendCancelSchedule(id: id)
+        // Reload so the cancelled status is reflected in the list.
+        loadSchedules()
     }
 }
 
