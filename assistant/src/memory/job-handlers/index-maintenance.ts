@@ -7,6 +7,7 @@ import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
+  mediaAssets,
   memoryEmbeddings,
   memoryItems,
   memorySegments,
@@ -47,6 +48,15 @@ export function rebuildIndexJob(): void {
     .all();
   for (const segment of segments) {
     enqueueMemoryJob("embed_segment", { segmentId: segment.id });
+  }
+
+  const assets = db
+    .select({ id: mediaAssets.id })
+    .from(mediaAssets)
+    .where(eq(mediaAssets.status, "indexed"))
+    .all();
+  for (const asset of assets) {
+    enqueueMemoryJob("embed_media", { assetId: asset.id });
   }
 }
 
