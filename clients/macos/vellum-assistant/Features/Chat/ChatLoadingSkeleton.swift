@@ -32,7 +32,6 @@ struct ChatLoadingSkeleton: View {
                 }
             }
         }
-        .accessibilityHidden(true)
     }
 
     // MARK: - Assistant Row
