@@ -4313,7 +4313,7 @@ describe("bash network_mode=proxied — no special-casing", () => {
 
   test("proxied bash follows normal rules (auto-allowed by default rule)", async () => {
     // Proxied bash is no longer force-prompted — the default allow-bash rule
-    // prompts low/medium risk commands regardless of network_mode.
+    // auto-allows low/medium risk commands regardless of network_mode.
     const result = await check(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
