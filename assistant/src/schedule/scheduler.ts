@@ -146,6 +146,12 @@ async function runScheduleOnce(
         );
         if (isOneShot) {
           failOneShot(job.id);
+        } else {
+          // Track recurring notify-mode failures via a schedule run so the
+          // occurrence isn't silently lost and lastStatus/retryCount update.
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          const runId = createScheduleRun(job.id, `notify-error:${job.id}`);
+          completeScheduleRun(runId, { status: "error", error: errorMsg });
         }
       }
       processed += 1;
