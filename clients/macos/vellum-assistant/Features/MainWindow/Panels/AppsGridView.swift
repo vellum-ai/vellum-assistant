@@ -25,6 +25,7 @@ struct AppsGridView: View {
     @State private var isLoadingShared = false
     @State private var hasFetchedShared = false
     @State private var sharedAppsTask: Task<Void, Never>?
+    @State private var sharedAppsTaskGeneration = 0
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -484,22 +485,34 @@ struct AppsGridView: View {
         guard sharedAppsTask == nil else { return }
 
         isLoadingShared = true
-        sharedAppsTask = Task { @MainActor in
+        sharedAppsTaskGeneration += 1
+        let generation = sharedAppsTaskGeneration
+
+        let task = Task { @MainActor in
+            // Ignore cleanup from cancelled predecessors once a newer load starts.
+            defer {
+                if sharedAppsTaskGeneration == generation {
+                    sharedAppsTask = nil
+                }
+            }
+
             do {
-                sharedApps = try await SharedAppsLoader.load(using: daemonClient)
+                let apps = try await SharedAppsLoader.load(using: daemonClient)
+                guard sharedAppsTaskGeneration == generation else { return }
+                sharedApps = apps
                 hasFetchedShared = true
                 isLoadingShared = false
-                sharedAppsTask = nil
             } catch is CancellationError {
+                guard sharedAppsTaskGeneration == generation else { return }
                 isLoadingShared = false
-                sharedAppsTask = nil
             } catch {
+                guard sharedAppsTaskGeneration == generation else { return }
                 sharedApps = []
                 hasFetchedShared = true
                 isLoadingShared = false
-                sharedAppsTask = nil
             }
         }
+        sharedAppsTask = task
     }
 
     // MARK: - Sections
