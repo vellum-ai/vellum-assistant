@@ -1,43 +1,14 @@
 /**
- * Characterization tests: HTTP POST /v1/messages vs legacy handleUserMessage behavior parity.
+ * Tests for HTTP POST /v1/messages behavior after the legacy handleUserMessage
+ * IPC entry point was retired.
  *
- * These tests document the exact behavior gaps between the HTTP send path
- * (handleSendMessage in conversation-routes.ts) and the legacy IPC path
- * (handleUserMessage in session-user-message.ts).
+ * Secret ingress blocking has been ported to the HTTP path. Recording intent
+ * interception has been deliberately retired — the HTTP path has dedicated
+ * /v1/recording/* endpoints and the model handles recording-related messages
+ * through the agent loop.
  *
- * Behavior gaps identified:
- *
- * 1. SECRET INGRESS BLOCKING
- *    - handleUserMessage: Calls handleSecretIngress() which blocks messages
- *      containing secrets, sends a `secret_blocked` error event, redirects
- *      to a secure prompt, and resumes with a redacted continuation message.
- *    - handleSendMessage (HTTP): Does NOT perform any secret ingress check.
- *      Messages containing secrets pass through to the agent loop unchecked.
- *      (The gateway inbound-message-handler has its own secret-ingress-check
- *      stage, but POST /v1/messages for desktop/CLI does not.)
- *
- * 2. STANDALONE RECORDING INTENT INTERCEPTION
- *    - handleUserMessage: Calls handleStructuredRecordingIntent() and
- *      handleStandaloneRecordingIntent() to intercept recording commands
- *      (start/stop/pause/resume/restart) before they reach the agent loop.
- *    - handleSendMessage (HTTP): Does NOT intercept recording intents.
- *      Recording commands are sent directly to the agent loop as regular
- *      user messages. Separate recording HTTP endpoints exist at
- *      /v1/recording/* but inline text-based interception does not happen.
- *
- * 3. APPROVAL REPLY INTERCEPTION (PARITY ACHIEVED)
- *    - Both paths handle inline approval reply interception via the
- *      guardian reply router. The HTTP path uses tryConsumeCanonicalGuardianReply()
- *      and the IPC path uses handlePendingConfirmationReply(). Both filter
- *      stale tool_approval requests by checking session.hasPendingConfirmation().
- *    - Minor differences: the IPC path uses resolveLocalIpcTrustContext() for
- *      actor identity, while HTTP uses the JWT-verified AuthContext. The IPC
- *      path also uses a desktop-specific ApprovalConversationGenerator, while
- *      HTTP accepts one as a dependency injection parameter.
- *
- * These tests serve as concrete evidence for PR 7's migration decisions:
- * - If HTTP should match legacy behavior, these tests identify what to port.
- * - If HTTP intentionally differs, these tests lock in the current behavior.
+ * Approval reply interception has parity and is covered by
+ * conversation-routes-guardian-reply.test.ts and send-endpoint-busy.test.ts.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -150,6 +121,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
   }),
 }));
 
+// Mock config to enable secret detection + ingress blocking
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    secretDetection: {
+      enabled: true,
+      blockIngress: true,
+      customPatterns: [],
+      entropyThreshold: 3.5,
+    },
+  }),
+}));
+
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 
@@ -234,9 +217,9 @@ async function sendMessage(
 }
 
 // ============================================================================
-// GAP 1: SECRET INGRESS BLOCKING
+// SECRET INGRESS BLOCKING — now ported to HTTP path
 // ============================================================================
-describe("GAP: HTTP POST /v1/messages does NOT block secret ingress", () => {
+describe("HTTP POST /v1/messages blocks secret ingress", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
     listPendingByDestinationMock.mockClear();
@@ -244,10 +227,7 @@ describe("GAP: HTTP POST /v1/messages does NOT block secret ingress", () => {
     addMessageMock.mockClear();
   });
 
-  test("handleSendMessage accepts messages containing secret-like content without blocking", async () => {
-    // This message contains a Telegram bot token pattern that handleUserMessage
-    // would block via handleSecretIngress(). The HTTP path does NOT check for
-    // secrets, so it passes through to the agent loop.
+  test("handleSendMessage rejects messages containing Telegram bot token patterns", async () => {
     const secretContent =
       "Set up Telegram with my bot token 123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678";
     const persistUserMessage = mock(async () => "persisted-msg-id");
@@ -256,87 +236,88 @@ describe("GAP: HTTP POST /v1/messages does NOT block secret ingress", () => {
 
     const res = await sendMessage(secretContent, session);
 
-    expect(res.status).toBe(202);
-    const body = (await res.json()) as { accepted: boolean; messageId?: string };
-    expect(body.accepted).toBe(true);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      accepted: boolean;
+      error: string;
+      message: string;
+      detectedTypes: string[];
+    };
+    expect(body.accepted).toBe(false);
+    expect(body.error).toBe("secret_blocked");
+    expect(body.detectedTypes.length).toBeGreaterThan(0);
 
-    // CHARACTERIZATION: The HTTP path does NOT block — it proceeds to
-    // persist the message and run the agent loop with the secret content.
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+    // The message should NOT reach the agent loop
+    expect(persistUserMessage).toHaveBeenCalledTimes(0);
+    expect(runAgentLoop).toHaveBeenCalledTimes(0);
   });
 
-  test("handleSendMessage does not emit a secret_blocked error event", async () => {
-    // In handleUserMessage, secret detection emits { type: "error", category: "secret_blocked" }.
-    // The HTTP path has no equivalent emission because it has no secret check.
+  test("handleSendMessage rejects messages containing AWS credentials", async () => {
     const secretContent =
       "Here is my AWS key AKIAIOSFODNN7EXAMPLE and secret wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-    const publishedEvents: unknown[] = [];
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });
 
-    const res = await handleSendMessage(
-      makeRequest(secretContent),
-      {
-        sendMessageDeps: {
-          getOrCreateSession: async () => session,
-          assistantEventHub: {
-            publish: async (event: unknown) => {
-              publishedEvents.push(event);
-            },
-          } as any,
-          resolveAttachments: () => [],
-        },
-      },
-      testAuthContext,
-    );
+    const res = await sendMessage(secretContent, session);
 
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      accepted: boolean;
+      error: string;
+    };
+    expect(body.accepted).toBe(false);
+    expect(body.error).toBe("secret_blocked");
 
-    // CHARACTERIZATION: No secret_blocked event is emitted through the hub.
-    // handleUserMessage would send { type: "error", category: "secret_blocked" }.
-    const secretBlockedEvents = publishedEvents.filter(
-      (e: any) => e?.message?.type === "error" && e?.message?.category === "secret_blocked",
-    );
-    expect(secretBlockedEvents).toHaveLength(0);
-
-    // The message is processed normally despite containing secrets.
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+    // The message should NOT reach the agent loop
+    expect(persistUserMessage).toHaveBeenCalledTimes(0);
+    expect(runAgentLoop).toHaveBeenCalledTimes(0);
   });
 
-  test("handleSendMessage does not redirect to secure prompt after detecting secrets", async () => {
-    // handleUserMessage calls session.redirectToSecurePrompt() when secrets
-    // are detected, then dispatches a redacted continuation message.
-    // The HTTP path has no equivalent of this flow.
+  test("handleSendMessage rejects messages containing Stripe test keys", async () => {
     const secretContent =
       "My Stripe key is sk_test_4eC39HqLyjWDarjtT1zdp7dc";
-    const redirectToSecurePromptMock = mock(() => {});
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({
-      persistUserMessage,
-      runAgentLoop,
-      redirectToSecurePrompt: redirectToSecurePromptMock,
-    });
+    const session = makeSession({ persistUserMessage, runAgentLoop });
 
     const res = await sendMessage(secretContent, session);
 
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      accepted: boolean;
+      error: string;
+    };
+    expect(body.accepted).toBe(false);
+    expect(body.error).toBe("secret_blocked");
 
-    // CHARACTERIZATION: redirectToSecurePrompt is never called on the HTTP path.
-    expect(redirectToSecurePromptMock).toHaveBeenCalledTimes(0);
-    // Instead, the message goes straight to the agent loop.
+    // The message should NOT reach the agent loop
+    expect(persistUserMessage).toHaveBeenCalledTimes(0);
+    expect(runAgentLoop).toHaveBeenCalledTimes(0);
+  });
+
+  test("handleSendMessage allows normal messages without secrets", async () => {
+    const normalContent = "What is the weather today?";
+    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const runAgentLoop = mock(async () => undefined);
+    const session = makeSession({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(normalContent, session);
+
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { accepted: boolean };
+    expect(body.accepted).toBe(true);
+
+    // Normal messages proceed to the agent loop
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
 });
 
 // ============================================================================
-// GAP 2: STANDALONE RECORDING INTENT INTERCEPTION
+// RECORDING INTENT — deliberately NOT intercepted on HTTP path
 // ============================================================================
-describe("GAP: HTTP POST /v1/messages does NOT intercept recording intents", () => {
+describe("HTTP POST /v1/messages does not intercept recording intents (by design)", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
     listPendingByDestinationMock.mockClear();
@@ -344,10 +325,11 @@ describe("GAP: HTTP POST /v1/messages does NOT intercept recording intents", () 
     addMessageMock.mockClear();
   });
 
-  test("handleSendMessage does not intercept 'start recording' commands", async () => {
-    // handleUserMessage would intercept this via handleStandaloneRecordingIntent()
-    // and return a "Starting screen recording." response without hitting the
-    // agent loop. The HTTP path sends it to the agent loop as a normal message.
+  test("recording commands pass through to the agent loop as regular messages", async () => {
+    // The HTTP path deliberately does not intercept recording commands.
+    // Dedicated /v1/recording/* endpoints handle recording lifecycle.
+    // Text-based recording intent interception was retired with the
+    // legacy IPC handleUserMessage entry point.
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });
@@ -355,14 +337,11 @@ describe("GAP: HTTP POST /v1/messages does NOT intercept recording intents", () 
     const res = await sendMessage("start recording", session);
 
     expect(res.status).toBe(202);
-
-    // CHARACTERIZATION: Recording commands are NOT intercepted on the HTTP path.
-    // They pass through to the agent loop as regular user messages.
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
 
-  test("handleSendMessage does not intercept 'stop recording' commands", async () => {
+  test("stop recording commands pass through to the agent loop", async () => {
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });
@@ -370,257 +349,7 @@ describe("GAP: HTTP POST /v1/messages does NOT intercept recording intents", () 
     const res = await sendMessage("stop recording", session);
 
     expect(res.status).toBe(202);
-
-    // CHARACTERIZATION: The HTTP path does not intercept stop recording.
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
-  });
-
-  test("handleSendMessage does not intercept structured commandIntent recording actions", async () => {
-    // handleUserMessage checks msg.commandIntent?.domain === "screen_recording"
-    // and handles start/stop/pause/resume/restart actions. The HTTP path does
-    // not accept or process commandIntent at all — it's not part of the HTTP
-    // request schema for POST /v1/messages.
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
-
-    // Even if we pass commandIntent in the HTTP body, handleSendMessage
-    // doesn't read or process it — it only extracts conversationKey, content,
-    // attachmentIds, sourceChannel, and interface from the body.
-    const res = await sendMessage("start screen recording", session);
-
-    expect(res.status).toBe(202);
-
-    // CHARACTERIZATION: No recording interception happens on the HTTP path.
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
-  });
-
-  test("handleSendMessage does not strip recording keywords from mixed messages", async () => {
-    // handleUserMessage strips recording keywords from messages like
-    // "start recording and show me today's weather", then processes only the
-    // remainder ("show me today's weather") through the agent loop while
-    // also starting the recording. The HTTP path sends the full message.
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({ persistUserMessage, runAgentLoop });
-
-    const mixedContent = "start recording and show me today's weather";
-    const res = await sendMessage(mixedContent, session);
-
-    expect(res.status).toBe(202);
-
-    // CHARACTERIZATION: The full message including recording keywords is sent
-    // to the agent loop without modification.
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
-    // The content passed to runAgentLoop contains the original message
-    // (including recording keywords) — no keyword stripping occurred.
-    const runAgentLoopCall = (runAgentLoop as any).mock.calls[0];
-    expect(runAgentLoopCall[0]).toBe(mixedContent);
-  });
-});
-
-// ============================================================================
-// PARITY: APPROVAL REPLY INTERCEPTION
-// ============================================================================
-describe("PARITY: HTTP POST /v1/messages handles approval reply interception", () => {
-  beforeEach(() => {
-    routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
-    addMessageMock.mockClear();
-  });
-
-  test("both paths consume decision replies through the guardian reply router", async () => {
-    // This mirrors handlers-user-message-approval-consumption.test.ts
-    // "consumes decision replies before auto-deny" — but exercised through
-    // the HTTP path to confirm parity.
-    listPendingByDestinationMock.mockReturnValue([
-      { id: "req-1", kind: "tool_approval" },
-    ]);
-    listCanonicalMock.mockReturnValue([]);
-    routeGuardianReplyMock.mockResolvedValue({
-      consumed: true,
-      decisionApplied: true,
-      type: "canonical_decision_applied",
-      requestId: "req-1",
-    });
-
-    const persistUserMessage = mock(async () => "should-not-be-called");
-    const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({
-      persistUserMessage,
-      runAgentLoop,
-      hasAnyPendingConfirmation: () => true,
-      hasPendingConfirmation: (id: string) => id === "req-1",
-    });
-
-    const res = await sendMessage("go for it", session);
-
-    expect(res.status).toBe(202);
-    const body = (await res.json()) as { accepted: boolean; messageId?: string };
-    expect(body.accepted).toBe(true);
-
-    // PARITY: Both paths call routeGuardianReply
-    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
-    const routeCall = (routeGuardianReplyMock as any).mock
-      .calls[0][0] as Record<string, unknown>;
-    expect(routeCall.messageText).toBe("go for it");
-
-    // PARITY: Both paths persist user + assistant transcript entries
-    expect(addMessageMock).toHaveBeenCalledTimes(2);
-
-    // PARITY: Neither path runs the agent loop when the reply is consumed
-    expect(persistUserMessage).toHaveBeenCalledTimes(0);
-    expect(runAgentLoop).toHaveBeenCalledTimes(0);
-  });
-
-  test("both paths filter stale tool_approval requests by session.hasPendingConfirmation", async () => {
-    // Mirrors the "excludes stale tool_approval hints" test in
-    // conversation-routes-guardian-reply.test.ts and the "routes only live
-    // pending confirmation request ids" test in
-    // handlers-user-message-approval-consumption.test.ts.
-    listPendingByDestinationMock.mockReturnValue([
-      { id: "tool-live", kind: "tool_approval" },
-      { id: "tool-stale", kind: "tool_approval" },
-      { id: "access-req-1", kind: "access_request" },
-    ]);
-    listCanonicalMock.mockReturnValue([]);
-    routeGuardianReplyMock.mockResolvedValue({
-      consumed: false,
-      decisionApplied: false,
-      type: "not_consumed",
-    });
-
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({
-      persistUserMessage,
-      runAgentLoop,
-      hasAnyPendingConfirmation: () => true,
-      hasPendingConfirmation: (id: string) => id === "tool-live",
-    });
-
-    const res = await sendMessage("approve", session);
-
-    expect(res.status).toBe(202);
-    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
-    const routeCall = (routeGuardianReplyMock as any).mock
-      .calls[0][0] as Record<string, unknown>;
-
-    // PARITY: Both paths filter out stale tool_approval requests but keep
-    // non-tool_approval requests (access_request) regardless of session state.
-    const pendingIds = routeCall.pendingRequestIds as string[];
-    expect(pendingIds).toContain("tool-live");
-    expect(pendingIds).not.toContain("tool-stale");
-    expect(pendingIds).toContain("access-req-1");
-  });
-
-  test("both paths fall through to agent loop when nl_keep_pending is returned", async () => {
-    // Mirrors "nl keep_pending falls back to existing auto-deny + queue behavior"
-    // from handlers-user-message-approval-consumption.test.ts.
-    listPendingByDestinationMock.mockReturnValue([
-      { id: "req-1", kind: "tool_approval" },
-    ]);
-    listCanonicalMock.mockReturnValue([]);
-    routeGuardianReplyMock.mockResolvedValue({
-      consumed: true,
-      decisionApplied: false,
-      type: "nl_keep_pending",
-      requestId: "req-1",
-      replyText: "Need clarification",
-    });
-
-    const persistUserMessage = mock(async () => "persisted-msg-id");
-    const runAgentLoop = mock(async () => undefined);
-    const session = makeSession({
-      persistUserMessage,
-      runAgentLoop,
-      hasAnyPendingConfirmation: () => true,
-      hasPendingConfirmation: (id: string) => id === "req-1",
-    });
-
-    const res = await sendMessage("what does that do?", session);
-
-    expect(res.status).toBe(202);
-
-    // PARITY: Both paths treat nl_keep_pending as "not consumed" and fall
-    // through to the normal send path (which in the HTTP case means
-    // persisting + running the agent loop).
-    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
-    expect(persistUserMessage).toHaveBeenCalledTimes(1);
-    expect(runAgentLoop).toHaveBeenCalledTimes(1);
-  });
-
-  test("HTTP path avoids mutating in-memory history while session is processing (matches IPC behavior)", async () => {
-    // Mirrors "does not mutate in-memory history while processing" from
-    // handlers-user-message-approval-consumption.test.ts.
-    listPendingByDestinationMock.mockReturnValue([
-      { id: "req-1", kind: "tool_approval" },
-    ]);
-    listCanonicalMock.mockReturnValue([]);
-    routeGuardianReplyMock.mockResolvedValue({
-      consumed: true,
-      decisionApplied: true,
-      type: "canonical_decision_applied",
-      requestId: "req-1",
-    });
-
-    const messages: unknown[] = [];
-    const session = makeSession({
-      isProcessing: () => true,
-      hasAnyPendingConfirmation: () => true,
-      hasPendingConfirmation: (id: string) => id === "req-1",
-      getMessages: () => messages,
-    });
-
-    const res = await sendMessage("approve", session);
-
-    expect(res.status).toBe(202);
-
-    // PARITY: Both paths persist to DB but do NOT push to in-memory history
-    // when the session is actively processing.
-    expect(addMessageMock).toHaveBeenCalledTimes(2);
-    expect(messages).toHaveLength(0);
-  });
-});
-
-// ============================================================================
-// SUMMARY: Behavior delta inventory for PR 7
-// ============================================================================
-describe("SUMMARY: behavior delta inventory", () => {
-  test("documents the three behavior categories for PR 7", () => {
-    // This test exists purely as documentation. It always passes.
-    //
-    // MISSING FROM HTTP (to port or deliberately omit in PR 7):
-    // 1. Secret ingress blocking (handleSecretIngress)
-    //    - checkIngressForSecrets() call
-    //    - secret_blocked error event emission
-    //    - redirectToSecurePrompt() call with redacted continuation
-    //
-    // 2. Recording intent interception (handleStandaloneRecordingIntent,
-    //    handleStructuredRecordingIntent)
-    //    - commandIntent structured action handling
-    //    - Text-based recording keyword detection and interception
-    //    - Recording keyword stripping from mixed messages
-    //    - LLM fallback classification for ambiguous recording intents
-    //
-    // PARITY ACHIEVED (no action needed in PR 7):
-    // 3. Approval reply interception
-    //    - Both paths use routeGuardianReply with pending request filtering
-    //    - Both paths persist user+assistant transcript entries
-    //    - Both paths avoid in-memory mutation while processing
-    //    - Both paths handle nl_keep_pending as fall-through
-    //
-    // MINOR DIFFERENCES (not blocking, document only):
-    // - IPC uses resolveLocalIpcTrustContext() for actor identity;
-    //   HTTP uses JWT-verified AuthContext
-    // - IPC uses a pre-built desktopApprovalConversationGenerator;
-    //   HTTP accepts it as a dependency injection parameter
-    // - IPC emits message_queued/message_dequeued/message_request_complete
-    //   events through ctx.send(); HTTP emits through the SSE hub
-    expect(true).toBe(true);
   });
 });
