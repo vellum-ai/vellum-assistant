@@ -433,7 +433,7 @@ describe("Context + Memory E2E regression", () => {
         targetInputTokens: 2600,
         compactThreshold: 0.55,
         preserveRecentUserTurns: 6,
-        chunkTokens: 900,
+        summaryBudgetRatio: 0.05,
       },
     });
 

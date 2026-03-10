@@ -202,7 +202,7 @@ describe("Memory context benchmark", () => {
         targetInputTokens: 3200,
         compactThreshold: 0.6,
         preserveRecentUserTurns: 8,
-        chunkTokens: 1200,
+        summaryBudgetRatio: 0.05,
       },
     });
 

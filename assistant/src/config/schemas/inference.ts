@@ -98,16 +98,12 @@ export const ContextWindowConfigSchema = z.object({
       "contextWindow.preserveRecentUserTurns must be a positive integer",
     )
     .default(8),
-  summaryMaxTokens: z
-    .number({ error: "contextWindow.summaryMaxTokens must be a number" })
-    .int("contextWindow.summaryMaxTokens must be an integer")
-    .positive("contextWindow.summaryMaxTokens must be a positive integer")
-    .default(1200),
-  chunkTokens: z
-    .number({ error: "contextWindow.chunkTokens must be a number" })
-    .int("contextWindow.chunkTokens must be an integer")
-    .positive("contextWindow.chunkTokens must be a positive integer")
-    .default(12000),
+  summaryBudgetRatio: z
+    .number({ error: "contextWindow.summaryBudgetRatio must be a number" })
+    .finite("contextWindow.summaryBudgetRatio must be finite")
+    .gt(0, "contextWindow.summaryBudgetRatio must be greater than 0")
+    .lte(1, "contextWindow.summaryBudgetRatio must be less than or equal to 1")
+    .default(0.05),
   overflowRecovery: ContextOverflowRecoveryConfigSchema.default(
     ContextOverflowRecoveryConfigSchema.parse({}),
   ),

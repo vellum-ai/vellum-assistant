@@ -39,8 +39,7 @@ mock.module("../config/loader.js", () => ({
       targetInputTokens: 70000,
       compactThreshold: 0.8,
       preserveRecentUserTurns: 6,
-      summaryMaxTokens: 512,
-      chunkTokens: 12000,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,

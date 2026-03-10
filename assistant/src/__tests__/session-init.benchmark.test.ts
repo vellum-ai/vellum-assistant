@@ -145,7 +145,7 @@ const mockConfig = {
     targetInputTokens: 110000,
     compactThreshold: 0.8,
     preserveRecentUserTurns: 8,
-    summaryMaxTokens: 1200,
+    summaryBudgetRatio: 0.05,
   },
   thinking: { enabled: false },
 };

@@ -60,8 +60,7 @@ function makeConfig(overrides?: Partial<ReducerConfig>): ReducerConfig {
       targetInputTokens: 1200,
       compactThreshold: 0.6,
       preserveRecentUserTurns: 2,
-      summaryMaxTokens: 128,
-      chunkTokens: 80,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,

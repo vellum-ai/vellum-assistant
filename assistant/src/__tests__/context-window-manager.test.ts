@@ -23,8 +23,7 @@ function makeConfig(
     targetInputTokens: 300,
     compactThreshold: 0.6,
     preserveRecentUserTurns: 2,
-    summaryMaxTokens: 128,
-    chunkTokens: 80,
+    summaryBudgetRatio: 0.05,
     overflowRecovery: {
       enabled: true,
       safetyMarginRatio: 0.05,
@@ -117,28 +116,26 @@ describe("ContextWindowManager", () => {
     expect(userTexts.some((text) => text.startsWith("u3 "))).toBe(true);
   });
 
-  test("aggregates cache-aware summary usage across compaction chunks", async () => {
-    let summaryCalls = 0;
+  test("returns cache-aware summary usage from single-pass compaction", async () => {
     const provider = createProvider(() => {
-      summaryCalls += 1;
       return {
         content: [
-          { type: "text", text: `## Goals\n- summary chunk ${summaryCalls}` },
+          { type: "text", text: `## Goals\n- summary of full transcript` },
         ],
         model: "claude-opus-4-6",
         usage: {
-          inputTokens: 1_000 + summaryCalls,
-          outputTokens: 20 + summaryCalls,
-          cacheCreationInputTokens: 10 * summaryCalls,
-          cacheReadInputTokens: 100 * summaryCalls,
+          inputTokens: 5_000,
+          outputTokens: 80,
+          cacheCreationInputTokens: 50,
+          cacheReadInputTokens: 200,
         },
         rawResponse: {
           usage: {
             cache_creation: {
-              ephemeral_5m_input_tokens: 10 * summaryCalls,
+              ephemeral_5m_input_tokens: 50,
               ephemeral_1h_input_tokens: 0,
             },
-            cache_read_input_tokens: 100 * summaryCalls,
+            cache_read_input_tokens: 200,
           },
         },
         stopReason: "end_turn",
@@ -165,19 +162,14 @@ describe("ContextWindowManager", () => {
     const result = await manager.maybeCompact(history);
 
     expect(result.compacted).toBe(true);
-    expect(result.summaryCalls).toBe(summaryCalls);
-    expect(result.summaryCalls).toBeGreaterThan(1);
-    expect(result.summaryCacheCreationInputTokens).toBe(
-      summaryCalls * (summaryCalls + 1) * 5,
-    );
-    expect(result.summaryCacheReadInputTokens).toBe(
-      summaryCalls * (summaryCalls + 1) * 50,
-    );
-    expect(result.summaryRawResponses).toHaveLength(summaryCalls);
+    expect(result.summaryCalls).toBe(1);
+    expect(result.summaryCacheCreationInputTokens).toBe(50);
+    expect(result.summaryCacheReadInputTokens).toBe(200);
+    expect(result.summaryRawResponses).toHaveLength(1);
     expect(result.summaryRawResponses?.[0]).toMatchObject({
       usage: {
-        cache_creation: { ephemeral_5m_input_tokens: 10 },
-        cache_read_input_tokens: 100,
+        cache_creation: { ephemeral_5m_input_tokens: 50 },
+        cache_read_input_tokens: 200,
       },
     });
   });
@@ -445,11 +437,11 @@ describe("ContextWindowManager", () => {
     const result = await manager.maybeCompact(history);
 
     expect(result.compacted).toBe(true);
-    expect(result.summaryCalls).toBe(2);
-    expect(result.summaryInputTokens).toBe(1000);
-    expect(result.summaryCacheCreationInputTokens).toBe(240);
-    expect(result.summaryCacheReadInputTokens).toBe(680);
-    expect(result.summaryRawResponses).toEqual([rawResponse, rawResponse]);
+    expect(result.summaryCalls).toBe(1);
+    expect(result.summaryInputTokens).toBe(500);
+    expect(result.summaryCacheCreationInputTokens).toBe(120);
+    expect(result.summaryCacheReadInputTokens).toBe(340);
+    expect(result.summaryRawResponses).toEqual([rawResponse]);
   });
 
   test("does not parse user-authored summary marker text as internal summary", () => {

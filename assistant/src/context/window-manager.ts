@@ -2,15 +2,13 @@ import { createUserMessage } from "../agent/message-types.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { ContentBlock, Message, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import { estimatePromptTokens, estimateTextTokens } from "./token-estimator.js";
+import { estimatePromptTokens } from "./token-estimator.js";
 
 const log = getLogger("context-window");
 
 export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
-const CHUNK_MIN_TOKENS = 1000;
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
-const MAX_CONTEXT_SUMMARY_CHARS = 16000;
 const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
 const MIN_GAIN_TOKENS_DURING_COOLDOWN = 1200;
 const SEVERE_PRESSURE_RATIO = 0.95;
@@ -331,34 +329,26 @@ export class ContextWindowManager {
       };
     }
 
-    const chunks = chunkMessages(
-      compactableMessages,
-      Math.max(this.config.chunkTokens, CHUNK_MIN_TOKENS),
+    const transcript = serializeMessages(compactableMessages);
+    const summaryUpdate = await this.updateSummary(
+      existingSummary ?? "No previous summary.",
+      transcript,
+      signal,
     );
-    let summary = existingSummary ?? "No previous summary.";
-    let summaryInputTokens = 0;
-    let summaryOutputTokens = 0;
-    let summaryModel = "";
-    let summaryCacheCreationInputTokens = 0;
-    let summaryCacheReadInputTokens = 0;
+    const summary = summaryUpdate.summary;
+    const summaryInputTokens = summaryUpdate.inputTokens;
+    const summaryOutputTokens = summaryUpdate.outputTokens;
+    const summaryModel = summaryUpdate.model;
+    const summaryCacheCreationInputTokens =
+      summaryUpdate.cacheCreationInputTokens;
+    const summaryCacheReadInputTokens = summaryUpdate.cacheReadInputTokens;
     const summaryRawResponses: unknown[] = [];
-    let summaryCalls = 0;
-
-    for (const chunk of chunks) {
-      const summaryUpdate = await this.updateSummary(summary, chunk, signal);
-      summary = summaryUpdate.summary;
-      summaryInputTokens += summaryUpdate.inputTokens;
-      summaryOutputTokens += summaryUpdate.outputTokens;
-      summaryModel = summaryUpdate.model || summaryModel;
-      summaryCacheCreationInputTokens += summaryUpdate.cacheCreationInputTokens;
-      summaryCacheReadInputTokens += summaryUpdate.cacheReadInputTokens;
-      if (Array.isArray(summaryUpdate.rawResponse)) {
-        summaryRawResponses.push(...summaryUpdate.rawResponse);
-      } else if (summaryUpdate.rawResponse !== undefined) {
-        summaryRawResponses.push(summaryUpdate.rawResponse);
-      }
-      summaryCalls += 1;
+    if (Array.isArray(summaryUpdate.rawResponse)) {
+      summaryRawResponses.push(...summaryUpdate.rawResponse);
+    } else if (summaryUpdate.rawResponse !== undefined) {
+      summaryRawResponses.push(summaryUpdate.rawResponse);
     }
+    const summaryCalls = 1;
 
     // Extract user-uploaded image blocks from compacted messages so they
     // remain accessible to the assistant in subsequent turns. Tool-result
@@ -496,9 +486,15 @@ export class ContextWindowManager {
     return { keepFromIndex, keepTurns };
   }
 
+  private get summaryMaxTokens(): number {
+    return Math.floor(
+      this.config.maxInputTokens * this.config.summaryBudgetRatio,
+    );
+  }
+
   private async updateSummary(
     currentSummary: string,
-    chunk: string,
+    transcript: string,
     signal?: AbortSignal,
   ): Promise<{
     summary: string;
@@ -509,14 +505,14 @@ export class ContextWindowManager {
     cacheReadInputTokens: number;
     rawResponse?: unknown;
   }> {
-    const prompt = buildSummaryPrompt(currentSummary, chunk);
+    const prompt = buildSummaryPrompt(currentSummary, transcript);
     try {
       const response = await this.provider.sendMessage(
         [createUserMessage(prompt)],
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
-          config: { max_tokens: this.config.summaryMaxTokens },
+          config: { max_tokens: this.summaryMaxTokens },
           signal,
         },
       );
@@ -524,7 +520,7 @@ export class ContextWindowManager {
       const nextSummary = extractText(response.content).trim();
       if (nextSummary.length > 0) {
         return {
-          summary: clampSummary(nextSummary),
+          summary: this.clampSummary(nextSummary),
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens,
           model: response.model,
@@ -539,13 +535,20 @@ export class ContextWindowManager {
     }
 
     return {
-      summary: fallbackSummary(currentSummary, chunk),
+      summary: fallbackSummary(currentSummary, transcript),
       inputTokens: 0,
       outputTokens: 0,
       model: "",
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
     };
+  }
+
+  private clampSummary(summary: string): string {
+    // Budget in tokens → approximate char limit (4 chars ≈ 1 token).
+    const maxChars = this.summaryMaxTokens * 4;
+    if (summary.length <= maxChars) return summary;
+    return `${summary.slice(0, maxChars)}...`;
   }
 }
 
@@ -608,9 +611,7 @@ export function createContextSummaryMessage(summary: string): Message {
     content: [
       {
         type: "text",
-        text: `${CONTEXT_SUMMARY_MARKER}\n${clampSummary(
-          summary,
-        )}\n</context_summary>`,
+        text: `${CONTEXT_SUMMARY_MARKER}\n${summary}\n</context_summary>`,
       },
     ],
   };
@@ -618,7 +619,10 @@ export function createContextSummaryMessage(summary: string): Message {
   return message;
 }
 
-function buildSummaryPrompt(currentSummary: string, chunk: string): string {
+function buildSummaryPrompt(
+  currentSummary: string,
+  transcript: string,
+): string {
   return [
     "Update the summary with new transcript data.",
     "If new information conflicts with older notes, keep the most recent and explicit detail.",
@@ -627,39 +631,13 @@ function buildSummaryPrompt(currentSummary: string, chunk: string): string {
     "### Existing Summary",
     currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
     "",
-    "### New Transcript Chunk",
-    chunk,
+    "### Transcript",
+    transcript,
   ].join("\n");
 }
 
-function chunkMessages(
-  messages: Message[],
-  maxTokensPerChunk: number,
-): string[] {
-  const chunks: string[] = [];
-  let currentChunk: string[] = [];
-  let currentTokens = 0;
-
-  for (let i = 0; i < messages.length; i++) {
-    const line = serializeForSummary(messages[i], i);
-    const lineTokens = estimateTextTokens(line) + 1;
-    if (
-      currentChunk.length > 0 &&
-      currentTokens + lineTokens > maxTokensPerChunk
-    ) {
-      chunks.push(currentChunk.join("\n\n"));
-      currentChunk = [];
-      currentTokens = 0;
-    }
-    currentChunk.push(line);
-    currentTokens += lineTokens;
-  }
-
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk.join("\n\n"));
-  }
-
-  return chunks;
+function serializeMessages(messages: Message[]): string {
+  return messages.map((m, i) => serializeForSummary(m, i)).join("\n\n");
 }
 
 function serializeForSummary(message: Message, index: number): string {
@@ -739,11 +717,6 @@ function extractText(content: ContentBlock[]): string {
     )
     .map((block) => block.text)
     .join("\n");
-}
-
-function clampSummary(summary: string): string {
-  if (summary.length <= MAX_CONTEXT_SUMMARY_CHARS) return summary;
-  return `${summary.slice(0, MAX_CONTEXT_SUMMARY_CHARS)}...`;
 }
 
 function stableJson(value: unknown): string {

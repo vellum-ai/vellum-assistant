@@ -100,8 +100,7 @@ describe("AssistantConfigSchema", () => {
       targetInputTokens: 110000,
       compactThreshold: 0.8,
       preserveRecentUserTurns: 8,
-      summaryMaxTokens: 1200,
-      chunkTokens: 12000,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -1105,8 +1104,7 @@ describe("loadConfig with schema validation", () => {
       targetInputTokens: 110000,
       compactThreshold: 0.8,
       preserveRecentUserTurns: 8,
-      summaryMaxTokens: 1200,
-      chunkTokens: 12000,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
