@@ -187,10 +187,12 @@ private struct ScheduleRow: View {
                     Text(schedule.description)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(schedule.expression)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    if let expression = schedule.expression {
+                        Text(expression)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                     HStack(spacing: 6) {
                         if schedule.enabled {
                             Text("Next: \(nextRunText)")
