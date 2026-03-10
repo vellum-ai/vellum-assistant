@@ -15,6 +15,7 @@ import { gunzipSync } from "node:zlib";
 
 import type { Command } from "commander";
 
+import { createManagedSkill } from "../../skills/managed-store.js";
 import {
   getWorkspaceConfigPath,
   getWorkspaceSkillsDir,
@@ -113,6 +114,18 @@ interface CatalogSkill {
 interface CatalogManifest {
   version: number;
   skills: CatalogSkill[];
+}
+
+interface CreateLocalSkillOptions {
+  skillId: string;
+  name: string;
+  description: string;
+  bodyFile: string;
+  emoji?: string;
+  includes?: string[];
+  overwrite?: boolean;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +274,41 @@ function removeSkillsIndexEntry(id: string): void {
   atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
 }
 
+function readSkillBody(bodyFile: string): string {
+  if (bodyFile === "-") {
+    return readFileSync(0, "utf-8");
+  }
+
+  try {
+    return readFileSync(bodyFile, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to read body file "${bodyFile}": ${msg}`);
+  }
+}
+
+function createSkillLocally(options: CreateLocalSkillOptions): string {
+  const result = createManagedSkill({
+    id: options.skillId,
+    name: options.name,
+    description: options.description,
+    bodyMarkdown: readSkillBody(options.bodyFile),
+    emoji: options.emoji,
+    includes: options.includes,
+    overwrite: options.overwrite,
+    userInvocable: options.userInvocable,
+    disableModelInvocation: options.disableModelInvocation,
+  });
+
+  if (!result.created) {
+    throw new Error(
+      result.error ?? `Failed to create skill "${options.skillId}"`,
+    );
+  }
+
+  return result.path;
+}
+
 function uninstallSkillLocally(skillId: string): void {
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
 
@@ -333,6 +381,7 @@ async function installSkillLocally(
 export type { CatalogManifest, CatalogSkill };
 
 export {
+  createSkillLocally,
   extractTarToDir,
   fetchAndExtractSkill,
   fetchCatalog,
@@ -351,17 +400,20 @@ export {
 export function registerSkillsCommand(program: Command): void {
   const skills = program
     .command("skills")
-    .description("Browse and install skills from the Vellum catalog");
+    .description("Browse, install, and create assistant skills");
 
   skills.addHelpText(
     "after",
     `
-Manage skills from the Vellum catalog. Skills extend the assistant's
-capabilities with pre-built workflows and tools.
+Manage assistant skills from the Vellum catalog or from local markdown you
+author yourself. Local creates write to ~/.vellum/workspace/skills/ and update
+SKILLS.md so the new skill is immediately available for skill loading.
 
 Examples:
   $ assistant skills list
   $ assistant skills list --json
+  $ assistant skills create weather-helper --name "Weather Helper" --description "Answer weather questions" --body-file ./weather.md
+  $ cat ./weather.md | assistant skills create weather-helper --name "Weather Helper" --description "Answer weather questions" --body-file -
   $ assistant skills install weather
   $ assistant skills install weather --overwrite
   $ assistant skills uninstall weather`,
@@ -457,6 +509,93 @@ Examples:
             console.log(JSON.stringify({ ok: true, skillId }));
           } else {
             log.info(`Installed skill "${skillId}".`);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (json) {
+            console.log(JSON.stringify({ ok: false, error: msg }));
+          } else {
+            log.error(`Error: ${msg}`);
+          }
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  skills
+    .command("create <skill-id>")
+    .description("Create or update a local managed skill from markdown")
+    .requiredOption(
+      "--name <name>",
+      "Human-readable skill name stored in SKILL.md frontmatter",
+    )
+    .requiredOption(
+      "--description <description>",
+      "One-line skill description stored in SKILL.md frontmatter",
+    )
+    .requiredOption(
+      "--body-file <path>",
+      "Path to the markdown body file, or - to read the body from stdin",
+    )
+    .option("--emoji <emoji>", "Optional emoji shown in the skill catalog")
+    .option(
+      "--include <skill-id>",
+      "Immediate child skill to record in metadata (repeatable)",
+      (value: string, previous: string[] = []) => [...previous, value],
+      [],
+    )
+    .option("--overwrite", "Replace an existing local skill with the same ID")
+    .option(
+      "--no-user-invocable",
+      "Prevent users from invoking the skill directly",
+    )
+    .option(
+      "--disable-model-invocation",
+      "Prevent the model from auto-invoking the skill",
+    )
+    .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ assistant skills create incident-helper --name "Incident Helper" --description "Guide incident response" --body-file ./incident.md
+  $ assistant skills create incident-helper --name "Incident Helper" --description "Guide incident response" --body-file ./incident.md --overwrite
+  $ cat ./incident.md | assistant skills create incident-helper --name "Incident Helper" --description "Guide incident response" --body-file - --include browser`,
+    )
+    .action(
+      (
+        skillId: string,
+        opts: {
+          name: string;
+          description: string;
+          bodyFile: string;
+          emoji?: string;
+          include?: string[];
+          overwrite?: boolean;
+          userInvocable?: boolean;
+          disableModelInvocation?: boolean;
+          json?: boolean;
+        },
+      ) => {
+        const json = opts.json ?? false;
+
+        try {
+          const path = createSkillLocally({
+            skillId,
+            name: opts.name,
+            description: opts.description,
+            bodyFile: opts.bodyFile,
+            emoji: opts.emoji,
+            includes: opts.include,
+            overwrite: opts.overwrite ?? false,
+            userInvocable: opts.userInvocable,
+            disableModelInvocation: opts.disableModelInvocation,
+          });
+
+          if (json) {
+            console.log(JSON.stringify({ ok: true, skillId, path }));
+          } else {
+            log.info(`Created local skill "${skillId}" at ${path}.`);
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
