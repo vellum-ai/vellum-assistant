@@ -763,6 +763,11 @@ export async function executeWebFetch(
         `start_index (${startIndex}) exceeded available content length (${processed.length}).`,
       );
     }
+    if (html && processed.length < 200) {
+      notices.push(
+        "This page returned very little text content and is likely a JavaScript-rendered single-page app. Use the browser skill (browser_navigate + browser_extract) to load and extract the full rendered content.",
+      );
+    }
 
     const content = formatWebFetchOutput({
       requestedUrl: safeRequestedUrl,

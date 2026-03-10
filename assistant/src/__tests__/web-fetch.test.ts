@@ -1605,4 +1605,42 @@ describe("web_fetch tool", () => {
     expect(result.content).toContain("<title>Fake Title</title>");
     expect(result.content).toContain("Regular markdown content.");
   });
+
+  test("suggests browser skill when HTML page returns very little text content", async () => {
+    const spaHtml =
+      '<!doctype html><html><head><title>My App</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>';
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/spa" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(spaHtml, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("browser skill");
+    expect(result.content).toContain("browser_navigate");
+  });
+
+  test("does not suggest browser skill when HTML page has substantial content", async () => {
+    const richHtml = `<!doctype html><html><head><title>Docs</title></head><body><p>${"Lorem ipsum dolor sit amet. ".repeat(20)}</p></body></html>`;
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/docs" },
+      {
+        resolveHostAddresses: async () => ["93.184.216.34"],
+        requestExecutor: async () =>
+          new Response(richHtml, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("browser skill");
+  });
 });
