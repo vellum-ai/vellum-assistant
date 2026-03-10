@@ -10,6 +10,12 @@ extension AppDelegate {
 
     public func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
+            // Handle vellum://send?message=... deep links
+            if url.scheme == "vellum" || url.scheme == "vellum-assistant" {
+                handleDeepLink(url)
+                continue
+            }
+
             guard url.pathExtension == "vellum" else { continue }
             log.info("Opening .vellum file: \(url.path, privacy: .private)")
 
@@ -29,6 +35,24 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    /// Handle `vellum://send?message=...` deep links by buffering the message
+    /// in `DeepLinkManager` for the active `ChatViewModel` to consume,
+    /// then bringing the main window to front.
+    private func handleDeepLink(_ url: URL) {
+        guard url.host == "send" else { return }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let messageItem = components.queryItems?.first(where: { $0.name == "message" }),
+              let message = messageItem.value, !message.isEmpty else { return }
+
+        log.info("Received deep link send message (\(message.count) chars)")
+        DeepLinkManager.pendingMessage = message
+
+        // Bring the main window to front and consume the pending message
+        // in the active thread's view model.
+        showMainWindow()
+        mainWindow?.threadManager.activeViewModel?.consumeDeepLinkIfNeeded()
     }
 
     // MARK: - Bundle Open Handling

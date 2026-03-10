@@ -946,15 +946,13 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Deep Link
 
     /// Check for a buffered deep-link message and apply it to `inputText`.
-    /// Called by the iOS view layer when this `ChatViewModel` becomes the
+    /// Called by the view layer when this `ChatViewModel` becomes the
     /// active/visible thread, ensuring only one VM ever consumes the message.
-    #if os(iOS)
     public func consumeDeepLinkIfNeeded() {
         guard let message = DeepLinkManager.pendingMessage else { return }
         DeepLinkManager.pendingMessage = nil
         inputText = message
     }
-    #endif
 
     // MARK: - Sending
 
