@@ -75,6 +75,10 @@ export interface SchedulesListResponse {
     lastRunAt: number | null;
     lastStatus: string | null;
     description: string;
+    mode: string;
+    status: string;
+    routingIntent: string;
+    isOneShot: boolean;
   }>;
 }
 

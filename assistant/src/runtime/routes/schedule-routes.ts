@@ -6,6 +6,7 @@
 
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import {
+  cancelSchedule,
   completeScheduleRun,
   createScheduleRun,
   deleteSchedule,
@@ -14,6 +15,10 @@ import {
   listSchedules,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import {
+  cancelReminder,
+  listReminders,
+} from "../../tools/reminder/reminder-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -44,6 +49,10 @@ function handleListSchedules(): Response {
         j.syntax === "cron"
           ? describeCronExpression(j.cronExpression)
           : j.expression,
+      mode: j.mode,
+      status: j.status,
+      routingIntent: j.routingIntent,
+      isOneShot: j.cronExpression == null,
     })),
   });
 }
@@ -74,6 +83,100 @@ function handleDeleteSchedule(id: string): Response {
     return httpError("INTERNAL_ERROR", "Failed to remove schedule", 500);
   }
   return handleListSchedules();
+}
+
+function handleCancelSchedule(id: string): Response {
+  try {
+    const cancelled = cancelSchedule(id);
+    if (!cancelled) {
+      return httpError("NOT_FOUND", "Schedule not found or not cancellable", 404);
+    }
+    log.info({ id }, "Schedule cancelled via HTTP");
+  } catch (err) {
+    log.error({ err }, "Failed to cancel schedule");
+    return httpError("INTERNAL_ERROR", "Failed to cancel schedule", 500);
+  }
+  return handleListSchedules();
+}
+
+/**
+ * List reminders by querying one-shot schedules from the schedule store,
+ * falling back to the legacy reminder store for entries not yet migrated.
+ */
+function handleListReminders(): Response {
+  // Query one-shot schedules and map to RemindersListResponse shape
+  const oneShotSchedules = listSchedules({ oneShotOnly: true });
+  const fromSchedules = oneShotSchedules.map((s) => ({
+    id: s.id,
+    label: s.name,
+    message: s.message,
+    fireAt: s.nextRunAt,
+    mode: s.mode,
+    status: mapScheduleStatusToReminderStatus(s.status),
+    firedAt: s.lastRunAt,
+    createdAt: s.createdAt,
+  }));
+
+  // Fall back to legacy reminder store for entries not yet migrated
+  const legacyReminders = listReminders();
+  const scheduleIds = new Set(fromSchedules.map((r) => r.id));
+  const fromLegacy = legacyReminders
+    .filter((r) => !scheduleIds.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      label: r.label,
+      message: r.message,
+      fireAt: r.fireAt,
+      mode: r.mode,
+      status: r.status,
+      firedAt: r.firedAt,
+      createdAt: r.createdAt,
+    }));
+
+  return Response.json({
+    type: "reminders_list_response",
+    reminders: [...fromSchedules, ...fromLegacy],
+  });
+}
+
+/**
+ * Cancel a reminder by first trying the schedule store (one-shot schedules),
+ * then falling back to the legacy reminder store.
+ */
+function handleCancelReminder(id: string): Response {
+  // Try schedule store first
+  const cancelledSchedule = cancelSchedule(id);
+  if (cancelledSchedule) {
+    log.info({ id }, "Reminder cancelled via schedule store");
+    return handleListReminders();
+  }
+
+  // Fall back to legacy reminder store
+  const cancelledReminder = cancelReminder(id);
+  if (cancelledReminder) {
+    log.info({ id }, "Reminder cancelled via legacy reminder store");
+    return handleListReminders();
+  }
+
+  return httpError("NOT_FOUND", "Reminder not found", 404);
+}
+
+/**
+ * Map schedule status values to legacy reminder status values for client compat.
+ */
+function mapScheduleStatusToReminderStatus(status: string): string {
+  switch (status) {
+    case "active":
+      return "pending";
+    case "firing":
+      return "firing";
+    case "fired":
+      return "fired";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return status;
+  }
 }
 
 async function handleRunScheduleNow(
@@ -223,6 +326,25 @@ export function scheduleRouteDefinitions(deps: {
       policyKey: "schedules/run",
       handler: async ({ params }) =>
         handleRunScheduleNow(params.id, deps.sendMessageDeps),
+    },
+    {
+      endpoint: "schedules/:id/cancel",
+      method: "POST",
+      policyKey: "schedules",
+      handler: ({ params }) => handleCancelSchedule(params.id),
+    },
+    // Reminder-compat routes: serve reminders from schedule store
+    {
+      endpoint: "reminders",
+      method: "GET",
+      policyKey: "schedules",
+      handler: () => handleListReminders(),
+    },
+    {
+      endpoint: "reminders/:id/cancel",
+      method: "POST",
+      policyKey: "schedules",
+      handler: ({ params }) => handleCancelReminder(params.id),
     },
   ];
 }
