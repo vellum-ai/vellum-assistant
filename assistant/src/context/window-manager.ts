@@ -197,11 +197,22 @@ export class ContextWindowManager {
       targetInputTokensOverride: options?.targetInputTokensOverride,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
+      // All turns fit after truncation projection, but the real in-memory
+      // messages may still contain un-truncated tool results. Apply truncation
+      // so the caller gets the token savings even without summarization.
+      const { messages: truncatedMessages, truncatedCount } =
+        truncateToolResultsAcrossHistory(messages, COMPACTION_TOOL_RESULT_MAX_CHARS);
+      const didTruncate = truncatedCount > 0;
+      const estimatedAfterTruncation = didTruncate
+        ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
+            providerName: this.provider.name,
+          })
+        : previousEstimatedInputTokens;
       return {
-        messages,
-        compacted: false,
+        messages: truncatedMessages,
+        compacted: didTruncate,
         previousEstimatedInputTokens,
-        estimatedInputTokens: previousEstimatedInputTokens,
+        estimatedInputTokens: estimatedAfterTruncation,
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
@@ -211,7 +222,9 @@ export class ContextWindowManager {
         summaryOutputTokens: 0,
         summaryModel: "",
         summaryText: existingSummary ?? "",
-        reason: "unable to compact while keeping recent turns",
+        reason: didTruncate
+          ? "truncated tool results without summarization"
+          : "unable to compact while keeping recent turns",
       };
     }
 
