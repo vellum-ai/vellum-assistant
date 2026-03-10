@@ -8,12 +8,12 @@ import { resolveScopeProfile } from "../scopes.js";
 describe("buildIpcAuthContext", () => {
   test("produces correct subject pattern", () => {
     const ctx = buildIpcAuthContext("session-abc");
-    expect(ctx.subject).toBe("ipc:self:session-abc");
+    expect(ctx.subject).toBe("local:self:session-abc");
   });
 
-  test("sets principalType to ipc", () => {
+  test("sets principalType to local", () => {
     const ctx = buildIpcAuthContext("session-abc");
-    expect(ctx.principalType).toBe("ipc");
+    expect(ctx.principalType).toBe("local");
   });
 
   test("uses DAEMON_INTERNAL_ASSISTANT_ID for assistantId", () => {
@@ -27,16 +27,16 @@ describe("buildIpcAuthContext", () => {
     expect(ctx.sessionId).toBe("my-session-123");
   });
 
-  test("uses ipc_v1 scope profile", () => {
+  test("uses local_v1 scope profile", () => {
     const ctx = buildIpcAuthContext("session-abc");
-    expect(ctx.scopeProfile).toBe("ipc_v1");
+    expect(ctx.scopeProfile).toBe("local_v1");
   });
 
-  test("resolves scopes from ipc_v1 profile", () => {
+  test("resolves scopes from local_v1 profile", () => {
     const ctx = buildIpcAuthContext("session-abc");
-    const expectedScopes = resolveScopeProfile("ipc_v1");
+    const expectedScopes = resolveScopeProfile("local_v1");
     expect(ctx.scopes).toBe(expectedScopes);
-    expect(ctx.scopes.has("ipc.all")).toBe(true);
+    expect(ctx.scopes.has("local.all")).toBe(true);
   });
 
   test("uses current policy epoch", () => {

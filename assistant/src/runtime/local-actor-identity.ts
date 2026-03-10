@@ -1,12 +1,12 @@
 /**
- * Deterministic local actor identity for IPC connections.
+ * Deterministic local actor identity for local connections.
  *
- * IPC (Unix domain socket) connections come from the local macOS native app.
- * No actor token is sent over the socket; instead, the daemon assigns a
+ * Local connections come from the native app via local HTTP sessions.
+ * No actor token is sent over the connection; instead, the daemon assigns a
  * deterministic local actor identity server-side by looking up the vellum
  * channel guardian binding.
  *
- * This routes IPC connections through the same `resolveTrustContext`
+ * This routes local connections through the same `resolveTrustContext`
  * pathway used by HTTP channel ingress, producing equivalent
  * guardian-context behavior for the vellum channel.
  */
@@ -34,12 +34,12 @@ const log = getLogger("local-actor-identity");
  */
 export function buildLocalAuthContext(sessionId: string): AuthContext {
   return {
-    subject: `ipc:self:${sessionId}`,
-    principalType: "ipc",
+    subject: `local:self:${sessionId}`,
+    principalType: "local",
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sessionId,
-    scopeProfile: "ipc_v1",
-    scopes: resolveScopeProfile("ipc_v1"),
+    scopeProfile: "local_v1",
+    scopes: resolveScopeProfile("local_v1"),
     policyEpoch: CURRENT_POLICY_EPOCH,
   };
 }
@@ -50,11 +50,11 @@ export function buildLocalAuthContext(sessionId: string): AuthContext {
 export const buildIpcAuthContext = buildLocalAuthContext;
 
 /**
- * Resolve the guardian runtime context for a local IPC connection.
+ * Resolve the guardian runtime context for a local connection.
  *
  * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
  * then passes it as the sender identity through `resolveTrustContext` --
- * the same pathway HTTP channel routes use. This ensures IPC and HTTP
+ * the same pathway HTTP channel routes use. This ensures local and HTTP
  * produce equivalent trust classification for the vellum channel.
  *
  * When no vellum guardian binding exists (e.g. fresh install before
@@ -107,10 +107,10 @@ export function resolveLocalIpcTrustContext(
 }
 
 /**
- * Build an AuthContext for a local IPC connection.
+ * Build an AuthContext for a local connection.
  *
  * Produces the same AuthContext shape that HTTP routes receive from JWT
- * verification, using the `ipc_v1` scope profile. The `actorPrincipalId`
+ * verification, using the `local_v1` scope profile. The `actorPrincipalId`
  * is populated from the vellum guardian binding when available, enabling
  * downstream code to resolve guardian context using the same
  * `authContext.actorPrincipalId` path as HTTP sessions.

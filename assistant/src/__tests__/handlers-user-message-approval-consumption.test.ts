@@ -120,7 +120,7 @@ mock.module("../runtime/local-actor-identity.js", () => ({
     guardianPrincipalId: "local-principal",
   }),
   resolveLocalIpcAuthContext: () => ({
-    scope: "ipc_v1",
+    scope: "local_v1",
     actorPrincipalId: "local-principal",
   }),
 }));

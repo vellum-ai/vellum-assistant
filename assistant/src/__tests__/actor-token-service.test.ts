@@ -389,14 +389,14 @@ describe("resolveLocalIpcTrustContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveLocalIpcAuthContext", () => {
-  test("returns AuthContext with ipc principal type", () => {
+  test("returns AuthContext with local principal type", () => {
     const ctx = resolveLocalIpcAuthContext("session-123");
-    expect(ctx.principalType).toBe("ipc");
+    expect(ctx.principalType).toBe("local");
   });
 
-  test("subject follows ipc:self:<sessionId> pattern", () => {
+  test("subject follows local:self:<sessionId> pattern", () => {
     const ctx = resolveLocalIpcAuthContext("session-abc");
-    expect(ctx.subject).toBe("ipc:self:session-abc");
+    expect(ctx.subject).toBe("local:self:session-abc");
   });
 
   test("assistantId is always self", () => {
@@ -404,10 +404,10 @@ describe("resolveLocalIpcAuthContext", () => {
     expect(ctx.assistantId).toBe("self");
   });
 
-  test("uses ipc_v1 scope profile with ipc.all scope", () => {
+  test("uses local_v1 scope profile with local.all scope", () => {
     const ctx = resolveLocalIpcAuthContext("session-123");
-    expect(ctx.scopeProfile).toBe("ipc_v1");
-    expect(ctx.scopes.has("ipc.all")).toBe(true);
+    expect(ctx.scopeProfile).toBe("local_v1");
+    expect(ctx.scopes.has("local.all")).toBe(true);
   });
 
   test("enriches actorPrincipalId from vellum guardian binding when present", () => {

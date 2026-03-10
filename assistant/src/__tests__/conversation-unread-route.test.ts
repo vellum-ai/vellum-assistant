@@ -85,7 +85,7 @@ describe("POST /v1/conversations/unread", () => {
   test("registers the unread route with chat.write policy", () => {
     expect(getPolicy("conversations/unread")).toEqual({
       requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "ipc"],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
     });
   });
 

@@ -409,7 +409,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "integrations/twitter/auth/start", scopes: ["settings.write"] },
   { endpoint: "integrations/twitter/auth/status", scopes: ["settings.read"] },
 
-  // Workspace files (IPC-migrated)
+  // Workspace files
   { endpoint: "workspace-files", scopes: ["settings.read"] },
   { endpoint: "workspace-files/read", scopes: ["settings.read"] },
 
@@ -421,7 +421,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
   registerPolicy(endpoint, {
     requiredScopes: scopes,
-    allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "ipc"],
+    allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
   });
 }
 

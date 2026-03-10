@@ -676,7 +676,7 @@ describe("route policy registration", () => {
     expect(policy?.requiredScopes).toContain("settings.write");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy?.allowedPrincipalTypes).toContain("ipc");
+    expect(policy?.allowedPrincipalTypes).toContain("local");
   });
 });
 

@@ -50,19 +50,19 @@ describe("buildAuthContext", () => {
     }
   });
 
-  test("builds context from valid ipc claims", () => {
+  test("builds context from valid local claims", () => {
     const result = buildAuthContext(
       validClaims({
-        sub: "ipc:self:session-123",
-        scope_profile: "ipc_v1",
+        sub: "local:self:session-123",
+        scope_profile: "local_v1",
       }),
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.context.principalType).toBe("ipc");
+      expect(result.context.principalType).toBe("local");
       expect(result.context.assistantId).toBe("self");
       expect(result.context.sessionId).toBe("session-123");
-      expect(result.context.scopes.has("ipc.all")).toBe(true);
+      expect(result.context.scopes.has("local.all")).toBe(true);
     }
   });
 
