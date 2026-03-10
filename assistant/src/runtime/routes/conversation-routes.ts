@@ -557,13 +557,14 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
-  // Desktop/CLI interfaces have an SSE client that can display permission
-  // prompts. Channel interfaces (telegram, slack, etc.) route approvals
-  // through the guardian system and have no interactive prompter UI.
+  // Desktop, CLI, and web interfaces have an SSE client that can display
+  // permission prompts. Channel interfaces (telegram, slack, etc.) route
+  // approvals through the guardian system and have no interactive prompter UI.
   const isInteractiveInterface =
     sourceInterface === "macos" ||
     sourceInterface === "ios" ||
-    sourceInterface === "cli";
+    sourceInterface === "cli" ||
+    sourceInterface === "vellum";
   // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
   // resolver, notifiers, trace emitter) can reach the HTTP client.  The
   // IPC socket removal (PR #14431) left sendToClient as a no-op; this
