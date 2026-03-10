@@ -54,7 +54,7 @@ bash command="rm -rf /tmp/vellum-eval/"
 ## Guidelines
 
 - **Iteration limit:** Max 3 attempts before asking the user for guidance.
-- **After successful test:** After explicit user consent, persist with `assistant skills create <skill-id> --name "<name>" --description "<description>" --body-file <path-or-->`.
+- **After successful test:** After explicit user consent, persist with `assistant skills create <skill-id> --name "<name>" --description "<description>" --body-file <path-or-stdin>` (use `-` for stdin).
 - **Timeout:** Use `timeout_seconds=10` (or up to 20 for complex snippets).
 - **Error handling:** Read stdout/stderr from the bash output to diagnose failures.
 - **Never persist or delete skills without explicit user confirmation.** Remove skills with `assistant skills uninstall <skill-id>`.

@@ -95,6 +95,8 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("bun run /tmp/vellum-eval/snippet.ts");
     expect(result).toContain("assistant skills create");
     expect(result).toContain("assistant skills uninstall");
+    expect(result).toContain("path-or-stdin");
+    expect(result).toContain("use `-` for stdin");
   });
 
   test("workflow section includes user confirmation warning", () => {

@@ -4,7 +4,7 @@ This document describes the security model for the Vellum Assistant skill system
 
 ## Overview
 
-Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (stored under `~/.vellum/workspace/skills/`, typically via `assistant skills create` or `assistant skills install`), **workspace** (project-local), or **extra** (additional directories configured by the user).
+Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (stored under the current assistant workspace's `skills/` directory, typically via `assistant skills create` or `assistant skills install`; this is usually `~/.vellum/workspace/skills/` and becomes instance-scoped under `BASE_DATA_DIR`), **workspace** (project-local), or **extra** (additional directories configured by the user).
 
 Because skills can introduce arbitrary tool behavior, they are subject to stricter permission defaults than core tools.
 
@@ -68,7 +68,7 @@ Version-specific rules are more secure but require re-approval after every skill
 
 Writing to skill source files is treated as a **high-risk** operation by the risk classifier. The `isSkillSourcePath()` function detects whether a file path falls under any known skill directory:
 
-- **Managed skills**: `~/.vellum/workspace/skills/`
+- **Managed skills**: The current assistant workspace's `skills/` directory (typically `~/.vellum/workspace/skills/`, or `~/.vellum/instances/<assistant>/.vellum/workspace/skills/` when instance-scoped)
 - **Bundled skills**: The application's built-in `bundled-skills/` directory
 - **Workspace skills**: Project-local skill directories
 - **Extra skills**: Additional roots configured by the user

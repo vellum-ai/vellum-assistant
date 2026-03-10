@@ -1038,25 +1038,23 @@ Key behaviors:
 
 ## Dynamic Skill Authoring — CLI Flow
 
-The assistant can author, test, and persist new skills at runtime through a bash + CLI workflow. All operations target `~/.vellum/workspace/skills/` (managed skills directory) and require explicit user confirmation.
+The assistant can author, test, and persist new skills at runtime through a bash + CLI workflow. Managed skills live in the current assistant workspace's `skills/` directory (`getWorkspaceSkillsDir()`), which is typically `~/.vellum/workspace/skills/` and becomes instance-scoped under `BASE_DATA_DIR`.
 
 ```mermaid
 graph TB
     subgraph "1. Evaluate (Sandbox)"
         SNIPPET["Model drafts<br/>TypeScript snippet"]
-        EVAL_TOOL["evaluate_typescript_code<br/>───────────────<br/>RiskLevel: High<br/>Always sandboxed"]
-        TEMP["Temp dir:<br/>workingDir/.vellum-eval/&lt;uuid&gt;"]
-        WRAPPER["Wrapper runner<br/>imports snippet, calls<br/>default() or run()"]
-        SANDBOX["wrapCommand()<br/>forced sandbox=true"]
-        RESULT["JSON result:<br/>ok, exitCode, result,<br/>stdout, stderr,<br/>durationMs, timeout"]
+        TEMP["bash<br/>───────────────<br/>writes /tmp/vellum-eval/snippet.ts"]
+        BUN_RUN["bash<br/>───────────────<br/>bun run /tmp/vellum-eval/snippet.ts"]
+        RESULT["stdout/stderr + exit code"]
     end
 
     subgraph "2. Persist (CLI)"
         CREATE["assistant skills create<br/>───────────────<br/>Requires user consent"]
         CLI_CREATE["createSkillLocally()<br/>───────────────<br/>reads body file or stdin"]
         MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()<br/>upsertSkillsIndexEntry()"]
-        SKILL_DIR["~/.vellum/workspace/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
-        INDEX["~/.vellum/workspace/skills/<br/>SKILLS.md (index)"]
+        SKILL_DIR["assistant workspace/<br/>skills/&lt;id&gt;/SKILL.md"]
+        INDEX["assistant workspace/<br/>skills/SKILLS.md"]
     end
 
     subgraph "3. Load & Use"
@@ -1076,11 +1074,9 @@ graph TB
         EVICT["Session eviction<br/>+ recreation"]
     end
 
-    SNIPPET --> EVAL_TOOL
-    EVAL_TOOL --> TEMP
-    TEMP --> WRAPPER
-    WRAPPER --> SANDBOX
-    SANDBOX --> RESULT
+    SNIPPET --> TEMP
+    TEMP --> BUN_RUN
+    BUN_RUN --> RESULT
     RESULT -->|"ok=true + user consent"| CREATE
 
     CREATE --> CLI_CREATE
@@ -1103,7 +1099,7 @@ graph TB
 
 **Key design decisions:**
 
-- `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
+- The evaluation loop uses `bash` to write temp files and run `bun run`; it should stay sandboxed when the runtime supports sandboxed bash execution.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
 - `assistant skills create` delegates to `createManagedSkill()`, which writes `SKILL.md` and `SKILLS.md` atomically (tmp file + rename).
 - `assistant skills uninstall` removes the skill directory and deletes its `SKILLS.md` entry.
@@ -1378,7 +1374,6 @@ The `classifyRisk()` function determines the risk level for each tool invocation
 | `file_write`, `file_edit` targeting skill source paths           | **High**                    | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots                    |
 | `host_file_write`, `host_file_edit` targeting skill source paths | **High**                    | Same path classification, host variant                                                       |
 | `bash`, `host_bash`                                              | Varies                      | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
-| `evaluate_typescript_code`                                       | High                        | Arbitrary code execution                                                                     |
 | Skill-origin tools with no matching rule                         | Prompted regardless of risk | Even Low-risk skill tools default to `ask`                                                   |
 
 The escalation of skill source file mutations to High risk is a privilege-escalation defense: modifying skill source code could grant the agent new capabilities, so such operations always require explicit approval.

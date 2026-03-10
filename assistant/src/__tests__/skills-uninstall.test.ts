@@ -128,4 +128,15 @@ describe("assistant skills uninstall", () => {
     const index = readFileSync(getSkillsIndexPath(), "utf-8");
     expect(index).not.toContain("weather");
   });
+
+  test("removes markdown-link index entries for the uninstalled skill", () => {
+    installFakeSkill("weather");
+    writeSkillsIndex("- [weather](weather/SKILL.md)\n- browser\n");
+
+    uninstallSkillLocally("weather");
+
+    const index = readFileSync(getSkillsIndexPath(), "utf-8");
+    expect(index).not.toContain("weather");
+    expect(index).toContain("browser");
+  });
 });
