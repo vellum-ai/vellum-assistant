@@ -76,14 +76,16 @@ enum LogExporter {
             event.message = SentryMessage(formatted: "Manual log export")
             event.tags = ["source": "manual_log_export"]
 
-            MetricKitManager.sendManualReport(event, attachments: [attachment]) {
-                try? FileManager.default.removeItem(at: archiveURL)
+            await withCheckedContinuation { continuation in
+                MetricKitManager.sendManualReport(event, attachments: [attachment]) {
+                    try? FileManager.default.removeItem(at: archiveURL)
+                    continuation.resume()
+                }
             }
 
-            // Show immediate confirmation — the upload runs async in background
             let alert = NSAlert()
             alert.messageText = "Logs Sent"
-            alert.informativeText = "Log archive is being uploaded to Vellum. This may take a moment on slow connections."
+            alert.informativeText = "Log archive has been uploaded to Vellum."
             alert.alertStyle = .informational
             alert.runModal()
         }
