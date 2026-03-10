@@ -36,7 +36,7 @@ struct ChatLoadingSkeleton: View {
         VStack(alignment: .trailing, spacing: VSpacing.xs) {
             chatBone(height: 14)
             chatBone(height: 14)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.6, alignment: .trailing)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.45, alignment: .trailing)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -44,7 +44,7 @@ struct ChatLoadingSkeleton: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.textMuted.opacity(0.06))
         )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.65)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
