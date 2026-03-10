@@ -84,12 +84,12 @@ struct ChannelsGuardianSection: View {
                 Text(guardian.displayName)
                     .font(.body)
             }
-            if let channelCount = guardian.channels.first {
+            if let firstChannel = guardian.channels.first {
                 Text("\(guardian.channels.count) channel\(guardian.channels.count == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if let verifiedAt = channelCount.verifiedAt {
+                if let verifiedAt = firstChannel.verifiedAt {
                     Text("Verified \(DateFormatting.relativeTimestamp(fromMilliseconds: verifiedAt) ?? "unknown")")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)

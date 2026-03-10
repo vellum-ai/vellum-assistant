@@ -144,7 +144,7 @@ public final class ContactsStore: ObservableObject {
                 if case .contactsResponse(let response) = message {
                     // Only handle delete acknowledgements (no contact/contacts fields);
                     // skip unrelated list/get/update responses.
-                    guard response.contact == nil && response.contacts == nil || !response.success else { continue }
+                    guard response.contact == nil && response.contacts == nil else { continue }
                     if response.success {
                         contacts.removeAll { $0.id == id }
                     }

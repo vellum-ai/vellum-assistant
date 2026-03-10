@@ -103,7 +103,7 @@ struct AppsGridView: View {
         .onAppear {
             pinnedAppIds = decodePinnedIds(from: pinnedAppIdsData)
         }
-        .onChange(of: pinnedAppIdsData) { newData in
+        .onChange(of: pinnedAppIdsData) { _, newData in
             pinnedAppIds = decodePinnedIds(from: newData)
         }
     }
