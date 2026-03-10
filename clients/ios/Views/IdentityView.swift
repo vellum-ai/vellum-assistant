@@ -75,7 +75,7 @@ struct IdentityView: View {
                     }
                 } label: {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "brain")
+                        VIconView(.brain, size: 16)
                             .foregroundColor(VColor.accent)
                             .frame(width: 24)
                         Text("Installed Skills")

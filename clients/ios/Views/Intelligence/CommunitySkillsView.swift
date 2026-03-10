@@ -51,8 +51,7 @@ struct CommunitySkillsView: View {
     private func communitySkillRow(_ item: ClawhubSkillItem) -> some View {
         HStack(spacing: VSpacing.sm) {
             // Community skills don't have an emoji field, use a default icon
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: 20))
+            VIconView(.puzzle, size: 20)
                 .foregroundColor(VColor.accent)
                 .frame(width: 32)
                 .accessibilityHidden(true)
@@ -91,8 +90,7 @@ struct CommunitySkillsView: View {
 
             if item.stars > 0 {
                 HStack(spacing: 2) {
-                    Image(systemName: "star.fill")
-                        .font(.caption2)
+                    VIconView(.star, size: 10)
                         .foregroundColor(.yellow)
                     Text("\(item.stars)")
                         .font(VFont.caption)
@@ -119,8 +117,7 @@ struct CommunitySkillsView: View {
 
     private var noResultsState: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 48))
+            VIconView(.search, size: 48)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
 
@@ -176,8 +173,7 @@ struct CommunitySkillDetailView: View {
             // Header
             Section {
                 VStack(spacing: VSpacing.sm) {
-                    Image(systemName: "puzzlepiece.extension")
-                        .font(.system(size: 48))
+                    VIconView(.puzzle, size: 48)
                         .foregroundColor(VColor.accent)
                         .accessibilityHidden(true)
 
@@ -249,7 +245,7 @@ struct CommunitySkillDetailView: View {
                         skillsStore.installSkill(slug: item.slug)
                     } label: {
                         HStack {
-                            Image(systemName: "arrow.down.circle")
+                            VIconView(.arrowDown, size: 16)
                             Text("Install Skill")
                         }
                     }

@@ -244,7 +244,7 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.intelligence)
                 .tabItem {
-                    Label { Text("Intelligence") } icon: { Image(systemName: "brain") }
+                    Label { Text("Intelligence") } icon: { VIconView(.brain, size: 12) }
                 }
 
             SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, threadStore: threadStore)

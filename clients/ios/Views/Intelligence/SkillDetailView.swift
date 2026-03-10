@@ -105,7 +105,7 @@ struct SkillDetailView: View {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: skill.state == "enabled" ? "pause.circle" : "play.circle")
+                            VIconView(.circlePlay, size: 16)
                             Text(skill.state == "enabled" ? "Disable Skill" : "Enable Skill")
                         }
                     }
@@ -115,22 +115,17 @@ struct SkillDetailView: View {
                         showUninstallConfirmation = true
                     } label: {
                         HStack {
-                            Image(systemName: "trash")
+                            VIconView(.trash, size: 16)
                             Text("Uninstall Skill")
                         }
                     }
                 } else {
                     // Install
                     Button {
-                        if let slug = skill.clawhub?.author {
-                            // Use the skill name as slug for community skills
-                            skillsStore.installSkill(slug: skill.name)
-                        } else {
-                            skillsStore.installSkill(slug: skill.name)
-                        }
+                        skillsStore.installSkill(slug: skill.id)
                     } label: {
                         HStack {
-                            Image(systemName: "arrow.down.circle")
+                            VIconView(.arrowDown, size: 16)
                             Text("Install Skill")
                         }
                     }
@@ -140,10 +135,9 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Inspect the skill if it has a clawhub slug
-            if let clawhub = skill.clawhub {
-                let slug = skill.name
-                skillsStore.inspectSkill(slug: slug)
+            // Inspect the skill if it has a clawhub source
+            if skill.clawhub != nil {
+                skillsStore.inspectSkill(slug: skill.id)
             }
         }
         .onDisappear {
@@ -190,7 +184,7 @@ struct SkillDetailView: View {
 
             if skill.updateAvailable {
                 HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.circle.fill")
+                    VIconView(.circleArrowUp, size: 12)
                     Text("Update available")
                         .font(VFont.caption)
                 }

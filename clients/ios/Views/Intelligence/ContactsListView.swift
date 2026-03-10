@@ -78,7 +78,7 @@ struct ContactsListView: View {
                                 contactToDelete = contact
                                 showDeleteConfirmation = true
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
                             }
                         }
                     }
@@ -164,19 +164,18 @@ struct ContactsListView: View {
     // MARK: - Channel Icon
 
     private func channelIcon(_ type: String) -> some View {
-        let iconName: String = {
+        let icon: VIcon = {
             switch type {
-            case "email": return "envelope"
-            case "sms", "phone": return "phone"
-            case "slack": return "number"
-            case "discord": return "bubble.left"
-            case "telegram": return "paperplane"
-            default: return "link"
+            case "email": return .mail
+            case "sms", "phone": return .phone
+            case "slack": return .hash
+            case "discord": return .messageCircle
+            case "telegram": return .send
+            default: return .link
             }
         }()
 
-        return Image(systemName: iconName)
-            .font(.caption2)
+        return VIconView(icon, size: 10)
             .foregroundColor(VColor.textMuted)
     }
 

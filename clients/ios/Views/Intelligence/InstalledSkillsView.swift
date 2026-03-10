@@ -51,7 +51,7 @@ struct InstalledSkillsView: View {
                             try? skillsStore.disableSkill(name: skill.name)
                             skillsStore.fetchSkills(force: true)
                         } label: {
-                            Label("Disable", systemImage: "pause.circle")
+                            Label { Text("Disable") } icon: { VIconView(.circlePlay, size: 12) }
                         }
                         .tint(.orange)
                     } else {
@@ -59,7 +59,7 @@ struct InstalledSkillsView: View {
                             try? skillsStore.enableSkill(name: skill.name)
                             skillsStore.fetchSkills(force: true)
                         } label: {
-                            Label("Enable", systemImage: "play.circle")
+                            Label { Text("Enable") } icon: { VIconView(.circlePlay, size: 12) }
                         }
                         .tint(.green)
                     }
@@ -69,7 +69,7 @@ struct InstalledSkillsView: View {
                         skillToUninstall = skill
                         showUninstallConfirmation = true
                     } label: {
-                        Label("Uninstall", systemImage: "trash")
+                        Label { Text("Uninstall") } icon: { VIconView(.trash, size: 12) }
                     }
                 }
             }
@@ -138,8 +138,7 @@ struct InstalledSkillsView: View {
 
     private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "brain")
-                .font(.system(size: 48))
+            VIconView(.brain, size: 48)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
 

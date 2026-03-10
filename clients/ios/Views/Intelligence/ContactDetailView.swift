@@ -61,7 +61,7 @@ struct ContactDetailView: View {
                     showDeleteConfirmation = true
                 } label: {
                     HStack {
-                        Image(systemName: "trash")
+                        VIconView(.trash, size: 16)
                         Text("Delete Contact")
                     }
                 }
@@ -230,19 +230,18 @@ struct ContactDetailView: View {
     // MARK: - Helpers
 
     private func channelTypeIcon(_ type: String) -> some View {
-        let iconName: String = {
+        let icon: VIcon = {
             switch type {
-            case "email": return "envelope.fill"
-            case "sms", "phone": return "phone.fill"
-            case "slack": return "number"
-            case "discord": return "bubble.left.fill"
-            case "telegram": return "paperplane.fill"
-            default: return "link"
+            case "email": return .mail
+            case "sms", "phone": return .phone
+            case "slack": return .hash
+            case "discord": return .messageCircle
+            case "telegram": return .send
+            default: return .link
             }
         }()
 
-        return Image(systemName: iconName)
-            .font(.system(size: 16))
+        return VIconView(icon, size: 16)
             .foregroundColor(VColor.accent)
             .frame(width: 28)
     }
