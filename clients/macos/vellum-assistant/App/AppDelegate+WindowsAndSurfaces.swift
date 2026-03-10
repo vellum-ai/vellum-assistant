@@ -7,6 +7,20 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
+// MARK: - Activation Policy
+
+extension NSApplication {
+    /// Transitions to `.regular` activation policy only when the app is not
+    /// already in that mode.  Redundant `setActivationPolicy(.regular)` calls
+    /// can cause macOS to re-evaluate the dock tile, which in rare timing
+    /// windows produces a duplicate dock entry.
+    func activateAsDockAppIfNeeded() {
+        if activationPolicy() != .regular {
+            setActivationPolicy(.regular)
+        }
+    }
+}
+
 // MARK: - Surface Wiring
 
 extension AppDelegate {

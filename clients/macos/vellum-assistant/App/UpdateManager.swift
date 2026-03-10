@@ -68,16 +68,30 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
     // MARK: - SPUUpdaterDelegate
 
+    /// Called when Sparkle is about to install an update right now (interactive
+    /// installs). Delegates to `onWillInstallUpdate` so the daemon can be
+    /// stopped before the app is replaced.
+    ///
+    /// Marked `nonisolated` because Sparkle's XPC installer may invoke the
+    /// delegate from a non-main thread despite the protocol's @MainActor
+    /// annotation.  The Task hop ensures property access stays on MainActor.
     nonisolated public func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         Task { @MainActor in
             log.info("Will install update \(item.displayVersionString)")
-            onWillInstallUpdate?()
+            // Skip the daemon stop if we have a deferred update — the daemon
+            // will be stopped when the deferred handler is invoked at quit.
+            guard self.deferredInstallHandler == nil else { return }
+            self.onWillInstallUpdate?()
         }
     }
 
     /// Intercept Sparkle's install-on-quit to prevent a second app process from
-    /// appearing while the user is actively working. Returns `false` to tell
+    /// appearing while the user is actively working.  Returns `false` to tell
     /// Sparkle we will handle the relaunch ourselves via the saved handler.
+    ///
+    /// The handler is stored inside a `Task` hop to satisfy MainActor
+    /// isolation.  The closure reference remains valid regardless of
+    /// scheduling order, so the brief async gap is benign.
     nonisolated public func updater(
         _ updater: SPUUpdater,
         willInstallUpdateOnQuit item: SUAppcastItem,
