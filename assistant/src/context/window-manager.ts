@@ -13,7 +13,6 @@ const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
 const MIN_GAIN_TOKENS_DURING_COOLDOWN = 1200;
 const SEVERE_PRESSURE_RATIO = 0.95;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
-const MAX_PRESERVED_IMAGE_BLOCKS = 5;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 const SUMMARY_SYSTEM_PROMPT = [
@@ -350,49 +349,11 @@ export class ContextWindowManager {
     }
     const summaryCalls = 1;
 
-    // Extract user-uploaded image blocks from compacted messages so they
-    // remain accessible to the assistant in subsequent turns. Tool-result
-    // screenshots are NOT preserved — only top-level image blocks in user
-    // messages, which represent intentional user uploads.
-    // Also carry forward any images already preserved in the existing summary
-    // message so they survive multiple compaction cycles.
-    const preservedImageBlocks: ContentBlock[] = [];
-    if (existingSummary != null) {
-      const summaryMsg = messages[0];
-      for (const block of summaryMsg.content) {
-        if (block.type === "image") {
-          preservedImageBlocks.push(block);
-        }
-      }
-    }
-    for (const msg of compactableMessages) {
-      if (msg.role !== "user") continue;
-      for (const block of msg.content) {
-        if (block.type === "image") {
-          preservedImageBlocks.push(block);
-        }
-      }
-    }
-
-    // Cap preserved images to avoid unbounded accumulation across cycles.
-    // Older images (carried forward) are at the front; keep the most recent.
-    if (preservedImageBlocks.length > MAX_PRESERVED_IMAGE_BLOCKS) {
-      preservedImageBlocks.splice(
-        0,
-        preservedImageBlocks.length - MAX_PRESERVED_IMAGE_BLOCKS,
-      );
-    }
-
+    // Media (images, files) in kept turns is preserved naturally — those
+    // turns are carried forward as-is and their token cost is already
+    // accounted for by pickKeepBoundary's estimatePromptTokens call.
+    // Media in compacted turns is described textually in the summary transcript.
     const summaryMessage = createContextSummaryMessage(summary);
-    if (preservedImageBlocks.length > 0) {
-      summaryMessage.content.push(
-        {
-          type: "text",
-          text: "[The following images were uploaded by the user in earlier messages and are preserved for reference.]",
-        },
-        ...preservedImageBlocks,
-      );
-    }
 
     const compactedMessages = [
       summaryMessage,
