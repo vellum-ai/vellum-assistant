@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -1103,7 +1104,7 @@ function applyFeatureGatedSections(body: string): string {
  * the contents of any `.md` files found there to the skill body. Each
  * reference file is labeled with a `--- Reference: <Name> ---` header.
  * Files are appended in alphabetical order for deterministic output.
- * Non-`.md` files are ignored. Errors are logged as warnings and the
+ * Non-`.md` files and symlinks are ignored. Errors are logged as warnings and the
  * original body is returned unchanged.
  */
 function appendReferenceFiles(body: string, directoryPath: string): string {
@@ -1116,6 +1117,7 @@ function appendReferenceFiles(body: string, directoryPath: string): string {
     const entries = readdirSync(refsDir);
     const mdFiles = entries
       .filter((f) => f.toLowerCase().endsWith(".md"))
+      .filter((f) => !lstatSync(join(refsDir, f)).isSymbolicLink())
       .sort((a, b) => a.localeCompare(b));
 
     if (mdFiles.length === 0) return body;
