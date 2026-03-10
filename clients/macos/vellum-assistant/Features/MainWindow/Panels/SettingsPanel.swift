@@ -125,6 +125,7 @@ struct SettingsPanel: View {
             .padding(.bottom, VSpacing.md)
 
             VColor.surfaceBorder.frame(height: 1)
+                .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
             HStack(alignment: .top, spacing: 0) {
