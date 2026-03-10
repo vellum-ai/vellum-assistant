@@ -110,6 +110,9 @@ struct SharedAppsListView: View {
                 .foregroundColor(VColor.textMuted)
         }
         .padding(.vertical, VSpacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(app.name)\(app.signerDisplayName != nil ? " by \(app.signerDisplayName!)" : ""), trust: \(app.trustTier)\(app.updateAvailable == true ? ", update available" : "")")
+        .accessibilityHint("Opens shared app details")
     }
 
     // MARK: - Trust Badge
@@ -265,11 +268,14 @@ struct SharedAppsListView: View {
         VStack(spacing: VSpacing.md) {
             VIconView(.package, size: 48)
                 .foregroundColor(VColor.textMuted)
+                .accessibilityHidden(true)
             Text("No shared apps")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No shared apps")
     }
 
     // MARK: - Helpers

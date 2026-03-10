@@ -26,6 +26,7 @@ struct ThingsView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
+                .accessibilityLabel("Things section picker")
 
                 switch selectedSegment {
                 case .myApps:

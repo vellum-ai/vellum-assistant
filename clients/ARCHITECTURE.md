@@ -813,3 +813,93 @@ When `integrationMode` is `managed`, the daemon's `handleTwitterAuthStart` handl
 | `assistant/src/config/bundled-skills/twitter/SKILL.md` | Skill documentation including managed mode architecture |
 
 ---
+
+## Shared Feature Stores
+
+Cross-platform `ObservableObject` stores in `clients/shared/Features/` encapsulate daemon communication and state management. Platform views delegate data operations to these stores while owning their own UI presentation state.
+
+| Store | Location | Purpose |
+|-------|----------|---------|
+| `SkillsStore` | `shared/Features/Skills/SkillsStore.swift` | Skills CRUD: list, search, inspect, install, uninstall, enable/disable, configure, draft, and create. Caches inspect results and uses generation counters to handle stale responses. |
+| `ContactsStore` | `shared/Features/Contacts/ContactsStore.swift` | Contacts CRUD: list, get, update channel policy, delete. Auto-refreshes on `contactsChanged` daemon broadcasts with 500ms debounce. |
+| `DirectoryStore` | `shared/Features/Directory/DirectoryStore.swift` | Directory data: local apps, shared apps, documents. Supports open, delete, share-to-cloud, fork, and bundle operations. Auto-refreshes on `appFilesChanged` broadcasts. |
+| `ChannelTrustStore` | `shared/Features/ChannelTrust/ChannelTrustStore.swift` | Guardian state and channel trust management. Composes `ContactsStore` for guardian contact data, manages pending guardian action prompts via daemon IPC. |
+
+### Store Patterns
+
+All shared stores follow the same async pattern for daemon communication:
+
+1. Subscribe to the daemon's `AsyncStream` via `daemonClient.subscribe()`
+2. Send a request message via the appropriate `DaemonClient` method
+3. Iterate the stream with `for await`, matching on the expected response case
+4. Update `@Published` state on the main actor
+5. Cancel subscription tasks in `deinit` to prevent leaks
+
+Stores use `[weak self]` in all `Task` closures and background subscriptions. Platform views own stores via `@ObservedObject` or `@StateObject` and pass them down to child views.
+
+---
+
+## iOS Feature Flows
+
+### Intelligence Tab (M6)
+
+The Intelligence tab is the iOS hub for skills and contacts management, gated on daemon connectivity.
+
+| View | File | Purpose |
+|------|------|---------|
+| `InstalledSkillsView` | `ios/Views/Intelligence/InstalledSkillsView.swift` | List of installed skills with enable/disable swipe actions and uninstall |
+| `CommunitySkillsView` | `ios/Views/Intelligence/CommunitySkillsView.swift` | Searchable community skill browser with debounced search |
+| `SkillDetailView` | `ios/Views/Intelligence/SkillDetailView.swift` | Skill details with ClaWhub inspect data, enable/disable/uninstall actions |
+| `ContactsListView` | `ios/Views/Intelligence/ContactsListView.swift` | Searchable contacts list with guardian section and delete swipe actions |
+| `ContactDetailView` | `ios/Views/Intelligence/ContactDetailView.swift` | Contact details with channel list and policy editing via confirmation dialog |
+
+### Things Tab (M8-M9)
+
+The Things tab provides access to local apps, shared apps, and documents via a segmented picker.
+
+| View | File | Purpose |
+|------|------|---------|
+| `ThingsView` | `ios/Views/Things/ThingsView.swift` | Segmented container switching between My Apps, Shared, and Documents |
+| `AppsGridView` | `ios/Views/Things/AppsGridView.swift` | 2-column LazyVGrid of local apps with pin, share, bundle, and delete context menu actions |
+| `SharedAppsListView` | `ios/Views/Things/SharedAppsListView.swift` | List of shared apps with detail sheet for fork/delete |
+| `DocumentsListView` | `ios/Views/Things/DocumentsListView.swift` | Searchable, sortable document list |
+
+### Settings Parity (M7)
+
+New settings sections brought to iOS for feature parity with macOS:
+
+| View | File | Purpose |
+|------|------|---------|
+| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Keychain |
+| `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
+| `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
+
+---
+
+## macOS Task Queue (M10)
+
+The Task Queue panel is a macOS side panel for managing one-shot work items.
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `TaskQueuePanel` | `macos/.../Panels/TaskQueuePanel.swift` | Side panel with filter strip, task list, output/preflight sheet presentation |
+| `TaskQueueRow` | (private in TaskQueuePanel.swift) | Individual task row with status badge, priority menu, run/stop/result actions |
+| `TaskQueueViewModel` | `macos/.../Panels/TaskQueueViewModel.swift` | Centralized state: items, filters, run/cancel/timeout tracking, daemon callbacks |
+| `TaskPreflightView` | `macos/.../Panels/TaskPreflightView.swift` | Permission approval sheet with toggleable tool permissions and risk badges |
+| `TaskOutputView` | `macos/.../Panels/TaskOutputView.swift` | Output detail sheet with status, summary, highlights, and copy-to-clipboard |
+
+### Task Queue Data Flow
+
+1. `TaskQueueViewModel` sets up daemon callbacks in `init` and fetches the initial item list
+2. Filter strip controls which status subset is displayed (`All`, `Active`, `Completed`, `Failed`)
+3. Running a task triggers a preflight check; if permissions are needed, `TaskPreflightView` is presented
+4. Run requests include a timeout (10s); if the daemon doesn't respond, the task shows a "No response" warning
+5. Status changes from the daemon trigger debounced list refreshes (300ms)
+
+---
+
+## macOS Deep-Link Send (M11)
+
+The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.
+
+---

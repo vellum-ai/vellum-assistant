@@ -72,6 +72,8 @@ struct TaskQueuePanel: View {
                         .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Filter: \(filter.rawValue)")
+                .accessibilityHint(viewModel.statusFilter == filter ? "Currently selected" : "Double-tap to filter by \(filter.rawValue.lowercased())")
             }
             Spacer()
             Button {
@@ -132,7 +134,7 @@ struct TaskQueuePanel: View {
     // MARK: - Task List
 
     private var taskList: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             ForEach(viewModel.filteredItems, id: \.id) { item in
                 TaskQueueRow(
                     item: item,
@@ -183,6 +185,8 @@ private struct TaskQueueRow: View {
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
         .contextMenu { contextMenuItems }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Task: \(item.title), status: \(TasksTableContract.statusStyle(for: status).label)")
     }
 
     // MARK: - Title Row

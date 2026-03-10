@@ -98,6 +98,8 @@ struct ModelsServicesSection: View {
                     .foregroundColor(hasKey ? VColor.success : VColor.textMuted)
             }
         }
+        .accessibilityLabel("\(provider.displayName), \(hasKey ? "key saved" : "no key set")")
+        .accessibilityHint("Opens API key management")
     }
 
     // MARK: - Daemon Communication

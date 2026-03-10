@@ -38,6 +38,13 @@ struct PrivacySection: View {
 
     @ViewBuilder
     private func permissionRow(name: String, status: PermissionStatus) -> some View {
+        let statusLabel: String = {
+            switch status {
+            case .granted: return "granted"
+            case .denied: return "denied"
+            case .notDetermined: return "not set"
+            }
+        }()
         Button {
             if status == .denied || status == .notDetermined {
                 openSettings()
@@ -51,6 +58,8 @@ struct PrivacySection: View {
             }
         }
         .disabled(status == .granted)
+        .accessibilityLabel("\(name), \(statusLabel)")
+        .accessibilityHint(status == .granted ? "" : "Opens iOS Settings to grant access")
     }
 
     // MARK: - Status Badge

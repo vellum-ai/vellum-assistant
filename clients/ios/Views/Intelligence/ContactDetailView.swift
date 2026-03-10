@@ -168,7 +168,8 @@ struct ContactDetailView: View {
             showPolicySheet = true
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Channel: \(channel.type), \(channel.address), status: \(channel.status), policy: \(channel.policy)")
+        .accessibilityLabel("Channel: \(channel.type), \(channel.address), status: \(channel.status), policy: \(channel.policy)\(channel.isPrimary ? ", primary" : "")")
+        .accessibilityHint("Double-tap to change channel policy")
     }
 
     // MARK: - Badges

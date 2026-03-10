@@ -96,6 +96,8 @@ struct ChannelsGuardianSection: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Guardian: \(guardian.displayName), \(guardian.channels.count) channel\(guardian.channels.count == 1 ? "" : "s")")
     }
 
     // MARK: - Guardian Channel Row
@@ -120,8 +122,11 @@ struct ChannelsGuardianSection: View {
                     .foregroundColor(VColor.error)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Revoke channel")
+            .accessibilityLabel("Revoke channel \(channel.address)")
+            .accessibilityHint("Revokes guardian access for this channel")
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Guardian channel: \(channel.address), policy: \(channel.policy), status: \(channel.status)")
     }
 
     // MARK: - Contact Row
@@ -139,6 +144,8 @@ struct ChannelsGuardianSection: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Contact: \(contact.displayName)\(!contact.channels.isEmpty ? ", \(contact.channels.count) channel\(contact.channels.count == 1 ? "" : "s")" : "")")
     }
 
     // MARK: - Badges
