@@ -228,14 +228,13 @@ idle → starting → recording → stopping → idle
                                       └→ failed → idle
 ```
 
-A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
+A recording is initiated via dedicated HTTP endpoints (`/v1/recording/*`). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
 
 ### Key Files
 
 | File | Role |
 |---|---|
-| `assistant/src/daemon/recording-intent.ts` | Detects and strips recording/stop-recording intent from user messages |
-| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events |
+| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events (dedicated HTTP endpoints) |
 | `clients/macos/vellum-assistant/ComputerUse/RecordingManager.swift` | macOS-side screen capture using ScreenCaptureKit |
 
 ### Messages
@@ -248,13 +247,7 @@ A recording is initiated when the daemon detects a recording-only intent in the 
 
 ### Intent Routing
 
-Recording-only prompts (e.g., "record my screen", "please start recording") are intercepted before reaching the classifier or computer-use session creation. The routing logic:
-
-1. `detectRecordingIntent(taskText)` checks if any recording phrases are present.
-2. `isRecordingOnly(taskText)` determines if the entire message is about recording (after stripping polite fillers like "please", "can you", "thanks").
-3. If recording-only: the daemon calls `handleRecordingStart()` directly, bypassing the classifier.
-4. If mixed-intent (e.g., "open Safari and record my screen"): `stripRecordingIntent()` removes the recording clause and starts recording as a side-effect while the remaining task proceeds through normal routing.
-5. Stop-recording follows the same pattern with `detectStopRecordingIntent()`, `isStopRecordingOnly()`, and `stripStopRecordingIntent()`.
+Recording is managed through dedicated HTTP endpoints (`/v1/recording/*`) rather than intent detection in user messages. Clients call these endpoints directly to start, stop, and query recording status.
 
 ### File-Backed Attachments
 
@@ -268,13 +261,11 @@ When a recording stops with a valid `filePath`, the handler:
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Daemon as Daemon (Bun)
     participant Client as macOS Client
+    participant Daemon as Daemon (Bun)
     participant RM as RecordingManager
 
-    User->>Daemon: "record my screen"
-    Note over Daemon: detectRecordingIntent → true<br/>isRecordingOnly → true
+    Client->>Daemon: POST /v1/recording/start
     Daemon->>Client: recording_start { recordingId, options }
     Client->>RM: startRecording(recordingId)
     RM-->>Client: capture started
@@ -282,8 +273,7 @@ sequenceDiagram
 
     Note over RM: Screen capture in progress...
 
-    User->>Daemon: "stop recording"
-    Note over Daemon: detectStopRecordingIntent → true<br/>isStopRecordingOnly → true
+    Client->>Daemon: POST /v1/recording/stop
     Daemon->>Client: recording_stop { recordingId }
     Client->>RM: stopRecording()
     RM-->>Client: file saved at filePath
