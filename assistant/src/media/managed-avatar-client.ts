@@ -196,9 +196,6 @@ export async function generateManagedAvatar(
         bytes: estimatedDecodedBytes,
         sha256,
       },
-      usage: { billable: true, class_name: "image_generation" },
-      generation_source: "vertex",
-      profile: model,
       correlation_id: correlationId,
     };
 

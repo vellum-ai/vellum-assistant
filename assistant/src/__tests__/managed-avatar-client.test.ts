@@ -120,10 +120,6 @@ describe("generateManagedAvatar", () => {
       .update(Buffer.from(SMALL_PNG_BASE64, "base64"))
       .digest("hex");
     expect(result.image.sha256).toBe(expectedSha256);
-    expect(result.generation_source).toBe("vertex");
-    expect(result.profile).toBe(VERTEX_IMAGE_DEFAULT_MODEL);
-    expect(result.usage.billable).toBe(true);
-    expect(result.usage.class_name).toBe("image_generation");
     expect(result.correlation_id).toBeDefined();
   });
 
