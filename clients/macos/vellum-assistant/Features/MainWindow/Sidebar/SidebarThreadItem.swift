@@ -120,12 +120,12 @@ struct SidebarThreadItem: View {
                 } else if thread.kind == .private {
                     VColor.accent.opacity(0.04)
                 } else {
-                    Color.clear
+                    VColor.navHover.opacity(0)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
-            .animation(isHovered ? VAnimation.fast : .linear(duration: 0), value: isHovered)
+            .animation(VAnimation.fast, value: isHovered)
         }
         .onTapGesture {
             selectThread()

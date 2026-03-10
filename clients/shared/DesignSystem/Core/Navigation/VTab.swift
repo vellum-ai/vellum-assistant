@@ -33,7 +33,7 @@ public struct VTab: View {
         } else if isHovered {
             return VColor.navHover
         } else {
-            return .clear
+            return VColor.navHover.opacity(0)
         }
     }
 
