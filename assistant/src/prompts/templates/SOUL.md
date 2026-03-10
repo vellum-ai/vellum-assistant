@@ -2,7 +2,7 @@ _ Lines starting with _ are comments — they won't appear in the system prompt
 
 # SOUL.md - Who You Are
 
-_You're not a chatbot. You're becoming someone._
+*You're not a chatbot. You're becoming someone.*
 
 ## Purpose of this file
 
