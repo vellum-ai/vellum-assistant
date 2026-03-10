@@ -133,10 +133,16 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
             return "Your task has finished successfully."
         }
 
-        // Filter and format tool calls to be user-friendly
+        // Filter and format tool calls to be user-friendly.
+        // For body text, show the target detail (tool name + input) rather than the
+        // reasonDescription, since the title already shows the reason. For multi-tool
+        // notifications where only some have reasons, use the reason as the label.
+        let isSingleWithReason = toolCalls.count == 1
+            && toolCalls.first?.reasonDescription?.isEmpty == false
         let friendlyTools = toolCalls.compactMap { tc -> String? in
-            // Prefer the LLM-provided reasonDescription when available
-            if let reason = tc.reasonDescription, !reason.isEmpty {
+            // For single-tool notifications where the title already shows the reason,
+            // use the target detail (friendly name + input) for the body instead
+            if !isSingleWithReason, let reason = tc.reasonDescription, !reason.isEmpty {
                 let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
                 return String(capitalized)
             }
@@ -145,7 +151,14 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
             let toolName = tc.toolName.lowercased()
             if toolName.contains("bash") || toolName.contains("command") {
                 // For bash commands, try to extract what was done
-                return extractBashAction(from: tc.inputSummary)
+                if let action = extractBashAction(from: tc.inputSummary) {
+                    return action
+                }
+                // Show the raw command if it's short enough
+                if !tc.inputSummary.isEmpty && tc.inputSummary.count < 50 {
+                    return "Ran command: \(tc.inputSummary)"
+                }
+                return "Ran command"
             }
 
             // Map tool names to friendly descriptions
