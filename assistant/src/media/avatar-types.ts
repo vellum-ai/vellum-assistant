@@ -12,17 +12,6 @@ export interface ManagedAvatarImagePayload {
 
 export interface ManagedAvatarResponse {
   image: ManagedAvatarImagePayload;
-  usage: { billable: boolean; class_name: string };
-  generation_source: string;
-  profile: string;
-  correlation_id: string;
-}
-
-export interface ManagedAvatarErrorResponse {
-  code: string;
-  subcode: string;
-  detail: string;
-  retryable: boolean;
   correlation_id: string;
 }
 

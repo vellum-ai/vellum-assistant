@@ -385,7 +385,10 @@ describe("avatar E2E integration", () => {
       status: 200,
       body: {
         predictions: [
-          { bytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUg==", mimeType: "image/gif" },
+          {
+            bytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUg==",
+            mimeType: "image/gif",
+          },
         ],
       },
     });

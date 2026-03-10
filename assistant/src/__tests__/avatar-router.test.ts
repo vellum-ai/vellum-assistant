@@ -67,9 +67,6 @@ function managedResponse() {
       bytes: 1024,
       sha256: "abc",
     },
-    usage: { billable: false, class_name: "assistant_avatar_system" },
-    generation_source: "vertex",
-    profile: "avatar_v1",
     correlation_id: "test-correlation-id",
   };
 }
