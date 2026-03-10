@@ -609,12 +609,11 @@ private struct StepDetailRow: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
             )
-            .padding(.horizontal, VSpacing.sm)
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
