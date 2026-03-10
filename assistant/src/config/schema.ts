@@ -341,6 +341,19 @@ export const AssistantConfigSchema = z
           "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
       });
     }
+    if (
+      config.contextWindow?.targetBudgetRatio != null &&
+      config.contextWindow?.summaryBudgetRatio != null &&
+      config.contextWindow.targetBudgetRatio <=
+        config.contextWindow.summaryBudgetRatio
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contextWindow", "targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
+      });
+    }
     const segmentation = config.memory?.segmentation;
     if (
       segmentation &&

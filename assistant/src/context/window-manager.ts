@@ -433,41 +433,52 @@ export class ContextWindowManager {
     const targetTokens =
       opts?.targetInputTokensOverride ?? this.targetInputTokens;
 
-    // Start from all available turns and reduce until projected tokens fit.
-    let keepTurns = userTurnStarts.length;
-    keepTurns = Math.max(minFloor, keepTurns);
-
-    // When minFloor is 0 and there are no user turns to keep, keepFromIndex
-    // points past the end of the array so all messages become compactable.
-    let keepFromIndex =
-      keepTurns === 0
-        ? messages.length
-        : (userTurnStarts[userTurnStarts.length - keepTurns] ??
-          messages.length);
-
-    while (keepTurns > minFloor) {
+    // Binary search for the maximum keepTurns whose projected tokens fit
+    // within the budget. Token count is monotonically non-decreasing with
+    // keepTurns (more turns = more tokens), so binary search is valid.
+    const projectedTokensForKeep = (turns: number): number => {
+      const fromIndex =
+        turns === 0
+          ? messages.length
+          : (userTurnStarts[userTurnStarts.length - turns] ?? messages.length);
       const rawProjected = [
         createContextSummaryMessage("Projected summary"),
-        ...messages.slice(keepFromIndex),
+        ...messages.slice(fromIndex),
       ];
       const { messages: projectedMessages } =
         truncateToolResultsAcrossHistory(
           rawProjected,
           COMPACTION_TOOL_RESULT_MAX_CHARS,
         );
-      const projectedTokens = estimatePromptTokens(
-        projectedMessages,
-        this.systemPrompt,
-        { providerName: this.provider.name },
-      );
-      if (projectedTokens <= targetTokens) break;
-      keepTurns -= 1;
-      keepFromIndex =
-        keepTurns === 0
-          ? messages.length
-          : (userTurnStarts[userTurnStarts.length - keepTurns] ??
-            keepFromIndex);
+      return estimatePromptTokens(projectedMessages, this.systemPrompt, {
+        providerName: this.provider.name,
+      });
+    };
+
+    let lo = minFloor;
+    let hi = userTurnStarts.length;
+
+    // Fast path: if keeping all turns already fits, skip the search.
+    if (hi > lo && projectedTokensForKeep(hi) > targetTokens) {
+      // Binary search: find the largest keepTurns where projected tokens fit.
+      while (lo < hi) {
+        const mid = lo + Math.ceil((hi - lo) / 2);
+        if (projectedTokensForKeep(mid) <= targetTokens) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+    } else {
+      lo = hi;
     }
+
+    const keepTurns = lo;
+    const keepFromIndex =
+      keepTurns === 0
+        ? messages.length
+        : (userTurnStarts[userTurnStarts.length - keepTurns] ??
+          messages.length);
 
     return { keepFromIndex, keepTurns };
   }
