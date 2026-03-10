@@ -6,80 +6,9 @@ import type {
 } from "../daemon/message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import {
-  requestFileTool,
+  allUiSurfaceTools,
   uiShowTool,
 } from "../tools/ui-surface/definitions.js";
-
-// ---------------------------------------------------------------------------
-// request_file tool definition
-// ---------------------------------------------------------------------------
-
-describe("requestFileTool definition", () => {
-  test("has the correct name and category", () => {
-    expect(requestFileTool.name).toBe("request_file");
-    expect(requestFileTool.category).toBe("ui-surface");
-    expect(requestFileTool.executionMode).toBe("proxy");
-  });
-
-  test("getDefinition returns correct input_schema", () => {
-    const definition = requestFileTool.getDefinition();
-
-    expect(definition.name).toBe("request_file");
-    expect(definition.description).toContain("file");
-
-    const schema = definition.input_schema as {
-      type: string;
-      properties: Record<string, unknown>;
-      required: string[];
-    };
-
-    expect(schema.type).toBe("object");
-    expect(schema.required).toEqual(["prompt"]);
-    expect(schema.properties).toHaveProperty("prompt");
-    expect(schema.properties).toHaveProperty("accepted_types");
-    expect(schema.properties).toHaveProperty("max_files");
-  });
-
-  test("prompt property is a string type", () => {
-    const definition = requestFileTool.getDefinition();
-    const props = (
-      definition.input_schema as {
-        properties: Record<string, { type: string }>;
-      }
-    ).properties;
-
-    expect(props.prompt.type).toBe("string");
-  });
-
-  test("accepted_types property is an array of strings", () => {
-    const definition = requestFileTool.getDefinition();
-    const props = (
-      definition.input_schema as {
-        properties: Record<string, { type: string; items?: { type: string } }>;
-      }
-    ).properties;
-
-    expect(props.accepted_types.type).toBe("array");
-    expect(props.accepted_types.items).toEqual({ type: "string" });
-  });
-
-  test("max_files property is a number type", () => {
-    const definition = requestFileTool.getDefinition();
-    const props = (
-      definition.input_schema as {
-        properties: Record<string, { type: string }>;
-      }
-    ).properties;
-
-    expect(props.max_files.type).toBe("number");
-  });
-
-  test("execute throws proxy error", () => {
-    expect(() => requestFileTool.execute({}, {} as never)).toThrow(
-      "Proxy tool: execution must be forwarded to the connected client",
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // FileUploadSurfaceData shape
@@ -162,5 +91,15 @@ describe("ui_show tool includes file_upload", () => {
   test("description mentions file_upload", () => {
     const definition = uiShowTool.getDefinition();
     expect(definition.description).toContain("file_upload");
+  });
+});
+
+describe("UI surface tool registration", () => {
+  test("registers only the base UI surface tools", () => {
+    expect(allUiSurfaceTools.map((tool) => tool.name)).toEqual([
+      "ui_show",
+      "ui_update",
+      "ui_dismiss",
+    ]);
   });
 });

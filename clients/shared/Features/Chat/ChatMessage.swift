@@ -1012,8 +1012,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Updated the panel"
         case "ui_dismiss":
             return "Closed the panel"
-        case "request_file":
-            return "Requested a file"
         case "playbook_create":
             return "Created a playbook"
         case "playbook_update":

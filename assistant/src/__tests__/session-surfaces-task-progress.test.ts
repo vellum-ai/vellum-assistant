@@ -145,6 +145,40 @@ describe("task_progress surface compatibility", () => {
     });
   });
 
+  test("ui_show supports file_upload surfaces directly", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "file_upload",
+      title: "Upload a receipt",
+      data: {
+        prompt: "Share the receipt PDF",
+        acceptedTypes: ["application/pdf"],
+        maxFiles: 1,
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.yieldToUser).toBe(true);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "file_upload") return;
+
+    expect(showMessage.title).toBe("Upload a receipt");
+    expect(showMessage.data).toEqual({
+      prompt: "Share the receipt PDF",
+      acceptedTypes: ["application/pdf"],
+      maxFiles: 1,
+    });
+    expect(ctx.pendingSurfaceActions.get(showMessage.surfaceId)).toEqual({
+      surfaceType: "file_upload",
+    });
+  });
+
   test("ui_show dynamic_page uses data.html when properly nested", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);

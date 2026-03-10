@@ -7,7 +7,6 @@ import { isPlainObject } from "../util/object.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
-  FileUploadSurfaceData,
   ListSurfaceData,
   ServerMessage,
   SurfaceData,
@@ -959,7 +958,7 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, request_file, computer_use_request_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
@@ -978,56 +977,6 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
-  }
-
-  if (toolName === "request_file") {
-    const surfaceId = uuid();
-    const prompt =
-      typeof input.prompt === "string" ? input.prompt : "Please share a file";
-    const acceptedTypes = Array.isArray(input.accepted_types)
-      ? (input.accepted_types as string[])
-      : undefined;
-    const maxFiles = typeof input.max_files === "number" ? input.max_files : 1;
-
-    const data: FileUploadSurfaceData = {
-      prompt,
-      acceptedTypes,
-      maxFiles,
-    };
-
-    ctx.surfaceState.set(surfaceId, { surfaceType: "file_upload", data });
-
-    ctx.sendToClient({
-      type: "ui_surface_show",
-      sessionId: ctx.conversationId,
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    } as UiSurfaceShow);
-
-    // Track surface for persistence
-    ctx.currentTurnSurfaces.push({
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    });
-
-    // Non-blocking: return immediately, user action arrives as follow-up message
-    ctx.pendingSurfaceActions.set(surfaceId, {
-      surfaceType: "file_upload" as SurfaceType,
-    });
-    return {
-      content: JSON.stringify({
-        surfaceId,
-        status: "awaiting_user_action",
-        message:
-          "File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.",
-      }),
-      isError: false,
-      yieldToUser: true,
-    };
   }
 
   if (toolName === "ui_show") {
