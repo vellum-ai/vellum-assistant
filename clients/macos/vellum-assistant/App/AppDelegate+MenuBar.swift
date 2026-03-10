@@ -325,6 +325,11 @@ extension AppDelegate {
         exportLogsItem.image = VIcon.fileArchive.nsImage
         menu.addItem(exportLogsItem)
 
+        let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
+        sendLogsItem.target = self
+        sendLogsItem.image = VIcon.upload.nsImage
+        menu.addItem(sendLogsItem)
+
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
         restartItem.image = VIcon.refreshCw.nsImage
@@ -518,6 +523,10 @@ extension AppDelegate {
 
     @objc public func exportAssistantLogs() {
         LogExporter.exportLogs()
+    }
+
+    @objc public func sendLogsToSentry() {
+        LogExporter.sendLogsToSentry()
     }
 
     func refreshSkillsCache() {
