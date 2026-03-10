@@ -38,6 +38,12 @@ struct ChatLoadingSkeleton: View {
             chatBone(height: 14)
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.45, alignment: .trailing)
         }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.userBubble)
+        )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.65)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
