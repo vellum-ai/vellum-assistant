@@ -30,6 +30,7 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
+import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
@@ -257,12 +258,17 @@ export async function runDaemon(): Promise<void> {
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
       await qdrantManager.start();
+      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingModel = embeddingSelection.backend
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        : undefined;
       initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
         vectorSize: config.memory.qdrant.vectorSize,
         onDisk: config.memory.qdrant.onDisk,
         quantization: config.memory.qdrant.quantization,
+        embeddingModel,
       });
       log.info("Qdrant vector store initialized");
     } catch (err) {
