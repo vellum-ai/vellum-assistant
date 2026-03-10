@@ -62,6 +62,9 @@ struct SettingsPrivacyTab: View {
                     get: { collectUsageData },
                     set: { newValue in
                         collectUsageData = newValue
+                        if !newValue {
+                            store.sendPerformanceReports = false
+                        }
                         Task { await setCollectUsageData(newValue) }
                     }
                 ))

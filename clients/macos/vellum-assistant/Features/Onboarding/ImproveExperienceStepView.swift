@@ -38,6 +38,10 @@ struct ImproveExperienceStepView: View {
                         collectUsageData = newValue
                         UserDefaults.standard.set(newValue, forKey: "collectUsageDataEnabled")
                         UserDefaults.standard.set(true, forKey: "collectUsageDataExplicitlySet")
+                        if !newValue {
+                            sharePerformanceMetrics = false
+                            UserDefaults.standard.set(false, forKey: "sendPerformanceReports")
+                        }
                     }
                 ))
             }

@@ -63,7 +63,7 @@
       "key": "feature_flags.collect-usage-data.enabled",
       "label": "Collect usage data",
       "description": "Send crash reports and error diagnostics to help improve the app",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "user-hosted-enabled",
