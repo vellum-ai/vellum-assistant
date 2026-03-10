@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildChannelAwarenessSection } from "../config/system-prompt.js";
 import type {
   ChannelCapabilities,
   ChannelTurnContextParams,
@@ -20,6 +19,7 @@ import {
   stripInboundActorContext,
   stripTemporalContext,
 } from "../daemon/session-runtime-assembly.js";
+import { buildChannelAwarenessSection } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,8 @@ export interface ToolContext {
   screenshotCounter: { value: number };
   /** Playwright parallel worker index (0-based). Used to isolate temp files, app instances, etc. */
   workerIndex: number;
+  /** Human-readable test name. Used to derive per-test file paths (e.g. e2e status overlay). */
+  testName?: string;
 }
 
 export interface ToolHandlerResult {

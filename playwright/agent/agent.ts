@@ -5,7 +5,7 @@
  * and runs the agent in a loop until a test result is reported.
  */
 
-import { appendFileSync, mkdirSync, writeFileSync } from "fs";
+import { appendFileSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -45,6 +45,9 @@ Rules:
 - CRITICAL: Do NOT report a test as "passed" unless you have completed AND verified EVERY step and expected outcome in the test case. Partial completion is ALWAYS a failure. If you run out of time or budget before finishing all steps, report FAIL with details about which steps were not completed.
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
 - You have a strict 5-minute time limit and a limited iteration budget. Work efficiently.
+
+Status overlay:
+- Every tool call includes an optional "summary" field. ALWAYS provide a short, human-readable summary of what the tool call does (e.g. "Click Sign In button", "Dump accessibility tree", "Wait 3s for app to load"). This is displayed in a status overlay during test runs.
 
 Efficiency guidelines (CRITICAL — work as fast as possible):
 - Combine multiple actions in a single applescript call when possible (e.g., dump the tree AND click a button in one script).
@@ -87,6 +90,37 @@ export interface AgentOptions {
   verbose?: boolean;
   /** Playwright parallel worker index (0-based). Used to isolate temp files across workers. */
   workerIndex?: number;
+  /** Human-readable test name shown in the e2e status overlay. */
+  testName?: string;
+}
+
+interface E2EStatus {
+  iteration: number;
+  maxIterations: number;
+  tool: string;
+  summary: string;
+  elapsed: string;
+  testName: string;
+}
+
+function e2eStatusFilePath(testName: string): string {
+  return `/tmp/vellum-e2e-status-${testName}.json`;
+}
+
+function writeE2EStatus(statusFilePath: string, status: E2EStatus): void {
+  try {
+    writeFileSync(statusFilePath, JSON.stringify(status));
+  } catch {
+    // Non-critical — overlay simply won't update.
+  }
+}
+
+function clearE2EStatus(statusFilePath: string): void {
+  try {
+    unlinkSync(statusFilePath);
+  } catch {
+    // File may not exist.
+  }
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
@@ -99,6 +133,7 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
     return await runAgentLoop(options, signal);
   } finally {
     clearTimeout(timeoutId);
+    clearE2EStatus(e2eStatusFilePath(options.testName ?? "unknown"));
   }
 }
 
@@ -109,7 +144,7 @@ function traceLog(logPath: string | undefined, entry: string): void {
 }
 
 async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
-  const { testContent, page, screenshotDir, traceLogPath, verbose = false, workerIndex = 0 } = options;
+  const { testContent, page, screenshotDir, traceLogPath, verbose = false, workerIndex = 0, testName = "unknown" } = options;
 
   // Initialize trace log
   if (traceLogPath) {
@@ -118,7 +153,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     traceLog(traceLogPath, "Agent started");
   }
 
-  const executeTool = createToolExecutor(screenshotDir, workerIndex);
+  const executeTool = createToolExecutor(screenshotDir, workerIndex, testName);
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [
     {
@@ -128,6 +163,17 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
   ];
 
   const startTime = Date.now();
+
+  const statusFilePath = e2eStatusFilePath(testName);
+
+  writeE2EStatus(statusFilePath, {
+    iteration: 0,
+    maxIterations: MAX_ITERATIONS,
+    tool: "—",
+    summary: "Starting agent...",
+    elapsed: "0:00",
+    testName,
+  });
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     if (signal.aborted) {
@@ -229,6 +275,26 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
       traceLog(traceLogPath, `[iter ${iteration + 1}/${MAX_ITERATIONS}] CALL ${block.name}(${JSON.stringify(block.input)})`);
 
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsedSec / 60);
+      const seconds = elapsedSec % 60;
+      const elapsedStr = `${minutes}:${String(seconds).padStart(2, "0")}`;
+
+      const toolInput = block.input as Record<string, unknown>;
+      const summaryText =
+        typeof toolInput.summary === "string" && toolInput.summary
+          ? toolInput.summary
+          : block.name;
+
+      writeE2EStatus(statusFilePath, {
+        iteration: iteration + 1,
+        maxIterations: MAX_ITERATIONS,
+        tool: block.name,
+        summary: summaryText,
+        elapsed: elapsedStr,
+        testName,
+      });
+
       const { result, testResult } = await executeTool(
         page,
         block.name,
@@ -277,6 +343,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
     // If the agent reported a result, we're done
     if (finalTestResult) {
+      clearE2EStatus(statusFilePath);
       return finalTestResult;
     }
   }

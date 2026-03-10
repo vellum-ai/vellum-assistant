@@ -1,5 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "OnboardingFlowView")
 
 @MainActor
 struct OnboardingFlowView: View {
@@ -13,8 +16,6 @@ struct OnboardingFlowView: View {
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
-    @State private var isBootstrappingLocal = false
-    @State private var localBootstrapError: String?
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -22,7 +23,7 @@ struct OnboardingFlowView: View {
     }()
 
     private var maxOnboardingStep: Int {
-        state.userHostedEnabled ? 2 : 1
+        state.userHostedEnabled ? 3 : 2
     }
 
     var body: some View {
@@ -36,8 +37,8 @@ struct OnboardingFlowView: View {
                     .background(
                         RadialGradient(
                             colors: [
-                                adaptiveColor(light: Moss._100, dark: Moss._900),
-                                adaptiveColor(light: Moss._200, dark: Moss._950)
+                                VColor.background,
+                                VColor.onboardingHatchGradientOuter
                             ],
                             center: .center,
                             startRadius: 0,
@@ -47,8 +48,8 @@ struct OnboardingFlowView: View {
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials (steps 0–2)
-                // Otherwise: WakeUp → APIKey (steps 0–1)
+                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials → ImproveExperience (steps 0–3)
+                // Otherwise: WakeUp → APIKey → ImproveExperience (steps 0–2)
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -66,8 +67,6 @@ struct OnboardingFlowView: View {
                     Group {
                         if isBootstrappingManaged {
                             managedBootstrapView
-                        } else if isBootstrappingLocal {
-                            localBootstrapView
                         } else {
                             switch state.currentStep {
                             case 0:
@@ -92,7 +91,13 @@ struct OnboardingFlowView: View {
                             case 1:
                                 APIKeyStepView(state: state)
                             case 2:
-                                CloudCredentialsStepView(state: state)
+                                if state.needsCloudCredentials {
+                                    CloudCredentialsStepView(state: state)
+                                } else {
+                                    ImproveExperienceStepView(state: state)
+                                }
+                            case 3:
+                                ImproveExperienceStepView(state: state)
                             default:
                                 EmptyView()
                             }
@@ -104,14 +109,14 @@ struct OnboardingFlowView: View {
                             removal: .opacity.combined(with: .offset(y: -8))
                         )
                     )
-                    .id(isBootstrappingManaged ? -1 : isBootstrappingLocal ? -2 : state.currentStep)
+                    .id(isBootstrappingManaged ? -1 : state.currentStep)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RadialGradient(
                         colors: [
-                            adaptiveColor(light: Stone._100, dark: Moss._900),
-                            adaptiveColor(light: Stone._200, dark: Moss._950)
+                            VColor.onboardingGradientEdge,
+                            VColor.onboardingGradientOuter
                         ],
                         center: .center,
                         startRadius: 0,
@@ -132,25 +137,31 @@ struct OnboardingFlowView: View {
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            let currentAssistant = LockfileAssistant.loadLatest()
+            log.info(
+                "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
+            )
             if isAuthenticated {
-                let currentAssistant = LockfileAssistant.loadLatest()
                 if let assistant = currentAssistant {
                     if assistant.isManaged {
+                        log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); starting managed bootstrap")
                         Task {
                             await performManagedBootstrap()
                         }
                     } else if !assistant.isRemote {
-                        Task {
-                            await performLocalBootstrap(assistant: assistant)
-                        }
+                        log.info("Auth completed for local assistant \(assistant.assistantId, privacy: .public) — deferring local registration until app startup")
+                        onComplete()
                     } else {
+                        log.info("Auth completed for remote assistant \(assistant.assistantId, privacy: .public) — proceeding to app")
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
+                    log.info("Authenticated with no lockfile assistant; starting managed bootstrap")
                     Task {
                         await performManagedBootstrap()
                     }
                 } else {
+                    log.info("Auth completed with no lockfile assistant — proceeding to app")
                     onComplete()
                 }
             }
@@ -204,6 +215,7 @@ struct OnboardingFlowView: View {
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
+        log.info("Beginning managed assistant bootstrap")
 
         do {
             let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
@@ -212,8 +224,10 @@ struct OnboardingFlowView: View {
             switch outcome {
             case .reusedExisting(let existing):
                 assistant = existing
+                log.info("Managed bootstrap reused existing assistant \(assistant.id, privacy: .public)")
             case .createdNew(let created):
                 assistant = created
+                log.info("Managed bootstrap created new assistant \(assistant.id, privacy: .public)")
             }
 
             let runtimeUrl = AuthService.shared.baseURL
@@ -229,94 +243,20 @@ struct OnboardingFlowView: View {
 
             guard success else {
                 managedBootstrapError = "Failed to save assistant configuration. Please try again."
+                log.error("Managed bootstrap failed to persist lockfile entry for assistant \(assistant.id, privacy: .public)")
                 return
             }
 
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
             isBootstrappingManaged = false
+            log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); proceeding to app")
             onComplete()
         } catch {
+            log.error("Managed bootstrap failed: \(error.localizedDescription)")
             managedBootstrapError = error.localizedDescription
         }
     }
-
-    // MARK: - Local Bootstrap
-
-    @ViewBuilder
-    private var localBootstrapView: some View {
-        VStack(spacing: VSpacing.lg) {
-            if localBootstrapError == nil {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Registering your assistant...")
-                        .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                Text("Registration failed")
-                    .font(VFont.title)
-                    .foregroundColor(VColor.textPrimary)
-
-                if let error = localBootstrapError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 280)
-                }
-
-                OnboardingButton(title: "Try again", style: .primary) {
-                    Task {
-                        if let assistant = LockfileAssistant.loadLatest(), !assistant.isRemote {
-                            await performLocalBootstrap(assistant: assistant)
-                        }
-                    }
-                }
-                .frame(maxWidth: 280)
-            }
-        }
-
-        Spacer()
-    }
-
-    private func performLocalBootstrap(assistant: LockfileAssistant) async {
-        isBootstrappingLocal = true
-        localBootstrapError = nil
-
-        // Resolve the daemon's HTTP base URL and bearer token
-        let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-        let port = Int(portString) ?? 7821
-        let daemonBaseURL = "http://localhost:\(port)"
-
-        guard let daemonToken = ActorTokenManager.getToken(), !daemonToken.isEmpty else {
-            localBootstrapError = "No assistant credentials available. Please restart the assistant and try again."
-            return
-        }
-
-        do {
-            let bootstrapService = LocalAssistantBootstrapService(credentialStorage: KeychainCredentialStorage())
-            let outcome = try await bootstrapService.bootstrap(
-                runtimeAssistantId: assistant.assistantId,
-                clientPlatform: "macos",
-                daemonBaseURL: daemonBaseURL,
-                daemonToken: daemonToken
-            )
-
-            switch outcome {
-            case .registeredWithExistingKey, .registeredAndProvisioned:
-                UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
-            }
-
-            isBootstrappingLocal = false
-            onComplete()
-        } catch {
-            localBootstrapError = error.localizedDescription
-        }
-    }
-
 }
 
 #Preview {

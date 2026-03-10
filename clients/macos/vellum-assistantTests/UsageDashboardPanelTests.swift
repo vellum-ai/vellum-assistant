@@ -449,7 +449,6 @@ struct UsageDashboardPanelViewCloseTests {
 @MainActor
 private final class MockPanelClient: DaemonClientProtocol {
     var isConnected: Bool = true
-    var isBlobTransportAvailable: Bool = false
 
     func subscribe() -> AsyncStream<ServerMessage> { AsyncStream { $0.finish() } }
     func send<T: Encodable>(_ message: T) throws {}

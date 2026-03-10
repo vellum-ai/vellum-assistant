@@ -650,7 +650,7 @@ describe("ContextWindowManager", () => {
     );
   });
 
-  test("shouldCompact returns false when below threshold", () => {
+  test("shouldCompact returns needed=false with estimatedTokens when below threshold", () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");
     });
@@ -660,10 +660,12 @@ describe("ContextWindowManager", () => {
       config: makeConfig(),
     });
     const history = [message("user", "hello"), message("assistant", "hi")];
-    expect(manager.shouldCompact(history)).toBe(false);
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(false);
+    expect(result.estimatedTokens).toBeGreaterThan(0);
   });
 
-  test("shouldCompact returns true when above threshold", () => {
+  test("shouldCompact returns needed=true with estimatedTokens when above threshold", () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");
     });
@@ -681,10 +683,12 @@ describe("ContextWindowManager", () => {
       message("user", `u3 ${long}`),
       message("assistant", `a3 ${long}`),
     ];
-    expect(manager.shouldCompact(history)).toBe(true);
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(true);
+    expect(result.estimatedTokens).toBeGreaterThan(0);
   });
 
-  test("shouldCompact returns false when compaction is disabled", () => {
+  test("shouldCompact returns needed=false with zero estimatedTokens when disabled", () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");
     });
@@ -700,7 +704,9 @@ describe("ContextWindowManager", () => {
       message("user", `u2 ${long}`),
       message("assistant", `a2 ${long}`),
     ];
-    expect(manager.shouldCompact(history)).toBe(false);
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(false);
+    expect(result.estimatedTokens).toBe(0);
   });
 
   test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {

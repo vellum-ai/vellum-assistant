@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Session } from "../daemon/session.js";
 
 const testDir = realpathSync(
@@ -112,7 +112,6 @@ function makeIdleSession(opts?: {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
@@ -171,7 +170,6 @@ function makeConfirmationEmittingSession(opts?: {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,

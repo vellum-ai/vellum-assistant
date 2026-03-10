@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   getAttachmentsForMessage,
   getFilePathForAttachment,
@@ -8,6 +6,7 @@ import {
 import { getMessageById } from "../../memory/conversation-crud.js";
 import {
   getMessagesPaginated,
+  listConversations,
   searchConversations,
 } from "../../memory/conversation-queries.js";
 import { silentlyWithLog } from "../../util/silently.js";
@@ -17,7 +16,7 @@ import type {
   HistoryRequest,
   MessageContentRequest,
   UserMessageAttachment,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { generateVideoThumbnail } from "../video-thumbnail.js";
 import {
   type HandlerContext,
@@ -28,9 +27,45 @@ import {
   renderHistoryContent,
 } from "./shared.js";
 
+/**
+ * In light mode, strip heavy payloads (e.g. full HTML) from surface data
+ * but preserve the fields the client needs to parse and render the surface.
+ */
+function lightModeSurfaceData(s: HistorySurface): Record<string, unknown> {
+  switch (s.surfaceType) {
+    case "dynamic_page":
+      return {
+        ...(s.data.preview ? { preview: s.data.preview } : {}),
+        ...(s.data.appId ? { appId: s.data.appId } : {}),
+      };
+    case "card":
+      return {
+        ...(typeof s.data.title === "string" ? { title: s.data.title } : {}),
+        ...(typeof s.data.body === "string" ? { body: s.data.body } : {}),
+        ...(typeof s.data.template === "string"
+          ? { template: s.data.template }
+          : {}),
+        ...(s.data.templateData ? { templateData: s.data.templateData } : {}),
+      };
+    case "document_preview":
+      return {
+        ...(typeof s.data.surfaceId === "string"
+          ? { surfaceId: s.data.surfaceId }
+          : {}),
+        ...(typeof s.data.title === "string" ? { title: s.data.title } : {}),
+        ...(typeof s.data.content === "string"
+          ? { content: s.data.content }
+          : {}),
+      };
+    default:
+      // For other types (list, table, form, confirmation, etc.),
+      // preserve the full data — these are generally small.
+      return s.data;
+  }
+}
+
 export function handleHistoryRequest(
   msg: HistoryRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // No limit means return all messages.
@@ -192,7 +227,9 @@ export function handleHistoryRequest(
             })
         : m.toolCalls;
 
-    // In light mode, strip full data from surfaces (keep metadata)
+    // In light mode, strip heavy payloads but keep essential fields so
+    // the client can still parse and render surfaces (e.g. card title/body,
+    // dynamic_page preview, document_preview metadata).
     const filteredSurfaces =
       m.surfaces.length > 0
         ? includeSurfaceData
@@ -201,14 +238,7 @@ export function handleHistoryRequest(
               surfaceId: s.surfaceId,
               surfaceType: s.surfaceType,
               title: s.title,
-              data: {
-                ...(s.surfaceType === "dynamic_page"
-                  ? {
-                      ...(s.data.preview ? { preview: s.data.preview } : {}),
-                      ...(s.data.appId ? { appId: s.data.appId } : {}),
-                    }
-                  : {}),
-              } as Record<string, unknown>,
+              data: lightModeSurfaceData(s),
               ...(s.actions ? { actions: s.actions } : {}),
               ...(s.display ? { display: s.display } : {}),
             }))
@@ -277,7 +307,7 @@ export function handleHistoryRequest(
   const oldestMessageId =
     historyMessages.length > 0 ? historyMessages[0].id : undefined;
 
-  ctx.send(socket, {
+  ctx.send({
     type: "history_response",
     sessionId: msg.sessionId,
     messages: historyMessages,
@@ -290,35 +320,55 @@ export function handleHistoryRequest(
   // so we no longer emit separate ui_surface_show messages during history loading.
 }
 
-export function handleConversationSearch(
-  msg: ConversationSearchRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const results = searchConversations(msg.query, {
-    limit: msg.limit,
-    maxMessagesPerConversation: msg.maxMessagesPerConversation,
-  });
-  ctx.send(socket, {
-    type: "conversation_search_response",
-    query: msg.query,
-    results,
+// ---------------------------------------------------------------------------
+// Shared business logic (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+export interface ConversationSearchParams {
+  query: string;
+  limit?: number;
+  maxMessagesPerConversation?: number;
+}
+
+/** Search conversations and return results (no transport dependency). */
+export function performConversationSearch(params: ConversationSearchParams) {
+  // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
+  if (params.query.trim() === "*") {
+    const rows = listConversations(params.limit);
+    return rows.map((r) => ({
+      conversationId: r.id,
+      conversationTitle: r.title,
+      conversationUpdatedAt: r.updatedAt,
+      matchingMessages: [],
+    }));
+  }
+  return searchConversations(params.query, {
+    limit: params.limit,
+    maxMessagesPerConversation: params.maxMessagesPerConversation,
   });
 }
 
-export function handleMessageContentRequest(
-  msg: MessageContentRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const dbMessage = getMessageById(msg.messageId, msg.sessionId);
-  if (!dbMessage) {
-    ctx.send(socket, {
-      type: "error",
-      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
-    });
-    return;
-  }
+export interface MessageContentResult {
+  sessionId?: string;
+  messageId: string;
+  text?: string;
+  toolCalls?: Array<{
+    name: string;
+    result?: string;
+    input?: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * Get the full content of a single message by ID.
+ * Returns null if the message is not found.
+ */
+export function getMessageContent(
+  messageId: string,
+  sessionId?: string,
+): MessageContentResult | null {
+  const dbMessage = getMessageById(messageId, sessionId);
+  if (!dbMessage) return null;
 
   let text: string | undefined;
   let toolCalls:
@@ -343,11 +393,52 @@ export function handleMessageContentRequest(
     text = dbMessage.content || undefined;
   }
 
-  ctx.send(socket, {
+  return {
+    sessionId,
+    messageId,
+    ...(text !== undefined ? { text } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// IPC handlers (delegate to shared logic)
+// ---------------------------------------------------------------------------
+
+export function handleConversationSearch(
+  msg: ConversationSearchRequest,
+  ctx: HandlerContext,
+): void {
+  const results = performConversationSearch({
+    query: msg.query,
+    limit: msg.limit,
+    maxMessagesPerConversation: msg.maxMessagesPerConversation,
+  });
+  ctx.send({
+    type: "conversation_search_response",
+    query: msg.query,
+    results,
+  });
+}
+
+export function handleMessageContentRequest(
+  msg: MessageContentRequest,
+  ctx: HandlerContext,
+): void {
+  const result = getMessageContent(msg.messageId, msg.sessionId);
+  if (!result) {
+    ctx.send({
+      type: "error",
+      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
+    });
+    return;
+  }
+
+  ctx.send({
     type: "message_content_response",
     sessionId: msg.sessionId,
     messageId: msg.messageId,
-    ...(text !== undefined ? { text } : {}),
-    ...(toolCalls ? { toolCalls } : {}),
+    ...(result.text !== undefined ? { text: result.text } : {}),
+    ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
   });
 }

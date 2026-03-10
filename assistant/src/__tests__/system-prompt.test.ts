@@ -32,7 +32,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   getHistoryPath: () => join(TEST_DIR, "history"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -42,7 +42,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
@@ -78,8 +77,8 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "John",
   resolveUserPronouns: () => null,
@@ -92,7 +91,7 @@ const {
   stripCommentLines,
   buildExternalCommsIdentitySection,
   buildPhoneCallsRoutingSection,
-} = await import("../config/system-prompt.js");
+} = await import("../prompts/system-prompt.js");
 
 /** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
@@ -321,13 +320,12 @@ describe("buildSystemPrompt", () => {
       expect(result).not.toContain("use `app_update` to change the HTML");
     });
 
-    test("onboarding playbook uses app_file_edit for accent color, not app_update", () => {
+    test("onboarding playbook does not reference Home Base for accent color", () => {
       // Starter task playbooks only included during onboarding (BOOTSTRAP.md exists)
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
       const result = buildSystemPrompt();
-      expect(result).toContain(
-        "using `app_file_edit` to update the theme styles",
-      );
+      // The make_it_yours playbook should not reference Home Base anymore
+      expect(result).not.toContain("Home Base dashboard");
       expect(result).not.toContain(
         "using `app_update` to regenerate the Home Base HTML",
       );

@@ -26,7 +26,7 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { AgentLoopSessionContext } from "./session-agent-loop.js";
 import {
   buildSessionErrorMessage,
@@ -481,7 +481,7 @@ export function handleToolResult(
     return ts && ts.completedAt != null;
   });
   if (allToolsDone && state.currentTurnToolUseIds.length > 0) {
-    annotatePersistedAssistantMessage(state);
+    annotatePersistedAssistantMessage(state, deps);
   }
 }
 
@@ -491,7 +491,10 @@ export function handleToolResult(
  * and update the DB. This runs post-tool-execution so the metadata maps are
  * fully populated (unlike message_complete which fires before tools run).
  */
-function annotatePersistedAssistantMessage(state: EventHandlerState): void {
+function annotatePersistedAssistantMessage(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): void {
   const messageId = state.lastAssistantMessageId;
   if (!messageId) return;
 
@@ -527,6 +530,25 @@ function annotatePersistedAssistantMessage(state: EventHandlerState): void {
         modified = true;
       }
     }
+  }
+
+  // Persist any surfaces created during tool execution.
+  // message_complete fires BEFORE tools run, so currentTurnSurfaces is empty
+  // at write time. We append them here after all tools have completed.
+  if (deps.ctx.currentTurnSurfaces.length > 0) {
+    for (const surface of deps.ctx.currentTurnSurfaces) {
+      content.push({
+        type: "ui_surface",
+        surfaceId: surface.surfaceId,
+        surfaceType: surface.surfaceType,
+        title: surface.title,
+        data: surface.data,
+        actions: surface.actions,
+        display: surface.display,
+      } as unknown as ContentBlock);
+    }
+    modified = true;
+    deps.ctx.currentTurnSurfaces = [];
   }
 
   if (modified) {

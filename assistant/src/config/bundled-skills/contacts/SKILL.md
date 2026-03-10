@@ -7,12 +7,6 @@ metadata: {"emoji":"👥","vellum":{"display-name":"Contacts","user-invocable":t
 
 Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, phone), and creating/managing invite links that grant access.
 
-## Prerequisites
-
-- `assistant contacts` CLI commands call the service layer directly and do not require the assistant to be running.
-- `assistant channels` and `assistant integrations` CLI commands (e.g. `assistant channels readiness`, `assistant integrations telegram config`) require the assistant to be running because they call the gateway.
-- All CLI commands support `--json` for machine-readable output.
-
 ## Contact Management
 
 ### Create or update a contact
@@ -164,26 +158,6 @@ assistant contacts channels update-status <channel_id> --status blocked --reason
 
 Replace `<channel_id>` with the channel's `id` from the contact's `channels` array (visible in `assistant contacts list --json` output).
 
-## Channel Readiness
-
-Before creating an invite for any channel, check whether that channel is ready to accept messages. Creating an invite for an unready channel produces an unusable invite — the invitee redeems the code but cannot actually reach the assistant.
-
-```bash
-assistant channels readiness --json
-```
-
-The response contains `{ success: true, snapshots: [...] }` where each snapshot has:
-
-- `channel` -- the channel type (e.g., `telegram`, `email`, `whatsapp`, `slack`, `phone`)
-- `ready` -- boolean indicating whether the channel is fully operational
-- `checkedAt` -- timestamp (ms since epoch) of when readiness was evaluated
-- `stale` -- boolean indicating whether cached remote check data is outdated
-- `reasons` -- array of `{ code, text }` objects summarizing why the channel is not ready (empty when ready)
-- `localChecks` -- array of local prerequisite checks, each with `name`, `passed` (boolean), and `message` (human-readable explanation)
-- `remoteChecks` -- optional array of remote prerequisite checks (same shape: `name`, `passed`, `message`), present when the channel supports remote verification (e.g. confirming an email inbox exists)
-- `channelHandle` -- optional human-readable channel identifier (e.g. bot username, phone number, email address)
-
-If the target channel's `ready` field is `false`, do **not** create the invite. Instead, tell the guardian which prerequisites are missing (from `reasons` or from the `localChecks`/`remoteChecks` arrays — look for entries with `passed: false`) so they can resolve them first.
 
 ## Invite Links
 
@@ -219,13 +193,8 @@ fi
 
 # Prefer backend-provided canonical link when available.
 if [ -z "$INVITE_URL" ]; then
-  BOT_CONFIG_JSON=$(assistant integrations telegram config --json)
-  BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data.get('botUsername', ''), end='')
-")
-  if [ -z "$BOT_USERNAME" ]; then
+  BOT_USERNAME=$(assistant config get telegram.botUsername)
+  if [ -z "$BOT_USERNAME" ] || [ "$BOT_USERNAME" = "(not set)" ]; then
     echo "error:no_share_url_or_bot_username"
     exit 1
   fi
@@ -312,8 +281,6 @@ If the user provides a phone number without the `+` country code prefix, ask the
 
 Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code — the invitee sends the code to the assistant's email address to redeem access.
 
-**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `email` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
-
 ```bash
 assistant contacts invites create --source-channel email --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
@@ -339,8 +306,6 @@ If the assistant's email address is not available (AgentMail not configured), te
 ### Create a WhatsApp invite
 
 Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code — the invitee sends the code to the assistant's WhatsApp number to redeem access.
-
-**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `whatsapp` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
 
 ```bash
 assistant contacts invites create --source-channel whatsapp --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
@@ -369,8 +334,6 @@ If the assistant's WhatsApp integration is not configured at all (Meta WhatsApp 
 ### Create a Slack invite
 
 Use this when the guardian wants to invite someone to message the assistant on Slack. Slack invites use a 6-digit code -- the invitee sends the code as a direct message to the assistant's Slack bot to redeem access.
-
-**Before creating the invite**, check channel readiness (see [Channel Readiness](#channel-readiness)). If the `slack` channel is not ready, tell the guardian what prerequisites are missing instead of creating an unusable invite.
 
 ```bash
 assistant contacts invites create --source-channel slack --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json

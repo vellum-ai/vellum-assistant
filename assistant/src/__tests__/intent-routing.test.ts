@@ -24,7 +24,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   getHistoryPath: () => join(TEST_DIR, "history"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -34,7 +34,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
@@ -73,7 +72,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // ── Import after mocks ───────────────────────────────────────────────
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 // Load task_list_add description from the bundled skill TOOLS.json
 const tasksToolsJson = JSON.parse(

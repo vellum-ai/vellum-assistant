@@ -88,7 +88,6 @@ struct MainWindowView: View {
     let trafficLightPadding: CGFloat = 78
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
-    /// When true, the client shows a chat-only interface — no Home Base dashboard.
     private var isBootstrapOnboardingActive: Bool {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
     }
@@ -343,36 +342,29 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
-                    windowState.navigateBack()
-                }
-                .disabled(!windowState.navigationHistory.canGoBack)
-                .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
-
-                VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
-                    windowState.navigateForward()
-                }
-                .disabled(!windowState.navigationHistory.canGoForward)
-                .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
-
                 VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
                 }
 
-                Button {
+                VIconButton(label: "Search", icon: VIcon.search.rawValue, iconOnly: true, tooltip: "Search (\u{2318}K)") {
                     AppDelegate.shared?.toggleCommandPalette()
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.search, size: 13)
-                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                        VShortcutTag("\u{2318}K")
-                    }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .help("Search (\u{2318}K)")
+
+                HStack(spacing: 0) {
+                    VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                        windowState.navigateBack()
+                    }
+                    .disabled(!windowState.navigationHistory.canGoBack)
+                    .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+
+                    VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                        windowState.navigateForward()
+                    }
+                    .disabled(!windowState.navigationHistory.canGoForward)
+                    .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+                }
             }
             Spacer()
             if windowState.isConversationVisible {
@@ -439,7 +431,7 @@ struct MainWindowView: View {
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
         .frame(height: 36)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        .background(VColor.backgroundSubtle)
     }
 
     /// Core layout extracted to break up type-checker complexity.
@@ -475,7 +467,7 @@ struct MainWindowView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                withAnimation(VAnimation.snappy) {
                                     sidebar.showPreferencesDrawer = false
                                 }
                             }
@@ -520,8 +512,10 @@ struct MainWindowView: View {
                     // Preferences drawer rendered at top level so it floats above all content
                     if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let sidebarWidth = sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth
-                        let drawerX = 16 + sidebarWidth - VSpacing.xs
+                        let bottomPad: CGFloat = 16 + (sidebarExpanded ? VSpacing.md : VSpacing.sm)
+                        // Position above the PreferencesRow: clear the row height + divider + gap
+                        let dividerHeight: CGFloat = 1 + SidebarLayoutMetrics.dividerVerticalPadding * 2
+                        let drawerY = bottomPad + SidebarLayoutMetrics.rowMinHeight + dividerHeight + VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
@@ -541,9 +535,9 @@ struct MainWindowView: View {
                             }
                         )
                         .frame(width: drawerWidth)
-                        .offset(x: drawerX, y: -28)
+                        .offset(x: 16 + VSpacing.sm, y: -drawerY)
                         .zIndex(10)
-                        .transition(.opacity)
+                        .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
                     }
                 }
                 .overlay {

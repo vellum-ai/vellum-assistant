@@ -44,7 +44,6 @@ export async function wake(): Promise<void> {
   const resources = entry.resources;
 
   const pidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
 
   // Check if daemon is already running
   let daemonRunning = false;
@@ -60,7 +59,7 @@ export async function wake(): Promise<void> {
           console.log(
             `Assistant running (pid ${pid}) — restarting in watch mode...`,
           );
-          await stopProcessByPidFile(pidFile, "assistant", [socketFile]);
+          await stopProcessByPidFile(pidFile, "assistant");
           daemonRunning = false;
         } else {
           console.log(`Assistant already running (pid ${pid}).`);

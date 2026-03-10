@@ -1,13 +1,14 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
 
 // --- Mocks ----------------------------------------------------------------
 
 const callTelegramApiMock = mock(
-  (_config: GatewayConfig, _method: string, _body: Record<string, unknown>) =>
+  (_method: string, _body: Record<string, unknown>, _opts?: unknown) =>
     Promise.resolve({}),
 );
-const sendTelegramReplyMock = mock(() => Promise.resolve());
+const sendTelegramReplyMock = mock(() => Promise.resolve({ messageId: 0 }));
 const handleInboundMock = mock(
   (_config: GatewayConfig, _normalized: unknown, _options?: unknown) =>
     Promise.resolve({ forwarded: true, rejected: false }),
@@ -69,29 +70,7 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramBotToken: "test-token",
-  telegramDeliverAuthBypass: true,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
-  telegramTimeoutMs: 15000,
-  telegramWebhookSecret: "test-secret",
-  twilioAuthToken: undefined,
-  twilioAccountSid: undefined,
-  twilioPhoneNumber: undefined,
-  ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
-  whatsappPhoneNumberId: undefined,
-  whatsappAccessToken: undefined,
-  whatsappAppSecret: undefined,
-  whatsappWebhookVerifyToken: undefined,
-  whatsappDeliverAuthBypass: false,
-  whatsappTimeoutMs: 15000,
-  whatsappMaxRetries: 3,
-  whatsappInitialBackoffMs: 1000,
-  slackChannelBotToken: undefined,
-  slackChannelAppToken: undefined,
-  slackDeliverAuthBypass: false,
   trustProxy: false,
 };
 
@@ -121,17 +100,26 @@ function postRequest(body: string): Request {
   });
 }
 
+/** Create mock caches for the telegram webhook handler. */
+function makeCaches() {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:telegram:webhook_secret") return "test-secret";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
+}
+
 // --- Tests -----------------------------------------------------------------
 
 describe("telegram-webhook callback query acknowledgment", () => {
   beforeEach(() => {
     callTelegramApiMock.mockClear();
     callTelegramApiMock.mockImplementation(
-      (
-        _config: GatewayConfig,
-        _method: string,
-        _body: Record<string, unknown>,
-      ) => Promise.resolve({}),
+      (_method: string, _body: Record<string, unknown>, _opts?: unknown) =>
+        Promise.resolve({}),
     );
     sendTelegramReplyMock.mockClear();
     handleInboundMock.mockClear();
@@ -143,16 +131,16 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("acknowledges callback query after successful forwarding", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 300);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(1);
-    expect(answerCalls[0][2]).toEqual({
+    expect(answerCalls[0][1]).toEqual({
       callback_query_id: "cbq-42",
     });
   });
@@ -166,16 +154,16 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 301);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(1);
-    expect(answerCalls[0][2]).toEqual({
+    expect(answerCalls[0][1]).toEqual({
       callback_query_id: "cbq-42",
     });
   });
@@ -185,16 +173,16 @@ describe("telegram-webhook callback query acknowledgment", () => {
       Promise.resolve({ forwarded: false, rejected: false }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 304);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(500);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(1);
-    expect(answerCalls[0][2]).toEqual({
+    expect(answerCalls[0][1]).toEqual({
       callback_query_id: "cbq-42",
     });
   });
@@ -204,53 +192,53 @@ describe("telegram-webhook callback query acknowledgment", () => {
       Promise.reject(new Error("boom")),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 305);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(500);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(1);
-    expect(answerCalls[0][2]).toEqual({
+    expect(answerCalls[0][1]).toEqual({
       callback_query_id: "cbq-42",
     });
   });
 
   it("acknowledges callback query when /new command is triggered via callback", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("/new", 302);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(1);
-    expect(answerCalls[0][2]).toEqual({
+    expect(answerCalls[0][1]).toEqual({
       callback_query_id: "cbq-42",
     });
   });
 
   it("acknowledges callback query when /start command is triggered via callback", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("/start", 313);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(1);
-    expect(answerCalls[0][2]).toEqual({
+    expect(answerCalls[0][1]).toEqual({
       callback_query_id: "cbq-42",
     });
     expect(sendTelegramReplyMock).not.toHaveBeenCalled();
   });
 
   it("forwards /start as channel command-intent metadata and sends start acknowledgement", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = JSON.stringify({
       update_id: 314,
       message: {
@@ -284,7 +272,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("does not call answerCallbackQuery for regular text messages", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = JSON.stringify({
       update_id: 303,
       message: {
@@ -298,7 +286,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
 
     expect(res.status).toBe(200);
     const answerCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "answerCallbackQuery",
+      (c) => c[0] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(0);
   });
@@ -317,16 +305,16 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 306);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(1);
-    expect(clearCalls[0][2]).toEqual({
+    expect(clearCalls[0][1]).toEqual({
       chat_id: "42",
       message_id: 10,
       reply_markup: null,
@@ -347,13 +335,13 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:stale:approve", 307);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(1);
   });
@@ -372,13 +360,13 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 308);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(0);
   });
@@ -396,16 +384,16 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve_once", 310);
     const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(1);
-    expect(clearCalls[0][2]).toEqual({
+    expect(clearCalls[0][1]).toEqual({
       chat_id: "42",
       message_id: 10,
       reply_markup: null,
@@ -427,45 +415,43 @@ describe("telegram-webhook callback query acknowledgment", () => {
     );
 
     let editAttempts = 0;
-    callTelegramApiMock.mockImplementation(
-      (_config: GatewayConfig, method: string) => {
-        if (method === "editMessageReplyMarkup") {
-          editAttempts++;
-          if (editAttempts === 1) {
-            return Promise.reject(
-              new Error(
-                "Telegram editMessageReplyMarkup failed: can't parse reply markup JSON object",
-              ),
-            );
-          }
-          return Promise.resolve({});
+    callTelegramApiMock.mockImplementation((method: string) => {
+      if (method === "editMessageReplyMarkup") {
+        editAttempts++;
+        if (editAttempts === 1) {
+          return Promise.reject(
+            new Error(
+              "Telegram editMessageReplyMarkup failed: can't parse reply markup JSON object",
+            ),
+          );
         }
         return Promise.resolve({});
-      },
-    );
+      }
+      return Promise.resolve({});
+    });
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve_once", 311);
     const res = await handler(postRequest(body));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(2);
-    expect(clearCalls[0][2]).toEqual({
+    expect(clearCalls[0][1]).toEqual({
       chat_id: "42",
       message_id: 10,
       reply_markup: null,
     });
-    expect(clearCalls[1][2]).toEqual({
+    expect(clearCalls[1][1]).toEqual({
       chat_id: "42",
       message_id: 10,
       reply_markup: { inline_keyboard: [] },
     });
     const deleteCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "deleteMessage",
+      (c) => c[0] === "deleteMessage",
     );
     expect(deleteCalls.length).toBe(0);
   });
@@ -483,30 +469,28 @@ describe("telegram-webhook callback query acknowledgment", () => {
         },
       }),
     );
-    callTelegramApiMock.mockImplementation(
-      (_config: GatewayConfig, method: string) => {
-        if (method === "editMessageReplyMarkup") {
-          return Promise.reject(new Error("edit failed"));
-        }
-        return Promise.resolve({});
-      },
-    );
+    callTelegramApiMock.mockImplementation((method: string) => {
+      if (method === "editMessageReplyMarkup") {
+        return Promise.reject(new Error("edit failed"));
+      }
+      return Promise.resolve({});
+    });
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("gapr:run1:approve", 309);
     const res = await handler(postRequest(body));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(2);
     const deleteCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "deleteMessage",
+      (c) => c[0] === "deleteMessage",
     );
     expect(deleteCalls.length).toBe(1);
-    expect(deleteCalls[0][2]).toEqual({
+    expect(deleteCalls[0][1]).toEqual({
       chat_id: "42",
       message_id: 10,
     });
@@ -525,27 +509,25 @@ describe("telegram-webhook callback query acknowledgment", () => {
         },
       }),
     );
-    callTelegramApiMock.mockImplementation(
-      (_config: GatewayConfig, method: string) => {
-        if (method === "editMessageReplyMarkup" || method === "deleteMessage") {
-          return Promise.reject(new Error("hard failure"));
-        }
-        return Promise.resolve({});
-      },
-    );
+    callTelegramApiMock.mockImplementation((method: string) => {
+      if (method === "editMessageReplyMarkup" || method === "deleteMessage") {
+        return Promise.reject(new Error("hard failure"));
+      }
+      return Promise.resolve({});
+    });
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve_once", 312);
     const res = await handler(postRequest(body));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "editMessageReplyMarkup",
+      (c) => c[0] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(2);
     const deleteCalls = callTelegramApiMock.mock.calls.filter(
-      (c) => c[1] === "deleteMessage",
+      (c) => c[0] === "deleteMessage",
     );
     expect(deleteCalls.length).toBe(1);
   });

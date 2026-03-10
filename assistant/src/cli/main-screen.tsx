@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-import { getSocketPath, getWorkspaceDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import { getHttpBaseUrl } from "./http-client.js";
 
 const LEFT_PANEL_WIDTH = 36;
 const RIGHT_LINE_COUNT = 11;
@@ -13,7 +14,7 @@ export interface MainScreenLayout {
 }
 
 export function renderMainScreen(): MainScreenLayout {
-  const socketPath = getSocketPath();
+  const httpUrl = getHttpBaseUrl();
   const workspace = getWorkspaceDir();
   const assistantId = workspace.split("/").pop() ?? "vellum";
 
@@ -26,7 +27,7 @@ export function renderMainScreen(): MainScreenLayout {
     render: (runtimeUrl: string, assistantId: string, species: string) => number;
   };
 
-  const height = render(socketPath, assistantId, "vellum");
+  const height = render(httpUrl, assistantId, "vellum");
 
   const statusCanvasLine = RIGHT_LINE_COUNT + 1;
   const statusCol = LEFT_PANEL_WIDTH + 1;

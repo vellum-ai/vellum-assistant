@@ -1,0 +1,809 @@
+/**
+ * Route handlers for work item (task queue) operations.
+ *
+ * Exposes all work item CRUD and lifecycle operations over HTTP,
+ * sharing business logic with the IPC handlers in
+ * `daemon/handlers/work-items.ts`.
+ */
+import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { Session } from "../../daemon/session.js";
+import { getMessages } from "../../memory/conversation-crud.js";
+import { check, classifyRisk } from "../../permissions/checker.js";
+import { getSubagentManager } from "../../subagent/index.js";
+import { runTask } from "../../tasks/task-runner.js";
+import { getTask, getTaskRun } from "../../tasks/task-store.js";
+import {
+  getRegisteredToolNames,
+  getToolDescription,
+  sanitizeToolList,
+} from "../../tasks/tool-sanitizer.js";
+import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import {
+  deleteWorkItem,
+  getWorkItem,
+  listWorkItems,
+  updateWorkItem,
+  type WorkItemStatus,
+} from "../../work-items/work-item-store.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
+
+const log = getLogger("work-items-routes");
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function publishEvent(msg: ServerMessage): void {
+  void assistantEventHub.publish(
+    buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
+  );
+}
+
+function broadcastWorkItemStatus(id: string): void {
+  const item = getWorkItem(id);
+  if (item) {
+    publishEvent({
+      type: "work_item_status_changed",
+      item: {
+        id: item.id,
+        taskId: item.taskId,
+        title: item.title,
+        status: item.status,
+        lastRunId: item.lastRunId,
+        lastRunConversationId: item.lastRunConversationId,
+        lastRunStatus: item.lastRunStatus,
+        updatedAt: item.updatedAt,
+      },
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared business logic: extracting output from a work item run
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract only the latest assistant text block from stored content.
+ * Consolidation merges multiple assistant messages into one DB row; scanning
+ * from the end keeps task output focused on the final assistant response.
+ */
+function extractLatestTextFromContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      for (let i = parsed.length - 1; i >= 0; i--) {
+        const block = parsed[i] as { type?: unknown; text?: unknown };
+        if (block.type !== "text") continue;
+        if (typeof block.text !== "string") continue;
+        if (!block.text.trim()) continue;
+        return block.text;
+      }
+      return "";
+    }
+  } catch {
+    // Plain text content — use as-is
+  }
+  return content;
+}
+
+/** Extract tool_result blocks from a user message's content. */
+function extractToolResults(
+  content: string,
+): Array<{ tool_use_id: string; content: string; is_error?: boolean }> {
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((b: { type: string }) => b.type === "tool_result")
+        .map(
+          (b: {
+            tool_use_id: string;
+            content?: string | Array<{ type: string; text?: string }>;
+            is_error?: boolean;
+          }) => {
+            let text = "";
+            if (typeof b.content === "string") {
+              text = b.content;
+            } else if (Array.isArray(b.content)) {
+              text = b.content
+                .filter((c) => c.type === "text" && c.text)
+                .map((c) => c.text!)
+                .join("\n");
+            }
+            return {
+              tool_use_id: b.tool_use_id,
+              content: text,
+              is_error: b.is_error,
+            };
+          },
+        );
+    }
+  } catch {
+    // Not JSON — no tool_result blocks
+  }
+  return [];
+}
+
+/**
+ * Build highlights from tool outcomes in the conversation. Scans for
+ * tool_use (assistant) and tool_result (user) pairs, extracting concrete
+ * outcomes like errors, file paths, and URLs.
+ */
+function extractToolHighlights(
+  msgs: Array<{ role: string; content: string }>,
+  maxHighlights: number,
+): string[] {
+  const highlights: string[] = [];
+
+  // Build a map of tool_use_id -> tool name from assistant messages
+  const toolNameById = new Map<string, string>();
+  for (const m of msgs) {
+    if (m.role !== "assistant") continue;
+    try {
+      const parsed = JSON.parse(m.content);
+      if (Array.isArray(parsed)) {
+        for (const block of parsed) {
+          if (block.type === "tool_use" && block.id && block.name) {
+            toolNameById.set(block.id, block.name);
+          }
+        }
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
+  // Scan tool_result messages in reverse order (most recent first)
+  for (
+    let i = msgs.length - 1;
+    i >= 0 && highlights.length < maxHighlights;
+    i--
+  ) {
+    const m = msgs[i];
+    if (m.role !== "user") continue;
+
+    const results = extractToolResults(m.content);
+    for (const result of results) {
+      if (highlights.length >= maxHighlights) break;
+
+      const toolName = toolNameById.get(result.tool_use_id) ?? "tool";
+      const resultText = result.content.trim();
+
+      if (result.is_error) {
+        // Always surface errors
+        const errorSnippet = truncate(resultText, 200, "...");
+        highlights.push(`- ${toolName}: Error — ${errorSnippet}`);
+      } else if (resultText) {
+        // Extract notable signal from successful results: file paths, URLs, or
+        // a short summary of what happened
+        const firstLine = resultText.split("\n")[0].trim();
+        if (firstLine.length > 0 && firstLine.length <= 200) {
+          highlights.push(`- ${toolName}: ${firstLine}`);
+        } else if (firstLine.length > 200) {
+          highlights.push(`- ${toolName}: ${truncate(firstLine, 200, "...")}`);
+        }
+      }
+    }
+  }
+
+  return highlights;
+}
+
+// ---------------------------------------------------------------------------
+// Shared business logic functions (exported for IPC handler reuse)
+// ---------------------------------------------------------------------------
+
+export interface WorkItemOutputResult {
+  success: boolean;
+  error?: string;
+  output?: {
+    title: string;
+    status: string;
+    runId: string | null;
+    conversationId: string | null;
+    completedAt: number | null;
+    summary: string;
+    highlights: string[];
+  };
+}
+
+export function getWorkItemOutput(id: string): WorkItemOutputResult {
+  const workItem = getWorkItem(id);
+  if (!workItem) {
+    return { success: false, error: "Work item not found" };
+  }
+
+  // Use the task run's conversationId as the authoritative source.
+  let conversationId: string | null = null;
+  let completedAt: number | null = null;
+
+  if (workItem.lastRunId) {
+    const run = getTaskRun(workItem.lastRunId);
+    if (run) {
+      conversationId = run.conversationId;
+      completedAt =
+        run.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
+    }
+  }
+
+  // Fall back to the work item's stored conversationId
+  if (!conversationId) {
+    conversationId = workItem.lastRunConversationId;
+  }
+
+  if (!conversationId) {
+    return {
+      success: false,
+      error: "This task has not been run yet. No output is available.",
+    };
+  }
+
+  let summary = "";
+  let highlights: string[] = [];
+
+  const msgs = getMessages(conversationId);
+
+  // Find the last assistant message with text content
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.role !== "assistant") continue;
+
+    const text = extractLatestTextFromContent(m.content);
+    if (!text.trim()) continue;
+
+    summary = truncate(text, 2000, "");
+
+    // Extract bullet points from the assistant's prose
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (
+        (trimmed.startsWith("-") || trimmed.startsWith("*")) &&
+        trimmed.length > 2
+      ) {
+        highlights.push(trimmed);
+        if (highlights.length >= 5) break;
+      }
+    }
+    break;
+  }
+
+  // Supplement with tool outcomes
+  if (highlights.length < 5) {
+    const toolHighlights = extractToolHighlights(msgs, 5 - highlights.length);
+    highlights = [...highlights, ...toolHighlights];
+  }
+
+  // Synthesize from tool results if no assistant summary
+  if (!summary && msgs.length > 0) {
+    const toolHighlights = extractToolHighlights(msgs, 10);
+    if (toolHighlights.length > 0) {
+      summary =
+        "Task completed. Tool outcomes:\n" + toolHighlights.join("\n");
+      highlights = toolHighlights.slice(0, 5);
+    }
+  }
+
+  return {
+    success: true,
+    output: {
+      title: workItem.title,
+      status: workItem.lastRunStatus ?? workItem.status,
+      runId: workItem.lastRunId,
+      conversationId,
+      completedAt,
+      summary,
+      highlights,
+    },
+  };
+}
+
+export interface WorkItemPreflightResult {
+  success: boolean;
+  error?: string;
+  permissions?: Array<{
+    tool: string;
+    description: string;
+    riskLevel: "low" | "medium" | "high";
+    currentDecision: "allow" | "deny" | "prompt";
+  }>;
+}
+
+export async function preflightWorkItem(
+  id: string,
+): Promise<WorkItemPreflightResult> {
+  const workItem = getWorkItem(id);
+  if (!workItem) {
+    return { success: false, error: "Work item not found" };
+  }
+
+  let requiredTools: string[];
+  if (workItem.requiredTools != null) {
+    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  } else {
+    const task = getTask(workItem.taskId);
+    if (!task) {
+      return {
+        success: false,
+        error: `Associated task not found: ${workItem.taskId}`,
+      };
+    }
+    requiredTools = task.requiredTools
+      ? sanitizeToolList(JSON.parse(task.requiredTools))
+      : getRegisteredToolNames();
+  }
+
+  if (requiredTools.length === 0) {
+    return { success: true, permissions: [] };
+  }
+
+  // Filter out already-approved tools
+  if (workItem.approvedTools) {
+    const approvedSet = new Set<string>(JSON.parse(workItem.approvedTools));
+    requiredTools = requiredTools.filter((t) => !approvedSet.has(t));
+    if (requiredTools.length === 0) {
+      return { success: true, permissions: [] };
+    }
+  }
+
+  const workingDir = process.cwd();
+  const permissions = await Promise.all(
+    requiredTools.map(async (tool) => {
+      const risk = await classifyRisk(tool, {}, workingDir);
+      const result = await check(tool, {}, workingDir);
+      return {
+        tool,
+        description: getToolDescription(tool),
+        riskLevel: risk.toLowerCase() as "low" | "medium" | "high",
+        currentDecision: result.decision as "allow" | "deny" | "prompt",
+      };
+    }),
+  );
+
+  return { success: true, permissions };
+}
+
+export interface ApprovePermissionsResult {
+  success: boolean;
+  error?: string;
+}
+
+export function approveWorkItemPermissions(
+  id: string,
+  approvedTools: string[],
+): ApprovePermissionsResult {
+  const workItem = getWorkItem(id);
+  if (!workItem) {
+    return { success: false, error: "Work item not found" };
+  }
+
+  const existingApproved: string[] = workItem.approvedTools
+    ? JSON.parse(workItem.approvedTools)
+    : [];
+  const newApproved = sanitizeToolList(approvedTools);
+  const merged = [...new Set([...existingApproved, ...newApproved])];
+
+  updateWorkItem(id, {
+    approvedTools: JSON.stringify(sanitizeToolList(merged)),
+    approvalStatus: "approved",
+  });
+
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Dependencies for session-bound operations
+// ---------------------------------------------------------------------------
+
+export interface WorkItemRouteDeps {
+  getOrCreateSession: (conversationId: string) => Promise<Session>;
+  findSession?: (conversationId: string) => Session | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function workItemRouteDefinitions(
+  deps?: WorkItemRouteDeps,
+): RouteDefinition[] {
+  return [
+    // GET /v1/work-items — list work items
+    {
+      endpoint: "work-items",
+      method: "GET",
+      policyKey: "work-items",
+      handler: ({ url }) => {
+        const status = url.searchParams.get("status") ?? undefined;
+        const items = listWorkItems(
+          status ? { status: status as WorkItemStatus } : undefined,
+        );
+        return Response.json({ items });
+      },
+    },
+
+    // GET /v1/work-items/:id — get work item
+    {
+      endpoint: "work-items/:id",
+      method: "GET",
+      policyKey: "work-items",
+      handler: ({ params }) => {
+        const item = getWorkItem(params.id) ?? null;
+        if (!item) {
+          return httpError("NOT_FOUND", "Work item not found", 404);
+        }
+        return Response.json({ item });
+      },
+    },
+
+    // PATCH /v1/work-items/:id — update work item
+    {
+      endpoint: "work-items/:id",
+      method: "PATCH",
+      policyKey: "work-items",
+      handler: async ({ req, params }) => {
+        const body = (await req.json()) as {
+          title?: string;
+          notes?: string;
+          status?: string;
+          priorityTier?: number;
+          sortIndex?: number;
+        };
+
+        // Don't allow overwriting a cancelled status
+        if (body.status !== undefined) {
+          const existing = getWorkItem(params.id);
+          if (
+            existing?.status === "cancelled" &&
+            body.status !== "cancelled"
+          ) {
+            return Response.json({ item: existing });
+          }
+        }
+
+        const updates: Record<string, unknown> = {};
+        if (body.title !== undefined) updates.title = body.title;
+        if (body.notes !== undefined) updates.notes = body.notes;
+        if (body.status !== undefined) updates.status = body.status;
+        if (body.priorityTier !== undefined)
+          updates.priorityTier = body.priorityTier;
+        if (body.sortIndex !== undefined) updates.sortIndex = body.sortIndex;
+
+        const item =
+          updateWorkItem(
+            params.id,
+            updates as Parameters<typeof updateWorkItem>[1],
+          ) ?? null;
+
+        if (item) {
+          broadcastWorkItemStatus(item.id);
+          publishEvent({ type: "tasks_changed" });
+        }
+
+        return Response.json({ item });
+      },
+    },
+
+    // POST /v1/work-items/:id/complete — complete work item
+    {
+      endpoint: "work-items/:id/complete",
+      method: "POST",
+      policyKey: "work-items/complete",
+      handler: ({ params }) => {
+        const existing = getWorkItem(params.id);
+        if (!existing) {
+          return httpError("NOT_FOUND", `Work item not found: ${params.id}`, 404);
+        }
+        if (existing.status !== "awaiting_review") {
+          return httpError(
+            "CONFLICT",
+            `Cannot complete work item: status is '${existing.status}', expected 'awaiting_review'`,
+            409,
+          );
+        }
+
+        const item = updateWorkItem(params.id, { status: "done" }) ?? null;
+        if (item) {
+          broadcastWorkItemStatus(item.id);
+          publishEvent({ type: "tasks_changed" });
+        }
+        return Response.json({ item });
+      },
+    },
+
+    // DELETE /v1/work-items/:id — delete work item
+    {
+      endpoint: "work-items/:id",
+      method: "DELETE",
+      policyKey: "work-items",
+      handler: ({ params }) => {
+        const existing = getWorkItem(params.id);
+        if (!existing) {
+          return httpError("NOT_FOUND", "Work item not found", 404);
+        }
+        deleteWorkItem(params.id);
+        publishEvent({ type: "tasks_changed" });
+        return Response.json({ id: params.id, success: true });
+      },
+    },
+
+    // POST /v1/work-items/:id/cancel — cancel work item
+    {
+      endpoint: "work-items/:id/cancel",
+      method: "POST",
+      policyKey: "work-items/cancel",
+      handler: ({ params }) => {
+        const workItem = getWorkItem(params.id);
+        if (!workItem) {
+          return httpError("NOT_FOUND", "Work item not found", 404);
+        }
+        if (workItem.status !== "running") {
+          return httpError(
+            "CONFLICT",
+            `Work item is not running (status: ${workItem.status})`,
+            409,
+          );
+        }
+
+        // Abort the session associated with this work item's current run
+        const conversationId = workItem.lastRunConversationId;
+        if (conversationId && deps?.findSession) {
+          const session = deps.findSession(conversationId);
+          if (session) {
+            session.headlessLock = false;
+            session.abort();
+            getSubagentManager().abortAllForParent(conversationId);
+          }
+        }
+
+        updateWorkItem(params.id, {
+          status: "cancelled",
+          lastRunStatus: "cancelled",
+        });
+
+        broadcastWorkItemStatus(params.id);
+        publishEvent({ type: "tasks_changed" });
+        return Response.json({ id: params.id, success: true });
+      },
+    },
+
+    // POST /v1/work-items/:id/approve-permissions — approve permissions
+    {
+      endpoint: "work-items/:id/approve-permissions",
+      method: "POST",
+      policyKey: "work-items/approve-permissions",
+      handler: async ({ req, params }) => {
+        const body = (await req.json()) as { approvedTools?: string[] };
+        if (!Array.isArray(body.approvedTools)) {
+          return httpError("BAD_REQUEST", "approvedTools array is required", 400);
+        }
+        const result = approveWorkItemPermissions(params.id, body.approvedTools);
+        if (!result.success) {
+          return httpError("NOT_FOUND", result.error!, 404);
+        }
+        return Response.json({ id: params.id, success: true });
+      },
+    },
+
+    // POST /v1/work-items/:id/preflight — preflight check
+    {
+      endpoint: "work-items/:id/preflight",
+      method: "POST",
+      policyKey: "work-items/preflight",
+      handler: async ({ params }) => {
+        const result = await preflightWorkItem(params.id);
+        if (!result.success) {
+          return httpError("NOT_FOUND", result.error!, 404);
+        }
+        return Response.json({
+          id: params.id,
+          success: true,
+          permissions: result.permissions,
+        });
+      },
+    },
+
+    // POST /v1/work-items/:id/run — run task
+    {
+      endpoint: "work-items/:id/run",
+      method: "POST",
+      policyKey: "work-items/run",
+      handler: async ({ params }) => {
+        const workItem = getWorkItem(params.id);
+        if (!workItem) {
+          return httpError("NOT_FOUND", "Work item not found", 404);
+        }
+
+        if (workItem.status === "running") {
+          return httpError(
+            "CONFLICT",
+            "Work item is already running",
+            409,
+          );
+        }
+
+        const NON_RUNNABLE_STATUSES: readonly string[] = ["archived"];
+        if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
+          return httpError(
+            "CONFLICT",
+            `Work item has status '${workItem.status}' and cannot be run`,
+            409,
+          );
+        }
+
+        const task = getTask(workItem.taskId);
+        if (!task) {
+          return httpError(
+            "NOT_FOUND",
+            `Associated task not found: ${workItem.taskId}`,
+            404,
+          );
+        }
+
+        // Compute required tools
+        let requiredTools: string[];
+        if (workItem.requiredTools != null) {
+          requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+        } else {
+          requiredTools = task.requiredTools
+            ? sanitizeToolList(JSON.parse(task.requiredTools))
+            : getRegisteredToolNames();
+        }
+
+        // Permission checkpoint
+        let approvedTools: string[] | undefined;
+        if (requiredTools.length > 0) {
+          approvedTools = workItem.approvedTools
+            ? JSON.parse(workItem.approvedTools)
+            : undefined;
+          const approvedSet = new Set<string>(approvedTools ?? []);
+          const missingApprovals = requiredTools.filter(
+            (t) => !approvedSet.has(t),
+          );
+          if (missingApprovals.length > 0) {
+            return httpError(
+              "FORBIDDEN",
+              "Required tool permissions have not been approved. Run preflight first.",
+              403,
+            );
+          }
+        }
+
+        if (!deps?.getOrCreateSession) {
+          return httpError(
+            "NOT_IMPLEMENTED",
+            "Session management not available for task execution",
+            501,
+          );
+        }
+
+        // Set status to running
+        updateWorkItem(params.id, { status: "running" });
+        broadcastWorkItemStatus(params.id);
+        publishEvent({ type: "tasks_changed" });
+
+        // Execute task asynchronously
+        let session: Session | null = null;
+        const getOrCreateSession = deps.getOrCreateSession;
+        const workItemId = params.id;
+
+        // Fire-and-forget: return acknowledgment immediately, run task in background
+        void (async () => {
+          try {
+            const result = await runTask(
+              {
+                taskId: workItem.taskId,
+                workingDir: process.cwd(),
+                approvedTools,
+              },
+              async (conversationId, message, taskRunId) => {
+                if (!session) {
+                  updateWorkItem(workItemId, {
+                    lastRunConversationId: conversationId,
+                  });
+                  session = await getOrCreateSession(conversationId);
+
+                  publishEvent({
+                    type: "task_run_thread_created",
+                    conversationId,
+                    workItemId,
+                    title: workItem.title,
+                  });
+                  session.taskRunId = taskRunId;
+                  session.headlessLock = true;
+                }
+                await session.processMessage(
+                  message,
+                  [],
+                  (event) => {
+                    publishEvent(event);
+                  },
+                  undefined,
+                  undefined,
+                  undefined,
+                  { isInteractive: false },
+                );
+              },
+            );
+
+            // Release headless lock
+            if (session) {
+              (session as { headlessLock: boolean }).headlessLock = false;
+            }
+
+            // Don't overwrite cancelled status
+            const current = getWorkItem(workItemId);
+            if (current?.status !== "cancelled") {
+              const finalStatus: WorkItemStatus =
+                result.status === "completed" ? "awaiting_review" : "failed";
+              updateWorkItem(workItemId, {
+                status: finalStatus,
+                lastRunId: result.taskRunId,
+                lastRunConversationId: result.conversationId,
+                lastRunStatus: result.status,
+              });
+            }
+
+            broadcastWorkItemStatus(workItemId);
+            publishEvent({ type: "tasks_changed" });
+          } catch (err) {
+            if (session) {
+              (session as { headlessLock: boolean }).headlessLock = false;
+            }
+            log.error(
+              { err, workItemId },
+              "work_item_run_task (HTTP) failed",
+            );
+            updateWorkItem(workItemId, {
+              status: "failed",
+              lastRunStatus: "failed",
+            });
+            broadcastWorkItemStatus(workItemId);
+            publishEvent({ type: "tasks_changed" });
+          }
+        })();
+
+        return Response.json({
+          id: params.id,
+          success: true,
+          lastRunId: "",
+        });
+      },
+    },
+
+    // GET /v1/work-items/:id/output — get task output
+    {
+      endpoint: "work-items/:id/output",
+      method: "GET",
+      policyKey: "work-items/output",
+      handler: ({ params }) => {
+        try {
+          const result = getWorkItemOutput(params.id);
+          if (!result.success) {
+            return httpError("NOT_FOUND", result.error!, 404);
+          }
+          return Response.json({
+            id: params.id,
+            success: true,
+            output: result.output,
+          });
+        } catch (err) {
+          log.error(
+            { err, workItemId: params.id },
+            "GET /v1/work-items/:id/output failed",
+          );
+          return httpError(
+            "INTERNAL_ERROR",
+            "Failed to load task output",
+            500,
+          );
+        }
+      },
+    },
+  ];
+}

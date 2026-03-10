@@ -22,7 +22,6 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../config/system-prompt.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -39,6 +38,7 @@ import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -47,16 +47,16 @@ import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type {
-  AssistantActivityState,
-  ConfirmationStateChanged,
-} from "./ipc-contract/messages.js";
-import type {
   ServerMessage,
   SurfaceData,
   SurfaceType,
   UsageStats,
   UserMessageAttachment,
-} from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import type {
+  AssistantActivityState,
+  ConfirmationStateChanged,
+} from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
 import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";
@@ -213,15 +213,6 @@ export class Session {
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
   /** @internal */ activityVersion = 0;
-  /**
-   * Optional callback invoked whenever a server-authoritative state signal
-   * (confirmation_state_changed or assistant_activity_state) is emitted.
-   *
-   * HTTP/SSE sessions set this so the hub publisher receives these events —
-   * without it, the signals only travel through `sendToClient`, which is a
-   * no-op for socketless sessions.
-   */
-  private onStateSignal?: (msg: ServerMessage) => void;
   /** Set by the agent loop to track confirmation outcomes for persistence. */
   onConfirmationOutcome?: (
     requestId: string,
@@ -251,8 +242,8 @@ export class Session {
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
-      // Route through emitConfirmationStateChanged so the onStateSignal
-      // listener publishes to the SSE hub for HTTP/SSE consumers.
+      // Route through emitConfirmationStateChanged so the event reaches
+      // the client via sendToClient (wired to the SSE hub for HTTP sessions).
       this.emitConfirmationStateChanged({
         sessionId: this.conversationId,
         requestId,
@@ -390,17 +381,6 @@ export class Session {
   /** Returns the current sendToClient reference for identity comparison. */
   getCurrentSender(): (msg: ServerMessage) => void {
     return this.sendToClient;
-  }
-
-  /**
-   * Register a callback for server-authoritative state signals
-   * (confirmation_state_changed, assistant_activity_state).
-   *
-   * This enables HTTP/SSE sessions to receive these events through the
-   * hub publisher, since `sendToClient` is a no-op for socketless sessions.
-   */
-  setStateSignalListener(listener: (msg: ServerMessage) => void): void {
-    this.onStateSignal = listener;
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
@@ -603,7 +583,6 @@ export class Session {
       ...params,
     } as ServerMessage;
     this.sendToClient(msg);
-    this.onStateSignal?.(msg);
   }
 
   emitActivityState(
@@ -625,7 +604,6 @@ export class Session {
       ...(statusText ? { statusText } : {}),
     } as ServerMessage;
     this.sendToClient(msg);
-    this.onStateSignal?.(msg);
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

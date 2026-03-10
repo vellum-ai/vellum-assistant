@@ -17,8 +17,6 @@ import {
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
-import { ensurePromptFiles } from "../config/system-prompt.js";
-import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -40,7 +38,11 @@ import {
   emitNotificationSignal,
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
+import { ensurePromptFiles } from "../prompts/system-prompt.js";
+import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -50,13 +52,12 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { watchSessions } from "../tools/watch/watch-state.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getInterfacesDir,
   getRootDir,
-  getSocketPath,
-  removeSocketFile,
 } from "../util/platform.js";
 import {
   listWorkItems,
@@ -68,10 +69,6 @@ import {
   createApprovalCopyGenerator,
 } from "./approval-generators.js";
 import {
-  hasNoAuthOverride,
-  hasUngatedNoAuthOverride,
-} from "./connection-policy.js";
-import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
   writePid,
@@ -81,17 +78,30 @@ import {
   createGuardianFollowUpConversationGenerator,
 } from "./guardian-action-generators.js";
 import { initPairingHandlers } from "./handlers/pairing.js";
+import {
+  cancelGeneration,
+  clearAllSessions,
+  regenerateResponse,
+  renameSession,
+  switchSession,
+  undoLastMessage,
+} from "./handlers/sessions.js";
 import { installCliLaunchers } from "./install-cli-launchers.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import {
   initializeProvidersAndTools,
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
+import {
+  handleRideShotgunStart,
+  handleRideShotgunStop,
+} from "./ride-shotgun-handler.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { initSlashPairingContext } from "./session-slash.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
+import { handleWatchObservation } from "./watch-handler.js";
 
 // Re-export public API so existing consumers don't need to change imports
 export type { StopResult } from "./daemon-control.js";
@@ -114,21 +124,6 @@ function loadDotEnv(): void {
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
   validateEnv();
-
-  if (hasUngatedNoAuthOverride()) {
-    log.warn(
-      "VELLUM_DAEMON_NOAUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
-    );
-  } else if (hasNoAuthOverride()) {
-    log.warn(
-      "VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.",
-    );
-  }
-
-  // Track whether the IPC socket has been created so we can clean it up
-  // if init crashes after the socket is bound but before shutdown handlers
-  // are installed.
-  let socketCreated = false;
 
   try {
     // Initialize crash reporting eagerly so early startup failures are
@@ -175,7 +170,7 @@ export async function runDaemon(): Promise<void> {
 
     // Backfill vellum guardian binding for existing installations
     try {
-      ensureVellumGuardianBinding("self");
+      ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
     } catch (err) {
       log.warn(
         { err },
@@ -238,13 +233,11 @@ export async function runDaemon(): Promise<void> {
 
     await initializeProvidersAndTools(config);
 
-    // Start the IPC socket BEFORE Qdrant so that clients can connect
-    // immediately. Qdrant startup can take 30+ seconds (binary download,
-    // /readyz polling) which previously blocked the socket from appearing.
-    log.info("Daemon startup: starting DaemonServer (IPC socket)");
+    // Start the DaemonServer (session manager) before Qdrant so HTTP
+    // routes can begin accepting requests while Qdrant initializes.
+    log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
     await server.start();
-    socketCreated = true;
     log.info("Daemon startup: DaemonServer started");
 
     // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
@@ -280,8 +273,8 @@ export async function runDaemon(): Promise<void> {
     registerWatcherProviders();
     registerMessagingProviders();
 
-    // Register the IPC broadcast function for the notification signal pipeline's
-    // macOS adapter so it can deliver notification_intent messages to desktop clients.
+    // Register the broadcast function for the notification signal pipeline's
+    // macOS adapter so it can deliver notification_intent messages to clients.
     registerBroadcastFn((msg) => server.broadcast(msg));
 
     const scheduler = startScheduler(
@@ -434,6 +427,126 @@ export async function runDaemon(): Promise<void> {
           })),
       },
       findSession: (sessionId) => server.findSession(sessionId),
+      findSessionBySurfaceId: (surfaceId) =>
+        server.findSessionBySurfaceId(surfaceId),
+      getSkillContext: () => server.getSkillContext(),
+      getModelSetContext: () => server.getHandlerContext(),
+      sessionManagementDeps: {
+        switchSession: (sessionId) =>
+          switchSession(sessionId, server.getHandlerContext()),
+        renameSession: (sessionId, name) => renameSession(sessionId, name),
+        clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
+        cancelGeneration: (sessionId) =>
+          cancelGeneration(sessionId, server.getHandlerContext()),
+        undoLastMessage: (sessionId) =>
+          undoLastMessage(sessionId, server.getHandlerContext()),
+        regenerateResponse: (sessionId) => {
+          let hubChain: Promise<void> = Promise.resolve();
+          const sendEvent = (event: ServerMessage) => {
+            const ae = buildAssistantEvent(
+              DAEMON_INTERNAL_ASSISTANT_ID,
+              event,
+              sessionId,
+            );
+            hubChain = (async () => {
+              await hubChain;
+              try {
+                await assistantEventHub.publish(ae);
+              } catch (err) {
+                log.warn(
+                  { err },
+                  "assistant-events hub subscriber threw during regenerate",
+                );
+              }
+            })();
+          };
+          return regenerateResponse(
+            sessionId,
+            server.getHandlerContext(),
+            sendEvent,
+          );
+        },
+      },
+      getComputerUseDeps: () => {
+        const ctx = server.getHandlerContext();
+        return {
+          cuSessions: ctx.cuSessions,
+          sharedRequestTimestamps: ctx.sharedRequestTimestamps,
+          cuObservationParseSequence: ctx.cuObservationParseSequence,
+          handleRideShotgunStart: async (params) => {
+            // The handler generates its own watchId/sessionId and
+            // sends them via ctx.send as a watch_started message.
+            // We intercept send to capture the IDs before they broadcast.
+            let capturedWatchId = "";
+            let capturedSessionId = "";
+            const interceptCtx = {
+              ...ctx,
+              send: (msg: ServerMessage) => {
+                if (
+                  "type" in msg &&
+                  msg.type === "watch_started" &&
+                  "watchId" in msg &&
+                  "sessionId" in msg
+                ) {
+                  capturedWatchId = (msg as { watchId: string }).watchId;
+                  capturedSessionId = (msg as { sessionId: string }).sessionId;
+                }
+                ctx.send(msg);
+              },
+            };
+            await handleRideShotgunStart(
+              {
+                type: "ride_shotgun_start",
+                durationSeconds: params.durationSeconds,
+                intervalSeconds: params.intervalSeconds,
+                mode: params.mode,
+                targetDomain: params.targetDomain,
+                navigateDomain: params.navigateDomain,
+                autoNavigate: params.autoNavigate,
+              },
+              interceptCtx,
+            );
+            return { watchId: capturedWatchId, sessionId: capturedSessionId };
+          },
+          handleRideShotgunStop: async (watchId) => {
+            await handleRideShotgunStop(
+              { type: "ride_shotgun_stop", watchId },
+              ctx,
+            );
+          },
+          getRideShotgunStatus: (watchId) => {
+            const session = watchSessions.get(watchId);
+            if (!session) return undefined;
+            return {
+              status: session.status,
+              sessionId: session.sessionId,
+              recordingId: session.recordingId,
+              savedRecordingPath: session.savedRecordingPath,
+              bootstrapFailureReason: session.bootstrapFailureReason,
+            };
+          },
+          handleWatchObservation: async (params) => {
+            await handleWatchObservation(
+              {
+                type: "watch_observation",
+                watchId: params.watchId,
+                sessionId: params.sessionId,
+                ocrText: params.ocrText,
+                appName: params.appName,
+                windowTitle: params.windowTitle,
+                bundleIdentifier: params.bundleIdentifier,
+                timestamp: params.timestamp,
+                captureIndex: params.captureIndex,
+                totalExpected: params.totalExpected,
+              },
+              ctx,
+            );
+          },
+        };
+      },
+      getRecordingDeps: () => ({
+        getHandlerContext: () => server.getHandlerContext(),
+      }),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
@@ -616,7 +729,6 @@ export async function runDaemon(): Promise<void> {
 
     void hookManager.trigger("daemon-start", {
       pid: process.pid,
-      socketPath: getSocketPath(),
     });
 
     // Download embedding runtime in background (non-blocking).
@@ -692,13 +804,6 @@ export async function runDaemon(): Promise<void> {
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     cleanupPidFileIfOwner(process.pid);
-    if (socketCreated) {
-      try {
-        removeSocketFile(getSocketPath());
-      } catch {
-        // Best-effort socket cleanup
-      }
-    }
     throw err;
   }
 }

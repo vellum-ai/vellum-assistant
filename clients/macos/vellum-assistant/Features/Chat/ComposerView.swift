@@ -101,7 +101,7 @@ struct ComposerView: View {
             .padding(.trailing, VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(adaptiveColor(light: Moss._200, dark: Moss._700))
+                    .fill(VColor.composerBackground)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(
@@ -121,7 +121,7 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        .frame(maxWidth: 700)
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {

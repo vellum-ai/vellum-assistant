@@ -187,12 +187,6 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
       path: "runtime/routes/guardian-action-routes.ts",
       symbols: ["processGuardianDecision"],
     },
-    // IPC handler (desktop socket clients) — uses processGuardianDecision
-    // which is a shared wrapper around applyCanonicalGuardianDecision
-    {
-      path: "daemon/handlers/guardian-actions.ts",
-      symbols: ["processGuardianDecision"],
-    },
     // Shared service where processGuardianDecision is defined — must route
     // through the canonical primitive to complete the chain:
     // entrypoint → processGuardianDecision → applyCanonicalGuardianDecision

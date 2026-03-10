@@ -40,7 +40,7 @@ import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
-import type { ServerMessage, UiSurfaceShow } from "./ipc-protocol.js";
+import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
 import {
   projectSkillTools,

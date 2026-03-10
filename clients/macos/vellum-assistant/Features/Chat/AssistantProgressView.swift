@@ -171,11 +171,6 @@ struct AssistantProgressView: View {
             if isExpanded {
                 expandedContent
                     .padding(.bottom, VSpacing.xs)
-
-                // Permission chips at bottom of expanded list
-                permissionChips
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.sm)
             }
 
             // Code preview (streaming code phase)
@@ -387,20 +382,6 @@ struct AssistantProgressView: View {
         }
     }
 
-    // MARK: - Permission Chips
-
-    @ViewBuilder
-    private var permissionChips: some View {
-        let resolved = decidedConfirmations.filter { $0.state != .pending }
-        if !resolved.isEmpty {
-            FlowLayout(spacing: VSpacing.xs) {
-                ForEach(Array(resolved.enumerated()), id: \.offset) { _, confirmation in
-                    compactPermissionChip(confirmation)
-                }
-            }
-        }
-    }
-
     // MARK: - Inline Permission Chips (Collapsed Header)
 
     @ViewBuilder
@@ -500,7 +481,6 @@ private struct StepDetailRow: View {
 
     @State private var isDetailExpanded = false
     @State private var isHovered = false
-    @State private var isImageHovered = false
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
@@ -554,50 +534,64 @@ private struct StepDetailRow: View {
                             .frame(width: 16)
                     }
 
-                    // Title + reason
+                    // Title (reason-first, falling back to action/running label)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         if toolCall.isComplete {
-                            Text(toolCall.actionDescription)
+                            Text({
+                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                                    return reason
+                                }
+                                return toolCall.actionDescription
+                            }())
                                 .font(VFont.bodyMedium)
                                 .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         } else if phase == .denied {
-                            Text("Blocked — " + ChatBubble.friendlyRunningLabel(
-                                toolCall.toolName,
-                                inputSummary: toolCall.inputSummary,
-                                buildingStatus: toolCall.buildingStatus
-                            ))
+                            Text({
+                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                                    return "Blocked — " + reason
+                                }
+                                return "Blocked — " + ChatBubble.friendlyRunningLabel(
+                                    toolCall.toolName,
+                                    inputSummary: toolCall.inputSummary,
+                                    buildingStatus: toolCall.buildingStatus
+                                )
+                            }())
                             .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         } else {
-                            Text(ChatBubble.friendlyRunningLabel(
-                                toolCall.toolName,
-                                inputSummary: toolCall.inputSummary,
-                                buildingStatus: toolCall.buildingStatus
-                            ))
+                            Text({
+                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                                    return reason
+                                }
+                                return ChatBubble.friendlyRunningLabel(
+                                    toolCall.toolName,
+                                    inputSummary: toolCall.inputSummary,
+                                    buildingStatus: toolCall.buildingStatus
+                                )
+                            }())
                             .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         }
-
-                        // Reason subtitle — only for completed tools
-                        if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
-                            Text(reason)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
                     }
 
                     Spacer()
 
-                    // Duration + chevron (completed only)
+                    // Permission badge + duration + chevron (completed only)
                     HStack(spacing: VSpacing.xs) {
+                        if let decision = toolCall.confirmationDecision {
+                            compactPermissionChip(
+                                state: decision,
+                                label: toolCall.confirmationLabel ?? toolCall.friendlyName
+                            )
+                            .padding(.trailing, VSpacing.xs)
+                        }
+
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
                             Text(formatDuration(end.timeIntervalSince(start)))
                                 .font(VFont.small)
@@ -618,7 +612,7 @@ private struct StepDetailRow: View {
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered && hasDetails ? Moss._100 : .clear)
+                    .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
             )
             .padding(.horizontal, VSpacing.sm)
             .onHover { isHovered = $0 }
@@ -683,6 +677,11 @@ private struct StepDetailRow: View {
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                        Text(toolCall.actionDescription)
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textSecondary)
+                    }
                     Text(toolCall.friendlyName)
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textSecondary)
@@ -723,12 +722,7 @@ private struct StepDetailRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() }
-                        else { NSCursor.pop() }
-                        isImageHovered = hovering
-                    }
-                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+                    .pointerCursor()
             } else if let img = toolCall.cachedImage {
                 Image(nsImage: img)
                     .resizable()
@@ -737,12 +731,7 @@ private struct StepDetailRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
-                    .onHover { hovering in
-                        if hovering { NSCursor.pointingHand.push() }
-                        else { NSCursor.pop() }
-                        isImageHovered = hovering
-                    }
-                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+                    .pointerCursor()
             }
 
             // Output with diff coloring + copy button
@@ -852,6 +841,44 @@ private struct StepDetailRow: View {
             ? String(format: "%.1fs", seconds)
             : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
     }
+
+    /// Renders a compact permission chip from a confirmation state + label.
+    private func compactPermissionChip(state: ToolConfirmationState, label: String) -> some View {
+        let isApproved = state == .approved
+        let isDenied = state == .denied
+        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+
+        return HStack(spacing: VSpacing.xxs) {
+            Group {
+                switch state {
+                case .approved:
+                    VIconView(.circleCheck, size: 10)
+                        .foregroundColor(chipColor)
+                case .denied:
+                    VIconView(.circleAlert, size: 10)
+                        .foregroundColor(chipColor)
+                case .timedOut:
+                    VIconView(.clock, size: 10)
+                        .foregroundColor(chipColor)
+                default:
+                    EmptyView()
+                }
+            }
+
+            Text(isApproved ? "\(label) Allowed" :
+                 isDenied ? "\(label) Denied" : "Timed Out")
+                .font(VFont.small)
+                .foregroundColor(chipColor)
+        }
+        .padding(.horizontal, VSpacing.xs)
+        .padding(.vertical, VSpacing.xxs)
+        .background(
+            Capsule().fill(Color.clear)
+        )
+        .overlay(
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
+        )
+    }
 }
 
 // MARK: - Pulsing Modifier
@@ -867,64 +894,6 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
                 value: isPulsing
             )
             .onAppear { isPulsing = true }
-    }
-}
-
-// MARK: - Flow Layout
-
-/// A simple wrapping layout that arranges children left-to-right and wraps
-/// to the next row when the available width is exceeded.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = VSpacing.xs
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
-        let height = rows.enumerated().reduce(CGFloat.zero) { total, pair in
-            let rowHeight = pair.element.map(\.size.height).max() ?? 0
-            return total + rowHeight + (pair.offset > 0 ? spacing : 0)
-        }
-        let width: CGFloat = proposal.width ?? rows.map { row in
-            row.enumerated().reduce(CGFloat.zero) { total, pair in
-                total + pair.element.size.width + (pair.offset > 0 ? spacing : 0)
-            }
-        }.max() ?? 0
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let rows = computeRows(proposal: proposal, subviews: subviews)
-        var y = bounds.minY
-        for row in rows {
-            let rowHeight = row.map(\.size.height).max() ?? 0
-            var x = bounds.minX
-            for item in row {
-                item.subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
-                x += item.size.width + spacing
-            }
-            y += rowHeight + spacing
-        }
-    }
-
-    private struct LayoutItem {
-        let subview: LayoutSubview
-        let size: CGSize
-    }
-
-    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutItem]] {
-        let maxWidth = proposal.width ?? .infinity
-        var rows: [[LayoutItem]] = [[]]
-        var rowWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            let needed = rowWidth > 0 ? size.width + spacing : size.width
-            if rowWidth + needed > maxWidth && !rows[rows.count - 1].isEmpty {
-                rows.append([])
-                rowWidth = 0
-            }
-            rows[rows.count - 1].append(LayoutItem(subview: subview, size: size))
-            rowWidth += rowWidth > 0 ? size.width + spacing : size.width
-        }
-        return rows
     }
 }
 

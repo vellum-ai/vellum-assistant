@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-const templatesDir = join(import.meta.dirname, "..", "config", "templates");
+const templatesDir = join(import.meta.dirname, "..", "prompts", "templates");
 const bootstrap = readFileSync(join(templatesDir, "BOOTSTRAP.md"), "utf-8");
 const identity = readFileSync(join(templatesDir, "IDENTITY.md"), "utf-8");
 const user = readFileSync(join(templatesDir, "USER.md"), "utf-8");
@@ -26,15 +26,6 @@ describe("onboarding template contracts", () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain("emoji");
       expect(lower).toContain("change it later");
-    });
-
-    test("creates Home Base silently in the background", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("app_create");
-      expect(lower).toContain("set_as_home_base");
-      // Must NOT open or announce it
-      expect(lower).toContain("do not open it with `app_open`");
-      expect(lower).toContain("do not announce it");
     });
 
     test("contains naming intent markers so the first reply includes naming cues", () => {
@@ -84,7 +75,6 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("work role");
       expect(lower).toContain("2 suggestions shown");
       expect(lower).toContain("selected one, deferred both");
-      expect(lower).toContain("home base");
     });
 
     test("contains refusal policy", () => {

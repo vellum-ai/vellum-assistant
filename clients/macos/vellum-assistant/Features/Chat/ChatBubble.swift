@@ -29,6 +29,9 @@ struct ChatBubble: View {
     var processingStatusText: String?
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
+    /// Stores async-parsed segments for large messages (>2000 chars) that missed the
+    /// synchronous cache. Keyed by text content so multiple segments can be in flight.
+    @State var asyncSegments: [String: [MarkdownSegment]] = [:]
 
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
@@ -88,7 +91,9 @@ struct ChatBubble: View {
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            .frame(maxWidth: message.isError ? .infinity : nil, alignment: .leading)
+            // Inner frame: let content determine natural width (shrink-wrap for
+            // user bubbles). Error messages expand to fill available width.
+            .frame(maxWidth: message.isError ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -96,7 +101,8 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
-            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
+            // Outer frame: cap the maximum width and position the bubble.
+            .frame(maxWidth: message.isError ? .infinity : VSpacing.chatBubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
@@ -205,6 +211,11 @@ struct ChatBubble: View {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
+                // For non-streaming messages, flatten the render tree into a single
+                // compositing layer, reducing recursive SwiftUI layout passes.
+                // Uses compositingGroup instead of drawingGroup to preserve text selection.
+                // Skipped during streaming to avoid re-compositing on every token delta.
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -267,6 +278,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
@@ -280,6 +292,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel("Report message")
             }
         }
@@ -309,12 +322,14 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
-                            // Frame before fixedSize to bound horizontal measurement.
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                            // lineLimit(nil) lets text wrap naturally in a single measurement
+                            // pass, avoiding the double-measurement that fixedSize causes
+                            // (measure at ideal size, then constrain to proposed width).
+                            .lineLimit(nil)
                     }
                 } else if hasText {
-                    let segments = Self.cachedSegments(for: message.text, isStreaming: message.isStreaming)
+                    let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
                     let hasRichContent = segments.contains(where: {
                         switch $0 {
                         case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -343,7 +358,9 @@ struct ChatBubble: View {
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
                             .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                            // lineLimit(nil) wraps text in a single measurement pass,
+                            // avoiding the double-measurement that fixedSize causes.
+                            .lineLimit(nil)
                     }
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
@@ -381,6 +398,35 @@ struct ChatBubble: View {
                 }
             }
         }
+        .task(id: "\(message.text)|\(message.isStreaming)") {
+            // Async-parse large messages that missed the synchronous cache
+            let text = message.text
+            guard !message.isStreaming,
+                  text.count > Self.asyncParseThreshold,
+                  Self.segmentCache[text] == nil,
+                  asyncSegments[text] == nil else { return }
+            let result = await MarkdownParseActor.shared.parse(text)
+            guard !Task.isCancelled else { return }
+            asyncSegments[text] = result
+            // Backfill synchronous cache with guardrails (size limit, byte
+            // tracking, eviction) — mirrors the logic in cachedSegments.
+            // Re-check cache after await to avoid double-counting bytes when
+            // multiple bubbles parse the same text concurrently.
+            if text.count <= Self.maxCacheableTextLength,
+               Self.segmentCache[text] == nil {
+                if Self.segmentCache.count >= Self.maxCacheSize {
+                    if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                        Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
+                        Self.segmentCache.removeValue(forKey: lruKey)
+                    }
+                }
+                Self.lruCounter += 1
+                let cost = Self.estimatedBytes(for: text)
+                Self.segmentCache[text] = (result, Self.lruCounter)
+                Self.estimatedCacheBytes += cost
+                Self.evictIfOverBudget()
+            }
+        }
     }
 
     // MARK: - Document Widget
@@ -406,6 +452,10 @@ struct ChatBubble: View {
             .padding(.top, VSpacing.sm)
         }
     }
+
+    /// Length threshold above which a segment cache miss triggers async parsing
+    /// instead of blocking the main thread.
+    static let asyncParseThreshold = 2000
 
     // MARK: - LRU Caches
     //
@@ -491,3 +541,17 @@ struct ChatBubble: View {
     @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
     @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }
+
+/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
+private struct ConditionalCompositingGroup: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.compositingGroup()
+        } else {
+            content
+        }
+    }
+}
+

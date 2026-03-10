@@ -833,13 +833,13 @@ export async function buildMemoryRecall(
     embeddingResult.reason =
       embeddingResult.reason ??
       (collected.semanticUnavailable
-        ? isQdrantBreakerOpen()
+        ? embeddingResult.queryVector != null
           ? "memory.qdrant_circuit_open"
           : "memory.embedding_unavailable"
         : "memory.semantic_search_failure");
     if (!embeddingResult.degradation) {
       const isQdrantIssue =
-        isQdrantBreakerOpen() ||
+        embeddingResult.queryVector != null ||
         isQdrantConnectionError(collected.semanticSearchError) ||
         collected.semanticSearchError instanceof QdrantCircuitOpenError;
       const reason: DegradationReason = isQdrantIssue

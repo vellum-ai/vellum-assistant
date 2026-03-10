@@ -1,54 +1,82 @@
 import SwiftUI
 
-/// Deterministic icon generator that assigns an SF Symbol
+/// Deterministic icon generator that assigns a Lucide icon (VIcon)
 /// based on a stable hash of the app name. Same name always produces the same icon.
 public enum VAppIconGenerator {
 
-    // MARK: - SF Symbols
+    // MARK: - Icons
 
-    /// Curated SF Symbols suitable for generic app icons.
-    public static let symbols: [String] = [
-        "chart.line.uptrend.xyaxis",
-        "doc.text",
-        "globe",
-        "camera",
-        "music.note",
-        "paintbrush",
-        "wrench.and.screwdriver",
-        "book",
-        "envelope",
-        "cart",
-        "gamecontroller",
-        "map",
-        "cloud",
-        "bolt",
-        "heart",
-        "star",
-        "flag",
-        "bookmark",
-        "gift",
-        "lightbulb",
-        "lock",
-        "magnifyingglass",
-        "mic",
-        "phone",
-        "play.rectangle",
-        "printer",
-        "scissors",
-        "shield",
-        "wand.and.stars",
-        "calendar",
+    /// Curated Lucide icons suitable for generic app icons.
+    public static let icons: [VIcon] = [
+        // Original 30 (migrated from SF Symbols)
+        .trendingUp,
+        .fileText,
+        .globe,
+        .camera,
+        .music,
+        .paintbrush,
+        .wrench,
+        .bookOpen,
+        .mail,
+        .shoppingCart,
+        .gamepad,
+        .map,
+        .cloud,
+        .zap,
+        .heart,
+        .star,
+        .flag,
+        .bookmark,
+        .gift,
+        .lightbulb,
+        .lock,
+        .search,
+        .mic,
+        .phone,
+        .video,
+        .printer,
+        .scissors,
+        .shield,
+        .wand,
+        .calendar,
+
+        // Expanded offering
+        .rocket,
+        .palette,
+        .headphones,
+        .graduationCap,
+        .trophy,
+        .plane,
+        .utensils,
+        .dumbbell,
+        .flask,
+        .clapperboard,
+        .briefcase,
+        .tent,
+        .bike,
+        .penTool,
+        .musicNotes,
+        .compass,
+        .brain,
+        .cpu,
+        .creditCard,
+        .puzzle,
+        .stethoscope,
+        .car,
+        .sparkles,
+        .terminal,
+        .receipt,
     ]
 
     // MARK: - Generation
 
-    /// Deterministic pick of SF Symbol based on a stable hash of the app name.
+    /// Deterministic pick of VIcon based on a stable hash of the app name.
     /// The optional `type` parameter is mixed into the hash for additional differentiation.
-    public static func generate(from name: String, type: String? = nil) -> String {
+    public static func generate(from name: String, type: String? = nil) -> VIcon {
         let seed = type != nil ? "\(name):\(type!)" : name
         let hash = stableHash(seed)
-        let symbolIndex = Int(hash % UInt64(symbols.count))
-        return symbols[symbolIndex]
+        let iconIndex = Int(hash % UInt64(icons.count))
+        return icons[iconIndex]
     }
 
     /// Simple stable hash — FNV-1a 64-bit. Deterministic and consistent across runs.
@@ -75,10 +103,9 @@ public enum VAppIconGenerator {
                 GridItem(.adaptive(minimum: 80), spacing: VSpacing.lg)
             ], spacing: VSpacing.lg) {
                 ForEach(sampleApps, id: \.self) { app in
-                    let symbol = VAppIconGenerator.generate(from: app)
+                    let icon = VAppIconGenerator.generate(from: app)
                     VStack(spacing: VSpacing.sm) {
-                        Image(systemName: symbol)
-                            .font(.system(size: 28, weight: .medium))
+                        VIconView(icon, size: 28)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 64, height: 64)
                             .background(Moss._100)

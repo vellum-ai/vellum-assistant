@@ -56,13 +56,14 @@ import os
     /// `nonisolated` so the Settings sheet can call it from a detached Task.
     nonisolated static func sendManualReport(
         _ event: Event,
+        attachments: [Attachment] = [],
         completion: (@Sendable () -> Void)? = nil
     ) {
         sentrySerialQueue.async {
             let wasDisabled = !SentrySDK.isEnabled
             if wasDisabled {
                 SentrySDK.start { options in
-                    options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                    options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                     options.sendDefaultPii = false
                     // Disable crash capture and session tracking so the temporary
                     // restart only sends the explicit event, not incidental crashes.
@@ -70,10 +71,37 @@ import os
                     options.enableAutoSessionTracking = false
                 }
             }
+
+            // Attach files to the scope before capturing the event.
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    for attachment in attachments {
+                        scope.addAttachment(attachment)
+                    }
+                }
+            }
+
             SentrySDK.capture(event: event)
+
+            // Clean up attachments so they don't leak into subsequent events.
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    scope.clearAttachments()
+                }
+            }
+
+            // Always flush when attachments are present so large files are
+            // delivered before the user quits the app. Use a longer timeout
+            // when attachments are present since companion archives (e.g.
+            // spindump .tar.gz) can be several MB on slow connections.
+            // When Sentry was temporarily started (user opted out), also
+            // close it afterward.
+            let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
             if wasDisabled {
-                SentrySDK.flush(timeout: 5)
+                SentrySDK.flush(timeout: flushTimeout)
                 SentrySDK.close()
+            } else if !attachments.isEmpty {
+                SentrySDK.flush(timeout: flushTimeout)
             }
             completion?()
         }
@@ -98,10 +126,19 @@ import os
     nonisolated static func startSentry() {
         sentrySerialQueue.async {
             guard !SentrySDK.isEnabled else { return }
+            // Defense-in-depth: respect the primary usage-data opt-out even if
+            // the caller forgot to check. Prevents re-enabling Sentry after a
+            // rapid toggle sequence (collectUsageData off → sendPerformanceReports change).
+            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+            guard collectUsageData else { return }
+            let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
             SentrySDK.start { options in
-                options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+                options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                 options.debug = false
                 options.tracesSampleRate = 0.1
+                options.configureProfiling = { profilingOptions in
+                    profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+                }
                 options.sendDefaultPii = false
             }
         }

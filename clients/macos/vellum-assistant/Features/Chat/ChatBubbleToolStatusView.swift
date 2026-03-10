@@ -46,7 +46,7 @@ extension ChatBubble {
                 decidedConfirmations: effectiveConfirmations,
                 onRehydrate: onRehydrate
             )
-            .frame(maxWidth: 520, alignment: .leading)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
             VStack(alignment: .leading, spacing: 0) {

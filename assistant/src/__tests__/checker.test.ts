@@ -637,27 +637,26 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("host_bash rm is always high risk → prompt", async () => {
+    test("host_bash rm is always prompted via default ask rule", async () => {
       const result = await check(
         "host_bash",
         { command: "rm file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
+      expect(result.reason).toContain("ask rule");
     });
 
-    test("plain rm (without -rf) is high risk and prompts despite default allow rule", async () => {
-      // Validates that ALL rm commands are escalated to High risk, not just rm -rf.
-      // The default allow rule for host_bash auto-approves Low/Medium risk but
-      // High risk always prompts.
+    test("plain rm (without -rf) prompts via default ask rule", async () => {
+      // The default ask rule for host_bash prompts ALL commands regardless
+      // of risk level — rm commands are no exception.
       const result = await check(
         "host_bash",
         { command: "rm single-file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
+      expect(result.reason).toContain("ask rule");
 
       // Also verify rm -rf still prompts
       const rfResult = await check(
@@ -666,7 +665,7 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(rfResult.decision).toBe("prompt");
-      expect(rfResult.reason).toContain("High risk");
+      expect(rfResult.reason).toContain("ask rule");
     });
 
     test("rm is high risk even with matching trust rule → prompt", async () => {
@@ -807,11 +806,11 @@ describe("Permission Checker", () => {
       expect(result.matchedRule?.id).toBe("default:ask-host_file_edit-global");
     });
 
-    test("host_bash auto-allows low risk via default allow rule", async () => {
+    test("host_bash prompts low risk via default ask rule", async () => {
       const result = await check("host_bash", { command: "ls" }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("Matched trust rule");
-      expect(result.matchedRule?.id).toBe("default:allow-host_bash-global");
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("ask rule");
+      expect(result.matchedRule?.id).toBe("default:ask-host_bash-global");
     });
 
     test("scaffold_managed_skill prompts by default via managed skill ask rule", async () => {
@@ -2232,11 +2231,12 @@ describe("Permission Checker", () => {
       expect(result.matchedRule?.id).toBe("default:allow-bash-global");
     });
 
-    test("host_bash auto-allows low risk in strict mode (default allow rule is a matching rule)", async () => {
+    test("host_bash prompts low risk in strict mode (default ask rule matches)", async () => {
       testConfig.permissions.mode = "strict";
       const result = await check("host_bash", { command: "ls" }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.matchedRule?.id).toBe("default:allow-host_bash-global");
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("ask rule");
+      expect(result.matchedRule?.id).toBe("default:ask-host_bash-global");
     });
 
     test("high-risk host_bash (rm) with no matching rule returns prompt in strict mode", async () => {
@@ -3570,15 +3570,16 @@ describe("Permission Checker", () => {
         expect(result.matchedRule?.id).toBe("default:allow-bash-global");
       });
 
-      test("low-risk host_bash auto-allows in strict mode (default allow rule is a matching rule)", async () => {
+      test("low-risk host_bash prompts in strict mode (default ask rule matches)", async () => {
         testConfig.permissions.mode = "strict";
         const result = await check(
           "host_bash",
           { command: "echo hello" },
           "/tmp",
         );
-        expect(result.decision).toBe("allow");
-        expect(result.matchedRule?.id).toBe("default:allow-host_bash-global");
+        expect(result.decision).toBe("prompt");
+        expect(result.reason).toContain("ask rule");
+        expect(result.matchedRule?.id).toBe("default:ask-host_bash-global");
       });
 
       test("low-risk file_read with no rule prompts in strict mode", async () => {
@@ -3660,10 +3661,11 @@ describe("Permission Checker", () => {
     //    target-scoped. ───────────────────────────────────────────────
 
     describe("Invariant 4: host execution approvals are explicit and target-scoped", () => {
-      test("host_bash auto-allows low risk via default allow rule", async () => {
+      test("host_bash prompts low risk via default ask rule", async () => {
         const result = await check("host_bash", { command: "ls" }, "/tmp");
-        expect(result.decision).toBe("allow");
-        expect(result.matchedRule?.id).toBe("default:allow-host_bash-global");
+        expect(result.decision).toBe("prompt");
+        expect(result.reason).toContain("ask rule");
+        expect(result.matchedRule?.id).toBe("default:ask-host_bash-global");
       });
 
       test("host_file_read prompts by default (no implicit allow)", async () => {
@@ -3740,7 +3742,7 @@ describe("Permission Checker", () => {
         expect(matchResult.matchedRule?.id).toBe("inv4-target-scoped");
 
         // Different target — the target-scoped rule should NOT match;
-        // falls back to the default host_bash allow rule (auto-allows medium risk)
+        // falls back to the default host_bash ask rule (prompts)
         const noMatchResult = await check(
           "host_bash",
           { command: "run script.js" },
@@ -3749,8 +3751,9 @@ describe("Permission Checker", () => {
             executionTarget: "/usr/local/bin/bun",
           },
         );
-        expect(noMatchResult.decision).toBe("allow");
-        expect(noMatchResult.matchedRule?.id).not.toBe("inv4-target-scoped");
+        expect(noMatchResult.decision).toBe("prompt");
+        expect(noMatchResult.reason).toContain("ask rule");
+        expect(noMatchResult.matchedRule?.id).toBe("default:ask-host_bash-global");
       });
     });
 
@@ -4310,7 +4313,7 @@ describe("bash network_mode=proxied — no special-casing", () => {
 
   test("proxied bash follows normal rules (auto-allowed by default rule)", async () => {
     // Proxied bash is no longer force-prompted — the default allow-bash rule
-    // auto-allows low/medium risk commands regardless of network_mode.
+    // prompts low/medium risk commands regardless of network_mode.
     const result = await check(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
@@ -4722,10 +4725,10 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("ask rule");
   });
 
-  test("host_bash → allow (default allow rule matches)", async () => {
+  test("host_bash → prompt (default ask rule matches)", async () => {
     const result = await check("host_bash", { command: "ls" }, workspaceDir);
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Matched trust rule");
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("ask rule");
   });
 
   // ── explicit rules still take precedence in workspace mode ──

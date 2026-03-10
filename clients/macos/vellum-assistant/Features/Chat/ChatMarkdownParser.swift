@@ -251,6 +251,46 @@ func isTableSeparator(_ line: String) -> Bool {
     }
 }
 
+// MARK: - Async Markdown Parse Actor
+
+/// Actor that runs markdown parsing off the main thread.
+/// Used for large messages (>2000 chars) to avoid blocking scroll on cache miss.
+actor MarkdownParseActor {
+    static let shared = MarkdownParseActor()
+
+    private let cache = NSCache<NSString, CacheEntry>()
+
+    private class CacheEntry: NSObject {
+        let segments: [MarkdownSegment]
+        init(_ segments: [MarkdownSegment]) { self.segments = segments }
+    }
+
+    init() {
+        cache.countLimit = 256
+    }
+
+    /// Text longer than this is parsed but not cached, matching
+    /// ChatBubble's size guardrails to prevent oversized entries from
+    /// evicting many smaller, more frequently accessed ones.
+    private let maxCacheableTextLength = 10_000
+
+    func parse(_ text: String) -> [MarkdownSegment] {
+        let key = text as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached.segments
+        }
+        let result = parseMarkdownSegments(text)
+        if text.count <= maxCacheableTextLength {
+            cache.setObject(CacheEntry(result), forKey: key)
+        }
+        return result
+    }
+
+    func clearCache() {
+        cache.removeAllObjects()
+    }
+}
+
 func parseTableCells(_ line: String) -> [String] {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     let inner = String(trimmed.dropFirst().dropLast())  // strip outer pipes
@@ -262,9 +302,48 @@ func parseTableCells(_ line: String) -> [String] {
 struct MarkdownTableView: View {
     let headers: [String]
     let rows: [[String]]
-    var maxWidth: CGFloat = 520
+    var maxWidth: CGFloat = VSpacing.chatBubbleMaxWidth
 
     @Environment(\.conversationZoomScale) private var zoomScale
+
+    // MARK: - Table Cell AttributedString Cache
+
+    /// Simple LRU cache for table cell inline markdown AttributedString results.
+    /// Keyed by "\(cellText)\t\(zoomScale)" to account for zoom changes.
+    private static let cellCacheLimit = 200
+
+    /// Ordered dictionary acting as an LRU cache: most-recently-used entries are at the end.
+    @MainActor private static var cellCache: [(key: String, value: AttributedString)] = []
+
+    @MainActor static func clearCellAttributedStringCache() {
+        cellCache.removeAll()
+    }
+
+    @MainActor private static func cachedAttributedString(for text: String, zoomScale: CGFloat) -> AttributedString {
+        let key = "\(text)\t\(zoomScale)"
+
+        // Check if already cached — if so, move to end (most-recently-used)
+        if let idx = cellCache.firstIndex(where: { $0.key == key }) {
+            let entry = cellCache.remove(at: idx)
+            cellCache.append(entry)
+            return entry.value
+        }
+
+        // Parse and cache
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let attributed = (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+
+        // Evict oldest entries if over limit
+        if cellCache.count >= cellCacheLimit {
+            cellCache.removeFirst()
+        }
+        cellCache.append((key: key, value: attributed))
+
+        return attributed
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -308,11 +387,7 @@ struct MarkdownTableView: View {
     }
 
     private func inlineMarkdownCell(_ text: String) -> some View {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        let attributed = (try? AttributedString(markdown: text, options: options))
-            ?? AttributedString(text)
+        let attributed = Self.cachedAttributedString(for: text, zoomScale: zoomScale)
         return Text(attributed)
             .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.textPrimary)

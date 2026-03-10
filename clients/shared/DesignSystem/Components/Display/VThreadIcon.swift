@@ -66,17 +66,8 @@ public struct VThreadIcon: View {
 
     // MARK: - Color Palette
 
-    /// Muted, dark-theme-friendly hex values that complement the Moss/Forest palette.
-    private static let backgroundHexValues: [UInt] = [
-        0x4B6845, // forest green
-        0x4A5568, // slate blue-gray
-        0x5B4E3A, // warm brown
-        0x3D5A5B, // teal
-        0x6B4C5A, // muted mauve
-        0x4E5D3E, // olive
-        0x5A4A6B, // dusty purple
-        0x5C6B4A, // sage
-    ]
+    /// Thread icon background colors from the design token palette.
+    private static let backgrounds: [Color] = VColor.threadIconBackgrounds
 
     // MARK: - Hash
 
@@ -100,8 +91,8 @@ public struct VThreadIcon: View {
 
     private var backgroundColor: Color {
         let hash = Self.stableHash(title)
-        let index = Int(hash % UInt64(Self.backgroundHexValues.count))
-        return Color(hex: Self.backgroundHexValues[index])
+        let index = Int(hash % UInt64(Self.backgrounds.count))
+        return Self.backgrounds[index]
     }
 
     // MARK: - Body

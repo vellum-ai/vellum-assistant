@@ -75,7 +75,7 @@ import { Command } from "commander";
 
 import { getDb, initializeDb, resetDb } from "../../memory/db.js";
 import { createEvent } from "../../notifications/events-store.js";
-import { registerNotificationsCommand } from "../notifications.js";
+import { registerNotificationsCommand } from "../commands/notifications.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

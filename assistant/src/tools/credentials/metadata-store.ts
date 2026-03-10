@@ -23,7 +23,6 @@ export interface CredentialMetadata {
   usageDescription?: string;
   expiresAt?: number;
   grantedScopes?: string[];
-  accountInfo?: string;
   /** OAuth2 token endpoint — enables autonomous token refresh without an IntegrationDefinition. */
   oauth2TokenUrl?: string;
   /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
@@ -113,8 +112,6 @@ function migrateRecordV1toV2(
     grantedScopes: Array.isArray(record.grantedScopes)
       ? (record.grantedScopes as string[])
       : undefined,
-    accountInfo:
-      typeof record.accountInfo === "string" ? record.accountInfo : undefined,
     oauth2TokenUrl:
       typeof record.oauth2TokenUrl === "string"
         ? record.oauth2TokenUrl
@@ -220,8 +217,6 @@ export function upsertCredentialMetadata(
     /** Pass `null` to explicitly clear a previously-set expiry. */
     expiresAt?: number | null;
     grantedScopes?: string[];
-    /** Pass `null` to explicitly clear a previously-set account info. */
-    accountInfo?: string | null;
     oauth2TokenUrl?: string;
     oauth2ClientId?: string;
     /** Pass `null` to explicitly clear a previously-set client secret. */
@@ -262,13 +257,6 @@ export function upsertCredentialMetadata(
     }
     if (policy?.grantedScopes !== undefined)
       existing.grantedScopes = policy.grantedScopes;
-    if (policy?.accountInfo !== undefined) {
-      if (policy.accountInfo == null) {
-        delete existing.accountInfo;
-      } else {
-        existing.accountInfo = policy.accountInfo;
-      }
-    }
     if (policy?.oauth2TokenUrl !== undefined)
       existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined)
@@ -311,7 +299,6 @@ export function upsertCredentialMetadata(
     usageDescription: policy?.usageDescription,
     expiresAt: policy?.expiresAt ?? undefined,
     grantedScopes: policy?.grantedScopes,
-    accountInfo: policy?.accountInfo ?? undefined,
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
     oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,

@@ -8,7 +8,7 @@ import VellumAssistantShared
 /// unified Text views so that text selection can span across paragraphs.
 struct MarkdownSegmentView: View {
     let segments: [MarkdownSegment]
-    var maxContentWidth: CGFloat? = 520
+    var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
     var textColor: Color = VColor.textPrimary
     var secondaryTextColor: Color = VColor.textSecondary
     var mutedTextColor: Color = VColor.textMuted
@@ -34,12 +34,11 @@ struct MarkdownSegmentView: View {
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .textSelection(.enabled)
-                        // Bound horizontal space BEFORE fixedSize so SwiftUI can wrap text
-                        // within a finite width rather than measuring against an unconstrained
-                        // parent, which causes O(N²) layout passes and stack overflows on
-                        // messages with thousands of characters.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        // lineLimit(nil) wraps text in a single measurement pass, avoiding
+                        // the double-measurement that fixedSize causes (measure at ideal
+                        // size, then constrain to proposed width).
+                        .lineLimit(nil)
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -52,9 +51,9 @@ struct MarkdownSegmentView: View {
                         .font(headingFont)
                         .foregroundColor(textColor)
                         .textSelection(.enabled)
-                        // Frame before fixedSize so the heading wraps within a known width.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        // lineLimit(nil) avoids the double-measurement from fixedSize.
+                        .lineLimit(nil)
                         .padding(.top, level == 1 ? 4 : 2)
 
                 case .list(let items, _):
@@ -77,10 +76,9 @@ struct MarkdownSegmentView: View {
                                     .lineSpacing(4)
                                     .foregroundColor(textColor)
                                     .tint(tintColor)
-                                    // Frame before fixedSize so the text wraps within a
-                                    // known width rather than measuring unbounded horizontally.
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    // lineLimit(nil) avoids the double-measurement from fixedSize.
+                                    .lineLimit(nil)
                             }
                             .padding(.leading, leftPad)
                             .textSelection(.enabled)
@@ -217,6 +215,7 @@ struct MarkdownSegmentView: View {
     static func clearAttributedStringCache() {
         attributedStringCache.removeAll()
         estimatedCacheBytes = 0
+        MarkdownTableView.clearCellAttributedStringCache()
     }
 
     /// Rough character count of the text content within a segment array.

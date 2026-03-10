@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import {
   getTwilioCredentials,
   hasTwilioCredentials,
@@ -21,8 +19,7 @@ import {
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
-import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
-import type { IngressConfigRequest } from "../ipc-protocol.js";
+import type { IngressConfigRequest } from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   defineHandlers,
@@ -46,112 +43,6 @@ function getOriginalIngressEnv(): string | undefined {
 
 export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
-}
-
-export interface GatewayInternalReconcileResult {
-  ok: boolean;
-  status?: number;
-  error?: string;
-}
-
-async function triggerGatewayInternalReconcile(
-  endpointPath: string,
-  ingressPublicBaseUrl: string | undefined,
-  messages: {
-    success: string;
-    nonOk: string;
-    unavailable: string;
-    unavailableLogLevel: "debug" | "warn";
-    unavailableErrorPrefix: string;
-  },
-): Promise<GatewayInternalReconcileResult> {
-  const gatewayBase = computeGatewayTarget();
-  const token = mintDaemonDeliveryToken();
-
-  const url = `${gatewayBase}${endpointPath}`;
-  const body = JSON.stringify({
-    ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
-  });
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body,
-      signal: AbortSignal.timeout(5_000),
-    });
-
-    if (res.ok) {
-      log.info(messages.success);
-      return { ok: true, status: res.status };
-    }
-
-    log.warn({ status: res.status }, messages.nonOk);
-    return {
-      ok: false,
-      status: res.status,
-      error: `${messages.unavailableErrorPrefix} (HTTP ${res.status})`,
-    };
-  } catch (err) {
-    if (messages.unavailableLogLevel === "warn") {
-      log.warn({ err }, messages.unavailable);
-    } else {
-      log.debug({ err }, messages.unavailable);
-    }
-    return {
-      ok: false,
-      error: `${messages.unavailableErrorPrefix}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    };
-  }
-}
-
-/**
- * Best-effort call to the gateway's internal reconcile endpoint so that
- * Telegram webhook registration is updated immediately when the ingress
- * URL changes, without requiring a gateway restart.
- */
-export function triggerGatewayReconcile(
-  ingressPublicBaseUrl: string | undefined,
-): void {
-  void triggerGatewayInternalReconcile(
-    "/internal/telegram/reconcile",
-    ingressPublicBaseUrl,
-    {
-      success: "Gateway Telegram webhook reconcile triggered successfully",
-      nonOk: "Gateway Telegram webhook reconcile returned non-OK status",
-      unavailable:
-        "Gateway Telegram webhook reconcile failed (gateway may not be running)",
-      unavailableLogLevel: "debug",
-      unavailableErrorPrefix: "Gateway Telegram webhook reconcile failed",
-    },
-  );
-}
-
-/**
- * Best-effort call to the gateway's internal reconcile endpoint so that
- * Twilio validation state is refreshed immediately after ingress or
- * credential changes, without requiring a gateway restart.
- */
-export function triggerGatewayTwilioReconcile(
-  ingressPublicBaseUrl: string | undefined,
-): Promise<GatewayInternalReconcileResult> {
-  return triggerGatewayInternalReconcile(
-    "/internal/twilio/reconcile",
-    ingressPublicBaseUrl,
-    {
-      success: "Gateway Twilio state reconcile triggered successfully",
-      nonOk: "Gateway Twilio state reconcile returned non-OK status",
-      unavailable:
-        "Gateway Twilio state reconcile failed (gateway may not be running)",
-      unavailableLogLevel: "warn",
-      unavailableErrorPrefix: "Gateway Twilio state reconcile failed",
-    },
-  );
 }
 
 /**
@@ -200,7 +91,6 @@ export async function syncTwilioWebhooks(
 
 export async function handleIngressConfig(
   msg: IngressConfigRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const localGatewayTarget = computeGatewayTarget();
@@ -210,7 +100,7 @@ export async function handleIngressConfig(
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
       const enabled = (ingress.enabled as boolean | undefined) ?? false;
-      ctx.send(socket, {
+      ctx.send({
         type: "ingress_config_response",
         enabled,
         publicBaseUrl,
@@ -258,8 +148,7 @@ export async function handleIngressConfig(
       // `pkill -f gateway`).
       // Only export the URL when ingress is enabled; clearing it when
       // disabled ensures the gateway stops accepting inbound webhooks.
-      const isEnabled =
-        (ingress.enabled as boolean | undefined) ?? (value ? true : false);
+      const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
       if (value && isEnabled) {
         setIngressPublicBaseUrl(value);
       } else if (isEnabled && getOriginalIngressEnv() !== undefined) {
@@ -272,7 +161,7 @@ export async function handleIngressConfig(
         setIngressPublicBaseUrl(undefined);
       }
 
-      ctx.send(socket, {
+      ctx.send({
         type: "ingress_config_response",
         enabled: isEnabled,
         publicBaseUrl: value,
@@ -280,18 +169,9 @@ export async function handleIngressConfig(
         success: true,
       });
 
-      // Trigger immediate Telegram webhook reconcile on the gateway so
-      // that changing the ingress URL takes effect without a restart.
-      // Called unconditionally so the gateway clears its in-memory URL
-      // when ingress is disabled, preventing stale re-registration on
-      // credential rotation.
-      // Use the effective URL from process.env (which accounts for the
-      // fallback branch above) rather than the raw `value` from the UI.
-      const effectiveUrl = isEnabled ? getIngressPublicBaseUrl() : undefined;
-
       // When containerized with a platform, register the Telegram callback
       // route so the platform knows how to forward Telegram webhooks.
-      // This must happen independently of effectiveUrl — in containerized
+      // This must happen independently of ingress URL — in containerized
       // deployments without ingress.publicBaseUrl, platform callbacks are the
       // only way to receive Telegram webhooks.
       if (shouldUsePlatformCallbacks()) {
@@ -302,9 +182,6 @@ export async function handleIngressConfig(
           );
         });
       }
-
-      triggerGatewayReconcile(effectiveUrl);
-      void triggerGatewayTwilioReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,
@@ -353,7 +230,7 @@ export async function handleIngressConfig(
         }
       }
     } else {
-      ctx.send(socket, {
+      ctx.send({
         type: "ingress_config_response",
         enabled: false,
         publicBaseUrl: "",
@@ -364,7 +241,7 @@ export async function handleIngressConfig(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, {
+    ctx.send({
       type: "ingress_config_response",
       enabled: false,
       publicBaseUrl: "",

@@ -18,7 +18,6 @@ enum BootstrapState: String {
 /// Categorises the most recent bootstrap failure so diagnostic messages
 /// can be specific rather than generic escalating text.
 enum BootstrapFailureKind {
-    case socketMissing
     case daemonNotRunning
     case connectionRefused
     case gatewayUnhealthy
@@ -62,7 +61,7 @@ extension AppDelegate {
     /// `setupDaemonClient()`. This avoids a dual-connect race where two
     /// concurrent Tasks both attempt `daemonClient.connect()`, with the
     /// second caller's `disconnectInternal()` tearing down the first
-    /// caller's in-flight NWConnection.
+    /// caller's in-flight HTTP connection.
     func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
         log.info("Waiting for daemon to become ready (timeout: \(timeout)s)")
         let start = CFAbsoluteTimeGetCurrent()
@@ -202,17 +201,11 @@ extension AppDelegate {
                     return
                 }
 
-                // If the daemon socket doesn't exist, the daemon process
-                // likely isn't running (e.g. hatch failed). Re-attempt hatch
-                // so we don't loop forever on connect-only retries.
+                // If the daemon process isn't running (e.g. hatch failed),
+                // re-attempt hatch so we don't loop forever on connect-only retries.
                 // Managed mode skips local hatch — the platform hosts the daemon.
                 if !isCurrentAssistantManaged {
-                    let socketPath = DaemonClient.resolveSocketPath()
-                    if !FileManager.default.fileExists(atPath: socketPath) {
-                        bootstrapFailureKind = .socketMissing
-                        log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
-                        try? await assistantCli.hatch(daemonOnly: true)
-                    } else if !DaemonClient.isDaemonProcessAlive() {
+                    if !DaemonClient.isDaemonProcessAlive() {
                         bootstrapFailureKind = .daemonNotRunning
                         log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
                         try? await assistantCli.hatch(daemonOnly: true)
@@ -277,12 +270,6 @@ extension AppDelegate {
     /// kind and how long the bootstrap retry has been running.
     func bootstrapDiagnosticMessage(elapsed: CFAbsoluteTime) -> String {
         switch bootstrapFailureKind {
-        case .socketMissing:
-            if elapsed > 60 {
-                return "Assistant files are missing. Try quitting (\u{2318}Q) and reopening."
-            }
-            return "Restarting your assistant\u{2026}"
-
         case .daemonNotRunning:
             if elapsed > 60 {
                 return "Unable to restart assistant. Try quitting (\u{2318}Q) and reopening."
@@ -389,6 +376,19 @@ extension AppDelegate {
     func ensureActorCredentials() {
         actorTokenBootstrapTask?.cancel()
 
+        // Re-bootstrap on instance switch — remove previous closure-based observer
+        // using the opaque token (removeObserver(self) doesn't work for closure observers).
+        if let prev = instanceChangeObserver {
+            NotificationCenter.default.removeObserver(prev)
+        }
+        instanceChangeObserver = NotificationCenter.default.addObserver(forName: .daemonInstanceChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            log.info("Daemon instance changed — re-running credential bootstrap")
+            Task { @MainActor in
+                self.ensureActorCredentials()
+            }
+        }
+
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 
@@ -443,6 +443,9 @@ extension AppDelegate {
                     switch result {
                     case .success:
                         log.info("Proactive token refresh succeeded")
+                        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                            self.daemonClient.updateTransportBearerToken(token)
+                        }
                     case .terminalError(let reason):
                         log.error("Proactive token refresh failed terminally: \(reason)")
                     case .transientError:
@@ -476,6 +479,12 @@ extension AppDelegate {
 
             if success {
                 log.info("Initial actor token bootstrap succeeded")
+                // Push the new actor token to the HTTP transport so SSE and
+                // API requests authenticate with the full-scope JWT instead
+                // of the http-token file (which may lack required scopes).
+                if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                    daemonClient.updateTransportBearerToken(token)
+                }
                 return
             }
 

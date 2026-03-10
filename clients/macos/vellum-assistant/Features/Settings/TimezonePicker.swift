@@ -109,13 +109,7 @@ struct TimezonePicker: View {
             }
             .buttonStyle(.plain)
             .background(Color.clear)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            .pointerCursor()
 
             Divider()
                 .background(VColor.surfaceBorder)
@@ -146,13 +140,7 @@ struct TimezonePicker: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .onHover { hovering in
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
+                        .pointerCursor()
                     }
 
                     if filteredEntries.isEmpty {

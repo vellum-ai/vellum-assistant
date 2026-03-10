@@ -21,6 +21,9 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
+      - name: Design token guard
+        run: bash clients/scripts/check-design-tokens.sh --mode=strict
+
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
         with:

@@ -202,13 +202,12 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
     # Copy non-JS assets not embedded by bun --compile (resolved via resolveBundledDir)
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
-    rm -rf "$SCRIPT_DIR/daemon-bin/prebuilt"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/prebuilt"
-    cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" "$SCRIPT_DIR/daemon-bin/prebuilt/"
-
+    rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
+    cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/cli-bin" "vellum-cli"
@@ -377,20 +376,19 @@ fi
 
 # Always refresh non-JS assets from source (not embedded by bun --compile)
 mkdir -p "$SCRIPT_DIR/daemon-bin"
-if [ -d "$ASSISTANT_SRC_DIR/src/config/templates" ]; then
+if [ -d "$ASSISTANT_SRC_DIR/src/prompts/templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
 fi
 if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
 fi
-if [ -f "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" ]; then
-    rm -rf "$SCRIPT_DIR/daemon-bin/prebuilt"
-    mkdir -p "$SCRIPT_DIR/daemon-bin/prebuilt"
-    cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" "$SCRIPT_DIR/daemon-bin/prebuilt/"
+if [ -f "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
+    cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
 fi
-
 # Also rebuild if daemon binary changed or newly added
 if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
@@ -529,11 +527,10 @@ if [ -d "$SCRIPT_DIR/daemon-bin/hook-templates" ]; then
     rm -rf "$RESOURCES_DIR/hook-templates"
     cp -R "$SCRIPT_DIR/daemon-bin/hook-templates" "$RESOURCES_DIR/hook-templates"
 fi
-if [ -d "$SCRIPT_DIR/daemon-bin/prebuilt" ]; then
-    rm -rf "$RESOURCES_DIR/prebuilt"
-    cp -R "$SCRIPT_DIR/daemon-bin/prebuilt" "$RESOURCES_DIR/prebuilt"
+if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
+    rm -rf "$RESOURCES_DIR/brain-graph"
+    cp -R "$SCRIPT_DIR/daemon-bin/brain-graph" "$RESOURCES_DIR/brain-graph"
 fi
-
 # Always refresh feature flag registry for the bundled gateway.
 # The compiled gateway resolves this from Contents/Resources in app layouts.
 FEATURE_FLAG_REGISTRY="$GATEWAY_SRC_DIR/src/feature-flag-registry.json"
@@ -904,6 +901,17 @@ fi
 codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
+
+# Generate dSYM debug symbol bundles for Sentry crash symbolication (release only)
+if [ "$CONFIG" = "release" ]; then
+    echo "Generating dSYM debug symbols..."
+    dsymutil "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" -o "$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app.dSYM"
+    echo "Generated dSYM: dist/$BUNDLE_DISPLAY_NAME.app.dSYM"
+
+    # Note: Sentry.framework is a pre-built binary from SPM and does not contain
+    # the .o object files needed by dsymutil. Sentry distributes their own dSYMs
+    # separately via their SDK integration — no need to run dsymutil on it.
+fi
 
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then

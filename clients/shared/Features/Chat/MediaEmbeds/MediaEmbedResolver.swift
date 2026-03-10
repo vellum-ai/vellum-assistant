@@ -54,14 +54,18 @@ public enum MediaEmbedResolver {
             return []
         }
 
-        let urls = MessageURLExtractor.extractAllURLs(from: message.text)
+        let urls = await URLExtractionCache.shared.extractAllURLs(from: message.text)
         guard !urls.isEmpty else { return [] }
 
         var seen = Set<String>()
-        var intents: [MediaEmbedIntent] = []
+
+        // First pass: classify each URL synchronously where possible,
+        // recording placeholder indices for URLs that need async probing.
+        // This preserves the original URL source order in the final array.
+        var intents: [MediaEmbedIntent?] = []
+        var probeTargets: [(index: Int, url: URL)] = []
 
         for url in urls {
-            // Try each video parser in order.
             if let videoResult = tryVideoParsers(url, allowedDomains: settings.allowedDomains) {
                 let canonical = videoResult.embedURL.absoluteString
                 guard !seen.contains(canonical) else { continue }
@@ -74,7 +78,6 @@ public enum MediaEmbedResolver {
                 continue
             }
 
-            // Two-stage image detection: try extension first, then MIME probe.
             let classification = ImageURLClassifier.classify(url)
             if classification == .image {
                 let canonical = url.absoluteString
@@ -82,18 +85,44 @@ public enum MediaEmbedResolver {
                 seen.insert(canonical)
                 intents.append(.image(url: url))
             } else if classification == .unknown {
-                // Extensionless URL — fall back to async HTTP HEAD probe.
-                let probeResult = await ImageMIMEProbe.shared.probe(url)
-                if probeResult == .image {
-                    let canonical = url.absoluteString
-                    guard !seen.contains(canonical) else { continue }
-                    seen.insert(canonical)
-                    intents.append(.image(url: url))
+                let canonical = url.absoluteString
+                guard !seen.contains(canonical) else { continue }
+                seen.insert(canonical)
+                // Reserve a slot so probed images appear in source order.
+                let placeholderIndex = intents.count
+                intents.append(nil)
+                probeTargets.append((index: placeholderIndex, url: url))
+            }
+        }
+
+        // Second pass: probe extensionless URLs concurrently, then fill
+        // placeholders. Concurrency is bounded by ImageMIMEProbe's semaphore.
+        if !probeTargets.isEmpty {
+            let probeResults: [String: ImageURLClassification] = await withTaskGroup(
+                of: (String, ImageURLClassification).self
+            ) { group in
+                for (_, url) in probeTargets {
+                    group.addTask {
+                        let result = await ImageMIMEProbe.shared.probe(url)
+                        return (url.absoluteString, result)
+                    }
+                }
+                var map: [String: ImageURLClassification] = [:]
+                for await (key, classification) in group {
+                    map[key] = classification
+                }
+                return map
+            }
+
+            for (index, url) in probeTargets {
+                if probeResults[url.absoluteString] == .image {
+                    intents[index] = .image(url: url)
                 }
             }
         }
 
-        return intents
+        // Strip nil placeholders (probed URLs that were not images).
+        return intents.compactMap { $0 }
     }
 
     // MARK: - Private helpers

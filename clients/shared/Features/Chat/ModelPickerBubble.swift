@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public struct ModelPickerBubble: View {
     let models: [(id: String, name: String)]
@@ -53,11 +50,9 @@ public struct ModelPickerBubble: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        #if os(macOS)
         .onHover { hovering in
             hoveredModelId = hovering ? model.id : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
-        #endif
+        .pointerCursor()
     }
 }

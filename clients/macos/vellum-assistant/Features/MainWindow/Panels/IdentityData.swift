@@ -128,7 +128,11 @@ struct IdentityInfo {
     let home: AssistantHome?
 
     static func load() -> IdentityInfo? {
-        let path = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
+        load(from: NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md")
+    }
+
+    /// Load identity from a specific IDENTITY.md path.
+    static func load(from path: String) -> IdentityInfo? {
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
 
         var name = ""
@@ -244,7 +248,6 @@ struct LockfileAssistant {
     let baseDataDir: String?
     let daemonPort: Int?
     let gatewayPort: Int?
-    let socketPath: String?
     let instanceDir: String?
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -285,6 +288,28 @@ struct LockfileAssistant {
             let base = instanceDir ?? NSHomeDirectory()
             return .local(workspacePath: base + "/.vellum/workspace")
         }
+    }
+
+    /// Resolve the assistant's local runtime HTTP port from the lockfile when
+    /// available, otherwise fall back to the current process environment.
+    func resolvedDaemonPort(environment: [String: String]? = nil) -> Int {
+        if let daemonPort {
+            return daemonPort
+        }
+
+        let rawPort: String?
+        if let environment {
+            rawPort = environment["RUNTIME_HTTP_PORT"]
+        } else {
+            let env = ProcessInfo.processInfo.environment
+            rawPort = env["RUNTIME_HTTP_PORT"]
+                ?? getenv("RUNTIME_HTTP_PORT").map { String(cString: $0) }
+        }
+        return rawPort.flatMap(Int.init) ?? 7821
+    }
+
+    var localRuntimeBaseURL: String {
+        "http://localhost:\(resolvedDaemonPort())"
     }
 
     static func loadLatest() -> LockfileAssistant? {
@@ -329,7 +354,6 @@ struct LockfileAssistant {
                 baseDataDir: entry["baseDataDir"] as? String,
                 daemonPort: resources?["daemonPort"] as? Int,
                 gatewayPort: resources?["gatewayPort"] as? Int,
-                socketPath: resources?["socketPath"] as? String,
                 instanceDir: resources?["instanceDir"] as? String
             )
         }
@@ -338,6 +362,18 @@ struct LockfileAssistant {
     /// Find an assistant by its ID in the lockfile.
     static func loadByName(_ name: String) -> LockfileAssistant? {
         loadAll().first { $0.assistantId == name }
+    }
+
+    /// Reads the human-readable name from this assistant's IDENTITY.md.
+    /// Returns `nil` if the file doesn't exist, the name hasn't been set yet,
+    /// or the name is the generic "Assistant" placeholder.
+    func loadDisplayName() -> String? {
+        guard let base = instanceDir else { return nil }
+        let identityPath = base + "/.vellum/workspace/IDENTITY.md"
+        guard let info = IdentityInfo.load(from: identityPath) else { return nil }
+        guard let resolved = AssistantDisplayName.firstUserFacing(from: [info.name]),
+              resolved != AssistantDisplayName.placeholder else { return nil }
+        return resolved
     }
 
     /// Writes this assistant's config to `~/.vellum/workspace/config.json`

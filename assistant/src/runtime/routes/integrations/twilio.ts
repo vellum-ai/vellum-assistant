@@ -18,16 +18,11 @@ import {
   releasePhoneNumber,
   searchAvailableNumbers,
 } from "../../../calls/twilio-rest.js";
-import { getIngressPublicBaseUrl } from "../../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../../config/loader.js";
-import {
-  syncTwilioWebhooks,
-  triggerGatewayTwilioReconcile,
-} from "../../../daemon/handlers/config-ingress.js";
+import { syncTwilioWebhooks } from "../../../daemon/handlers/config-ingress.js";
 import type { IngressConfig } from "../../../inbound/public-ingress-urls.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import {
@@ -61,17 +56,6 @@ function pruneAssistantPhoneNumbers(
       delete twilio.assistantPhoneNumbers;
     }
   }
-}
-
-function refreshGatewayTwilioState(): void {
-  const raw = loadRawConfig();
-  const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-  const fromConfig = (ingress.publicBaseUrl as string)
-    ?.trim()
-    ?.replace(/\/+$/, "");
-  const isEnabled = ingress.enabled !== false;
-  const url = isEnabled ? fromConfig || getIngressPublicBaseUrl() : undefined;
-  void triggerGatewayTwilioReconcile(url || undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +163,6 @@ export async function handleSetTwilioCredentials(
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.accountSid = body.accountSid;
-  twilio.authToken = body.authToken;
   saveRawConfig({ ...raw, twilio });
 
   upsertCredentialMetadata("twilio", "account_sid", {
@@ -212,8 +195,6 @@ export async function handleSetTwilioCredentials(
   });
   upsertCredentialMetadata("twilio", "auth_token", {});
 
-  refreshGatewayTwilioState();
-
   return Response.json({ success: true, hasCredentials: true });
 }
 
@@ -237,13 +218,10 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   delete twilio.accountSid;
-  delete twilio.authToken;
   saveRawConfig({ ...raw, twilio });
 
   deleteCredentialMetadata("twilio", "account_sid");
   deleteCredentialMetadata("twilio", "auth_token");
-
-  refreshGatewayTwilioState();
 
   return Response.json({ success: true, hasCredentials: false });
 }
@@ -309,19 +287,6 @@ export async function handleProvisionTwilioNumber(
     available[0].phoneNumber,
   );
 
-  const phoneStored = await setSecureKeyAsync(
-    "credential:twilio:phone_number",
-    purchased.phoneNumber,
-  );
-  if (!phoneStored) {
-    return Response.json({
-      success: false,
-      hasCredentials: hasTwilioCredentials(),
-      phoneNumber: purchased.phoneNumber,
-      error: `Phone number ${purchased.phoneNumber} was purchased but could not be saved. Use assign to assign it manually.`,
-    });
-  }
-
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.phoneNumber = purchased.phoneNumber;
@@ -335,7 +300,6 @@ export async function handleProvisionTwilioNumber(
     authToken,
     loadRawConfig() as IngressConfig,
   );
-  refreshGatewayTwilioState();
 
   return Response.json({
     success: true,
@@ -366,18 +330,6 @@ export async function handleAssignTwilioNumber(
     );
   }
 
-  const phoneStored = await setSecureKeyAsync(
-    "credential:twilio:phone_number",
-    body.phoneNumber,
-  );
-  if (!phoneStored) {
-    return Response.json({
-      success: false,
-      hasCredentials: hasTwilioCredentials(),
-      error: "Failed to store phone number in secure storage",
-    });
-  }
-
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.phoneNumber = body.phoneNumber;
@@ -397,7 +349,6 @@ export async function handleAssignTwilioNumber(
     );
     webhookWarning = webhookResult.warning;
   }
-  refreshGatewayTwilioState();
 
   return Response.json({
     success: true,
@@ -446,13 +397,6 @@ export async function handleReleaseTwilioNumber(
   }
   pruneAssistantPhoneNumbers(twilio, phoneNumber, "remove");
   saveRawConfig({ ...raw, twilio });
-
-  const storedPhone = getSecureKey("credential:twilio:phone_number");
-  if (storedPhone === phoneNumber) {
-    await deleteSecureKeyAsync("credential:twilio:phone_number");
-  }
-
-  refreshGatewayTwilioState();
 
   return Response.json({
     success: true,

@@ -27,9 +27,11 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 2. **Prettier formatting** — Runs `prettier --check` on staged files in `assistant/`, `cli/`, and `gateway/`
 3. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, and `gateway/`
 4. **IPC contract verification** — When IPC contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
+5. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires Team Jarvis approval, see `assistant/src/tools/AGENTS.md`)
 
 **Behavior:**
 - Blocks commits containing potential secrets
+- Blocks new tool files containing `implements Tool` or `registerTool()` patterns
 - Provides detailed feedback on what was detected and where
 - Allows clean commits to proceed without interruption
 - Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys

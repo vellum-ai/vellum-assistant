@@ -11,13 +11,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Create a temp directory and set BASE_DATA_DIR so the real assistant-config
-// module reads the lockfile from here instead of ~/.vellum. The lockfile
-// includes full resources, so we never need to mock homedir() — avoiding
-// process-global os mocks that leak into other test files (e.g. multi-local).
+// Create a temp directory and set VELLUM_LOCKFILE_DIR so the real
+// assistant-config module reads/writes the lockfile here instead of ~/.
 const testDir = mkdtempSync(join(tmpdir(), "sleep-command-test-"));
 const assistantRootDir = join(testDir, ".vellum");
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 const stopProcessByPidFileMock = mock(async () => true);
 const isProcessAliveMock = mock((): { alive: boolean; pid: number | null } => ({
@@ -54,7 +52,6 @@ function writeLockfile(): void {
               daemonPort: DEFAULT_DAEMON_PORT,
               gatewayPort: DEFAULT_GATEWAY_PORT,
               qdrantPort: DEFAULT_QDRANT_PORT,
-              socketPath: join(assistantRootDir, "vellum.sock"),
               pidFile: join(assistantRootDir, "vellum.pid"),
             },
           },
@@ -102,7 +99,7 @@ describe("sleep command", () => {
   afterAll(() => {
     process.argv = originalArgv;
     rmSync(testDir, { recursive: true, force: true });
-    delete process.env.BASE_DATA_DIR;
+    delete process.env.VELLUM_LOCKFILE_DIR;
   });
 
   test("refuses normal sleep while an active call lease exists", async () => {
@@ -163,7 +160,6 @@ describe("sleep command", () => {
       1,
       join(assistantRootDir, "vellum.pid"),
       "assistant",
-      [join(assistantRootDir, "vellum.sock")],
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       2,

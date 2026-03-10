@@ -334,7 +334,14 @@ public struct InlineSurfaceRouter: View {
                 ForEach(surface.actions, id: \.uniqueId) { action in
                     Button {
                         clickedActionLabel = action.label
-                        onAction(surface.id, action.id, selectionPayload)
+                        // Merge action.data (button payload) with selectionPayload (list selection)
+                        var merged = selectionPayload ?? [:]
+                        if let actionData = action.data {
+                            for (key, value) in actionData {
+                                merged[key] = value
+                            }
+                        }
+                        onAction(surface.id, action.id, merged.isEmpty ? nil : merged)
                     } label: {
                         Text(action.label)
                             .font(VFont.bodyMedium)

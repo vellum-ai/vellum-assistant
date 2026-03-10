@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "crypto";
 import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
@@ -24,6 +26,7 @@ import { downloadWhatsAppFile } from "../../whatsapp/download.js";
 import {
   markWhatsAppMessageRead,
   WhatsAppNonRetryableError,
+  type WhatsAppApiCaches,
 } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
@@ -33,9 +36,17 @@ const log = getLogger("whatsapp-webhook");
 
 const rejectionLimiter = new RejectionRateLimiter();
 
-export function createWhatsAppWebhookHandler(config: GatewayConfig) {
+export function createWhatsAppWebhookHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+) {
   // 24-hour TTL — WhatsApp message IDs are globally unique and never reused
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
+
+  // Build API caches from the credential and config caches for outbound WhatsApp calls
+  const apiCaches: WhatsAppApiCaches | undefined = caches?.credentials
+    ? { credentials: caches.credentials, configFile: caches.configFile }
+    : undefined;
 
   const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -48,9 +59,16 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       const token = url.searchParams.get("hub.verify_token");
       const challenge = url.searchParams.get("hub.challenge");
 
-      if (mode === "subscribe" && token && config.whatsappWebhookVerifyToken) {
+      // Resolve the verify token from cache
+      const verifyToken = caches?.credentials
+        ? await caches.credentials.get(
+            "credential:whatsapp:webhook_verify_token",
+          )
+        : undefined;
+
+      if (mode === "subscribe" && token && verifyToken) {
         const a = Buffer.from(token);
-        const b = Buffer.from(config.whatsappWebhookVerifyToken);
+        const b = Buffer.from(verifyToken);
         const match = a.length === b.length && timingSafeEqual(a, b);
         if (match) {
           tlog.info("WhatsApp webhook verify token validated");
@@ -92,9 +110,30 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
+    // Resolve app secret from cache
+    const appSecret = caches?.credentials
+      ? await caches.credentials.get("credential:whatsapp:app_secret")
+      : undefined;
+
+    // If the initial cache read returned undefined but a credential cache is available,
+    // attempt one forced refresh before fail-closing — the credential may have been
+    // written after the TTL cache was last populated.
+    let effectiveAppSecret = appSecret;
+    if (!effectiveAppSecret && caches?.credentials) {
+      effectiveAppSecret = await caches.credentials.get(
+        "credential:whatsapp:app_secret",
+        { force: true },
+      );
+      if (effectiveAppSecret) {
+        tlog.info(
+          "WhatsApp app secret resolved after forced credential refresh",
+        );
+      }
+    }
+
     // Signature validation is required — reject requests when the app secret is not configured
     // rather than silently accepting unauthenticated payloads (fail-closed).
-    if (!config.whatsappAppSecret) {
+    if (!effectiveAppSecret) {
       tlog.warn("WhatsApp app secret is not configured — rejecting request");
       return Response.json(
         { error: "Webhook signature validation not configured" },
@@ -102,13 +141,34 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       );
     }
 
-    if (
-      !verifyWhatsAppWebhookSignature(
-        req.headers,
-        rawBody,
-        config.whatsappAppSecret,
-      )
-    ) {
+    let signatureValid = verifyWhatsAppWebhookSignature(
+      req.headers,
+      rawBody,
+      effectiveAppSecret,
+    );
+
+    // One-shot force retry: if verification failed and caches are available,
+    // force-refresh the app secret and retry once.
+    if (!signatureValid && caches?.credentials) {
+      const freshAppSecret = await caches.credentials.get(
+        "credential:whatsapp:app_secret",
+        { force: true },
+      );
+      if (freshAppSecret) {
+        signatureValid = verifyWhatsAppWebhookSignature(
+          req.headers,
+          rawBody,
+          freshAppSecret,
+        );
+        if (signatureValid) {
+          tlog.info(
+            "WhatsApp webhook signature verified after forced credential refresh",
+          );
+        }
+      }
+    }
+
+    if (!signatureValid) {
       tlog.warn("WhatsApp webhook signature verification failed");
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -156,7 +216,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       );
 
       // Mark message as read (best-effort, do not await)
-      markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
+      markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
         tlog.debug(
           { err, messageId: whatsappMessageId },
           "Failed to mark WhatsApp message as read",
@@ -173,21 +233,25 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
             { from, reason: routing.reason },
             "Routing rejected /new command",
           );
-          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-            (err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send /new routing rejection notice",
-              );
-            },
-          );
+          sendWhatsAppReply(
+            config,
+            from,
+            ROUTING_REJECTION_NOTICE,
+            undefined,
+            apiCaches,
+          ).catch((err) => {
+            tlog.error(
+              { err, to: from },
+              "Failed to send /new routing rejection notice",
+            );
+          });
         } else {
           await handleNewCommand(
             config,
             event.sourceChannel,
             event.message.conversationExternalId,
             async (text) => {
-              await sendWhatsAppReply(config, from, text);
+              await sendWhatsAppReply(config, from, text, undefined, apiCaches);
             },
             tlog,
           );
@@ -203,14 +267,18 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           "Routing rejected inbound WhatsApp message",
         );
         if (rejectionLimiter.shouldSend(from)) {
-          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-            (err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send routing rejection notice",
-              );
-            },
-          );
+          sendWhatsAppReply(
+            config,
+            from,
+            ROUTING_REJECTION_NOTICE,
+            undefined,
+            apiCaches,
+          ).catch((err) => {
+            tlog.error(
+              { err, to: from },
+              "Failed to send routing rejection notice",
+            );
+          });
         }
         dedupCache.mark(whatsappMessageId);
         continue;
@@ -265,6 +333,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
                     fileName: att.fileName,
                     mimeType: att.mimeType,
                   },
+                  apiCaches,
                 );
                 return uploadAttachment(config, downloaded);
               }),
@@ -326,14 +395,18 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           whatsappMessageId,
           () => {
             if (rejectionLimiter.shouldSend(from)) {
-              sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-                (err) => {
-                  tlog.error(
-                    { err, to: from },
-                    "Failed to send routing rejection notice",
-                  );
-                },
-              );
+              sendWhatsAppReply(
+                config,
+                from,
+                ROUTING_REJECTION_NOTICE,
+                undefined,
+                apiCaches,
+              ).catch((err) => {
+                tlog.error(
+                  { err, to: from },
+                  "Failed to send routing rejection notice",
+                );
+              });
             }
           },
           tlog,

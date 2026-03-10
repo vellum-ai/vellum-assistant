@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
@@ -9,58 +8,6 @@ private let ipcLog = OSLog(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
     category: .pointsOfInterest
 )
-
-#if os(macOS)
-private func expandHomePath(_ path: String) -> String {
-    if path == "~" {
-        return NSHomeDirectory()
-    }
-    if path.hasPrefix("~/") {
-        return NSHomeDirectory() + "/" + String(path.dropFirst(2))
-    }
-    return path
-}
-
-/// Resolve the Unix domain socket path for the daemon connection.
-/// Returns the path in priority order:
-/// 1. `VELLUM_DAEMON_SOCKET` environment variable (trimmed, with ~/ expansion)
-/// 2. `~/.vellum/vellum.sock`
-///
-/// Accepts an optional environment dictionary for testability.
-func resolveSocketPath(environment: [String: String]? = nil) -> String {
-    let env = environment ?? ProcessInfo.processInfo.environment
-    if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        return expandHomePath(trimmed)
-    }
-    return resolveVellumDir(environment: environment) + "/vellum.sock"
-}
-
-/// Resolve the daemon session token path.
-/// Uses BASE_DATA_DIR when set to match daemon root resolution.
-func resolveSessionTokenPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/session-token"
-}
-
-/// Read the daemon session token from disk.
-func readSessionToken(environment: [String: String]? = nil) -> String? {
-    let tokenPath = resolveSessionTokenPath(environment: environment)
-    let data: Data
-    do {
-        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
-    } catch {
-        log.error("Failed to read session token from \(tokenPath, privacy: .private): \(error)")
-        return nil
-    }
-    guard let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
-        return nil
-    }
-    return token
-}
-
-#endif
 
 /// Resolve the `.vellum` data directory, honoring `BASE_DATA_DIR` when set.
 public func resolveVellumDir(environment: [String: String]? = nil) -> String {
@@ -139,7 +86,6 @@ public func readFeatureFlagToken(environment: [String: String]? = nil) -> String
 @MainActor
 public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
-    var isBlobTransportAvailable: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
     func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws
@@ -288,18 +234,12 @@ extension Notification.Name {
     /// Posted by `DaemonClient` on the main actor immediately after `isConnected` transitions to `true`.
     public static let daemonDidReconnect = Notification.Name("daemonDidReconnect")
 
-    /// Posted when a connection attempt fails because the daemon socket does not exist (ENOENT).
-    /// The health monitor observes this to trigger an immediate restart instead of waiting
-    /// for the next periodic health check.
-    public static let daemonSocketNotFound = Notification.Name("daemonSocketNotFound")
+    /// Posted when the daemon's signing key fingerprint changes, indicating an instance switch.
+    /// Observers should trigger credential re-bootstrap.
+    public static let daemonInstanceChanged = Notification.Name("daemonInstanceChanged")
 }
 
-/// Platform-agnostic client for communicating with the Vellum daemon.
-///
-/// **macOS**: Connects via Unix domain socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override).
-/// **iOS**: Connects via TCP to configurable hostname:port (UserDefaults: `daemon_hostname`, `daemon_port`).
-///
-/// Sends and receives newline-delimited JSON messages over the connection.
+/// Platform-agnostic client for communicating with the Vellum daemon via HTTP + SSE.
 ///
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
 /// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
@@ -312,14 +252,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     @Published public var isConnected: Bool = false
     public var isConnecting: Bool = false
 
-    /// Whether blob transport has been verified for this connection.
-    /// Resets to `false` on disconnect/reconnect. Only set to `true` after
-    /// a successful probe round-trip on macOS local-socket connections.
-    @Published public internal(set) var isBlobTransportAvailable: Bool = false
-
     /// The runtime HTTP server port, populated via `daemon_status` on connect.
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
+
+    /// Platform identifier for automatic 401 re-bootstrap (e.g. "macos", "ios").
+    /// Set by the app delegate after creating the client.
+    public var recoveryPlatform: String?
+
+    /// Device identifier for automatic 401 re-bootstrap.
+    /// Set by the app delegate after creating the client.
+    public var recoveryDeviceId: String?
 
     /// Returns a closure that resolves the current HTTP port at call time.
     /// Use this instead of reading `httpPort` directly when the value must
@@ -331,6 +274,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// The daemon version string, populated via `daemon_status` on connect.
     @Published public internal(set) var daemonVersion: String?
+
+    /// Signing key fingerprint from the connected daemon, populated via `daemon_status`.
+    /// Used to detect instance switches — if this changes, the stored actor token is stale.
+    @Published public internal(set) var keyFingerprint: String?
 
     /// Latest memory health payload from daemon `memory_status` events.
     @Published public var latestMemoryStatus: MemoryStatusMessage?
@@ -447,9 +394,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `app_preview_response` message.
     public var onAppPreviewResponse: ((AppPreviewResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `home_base_get_response` message.
-    public var onHomeBaseGetResponse: ((HomeBaseGetResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `shared_apps_list_response` message.
     public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
@@ -551,12 +495,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `ui_layout_config` message.
     public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
-
-    /// Called when the daemon sends an `integration_list_response` message.
-    public var onIntegrationListResponse: ((IPCIntegrationListResponse) -> Void)?
-
-    /// Called when the daemon sends an `integration_connect_result` message.
-    public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
 
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
@@ -675,70 +613,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Internal State (accessed by extensions in DaemonConnection.swift and DaemonMessageRouter.swift)
 
-    var connection: NWConnection?
-    let queue = DispatchQueue(label: "com.vellum.vellum-assistant.daemon-client", qos: .userInitiated)
-
     var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
     var isAuthenticated = false
-    var authContinuation: CheckedContinuation<Void, Error>?
-    var authTimeoutTask: Task<Void, Never>?
-
-    /// Buffer for accumulating incoming data until we have complete newline-delimited messages.
-    /// Legacy — only cleared on disconnect. Buffering + decoding now happens on the
-    /// NWConnection queue via `decodeBuffer`.
-    var receiveBuffer = Data()
-
-    /// Buffer for accumulating incoming data on the NWConnection background queue.
-    /// Accessed ONLY from NWConnection receive callbacks (which run on `queue`),
-    /// so concurrent access is safe despite the @MainActor class isolation.
-    nonisolated(unsafe) var decodeBuffer = Data()
-
-    /// Maximum line size: 96 MB (for screenshots with base64).
-    let maxLineSize = 96 * 1024 * 1024
 
     /// Monotonic per-session sequence for CU observation sends.
     var cuObservationSequenceBySession: [String: Int] = [:]
 
-    /// Whether we should attempt to reconnect on disconnect.
-    var shouldReconnect = true
-
-    /// Current reconnect backoff delay in seconds.
-    var reconnectDelay: TimeInterval = 1.0
-
-    /// Maximum reconnect backoff delay.
-    let maxReconnectDelay: TimeInterval = 30.0
-
-    /// Reconnect task handle.
-    var reconnectTask: Task<Void, Never>?
-
-    /// Network path monitor — triggers immediate reconnect when network becomes available.
-    var pathMonitor: NWPathMonitor?
-    let pathMonitorQueue = DispatchQueue(label: "com.vellum.vellum-assistant.network-monitor", qos: .background)
-
-    /// Ping timer task handle.
-    var pingTask: Task<Void, Never>?
-
-    /// Whether we're waiting for a pong response.
-    var awaitingPong = false
-
-    /// Pong timeout task handle.
-    var pongTimeoutTask: Task<Void, Never>?
-
-    /// Blob probe task handle — fire-and-forget after connect on macOS.
-    var blobProbeTask: Task<Void, Never>?
-
-    /// The probe ID we're currently waiting for a response to.
-    /// Used to match ipc_blob_probe_result to the outstanding probe.
-    /// Internal (not private) for testability via @testable import.
-    var pendingProbeId: String?
-
-    /// HTTP transport used when connecting to a remote assistant via gateway.
-    /// Non-nil when `config.transport` is `.http`.
+    /// HTTP transport for communicating with the assistant.
     public var httpTransport: HTTPTransport?
-
-    let encoder = JSONEncoder()
-    let decoder = JSONDecoder()
 
     public private(set) var config: DaemonConfig
 
@@ -763,9 +646,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         self.config = newConfig
         // Reset connection-specific state
         isAuthenticated = false
-        isBlobTransportAvailable = false
         httpPort = nil
         daemonVersion = nil
+        keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
         cuObservationSequenceBySession.removeAll()
@@ -773,8 +656,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
-        // Only call thread-safe cancellation methods here — Task.cancel() and
-        // NWConnection.cancel() are safe from any thread.
+        // Only call thread-safe cancellation methods here — Task.cancel() is safe from any thread.
         //
         // We must finish subscriber continuations to prevent hanging `for await` loops.
         // deinit guarantees exclusive access (no other strong references exist), so
@@ -783,25 +665,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         for continuation in continuations {
             continuation.finish()
         }
-
-        reconnectTask?.cancel()
-        pingTask?.cancel()
-        pongTimeoutTask?.cancel()
-        blobProbeTask?.cancel()
-        pathMonitor?.cancel()
-        connection?.cancel()
         // httpTransport is cleaned up via disconnectInternal() before dealloc;
     }
-
-    // MARK: - Socket Path
-
-    /// Resolves the daemon socket path (macOS only).
-    /// Delegates to the standalone `resolveSocketPath()` function for DRY.
-    #if os(macOS)
-    public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
-        return VellumAssistantShared.resolveSocketPath(environment: environment)
-    }
-    #endif
 
     // MARK: - PID Validation
 
@@ -824,18 +689,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     public enum SendError: Error, LocalizedError {
         case notConnected
-        case notAuthenticated
 
         public var errorDescription: String? {
             switch self {
             case .notConnected:
                 return "Cannot send: not connected to daemon"
-            case .notAuthenticated:
-                return "Cannot send: daemon authentication not complete"
             }
         }
     }
 
+    /// Legacy authentication errors — retained for compatibility with code
+    /// that catches `AuthError` (e.g. bootstrap retry coordinator).
     public enum AuthError: Error, LocalizedError {
         case missingToken
         case timeout
@@ -854,13 +718,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Closure that, when set, replaces the real send path.
-    /// Used in tests to avoid needing a live NWConnection.
+    /// Used in tests to avoid needing a live HTTP connection.
     internal var sendOverride: ((Any) throws -> Void)?
 
-    /// Send a message to the daemon.
-    /// Encodes the message as JSON, appends a newline, and writes to the connection.
-    /// Throws `SendError.notConnected` when the connection is nil so callers can
-    /// distinguish a silently-dropped message from a successful write.
+    /// Send a message to the daemon via HTTP transport.
+    /// Throws `SendError.notConnected` when the transport is unavailable.
     public func send<T: Encodable>(_ message: T) throws {
         let sendID = OSSignpostID(log: ipcLog)
         os_signpost(.begin, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
@@ -871,67 +733,24 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        // Route through HTTP transport when active (remote assistants).
-        // Note: httpTransport.send() dispatches the actual HTTP request
-        // asynchronously (Task { ... }), so the signpost only captures the
-        // synchronous dispatch overhead, not the full network round-trip.
-        // Full HTTP latency instrumentation belongs in HTTPDaemonClient.
-        if let httpTransport {
-            guard httpTransport.isConnected else {
-                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-                throw SendError.notConnected
-            }
-            do {
-                try httpTransport.send(message)
-                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            } catch {
-                os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-                throw error
-            }
-            return
-        }
-
-        guard let conn = connection else {
+        guard let httpTransport else {
             os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
         }
 
-        if !isAuthenticated, !(message is AuthMessage) {
+        guard httpTransport.isConnected else {
             os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            log.warning("Cannot send: authentication not complete")
-            throw SendError.notAuthenticated
+            throw SendError.notConnected
         }
 
-        let data: Data
         do {
-            var encoded = try encoder.encode(message)
-            encoded.append(contentsOf: [0x0A]) // newline byte
-            data = encoded
+            try httpTransport.send(message)
+            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
         } catch {
             os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
             throw error
         }
-
-        if let observation = message as? CuObservationMessage {
-            let previousSequence = cuObservationSequenceBySession[observation.sessionId] ?? 0
-            let sequence = previousSequence + 1
-            cuObservationSequenceBySession[observation.sessionId] = sequence
-            let payloadJSONBytes = max(0, data.count - 1)
-            let screenshotBase64Bytes = observation.screenshot?.utf8.count ?? 0
-            let axTreeBytes = observation.axTree?.utf8.count ?? 0
-            let sendTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
-            log.info(
-                "IPC_METRIC cu_observation_send sessionId=\(observation.sessionId) sequence=\(sequence) sendTsMs=\(sendTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes)"
-            )
-        }
-
-        conn.send(content: data, completion: .contentProcessed { error in
-            os_signpost(.end, log: ipcLog, name: "daemonIPCSend", signpostID: sendID)
-            if let error {
-                log.error("Send failed: \(error.localizedDescription)")
-            }
-        })
     }
 
     public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
@@ -940,22 +759,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        if let httpTransport {
-            guard httpTransport.isConnected else {
-                throw SendError.notConnected
-            }
-            try await httpTransport.sendConversationUnread(signal)
-            return
+        guard let httpTransport else {
+            throw SendError.notConnected
         }
-
-        try send(signal)
+        guard httpTransport.isConnected else {
+            throw SendError.notConnected
+        }
+        try await httpTransport.sendConversationUnread(signal)
     }
 
     // MARK: - Surface Actions
 
     /// Convenience method for sending a surface action response to the daemon.
     /// Keeps the IPC message construction co-located with the client.
-    public func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+    public func sendSurfaceAction(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
         let message = UiSurfaceActionMessage(
             sessionId: sessionId,
             surfaceId: surfaceId,
@@ -979,15 +796,39 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Local daemon path — build request using the daemon HTTP port.
         let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
         let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+        let surfacePath = "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)"
         guard let request = buildLocalRequest(
             target: .daemon,
-            path: "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)",
+            path: surfacePath,
             timeout: 10
         ) else { return nil }
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            guard let http = response as? HTTPURLResponse else { return nil }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for \(surfacePath, privacy: .public) — no recovery credentials configured")
+                    return nil
+                }
+                log.info("Local HTTP 401 for \(surfacePath, privacy: .public) — attempting re-bootstrap")
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else {
+                    log.warning("Local HTTP re-bootstrap failed for \(surfacePath, privacy: .public)")
+                    return nil
+                }
+                // Retry with fresh token
+                guard let retryRequest = buildLocalRequest(target: .daemon, path: surfacePath, timeout: 10) else { return nil }
+                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                    log.warning("Local HTTP retry failed for \(surfacePath, privacy: .public) status=\((retryResponse as? HTTPURLResponse)?.statusCode ?? -1)")
+                    return nil
+                }
+                return Surface.parseSurfaceDataFromResponse(retryData)
+            }
+
+            guard (200...299).contains(http.statusCode) else { return nil }
             return Surface.parseSurfaceDataFromResponse(data)
         } catch {
             return nil
@@ -1003,19 +844,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchUsageTotals(from: from, to: to)
         }
 
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/usage/totals?from=\(from)&to=\(to)",
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(UsageTotalsResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: "v1/usage/totals?from=\(from)&to=\(to)", timeout: 10)
     }
 
     /// Fetch per-day usage buckets for a time range (epoch milliseconds).
@@ -1024,19 +853,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchUsageDaily(from: from, to: to)
         }
 
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/usage/daily?from=\(from)&to=\(to)",
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(UsageDailyResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: "v1/usage/daily?from=\(from)&to=\(to)", timeout: 10)
     }
 
     /// Fetch grouped usage breakdown for a time range (epoch milliseconds).
@@ -1046,18 +863,222 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)",
-            timeout: 10
-        ) else { return nil }
+        return await executeLocalRequest(path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
+    }
+
+    // MARK: - Workspace API
+
+    /// A restricted character set for encoding query parameter values.
+    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
+    /// query-string metacharacters. File paths containing these characters
+    /// would break parameter parsing, so we exclude them.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
+    /// Fetch the workspace directory tree.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func fetchWorkspaceTree(path: String = "") async -> WorkspaceTreeResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchWorkspaceTree(path: path)
+        }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
+        let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
+        return await executeLocalRequest(path: queryPath, timeout: 10)
+    }
+
+    /// Fetch a single workspace file's metadata and optional content.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func fetchWorkspaceFile(path: String) async -> WorkspaceFileResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchWorkspaceFile(path: path)
+        }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
+        return await executeLocalRequest(path: "v1/workspace/file?path=\(encoded)", timeout: 10)
+    }
+
+    /// Build a URL for streaming/downloading workspace file content.
+    /// For remote connections, delegates to HTTPTransport. For local, builds against daemon HTTP port.
+    public func workspaceFileContentURL(path: String) -> URL? {
+        if let httpTransport {
+            return httpTransport.workspaceFileContentURL(path: path)
+        }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
+        guard let port = httpPort else { return nil }
+        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?path=\(encoded)")
+    }
+
+    // MARK: - Workspace Write Operations
+
+    /// Write (create or overwrite) a file in the workspace.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    /// Automatically detects text vs binary content and uses base64 encoding when needed.
+    public func writeWorkspaceFile(path: String, content: Data) async -> Bool {
+        if let httpTransport {
+            return await httpTransport.writeWorkspaceFile(path: path, content: content)
+        }
+
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/workspace/write", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = ["path": path]
+        if let text = String(data: content, encoding: .utf8), !content.isEmpty {
+            body["content"] = text
+        } else {
+            body["content"] = content.base64EncodedString()
+            body["encoding"] = "base64"
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(UsageBreakdownResponse.self, from: data)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for v1/workspace/write — no recovery credentials configured")
+                    return false
+                }
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else { return false }
+
+                guard var retryRequest = buildLocalRequest(target: .daemon, path: "v1/workspace/write", method: "POST") else { return false }
+                retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                retryRequest.httpBody = request.httpBody
+                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
+                return (200...299).contains(retryHttp.statusCode)
+            }
+
+            return (200...299).contains(http.statusCode)
         } catch {
-            return nil
+            log.warning("writeWorkspaceFile failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Create a directory in the workspace.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func createWorkspaceDirectory(path: String) async -> Bool {
+        if let httpTransport {
+            return await httpTransport.createWorkspaceDirectory(path: path)
+        }
+
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/workspace/mkdir", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["path": path]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for v1/workspace/mkdir — no recovery credentials configured")
+                    return false
+                }
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else { return false }
+
+                guard var retryRequest = buildLocalRequest(target: .daemon, path: "v1/workspace/mkdir", method: "POST") else { return false }
+                retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                retryRequest.httpBody = request.httpBody
+                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
+                return (200...299).contains(retryHttp.statusCode)
+            }
+
+            return (200...299).contains(http.statusCode)
+        } catch {
+            log.warning("createWorkspaceDirectory failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Rename or move a file/directory in the workspace.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func renameWorkspaceItem(oldPath: String, newPath: String) async -> Bool {
+        if let httpTransport {
+            return await httpTransport.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
+        }
+
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/workspace/rename", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["oldPath": oldPath, "newPath": newPath]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for v1/workspace/rename — no recovery credentials configured")
+                    return false
+                }
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else { return false }
+
+                guard var retryRequest = buildLocalRequest(target: .daemon, path: "v1/workspace/rename", method: "POST") else { return false }
+                retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                retryRequest.httpBody = request.httpBody
+                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
+                return (200...299).contains(retryHttp.statusCode)
+            }
+
+            return (200...299).contains(http.statusCode)
+        } catch {
+            log.warning("renameWorkspaceItem failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Delete a file or directory in the workspace.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func deleteWorkspaceItem(path: String) async -> Bool {
+        if let httpTransport {
+            return await httpTransport.deleteWorkspaceItem(path: path)
+        }
+
+        guard var request = buildLocalRequest(target: .daemon, path: "v1/workspace/delete", method: "POST") else { return false }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["path": path]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for v1/workspace/delete — no recovery credentials configured")
+                    return false
+                }
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else { return false }
+
+                guard var retryRequest = buildLocalRequest(target: .daemon, path: "v1/workspace/delete", method: "POST") else { return false }
+                retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                retryRequest.httpBody = request.httpBody
+                let (_, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { return false }
+                return (200...299).contains(retryHttp.statusCode)
+            }
+
+            return (200...299).contains(http.statusCode)
+        } catch {
+            log.warning("deleteWorkspaceItem failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -1395,11 +1416,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCAppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
     }
 
-    /// Request Home Base metadata from the daemon.
-    public func sendHomeBaseGet(ensureLinked: Bool = true) throws {
-        try send(HomeBaseGetRequestMessage(ensureLinked: ensureLinked))
-    }
-
     /// Request bundling an app for sharing.
     public func sendBundleApp(appId: String) throws {
         try send(BundleAppRequestMessage(appId: appId))
@@ -1500,23 +1516,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ImageGenModelSetRequestMessage(model: model))
     }
 
-    // MARK: - Integrations
-
-    /// Request the list of registered integrations and their connection status.
-    public func sendIntegrationList() throws {
-        try send(IPCIntegrationListRequest(type: "integration_list"))
-    }
-
-    /// Initiate an OAuth2 connection flow for an integration.
-    public func sendIntegrationConnect(integrationId: String) throws {
-        try send(IPCIntegrationConnectRequest(type: "integration_connect", integrationId: integrationId))
-    }
-
-    /// Disconnect an integration (revoke tokens + remove from vault).
-    public func sendIntegrationDisconnect(integrationId: String) throws {
-        try send(IPCIntegrationDisconnectRequest(type: "integration_disconnect", integrationId: integrationId))
-    }
-
     // MARK: - Diagnostics Export
 
     /// Request a diagnostics export (zip) for a conversation.
@@ -1540,54 +1539,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Remote Identity
 
-    /// Fetch identity info from the daemon.
-    /// Uses HTTP transport directly when available, otherwise falls back to IPC.
+    /// Fetch identity info from the daemon via HTTP transport.
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        // If HTTP transport is active, use its direct endpoint
-        if let httpTransport {
-            return await httpTransport.fetchRemoteIdentity()
-        }
-
-        // Fall back to IPC-based identity fetch (TCP connections)
-        let stream = subscribe()
-        do {
-            try sendIdentityGet()
-        } catch {
-            return nil
-        }
-
-        // Race the stream against a 10-second timeout so we don't wait forever
-        // if the daemon doesn't support this message.
-        let response: IdentityGetResponseMessage? = await withTaskGroup(of: IdentityGetResponseMessage?.self) { group in
-            group.addTask {
-                for await message in stream {
-                    if case .identityGetResponse(let msg) = message {
-                        return msg
-                    }
-                }
-                return nil
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-
-        guard let response, response.found else { return nil }
-        return RemoteIdentityInfo(
-            name: response.name,
-            role: response.role,
-            personality: response.personality,
-            emoji: response.emoji,
-            version: response.version,
-            assistantId: response.assistantId,
-            home: response.home,
-            createdAt: response.createdAt,
-            originSystem: response.originSystem
-        )
+        guard let httpTransport else { return nil }
+        return await httpTransport.fetchRemoteIdentity()
     }
 
     /// Request identity info via IPC.
@@ -1649,6 +1604,76 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    /// Execute a local HTTP request with automatic 401 recovery.
+    ///
+    /// On 401, attempts to re-bootstrap the actor token via `guardian/init`
+    /// and retries the request once. Logs all failure paths for diagnostics.
+    private func executeLocalRequest<T: Decodable>(
+        target: LocalHTTPTarget = .daemon,
+        path: String,
+        method: String = "GET",
+        body: Data? = nil,
+        timeout: TimeInterval = 10,
+        tokenOverride: String? = nil
+    ) async -> T? {
+        guard var request = buildLocalRequest(target: target, path: path, method: method, timeout: timeout, tokenOverride: tokenOverride) else {
+            log.warning("Local HTTP: no port available for \(path, privacy: .public)")
+            return nil
+        }
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                log.warning("Local HTTP: no HTTPURLResponse for \(path, privacy: .public)")
+                return nil
+            }
+
+            if http.statusCode == 401 {
+                // If caller provided an explicit token override, 401 recovery via
+                // actor-token re-bootstrap won't help — it's a different credential.
+                if tokenOverride != nil {
+                    log.warning("Local HTTP 401 for \(path, privacy: .public) — tokenOverride set, skipping retry")
+                    return nil
+                }
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for \(path, privacy: .public) — no recovery credentials configured")
+                    return nil
+                }
+                log.info("Local HTTP 401 for \(path, privacy: .public) — attempting re-bootstrap")
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else {
+                    log.warning("Local HTTP re-bootstrap failed for \(path, privacy: .public)")
+                    return nil
+                }
+                // Retry with fresh token
+                guard var retryRequest = buildLocalRequest(target: target, path: path, method: method, timeout: timeout) else { return nil }
+                if let body {
+                    retryRequest.httpBody = body
+                    retryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
+                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                    log.warning("Local HTTP retry failed for \(path, privacy: .public) status=\((retryResponse as? HTTPURLResponse)?.statusCode ?? -1)")
+                    return nil
+                }
+                return try JSONDecoder().decode(T.self, from: retryData)
+            }
+
+            guard (200...299).contains(http.statusCode) else {
+                log.warning("Local HTTP \(http.statusCode) for \(path, privacy: .public)")
+                return nil
+            }
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            log.warning("Local HTTP error for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     // MARK: - Integrations Status
@@ -1724,18 +1749,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         } catch {
             return nil
         }
-    }
-
-    // MARK: - Workspace Files
-
-    /// Request the list of workspace files from the daemon.
-    public func sendWorkspaceFilesList() throws {
-        try send(WorkspaceFilesListRequestMessage())
-    }
-
-    /// Request the content of a workspace file from the daemon.
-    public func sendWorkspaceFileRead(path: String) throws {
-        try send(WorkspaceFileReadRequestMessage(path: path))
     }
 
     // MARK: - Document Persistence
@@ -1870,7 +1883,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Routes through `HTTPTransport` when available so that managed-mode
     /// URL paths (`/v1/assistants/{id}/contacts/`) and auth headers
     /// (`X-Session-Token`) are applied correctly. Falls back to the local
-    /// daemon HTTP server for socket-based connections.
+    /// local daemon HTTP server for local connections.
     public func updateContact(
         contactId: String,
         displayName: String,
@@ -1952,7 +1965,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
     /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway (port 7830) for socket-based connections.
+    /// local gateway (port 7830) for local connections.
     public func createInvite(
         sourceChannel: String,
         note: String? = nil,
@@ -2025,7 +2038,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Fetch per-channel readiness state from the gateway.
     /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway for socket-based connections.
+    /// local gateway for local connections.
     public func fetchChannelReadiness() async throws -> [String: ChannelReadinessInfo] {
         if let httpTransport {
             return try await httpTransport.fetchChannelReadiness()
@@ -2251,7 +2264,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// to the runtime bearer token (the gateway accepts both).
     ///
     /// On macOS: if `httpTransport` targets a **remote** gateway (non-localhost baseURL),
-    /// delegates to it. Otherwise (socket transport or local HTTP via `localHttpEnabled`),
+    /// delegates to it. Otherwise (local HTTP),
     /// calls the local gateway directly on port 7830 because the runtime HTTP server
     /// doesn't serve feature-flag routes.
     /// On iOS, always delegates to `httpTransport` which targets the remote gateway.
@@ -2262,9 +2275,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         #if os(macOS)
         // Remote mode: httpTransport targets a non-local gateway (e.g. cloud).
-        // Delegate to it directly. When localHttpEnabled is on, httpTransport
-        // points at localhost (the runtime), which does NOT serve feature-flag
-        // routes — so we must fall through to the local gateway path below.
+        // Delegate to it directly. When httpTransport points at localhost
+        // (the runtime), it does NOT serve feature-flag routes — so we must
+        // fall through to the local gateway path below.
         if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
             let sid = OSSignpostID(log: ipcLog)
             os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)
@@ -2273,7 +2286,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        // Local mode (socket, TCP, or local HTTP): call the gateway directly.
+        // Local mode: call the gateway directly.
         let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
         guard var request = buildLocalRequest(target: .gateway, path: "v1/feature-flags/\(encoded)", method: "PATCH", tokenOverride: token) else {
             throw FeatureFlagError.invalidURL

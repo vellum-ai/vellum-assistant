@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
-let mockTwilioAuthToken: string | undefined;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
@@ -11,7 +10,7 @@ mock.module("../security/secure-keys.js", () => ({
 mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     twilio: mockTwilioAccountSid
-      ? { accountSid: mockTwilioAccountSid, authToken: mockTwilioAuthToken }
+      ? { accountSid: mockTwilioAccountSid }
       : undefined,
   }),
 }));
@@ -23,7 +22,6 @@ describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
     mockTwilioAccountSid = undefined;
-    mockTwilioAuthToken = undefined;
   });
 
   describe("getIntegrationSummary", () => {
@@ -43,7 +41,7 @@ describe("integration-status", () => {
       secureKeyValues.set("credential:integration:twitter:access_token", "tok");
       secureKeyValues.set("credential:integration:slack:access_token", "tok");
       mockTwilioAccountSid = "sid";
-      mockTwilioAuthToken = "auth";
+      secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
 
@@ -55,7 +53,7 @@ describe("integration-status", () => {
 
     test("returns mixed status", () => {
       mockTwilioAccountSid = "sid";
-      mockTwilioAuthToken = "auth";
+      secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
 
@@ -100,7 +98,7 @@ describe("integration-status", () => {
   describe("formatIntegrationSummary", () => {
     test("shows checkmarks and crosses", () => {
       mockTwilioAccountSid = "sid";
-      mockTwilioAuthToken = "auth";
+      secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
 
@@ -122,7 +120,7 @@ describe("integration-status", () => {
       secureKeyValues.set("credential:integration:twitter:access_token", "tok");
       secureKeyValues.set("credential:integration:slack:access_token", "tok");
       mockTwilioAccountSid = "sid";
-      mockTwilioAuthToken = "auth";
+      secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
 

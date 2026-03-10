@@ -193,7 +193,7 @@ extension ChatBubble {
                 decidedConfirmations: groupConfirmations,
                 onRehydrate: onRehydrate
             )
-            .frame(maxWidth: 520, alignment: .leading)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         }
     }
 

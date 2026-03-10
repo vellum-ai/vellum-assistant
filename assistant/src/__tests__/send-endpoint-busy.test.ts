@@ -14,7 +14,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Session } from "../daemon/session.js";
 import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
@@ -112,7 +112,6 @@ function makeCompletingSession(): Session {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -165,7 +164,6 @@ function makeHangingSession(): Session {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -246,7 +244,6 @@ function makePendingApprovalSession(
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
-    setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>

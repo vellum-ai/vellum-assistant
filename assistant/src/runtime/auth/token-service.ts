@@ -111,6 +111,17 @@ export function isSigningKeyInitialized(): boolean {
   return _authSigningKey !== undefined;
 }
 
+/**
+ * Returns a short hex fingerprint of the current signing key.
+ * Used by daemon_status to let clients detect instance switches.
+ */
+export function getSigningKeyFingerprint(): string {
+  return createHash("sha256")
+    .update(getSigningKey())
+    .digest("hex")
+    .slice(0, 16);
+}
+
 // ---------------------------------------------------------------------------
 // Base64url helpers
 // ---------------------------------------------------------------------------
@@ -298,7 +309,7 @@ export function mintEdgeRelayToken(): string {
 
 /**
  * Mint a long-lived JWT for embedding in browser-served UI pages
- * (brain-graph, home-base).
+ * (brain-graph).
  *
  * These pages make API calls that route through the gateway, which validates
  * tokens with validateEdgeToken() expecting aud=vellum-gateway. A 1-hour TTL

@@ -65,6 +65,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
+    var e2eStatusOverlayWindow: E2EStatusOverlayWindow?
 
     var onboardingWindow: OnboardingWindow?
     var authWindow: NSWindow?
@@ -84,6 +85,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
+    /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
+    /// the daemon-instance-changed observer. Stored so we can properly remove
+    /// the closure-based observer before registering a new one.
+    var instanceChangeObserver: NSObjectProtocol?
     /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -142,10 +147,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // are captured. Privacy opt-out is checked after the daemon is ready and
         // applied via SentrySDK.close() — matching the daemon-side pattern in
         // lifecycle.ts (init at top, close after config load if flag disabled).
+        let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+        let perfOptIn = collectUsageData && UserDefaults.standard.bool(forKey: "sendPerformanceReports")
         SentrySDK.start { options in
-            options.dsn = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+            options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
             options.debug = false
             options.tracesSampleRate = 0.1
+            options.configureProfiling = { profilingOptions in
+                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+            }
             options.sendDefaultPii = false
         }
 
@@ -182,15 +192,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         let skipOnboarding = false
         #endif
 
+        if let statusFile = ProcessInfo.processInfo.environment["E2E_STATUS_FILE"] {
+            let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
+            overlay.show()
+            self.e2eStatusOverlayWindow = overlay
+        }
+
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
         setupHotKey()
 
-        if !skipOnboarding && !lockfileHasAssistants() {
+        let hasAssistants = lockfileHasAssistants()
+        log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
+
+        if !skipOnboarding && !hasAssistants {
+            log.info("[appLaunch] → showOnboarding()")
             showOnboarding()
             return
         }
 
+        log.info("[appLaunch] → startAuthenticatedFlow()")
         startAuthenticatedFlow()
     }
 
@@ -329,6 +350,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         secretPromptManager.dismissAll()
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
+        e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
         #if !DEBUG
         keychainBroker?.stop()

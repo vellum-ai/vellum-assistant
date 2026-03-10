@@ -272,6 +272,48 @@ describe("CredentialCache", () => {
       expect(callCount).toBe(4);
     });
 
+    test("in-flight promise resolving after invalidate does not overwrite cache with stale value", async () => {
+      let resolveOld!: (val: string | undefined) => void;
+      let fetchCount = 0;
+
+      // First readCredential call returns a manually controlled promise
+      readCredentialImpl = async () => {
+        fetchCount++;
+        return new Promise<string | undefined>((resolve) => {
+          resolveOld = resolve;
+        });
+      };
+
+      const cache = new CredentialCache({ ttlMs: 60_000 });
+
+      // Start an in-flight fetch for "key-a" (do NOT resolve yet)
+      const p1 = cache.get("key-a");
+      expect(fetchCount).toBe(1);
+
+      // Invalidate the cache while the fetch is still in-flight
+      cache.invalidate();
+
+      // Now wire up a new readCredential that resolves immediately with "new-value"
+      readCredentialImpl = async () => {
+        fetchCount++;
+        return "new-value";
+      };
+
+      // Start a new fetch for "key-a" after invalidation
+      const p2 = cache.get("key-a");
+      expect(fetchCount).toBe(2);
+
+      // Let p2 resolve first (it returns "new-value")
+      expect(await p2).toBe("new-value");
+
+      // Now resolve the original stale in-flight promise with "old-value"
+      resolveOld("old-value");
+      expect(await p1).toBe("old-value");
+
+      // The cache should still return "new-value", NOT the stale "old-value"
+      expect(await cache.get("key-a")).toBe("new-value");
+    });
+
     test("invalidate clears in-flight entries", async () => {
       let resolveRead!: (val: string | undefined) => void;
       readCredentialImpl = async () => {

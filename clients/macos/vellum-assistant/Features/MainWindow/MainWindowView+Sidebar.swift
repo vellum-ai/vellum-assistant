@@ -109,7 +109,7 @@ extension MainWindowView {
         .padding(.top, VSpacing.md)
         .padding(.bottom, sidebarExpanded ? VSpacing.md : VSpacing.sm)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
         .alert("Rename Thread", isPresented: Binding(
@@ -139,7 +139,7 @@ extension MainWindowView {
     @ViewBuilder
     func sidebarPinnedAppRow(_ app: AppListManager.AppItem, isExpanded: Bool = true) -> some View {
         SidebarPrimaryRow(
-            icon: app.sfSymbol ?? "square.grid.2x2",
+            icon: app.lucideIcon ?? VIcon.layoutGrid.rawValue,
             label: app.name,
             isActive: isAppSurfaceActive(appId: app.id),
             isExpanded: isExpanded
@@ -217,8 +217,10 @@ extension MainWindowView {
                     }
                 },
                 onNewThread: {
-                    windowState.selection = nil
-                    threadManager.enterDraftMode()
+                    threadManager.createThread()
+                    if let id = threadManager.activeThreadId {
+                        windowState.selection = .thread(id)
+                    }
                 }
             )
 
@@ -240,7 +242,7 @@ extension MainWindowView {
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
-                                        .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                        .fill(VColor.dropIndicator)
                                         .frame(height: 2)
                                         .transition(.opacity)
                                 }
@@ -273,7 +275,7 @@ extension MainWindowView {
                         } label: {
                             Text(sidebar.showAllThreads ? "Show less" : "Show more")
                                 .font(VFont.caption)
-                                .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
+                                .foregroundColor(VColor.sidebarActionText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                 .padding(.top, VSpacing.sm)
@@ -310,7 +312,7 @@ extension MainWindowView {
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
                                             Rectangle()
-                                                .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                .fill(VColor.dropIndicator)
                                                 .frame(height: 2)
                                                 .transition(.opacity)
                                         }
@@ -337,20 +339,19 @@ extension MainWindowView {
                                     }
                                 } label: {
                                     HStack(spacing: VSpacing.xs) {
-                                        ZStack {
+                                        HStack(spacing: 2) {
                                             VIconView(.chevronRight, size: 10)
                                                 .foregroundColor(VColor.textMuted)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
                                                 .animation(VAnimation.fast, value: isGroupExpanded)
                                             if hasUnread {
                                                 Circle()
-                                                    .fill(Color(hex: 0xE86B40))
+                                                    .fill(VColor.unreadIndicator)
                                                     .frame(width: 6, height: 6)
-                                                    .offset(x: 7, y: -5)
                                                     .transition(.opacity)
                                             }
                                         }
-                                        .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
+                                        .frame(height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
                                             .foregroundColor(VColor.textPrimary)
@@ -391,7 +392,7 @@ extension MainWindowView {
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                 if sidebar.dropTargetThreadId == thread.id {
                                                     Rectangle()
-                                                        .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                        .fill(VColor.dropIndicator)
                                                         .frame(height: 2)
                                                         .transition(.opacity)
                                                 }
@@ -424,7 +425,7 @@ extension MainWindowView {
                             } label: {
                                 Text(sidebar.showAllScheduleThreads ? "Show less" : "Show more")
                                     .font(VFont.caption)
-                                    .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
+                                    .foregroundColor(VColor.sidebarActionText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                     .padding(.top, VSpacing.sm)
@@ -447,7 +448,7 @@ extension MainWindowView {
                 isActive: sidebar.showPreferencesDrawer,
                 isExpanded: true,
                 onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    withAnimation(VAnimation.snappy) {
                         sidebar.showPreferencesDrawer.toggle()
                     }
                 }
@@ -482,8 +483,10 @@ extension MainWindowView {
             sidebarSectionDivider(isExpanded: false)
 
             SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Chat", isActive: false, isExpanded: false) {
-                windowState.selection = nil
-                threadManager.enterDraftMode()
+                threadManager.createThread()
+                if let id = threadManager.activeThreadId {
+                    windowState.selection = .thread(id)
+                }
             }
 
             // MARK: Thread Section (collapsed)
@@ -498,7 +501,7 @@ extension MainWindowView {
                     ZStack(alignment: .bottomTrailing) {
                         Text(switcher.badgeText)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                            .foregroundColor(VColor.buttonSecondaryText)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
                             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
@@ -511,7 +514,7 @@ extension MainWindowView {
 
                         if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()
-                                .fill(Color(hex: 0xE86B40))
+                                .fill(VColor.unreadIndicator)
                                 .frame(width: 8, height: 8)
                                 .offset(x: 4, y: 4)
                         }
@@ -543,7 +546,7 @@ extension MainWindowView {
                 isActive: sidebar.showPreferencesDrawer,
                 isExpanded: false,
                 onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    withAnimation(VAnimation.snappy) {
                         sidebar.showPreferencesDrawer.toggle()
                     }
                 }

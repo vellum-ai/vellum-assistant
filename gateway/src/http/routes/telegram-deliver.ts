@@ -1,8 +1,11 @@
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
 import {
+  editTelegramMessage,
   sendTelegramAttachments,
   sendTelegramReply,
   sendTypingIndicator,
@@ -21,7 +24,10 @@ export type ApprovalPayload = {
   plainTextFallback: string;
 };
 
-export function createTelegramDeliverHandler(config: GatewayConfig) {
+export function createTelegramDeliverHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
@@ -30,11 +36,11 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(
-      req,
-      config,
-      "telegramDeliverAuthBypass",
-    );
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("telegram", "deliverAuthBypass") ??
+        false);
+    const authResponse = checkDeliverAuth(req, isBypassed);
     if (authResponse) return authResponse;
 
     let body: {
@@ -44,6 +50,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       attachments?: RuntimeAttachmentMeta[];
       approval?: ApprovalPayload;
       chatAction?: "typing";
+      messageId?: number;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -58,10 +65,23 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       attachments,
       approval,
       chatAction,
+      messageId,
     } = body;
 
     if (!chatId || typeof chatId !== "string") {
       return Response.json({ error: "chatId is required" }, { status: 400 });
+    }
+
+    if (
+      messageId !== undefined &&
+      (typeof messageId !== "number" ||
+        !Number.isInteger(messageId) ||
+        messageId <= 0)
+    ) {
+      return Response.json(
+        { error: "messageId must be a positive integer" },
+        { status: 400 },
+      );
     }
 
     if (chatAction !== undefined && chatAction !== "typing") {
@@ -172,17 +192,45 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       }
     }
 
+    const credentialOpts = caches?.credentials
+      ? { credentials: caches.credentials, configFile: caches.configFile }
+      : undefined;
+
+    let sendMessageId: number | undefined;
     try {
       if (chatAction === "typing") {
-        await sendTypingIndicator(config, chatId);
+        await sendTypingIndicator(config, chatId, credentialOpts);
       }
 
       if (text) {
-        await sendTelegramReply(config, chatId, text, approval);
+        if (messageId !== undefined) {
+          await editTelegramMessage(
+            config,
+            chatId,
+            messageId,
+            text,
+            approval,
+            credentialOpts,
+          );
+        } else {
+          const sendResult = await sendTelegramReply(
+            config,
+            chatId,
+            text,
+            approval,
+            credentialOpts,
+          );
+          sendMessageId = sendResult.messageId;
+        }
       }
 
       if (attachments && attachments.length > 0) {
-        await sendTelegramAttachments(config, chatId, attachments);
+        await sendTelegramAttachments(
+          config,
+          chatId,
+          attachments,
+          credentialOpts,
+        );
       }
     } catch (err) {
       tlog.error({ err, chatId }, "Failed to deliver Telegram reply");
@@ -198,6 +246,11 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       },
       "Reply sent",
     );
-    return Response.json({ ok: true });
+
+    const responseBody: { ok: true; messageId?: number } = { ok: true };
+    if (sendMessageId !== undefined) {
+      responseBody.messageId = sendMessageId;
+    }
+    return Response.json(responseBody);
   };
 }

@@ -32,6 +32,7 @@ public struct VToggle: View {
                 isOn.toggle()
             }
         }
+        .pointerCursor()
         .opacity(isEnabled ? 1.0 : 0.5)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)

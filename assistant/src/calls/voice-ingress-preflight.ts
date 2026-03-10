@@ -95,16 +95,6 @@ export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResu
     }
   }
 
-  const { triggerGatewayTwilioReconcile } =
-    await import("../daemon/handlers/config-ingress.js");
-  const reconcileResult = await triggerGatewayTwilioReconcile(publicBaseUrl);
-  if (!reconcileResult.ok) {
-    return fail(
-      reconcileResult.error ??
-        `Gateway Twilio state reconcile returned HTTP ${reconcileResult.status ?? "unknown"}`,
-    );
-  }
-
   return {
     ok: true,
     ingressConfig: {

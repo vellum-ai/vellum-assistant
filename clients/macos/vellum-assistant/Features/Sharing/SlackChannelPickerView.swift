@@ -63,10 +63,7 @@ struct SlackChannelPickerView: View {
         }
         .frame(width: 240)
         .onDisappear {
-            if hoveredChannelID != nil {
-                NSCursor.pop()
-                hoveredChannelID = nil
-            }
+            hoveredChannelID = nil
         }
         .task {
             await loadChannels()
@@ -176,8 +173,8 @@ struct SlackChannelPickerView: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredChannelID = hovering ? channel.id : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        .pointerCursor()
     }
 
     // MARK: - Helpers

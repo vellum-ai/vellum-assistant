@@ -9,11 +9,11 @@
 import { v4 as uuid } from "uuid";
 
 import { AgentLoop } from "../agent/loop.js";
-import { buildComputerUseSystemPrompt } from "../config/computer-use-prompt.js";
 import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
+import { buildComputerUseSystemPrompt } from "../prompts/computer-use-prompt.js";
 import type {
   ContentBlock,
   Message,
@@ -34,8 +34,8 @@ import type {
   SurfaceData,
   SurfaceType,
   UiSurfaceShow,
-} from "./ipc-protocol.js";
-import { INTERACTIVE_SURFACE_TYPES } from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,

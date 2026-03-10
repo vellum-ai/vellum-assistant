@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Animation presets. Use instead of raw Animation values.
 public enum VAnimation {
+    public static let snappy   = Animation.easeOut(duration: 0.12)
     public static let fast     = Animation.easeOut(duration: 0.15)
     public static let standard = Animation.easeInOut(duration: 0.25)
     public static let slow     = Animation.easeInOut(duration: 0.4)

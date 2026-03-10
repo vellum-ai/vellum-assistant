@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { TraceEventKind } from "../daemon/ipc-protocol.js";
+import type { TraceEventKind } from "../daemon/message-protocol.js";
 import type {
   TraceEmitOptions,
   TraceEmitter,
@@ -211,7 +211,6 @@ describe("registerToolTraceListener", () => {
   test("ignores non-tool domain events", async () => {
     await bus.emit("daemon.lifecycle.started", {
       pid: 123,
-      socketPath: "/tmp/test.sock",
       startedAtMs: 9000,
     });
 

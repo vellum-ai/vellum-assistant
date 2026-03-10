@@ -58,12 +58,22 @@ Many Amazon products (clothing, electronics) have variations (size, color, style
 
 Alternatively, run `assistant amazon variations <asin> --json` to list just the variations.
 
+## Session Storage
+
+Session cookies are stored in the encrypted credential store under the key `amazon:session:cookies`. You can inspect the stored session with:
+
+```bash
+assistant credentials inspect amazon:session:cookies
+```
+
+Session capture (`assistant amazon refresh`) and session checks (`assistant amazon status`) use the credential store automatically — no manual file management is needed.
+
 ## Important Behavior
 
+- **Chrome extension relay required.** The Amazon CLI uses `assistant browser chrome relay` internally for browser automation. The Chrome extension must be connected before Amazon commands will work. If a command fails with a connection error, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry."
 - **Always confirm before placing order.** Never call `order place` without explicit user approval. Show the cart and total first.
 - **Be proactive.** If the user says "order AA batteries", don't ask clarifying questions upfront — search, find the product, and suggest it. Only ask when you need a choice the user hasn't specified.
 - **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, run `assistant amazon refresh --json` to re-capture the session.
-- **Handle extension errors.** If a command fails with a message about the browser extension not being connected, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry." Do NOT try to interact with the relay directly.
 - **Show prices.** Always show prices when presenting products or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.
 - **Do NOT use the browser skill.** All Amazon interaction goes through the CLI, not browser automation.
@@ -76,7 +86,6 @@ Alternatively, run `assistant amazon variations <asin> --json` to list just the 
 ```
 assistant amazon status --json                     # Check if logged in
 assistant amazon refresh --json                    # Capture fresh session via Ride Shotgun
-assistant amazon login --recording <path>          # Import session from a recording file
 assistant amazon logout                            # Clear session
 
 assistant amazon search "<query>" [--fresh] [--limit <n>] --json

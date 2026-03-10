@@ -33,26 +33,27 @@ struct DrawerThemeToggle: View {
                         VIconView(SFSymbolMapping.icon(forSFSymbol: option.icon, fallback: .puzzle), size: 12)
                             .foregroundColor(
                                 isSelected
-                                    ? adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
+                                    ? VColor.buttonSecondaryText
                                     : VColor.textMuted
                             )
                             .frame(width: 30, height: 24)
                             .background(
                                 isSelected
-                                    ? adaptiveColor(light: Color(hex: 0xD3DECF), dark: Forest._800)
+                                    ? VColor.themeToggleSelected
                                     : Color.clear
                             )
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .help(option.tooltip)
                     .accessibilityLabel("\(option.tooltip) theme")
                     .accessibilityValue(isSelected ? "Selected" : "")
                 }
             }
             .padding(3)
-            .background(adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700))
+            .background(VColor.themeToggleBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }

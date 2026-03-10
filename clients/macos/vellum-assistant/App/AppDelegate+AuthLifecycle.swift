@@ -13,9 +13,14 @@ extension AppDelegate {
     func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
-            if authManager.isAuthenticated || APIKeyManager.hasAnyKey() {
+            let isAuthed = authManager.isAuthenticated
+            let hasKey = APIKeyManager.hasAnyKey()
+            log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
+            if isAuthed || hasKey {
+                log.info("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
+                log.info("[authFlow] → showAuthWindow()")
                 showAuthWindow()
             }
         }
@@ -169,18 +174,28 @@ extension AppDelegate {
     /// 5s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
-        guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else { return }
-        guard authManager.isAuthenticated else { return }
+        guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
+            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
+            return
+        }
+        guard authManager.isAuthenticated else {
+            log.debug("Skipping local assistant API key provisioning because user is not authenticated")
+            return
+        }
 
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         guard let assistantId = storedId,
-              let assistant = LockfileAssistant.loadByName(assistantId) else { return }
+              let assistant = LockfileAssistant.loadByName(assistantId) else {
+            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is missing from lockfile")
+            return
+        }
 
         // Resolve daemon HTTP endpoint from lockfile, with env override and fallback
         let daemonPort = assistant.daemonPort
             ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
             ?? 7821
         let daemonBaseURL = "http://localhost:\(daemonPort)"
+        log.info("Starting local assistant API key provisioning for \(assistant.assistantId, privacy: .public) at \(daemonBaseURL, privacy: .public)")
 
         Task {
             // Wait for actor token with retries — initial bootstrap may take
@@ -276,7 +291,60 @@ extension AppDelegate {
             ensureActorCredentials()
         }
         ensureLocalAssistantApiKey()
+
+        // 7. Sync locally-stored API keys to the new daemon. The daemon may
+        //    have started without ANTHROPIC_API_KEY in its environment (e.g.
+        //    when the app was launched via Finder/open). Push keys from
+        //    UserDefaults so the daemon can initialize its LLM providers.
+        syncApiKeysToAssistant(assistant)
+
         showMainWindow()
+    }
+
+    /// Push all locally-stored API keys to a specific assistant's daemon.
+    /// Waits for the actor token, then POSTs each key to /v1/secrets.
+    private func syncApiKeysToAssistant(_ assistant: LockfileAssistant) {
+        let port = assistant.daemonPort
+            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+            ?? 7821
+
+        Task {
+            // Wait for the actor token (new daemon needs time to bootstrap).
+            guard let token = await ActorTokenManager.waitForToken(timeout: 30),
+                  !token.isEmpty else {
+                log.warning("syncApiKeysToAssistant: no actor token after 30s, skipping key sync")
+                return
+            }
+
+            for name in APIKeyManager.allSyncableProviders {
+                guard let key = APIKeyManager.getKey(for: name), !key.isEmpty else { continue }
+                guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { continue }
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 5
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let body: [String: String] = ["type": "api_key", "name": name, "value": key]
+                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                _ = try? await URLSession.shared.data(for: request)
+            }
+
+            // ElevenLabs uses the credential type, not api_key
+            if let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs"), !elevenLabsKey.isEmpty {
+                if let url = URL(string: "http://localhost:\(port)/v1/secrets") {
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.timeoutInterval = 5
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let body: [String: String] = ["type": "credential", "name": "elevenlabs:api_key", "value": elevenLabsKey]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                    _ = try? await URLSession.shared.data(for: request)
+                }
+            }
+
+            log.info("syncApiKeysToAssistant: pushed API keys to daemon on port \(port)")
+        }
     }
 
     @objc func performRetire() {
@@ -329,12 +397,35 @@ extension AppDelegate {
             assistantCli.stop()
         }
 
-        // Check if other assistants remain in the lockfile
+        // Check if other assistants remain in the lockfile.
+        // Prefer remote assistants (always reachable), then try waking local ones.
         let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
-        if let next = remaining.first {
-            // Auto-switch to the next available assistant
-            performSwitchAssistant(to: next)
-            return true
+        if !remaining.isEmpty {
+            // Try remote assistants first — they're always reachable
+            if let remote = remaining.first(where: { $0.isRemote }) {
+                performSwitchAssistant(to: remote)
+                return true
+            }
+
+            // Try local assistants — check if awake, otherwise wake them
+            for candidate in remaining {
+                let env: [String: String]? = candidate.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                if DaemonClient.isDaemonProcessAlive(environment: env) {
+                    performSwitchAssistant(to: candidate)
+                    return true
+                }
+
+                // Sleeping — try to wake it
+                do {
+                    try await assistantCli.wake(name: candidate.assistantId)
+                    performSwitchAssistant(to: candidate)
+                    return true
+                } catch {
+                    log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
+                    continue
+                }
+            }
+            // All local wake attempts failed — fall through to onboarding
         }
 
         // No assistants left — tear down fully and show onboarding

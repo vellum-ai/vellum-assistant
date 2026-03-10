@@ -4,13 +4,12 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 ### Channel Onboarding Playbook Bootstrap
 
-- Transport metadata arrives via `session_create.transport` (IPC) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
-- Telegram webhook ingress now injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer Home Base-only UI tasks cleanly.
+- Transport metadata arrives via `session_create.transport` (HTTP) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
+- Telegram webhook ingress injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer dashboard-only UI tasks cleanly.
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies per-channel first-time fast-path onboarding.
-- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
+- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture) from playbook + transport context.
 - Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
-- Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
-- Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
+- Permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
 ### Guardian Actor Context (Unified Across Channels)
 
@@ -41,12 +40,12 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Subject patterns:**
 
-| Pattern                                  | Principal Type | Description                                   |
-| ---------------------------------------- | -------------- | --------------------------------------------- |
-| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                   |
-| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)           |
-| `ipc:<assistantId>:<sessionId>`          | `ipc`          | Internal IPC connections                      |
-| `svc:daemon:self`                        | n/a            | Daemon self-identification (for internal use) |
+| Pattern                                  | Principal Type | Description                                 |
+| ---------------------------------------- | -------------- | ------------------------------------------- |
+| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                 |
+| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)         |
+| `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections                |
+| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)                |
 
 **Scope profiles:**
 
@@ -55,17 +54,17 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, iOS, CLI clients                    |
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
 | `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write`                                                                                                   | Gateway service-to-daemon calls              |
-| `ipc_v1`             | `ipc.all`                                                                                                                                             | Internal IPC connections                     |
+| `internal_v1`        | `internal.all`                                                                                                                                        | Internal service connections                 |
 
 **Identity lifecycle:**
 
-1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
+1. **Bootstrap (loopback-only, macOS)** — On first launch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The CLI obtains its bearer token during `hatch` and does not perform a separate bootstrap step.
 
 2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
 
 3. **Refresh** — `POST /v1/guardian/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
-4. **IPC identity** — Local IPC connections use `resolveLocalIpcGuardianContext()` for deterministic identity without tokens.
+4. **Local identity** — Local connections use deterministic identity resolution without tokens.
 
 **Route policy enforcement:** Every protected endpoint declares required scopes and allowed principal types in `src/runtime/auth/route-policy.ts`. The `enforcePolicy()` function checks the AuthContext against these requirements and returns 403 when access is denied. A guard test ensures every dispatched endpoint has a corresponding policy entry.
 
@@ -88,7 +87,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
 | `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
-| `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
+| `src/runtime/local-actor-identity.ts`             | `resolveLocalGuardianContext` — deterministic local identity                                  |
 | `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
 
 ### Channel-Agnostic Scoped Approval Grants
@@ -97,7 +96,7 @@ Scoped approval grants allow a guardian's approval decision on one channel (e.g.
 
 ### Guardian Decision Primitive (Dual-Mode Approval)
 
-All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, the legacy text parser, and the requester self-cancel path.
+All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, and the requester self-cancel path.
 
 **Core API:**
 
@@ -118,7 +117,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 **Button-first path (deterministic):**
 
 - Desktop clients (macOS/iOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
-- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`) or IPC (`guardian_action_decision`). Both route through `applyCanonicalGuardianDecision`.
+- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`), routed through `applyCanonicalGuardianDecision`.
 - Channel adapters (Telegram inline keyboards, WhatsApp) encode actions as callback data (`apr:<requestId>:<action>`).
 
 **Text fallback path (always available):**
@@ -137,8 +136,6 @@ All guardian approval decisions — regardless of how they arrive — route thro
 | `src/approvals/guardian-decision-primitive.ts` | Unified decision application: downgrade, approval info capture, `handleChannelDecision`, record update, grant minting                             |
 | `src/runtime/guardian-decision-types.ts`       | Shared types: `GuardianDecisionPrompt`, `GuardianDecisionAction`, `buildDecisionActions`, `buildPlainTextFallback`, `ApplyGuardianDecisionResult` |
 | `src/runtime/routes/guardian-action-routes.ts` | HTTP route handlers for `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision`                                               |
-| `src/daemon/handlers/guardian-actions.ts`      | IPC handlers wrapping the same logic for desktop socket clients                                                                                   |
-| `src/daemon/ipc-contract/guardian-actions.ts`  | IPC message type definitions for guardian action requests/responses                                                                               |
 | `src/runtime/channel-approval-types.ts`        | Channel-facing approval action types and `toApprovalActionOptions` bridge                                                                         |
 
 ### Temporary Approval Modes (Session-Scoped Overrides)
@@ -173,11 +170,11 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 
 1. **Canonical domain (single source of truth):** All guardian requests — tool approvals, pending questions, access requests — are persisted in the `canonical_guardian_requests` table (`src/memory/canonical-guardian-store.js`). Each request has a unique ID, a short human-readable request code, and a status that follows a CAS (compare-and-swap) lifecycle: `pending` -> `approved` | `denied` | `expired` | `cancelled`. Deliveries (notifications sent to guardians) are tracked in `canonical_guardian_deliveries`.
 
-2. **Unified apply primitive (single write path):** `applyCanonicalGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, CAS resolution, `approve_always` downgrade (guardian-on-behalf invariant), kind-specific resolver dispatch via the resolver registry, and scoped grant minting. All callers — HTTP API, IPC handlers, inbound channel router, desktop session — route decisions through this function.
+2. **Unified apply primitive (single write path):** `applyCanonicalGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, CAS resolution, `approve_always` downgrade (guardian-on-behalf invariant), kind-specific resolver dispatch via the resolver registry, and scoped grant minting. All callers — HTTP API, inbound channel router, desktop session — route decisions through this function.
 
 3. **Shared reply router (priority-ordered routing):** `routeGuardianReply()` in `src/runtime/guardian-reply-router.ts` provides a single entry point for all inbound guardian reply processing across channels. It routes through a priority-ordered pipeline: (a) deterministic callback parsing (button presses with `apr:<requestId>:<action>`), (b) request code parsing (6-char alphanumeric prefix), (c) NL classification via the conversational approval engine. All decisions flow through `applyCanonicalGuardianDecision`.
 
-4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP) or the equivalent IPC messages. These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
+4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
 5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS/iOS guardian threads. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
 
@@ -198,12 +195,11 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 | `src/approvals/guardian-request-resolvers.ts`           | Resolver registry: kind-specific side-effect dispatch after CAS resolution                                    |
 | `src/runtime/guardian-reply-router.ts`                  | Shared inbound router: callback -> code -> NL classification pipeline                                         |
 | `src/runtime/routes/guardian-action-routes.ts`          | HTTP endpoints for prompt listing and decision submission                                                     |
-| `src/daemon/handlers/guardian-actions.ts`               | IPC handlers for desktop socket clients                                                                       |
 | `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                                                |
 
 ### Outbound Channel Verification (HTTP Endpoints)
 
-Channel verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through channel verification setup via normal conversation.
+Channel verification is initiated through gateway HTTP endpoints (which forward to runtime handlers). This enables chat-first verification where the assistant guides the user through channel verification setup via normal conversation.
 
 **HTTP Endpoints:**
 
@@ -219,7 +215,7 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills an
 
 **Shared Business Logic:**
 
-The HTTP route handlers (`channel-verification-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across Telegram and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
+The HTTP route handlers (`channel-verification-routes.ts`) delegate to action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across Telegram and voice channels. It returns `OutboundActionResult` objects that the transport layer maps to the HTTP response format.
 
 **Chat-First Orchestration Flow:**
 
@@ -235,7 +231,6 @@ The HTTP route handlers (`channel-verification-routes.ts`) and the legacy IPC ha
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                                  |
 | `src/runtime/routes/channel-verification-routes.ts`        | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
-| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                                |
 | `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate channel verification via chat                                    |
 
 **Guardian-Only Tool Invocation Gate:**
@@ -293,7 +288,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 | `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
 | `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                                   |
 | `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                                   |
-| `src/daemon/session-process.ts`                         | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                 |
+| `src/daemon/session-process.ts`                         | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                     |
 | `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                           |
 | `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                                   |
 
@@ -513,7 +508,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by both HTTP routes and IPC)                                     |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by HTTP routes)                                                  |
 | `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
@@ -593,7 +588,7 @@ Release-driven update notification system that surfaces release notes to the ass
 
 **Data flow:**
 
-1. **Bundled template** (`src/config/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
+1. **Bundled template** (`src/prompts/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
 2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
 3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
 4. **Completion by deletion** — the assistant deletes `UPDATES.md` when it has actioned all updates. Next startup detects the deletion and marks those releases as completed in checkpoint state.
@@ -608,11 +603,11 @@ Release-driven update notification system that surfaces release notes to the ass
 
 | File                                   | Purpose                                                   |
 | -------------------------------------- | --------------------------------------------------------- |
-| `src/config/templates/UPDATES.md`      | Bundled release-note template                             |
+| `src/prompts/templates/UPDATES.md`     | Bundled release-note template                             |
 | `src/config/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
 | `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
 | `src/config/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
-| `src/config/system-prompt.ts`          | Prompt injection of updates section                       |
+| `src/prompts/system-prompt.ts`         | Prompt injection of updates section                       |
 | `src/daemon/config-watcher.ts`         | File watcher — evicts sessions on UPDATES.md changes      |
 | `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
 
@@ -641,8 +636,8 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 | Enforcement Point                  | Module                                                   | Effect                                                                                                                                                                                                      |
 | ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client.                                                    |
-| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts`     | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
+| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
+| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `prompts/system-prompt.ts`    | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
@@ -657,11 +652,11 @@ All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skil
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
 | `src/config/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
-| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
+| `src/prompts/system-prompt.ts`                  | `appendSkillsCatalog()` — enforcement point 2                                                                      |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
 | `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                    |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                        |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses                                            |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
 | `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                |
 
@@ -714,12 +709,7 @@ graph LR
         WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
     end
 
-    subgraph "~/.vellum/workspace/data/ipc-blobs/"
-        BLOBS["*.blob<br/>───────────────<br/>Ephemeral blob files<br/>UUID filenames<br/>Atomic temp+rename writes<br/>Consumed after daemon hydration<br/>Stale sweep every 5min (30min max age)"]
-    end
-
     subgraph "~/.vellum/ (Root Files)"
-        SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["protected/trust.json<br/>Tool permission rules"]
         FF_TOKEN["feature-flag-token<br/>Client token for feature-flag API"]
     end
@@ -728,7 +718,7 @@ graph LR
         CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes assistantFeatureFlagValues)"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
-        APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
+        APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>User-created apps stored here"]
         SKILLS_DIR["skills/<br/>managed skill directories<br/>SKILL.md + TOOLS.json + tools/"]
     end
 
@@ -753,8 +743,8 @@ graph TB
     end
 
     subgraph "Local Mode"
-        LOCAL_CLIENT["LocalDaemonClient"]
-        LOCAL_SOCK["Unix Socket<br/>~/.vellum/vellum.sock"]
+        LOCAL_CLIENT["RuntimeClient"]
+        LOCAL_HTTP["HTTP API<br/>localhost:RUNTIME_HTTP_PORT"]
         LOCAL_DAEMON["Local Daemon<br/>(same machine)"]
         LOCAL_DB["~/.vellum/workspace/data/db/assistant.db"]
     end
@@ -771,8 +761,8 @@ graph TB
     AUTH --> PG
 
     ROUTES -->|"ASSISTANT_CONNECTION_MODE=local"| LOCAL_CLIENT
-    LOCAL_CLIENT --> LOCAL_SOCK
-    LOCAL_SOCK --> LOCAL_DAEMON
+    LOCAL_CLIENT --> LOCAL_HTTP
+    LOCAL_HTTP --> LOCAL_DAEMON
     LOCAL_DAEMON --> LOCAL_DB
 
     ROUTES -->|"ASSISTANT_CONNECTION_MODE=cloud"| RUNTIME_CLIENT
@@ -783,228 +773,19 @@ graph TB
 
 ---
 
-## IPC Contract — Source of Truth and Code Generation
+## Client-Server Communication — HTTP + SSE
 
-The TypeScript file `assistant/src/daemon/ipc-protocol.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it.
+All client-server communication uses HTTP for request/response operations and Server-Sent Events (SSE) for streaming server-to-client events. The runtime HTTP server (`RUNTIME_HTTP_PORT`, default 7821) is the sole transport.
 
-```mermaid
-graph LR
-    subgraph "Source of Truth"
-        CONTRACT["ipc-protocol.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union<br/>Serialization / parsing"]
-    end
+**Client → Server (HTTP POST):** Clients send messages, session operations, configuration changes, and approval decisions via HTTP endpoints (e.g., `POST /v1/messages`, `POST /v1/confirm`, `POST /v1/sessions`).
 
-    subgraph "Generation Pipeline"
-        TJS["typescript-json-schema<br/>───────────────<br/>TS → JSON Schema"]
-        GEN["generate-swift.ts<br/>───────────────<br/>JSON Schema → Swift<br/>Codable structs"]
-    end
-
-    subgraph "Generated Output"
-        SWIFT["IPCContractGenerated.swift<br/>───────────────<br/>clients/shared/IPC/Generated/<br/>IPC-prefixed Codable structs"]
-    end
-
-    subgraph "Hand-Written Swift"
-        ENUMS["IPCMessages.swift<br/>───────────────<br/>ClientMessage / ServerMessage<br/>discriminated union enums<br/>(custom Decodable init)"]
-    end
-
-    subgraph "Inventory Tracking"
-        INV_SRC["ipc-contract-inventory.ts<br/>───────────────<br/>AST parser for union members"]
-        INV_SNAP["ipc-contract-inventory.json<br/>───────────────<br/>Checked-in snapshot"]
-    end
-
-    subgraph "Enforcement"
-        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory<br/>bun run ipc:check-swift-drift"]
-        HOOK["Pre-commit hook<br/>same 3 checks on staged<br/>IPC files"]
-    end
-
-    CONTRACT --> TJS
-    TJS --> GEN
-    GEN --> SWIFT
-    SWIFT --> ENUMS
-
-    CONTRACT --> INV_SRC
-    INV_SRC --> INV_SNAP
-
-    CONTRACT --> CI
-    CONTRACT --> HOOK
-```
-
----
-
-## IPC Protocol — Message Types
-
-```mermaid
-graph LR
-    subgraph "Client → Server"
-        direction TB
-        C0["task_submit<br/>task, screenWidth, screenHeight,<br/>attachments, source?:'voice'|'text'"]
-        C1["cu_session_create<br/>task, attachments"]
-        C2["cu_observation<br/>axTree, axDiff, screenshot,<br/>secondaryWindows, result/error,<br/>axTreeBlob?, screenshotBlob?"]
-        C3["ambient_observation<br/>screenContent, requestId"]
-        C4["session_create<br/>title, threadType?"]
-        C5["user_message<br/>text, attachments"]
-        C6["confirmation_response<br/>decision"]
-        C7["cancel / undo"]
-        C8["model_get / model_set"]
-        C9["ping"]
-        C10["ipc_blob_probe<br/>probeId, nonceSha256"]
-        C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
-        C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
-        C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
-        C14["ingress_invite<br/>create / list / revoke / redeem"]
-        C15["contacts<br/>list / get / update_channel"]
-    end
-
-    SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
-
-    subgraph "Server → Client"
-        direction TB
-        S0["task_routed<br/>interactionType, sessionId"]
-        S1["cu_action<br/>tool, input dict"]
-        S2["cu_complete<br/>summary"]
-        S3["cu_error<br/>message"]
-        S4["assistant_text_delta<br/>streaming text"]
-        S5["assistant_thinking_delta<br/>streaming thinking"]
-        S6["message_complete<br/>usage stats, attachments?"]
-        S7["ambient_result<br/>decision, summary/suggestion"]
-        S8["confirmation_request<br/>tool, risk_level,<br/>executionTarget"]
-        S9["memory_recalled<br/>source hits + relation counters<br/>ranking/debug telemetry"]
-        S10["usage_update / error"]
-        S11["generation_cancelled"]
-        S12["message_queued<br/>position in queue"]
-        S13["message_dequeued<br/>queue drained"]
-        S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount, attachments?"]
-        S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
-        S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
-        S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
-        S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
-        S19["session_title_updated<br/>sessionId, title"]
-        S20["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
-        S21["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
-        S22["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
-        S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
-        S24["ingress_invite_response<br/>invite / invites"]
-        S25["contacts_response<br/>contact / contacts"]
-    end
-
-    C0 --> SOCKET
-    C1 --> SOCKET
-    C2 --> SOCKET
-    C3 --> SOCKET
-    C4 --> SOCKET
-    C5 --> SOCKET
-    C6 --> SOCKET
-    C7 --> SOCKET
-    C8 --> SOCKET
-    C9 --> SOCKET
-    C10 --> SOCKET
-    C11 --> SOCKET
-    C12 --> SOCKET
-    C13 --> SOCKET
-    C14 --> SOCKET
-    C15 --> SOCKET
-
-    SOCKET --> S0
-    SOCKET --> S1
-    SOCKET --> S2
-    SOCKET --> S3
-    SOCKET --> S4
-    SOCKET --> S5
-    SOCKET --> S6
-    SOCKET --> S7
-    SOCKET --> S8
-    SOCKET --> S9
-    SOCKET --> S10
-    SOCKET --> S11
-    SOCKET --> S12
-    SOCKET --> S13
-    SOCKET --> S14
-    SOCKET --> S15
-    SOCKET --> S16
-    SOCKET --> S17
-    SOCKET --> S18
-    SOCKET --> S19
-    SOCKET --> S20
-    SOCKET --> S21
-    SOCKET --> S22
-    SOCKET --> S24
-    SOCKET --> S25
-```
-
----
-
-## Blob Transport — Large Payload Side-Channel
-
-CU observations can carry large payloads (screenshots as JPEG, AX trees as UTF-8 text). Instead of embedding these inline as base64/text in newline-delimited JSON IPC messages, the blob transport offloads them to local files and sends only lightweight references over the socket.
-
-### Probe Mechanism
-
-Blob transport is opt-in per connection. On every macOS socket connect, the client writes a random nonce file to the blob directory and sends an `ipc_blob_probe` message with the SHA-256 of the nonce. The daemon reads the file, computes the hash, and responds with `ipc_blob_probe_result`. If hashes match, the client sets `isBlobTransportAvailable = true` for that connection. The flag resets to `false` on disconnect or reconnect.
-
-On iOS (HTTP+SSE connections via the gateway), blob transport is not applicable — `isBlobTransportAvailable` stays `false` and inline payloads are always used. Over SSH-forwarded Unix sockets on macOS, the probe runs but fails because the client and daemon don't share a filesystem, so blob transport stays disabled and inline payloads are used transparently.
-
-### Blob Directory
-
-All blobs live at `~/.vellum/workspace/data/ipc-blobs/`. Filenames are `${uuid}.blob`. The daemon ensures this directory exists on startup. Both client and daemon use atomic writes (temp file + rename) to prevent partial reads.
-
-### Blob Reference
-
-```
-IpcBlobRef {
-  id: string              // UUID v4
-  kind: "ax_tree" | "screenshot_jpeg"
-  encoding: "utf8" | "binary"
-  byteLength: number
-  sha256?: string         // SHA-256 hex digest for integrity check
-}
-```
-
-### Transport Decision Flow
-
-```mermaid
-graph TB
-    HAS_DATA{"Has large payload?"}
-    BLOB_AVAIL{"isBlobTransportAvailable?"}
-    THRESHOLD{"Above threshold?<br/>(screenshots: always,<br/>AX trees: >8KB)"}
-    WRITE_BLOB["Write blob file<br/>atomic temp+rename"]
-    WRITE_OK{"Write succeeded?"}
-    SEND_REF["Send IpcBlobRef<br/>(inline field = nil)"]
-    SEND_INLINE["Send inline<br/>(base64 / text)"]
-
-    HAS_DATA -->|Yes| BLOB_AVAIL
-    HAS_DATA -->|No| SEND_INLINE
-    BLOB_AVAIL -->|Yes| THRESHOLD
-    BLOB_AVAIL -->|No| SEND_INLINE
-    THRESHOLD -->|Yes| WRITE_BLOB
-    THRESHOLD -->|No| SEND_INLINE
-    WRITE_BLOB --> WRITE_OK
-    WRITE_OK -->|Yes| SEND_REF
-    WRITE_OK -->|No| SEND_INLINE
-```
-
-### Daemon Hydration
-
-When the daemon receives a CU observation with blob refs, it attempts blob-first hydration before the CU session processes the observation:
-
-1. Validate the blob ref's `kind` and `encoding` match the expected field (`axTreeBlob` must be `kind=ax_tree, encoding=utf8`; `screenshotBlob` must be `kind=screenshot_jpeg, encoding=binary`).
-2. Verify the blob file is a regular file (not a symlink) and its realpath stays within the blob directory.
-3. Read the blob file, verify actual size matches `byteLength`, and check optional `sha256`.
-4. For screenshots: base64-encode the bytes into the `screenshot` field.
-5. For AX trees: decode UTF-8 bytes into the `axTree` field.
-6. Delete the consumed blob file.
-
-**Fallback behavior**: If both a blob ref and an inline field are present and blob hydration succeeds, the blob value takes precedence. If blob hydration fails and an inline fallback exists, the inline value is used. If blob hydration fails and no inline fallback exists, the daemon sends a `cu_error` and does not forward the observation to the session.
-
-### Cleanup
-
-- **Consumed blobs**: Deleted immediately after successful hydration.
-- **Stale sweep**: The daemon runs a periodic sweep (every 5 minutes) to delete blob files older than 30 minutes, catching orphans from failed sends or crashes.
-- **Size limits**: Screenshot blobs are capped at 10MB, AX tree blobs at 2MB. Oversized blobs are rejected.
+**Server → Client (SSE):** The daemon streams events to clients via `GET /v1/events`. All agent events (text deltas, tool execution, confirmations, session state changes) are published through the `assistantEventHub` and delivered as SSE events.
 
 ---
 
 ## Session Errors vs Global Errors
 
-The daemon emits two distinct error message types over IPC:
+The daemon emits two distinct error message types via SSE:
 
 | Message type    | Scope          | Purpose                                                                                                        | Payload                                                                       |
 | --------------- | -------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -1034,7 +815,7 @@ Classification uses a two-tier strategy:
 1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (not retryable).
 2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle queue and regeneration contexts.
 
-Debug details are capped at 4,000 characters to prevent oversized IPC payloads.
+Debug details are capped at 4,000 characters to prevent oversized payloads.
 
 ### Error → Toast → Recovery Flow
 
@@ -1059,14 +840,14 @@ sequenceDiagram
         UI->>VM: retryAfterSessionError()
         VM->>VM: dismissSessionError()<br/>+ regenerateLastMessage()
         VM->>DC: regenerate {sessionId}
-        DC->>Daemon: IPC
+        DC->>Daemon: HTTP POST /v1/messages
     else User taps Dismiss
         UI->>VM: dismissSessionError()
         VM->>VM: clear sessionError + errorText
     end
 ```
 
-1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit _only_ `session_error` (never the generic `error` type) to prevent cross-session bleed.
+1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` SSE event with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit _only_ `session_error` (never the generic `error` type) to prevent cross-session bleed.
 2. **ChatViewModel** receives the error via DaemonClient's `subscribe()` stream (each view model gets an independent stream), sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive. If the error arrives during an active cancel (`wasCancelling == true`), it is suppressed — cancel only shows `generation_cancelled` behavior.
 3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
    - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
@@ -1325,9 +1106,9 @@ graph TB
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` validates the recursive include graph (via `include-graph.ts`) before emitting output. Missing children and cycles produce `isError: true` with no `<loaded_skill>` marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
 
-### Skills Authoring via IPC
+### Skills Authoring via HTTP
 
-The Skills page in the macOS client can author managed skills through daemon IPC without going through the agent loop:
+The Skills page in the macOS client can author managed skills through the daemon HTTP API without going through the agent loop:
 
 1. **Draft** (`skills_draft`): The client sends source text (with optional YAML frontmatter). The daemon parses frontmatter for metadata fields (skillId, name, description, emoji), fills missing fields via a latency-optimized LLM call, and falls back to deterministic heuristics if the provider is unavailable. Returns `skills_draft_response` with the complete draft.
 2. **Create** (`skills_create`): The client sends finalized skill metadata and body. The daemon calls `createManagedSkill()` from `managed-store.ts`, auto-enables the skill in config, and broadcasts `skills_state_changed`.
@@ -1660,7 +1441,7 @@ For `bash` and `host_bash` tool invocations, the permission system uses parser-d
 
 ### Prompt UX
 
-When a permission prompt is sent to the client (via `confirmation_request` IPC message), it includes:
+When a permission prompt is sent to the client (via `confirmation_request` SSE event), it includes:
 
 | Field              | Content                                             |
 | ------------------ | --------------------------------------------------- |
@@ -1685,7 +1466,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
 | `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
-| `assistant/src/permissions/prompter.ts`       | IPC prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                   |
+| `assistant/src/permissions/prompter.ts`       | Prompt flow: `confirmation_request` (SSE) → `confirmation_response` (HTTP POST)                                                                                                     |
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
@@ -1695,7 +1476,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 
 ### Permission Simulation (Tool Permission Tester)
 
-The `tool_permission_simulate` IPC message lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
+The `tool_permission_simulate` HTTP endpoint lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
 
 **Simulation semantics:**
 
@@ -1791,7 +1572,7 @@ sequenceDiagram
     User->>Chat: send message while busy
     Chat->>VM: enqueue message
     VM->>DC: user_message
-    DC->>Daemon: IPC
+    DC->>Daemon: HTTP
     Daemon-->>DC: message_queued (position)
     DC-->>VM: show queue status
 
@@ -1814,7 +1595,7 @@ sequenceDiagram
 
 ## Trace System — Debug Panel Data Flow
 
-The trace system provides real-time observability of daemon session internals. Each session creates a `TraceEmitter` that emits structured `trace_event` IPC messages as the session processes requests, makes LLM calls, and executes tools.
+The trace system provides real-time observability of daemon session internals. Each session creates a `TraceEmitter` that emits structured `trace_event` SSE events as the session processes requests, makes LLM calls, and executes tools.
 
 ```mermaid
 sequenceDiagram
@@ -1831,7 +1612,7 @@ sequenceDiagram
 
     User->>Chat: send message
     Chat->>DC: user_message
-    DC->>Daemon: IPC
+    DC->>Daemon: HTTP
 
     Daemon->>TE: emit(request_received)
     TE-->>DC: trace_event (request_received)
@@ -1896,9 +1677,9 @@ Events emitted during a session lifecycle:
 
 ### Architecture
 
-- **TraceEmitter** (daemon, per-session): Constructed with a `sessionId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` IPC message to the connected client.
+- **TraceEmitter** (daemon, per-session): Constructed with a `sessionId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
 - **ToolTraceListener** (daemon): Subscribes to the session's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
-- **DaemonClient** (Swift, shared): Decodes `trace_event` IPC messages into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
+- **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
 - **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by session and requestId, and enforces a retention cap of 5,000 events per session. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
 
@@ -1908,7 +1689,7 @@ Events emitted during a session lifecycle:
 
 ## Assistant Events — SSE Transport Layer
 
-The assistant-events system provides a single, shared publish path that fans out to both the Unix socket IPC layer (native clients) and an HTTP SSE endpoint (web/remote clients). There is no separate message schema for SSE — the `ServerMessage` payload is wrapped in an `AssistantEvent` envelope and serialised as JSON.
+The assistant-events system provides a single, shared publish path that fans out to all connected clients via HTTP SSE. The `ServerMessage` payload is wrapped in an `AssistantEvent` envelope and serialised as JSON.
 
 ### Data Flow
 
@@ -1916,7 +1697,7 @@ The assistant-events system provides a single, shared publish path that fans out
 graph TB
     subgraph "Event Sources"
         direction TB
-        IPC_DAEMON["Daemon IPC send paths<br/>(daemon/server.ts)"]
+        SESSION["Session process<br/>(session-process.ts)"]
         HTTP_RUN["HTTP Run path<br/>(run-orchestrator.ts)"]
     end
 
@@ -1924,9 +1705,8 @@ graph TB
         HUB["AssistantEventHub<br/>(assistant-event-hub.ts)<br/>──────────────────────<br/>maxSubscribers: 100<br/>FIFO eviction on overflow<br/>Synchronous fan-out"]
     end
 
-    subgraph "Transports"
+    subgraph "SSE Transport"
         SSE_ROUTE["SSE Route<br/>GET /v1/events?conversationKey=...<br/>(events-routes.ts)<br/>──────────────────────<br/>ReadableStream + CountQueuingStrategy(16)<br/>Heartbeat every 30 s<br/>Slow-consumer shed"]
-        SOCK["Unix Socket<br/>(daemon/session-surfaces.ts)"]
     end
 
     subgraph "Clients"
@@ -1935,13 +1715,12 @@ graph TB
         WEB["Web / Remote clients<br/>(EventSource / fetch)"]
     end
 
-    IPC_DAEMON -->|"buildAssistantEvent()"| HUB
+    SESSION -->|"buildAssistantEvent()"| HUB
     HTTP_RUN -->|"buildAssistantEvent()"| HUB
-    IPC_DAEMON --> SOCK
 
     HUB -->|"subscriber callback"| SSE_ROUTE
 
-    SOCK --> MACOS
+    SSE_ROUTE --> MACOS
     SSE_ROUTE --> IOS
     SSE_ROUTE --> WEB
 ```
@@ -1956,7 +1735,7 @@ Every event published through the hub is wrapped in an `AssistantEvent` (defined
 | `assistantId` | `string`            | Logical assistant identifier (`"self"` for HTTP runs) |
 | `sessionId`   | `string?`           | Resolved conversation ID when available               |
 | `emittedAt`   | `string` (ISO-8601) | Server-side timestamp                                 |
-| `message`     | `ServerMessage`     | Unchanged IPC outbound message — no schema fork       |
+| `message`     | `ServerMessage`     | The outbound message payload                          |
 
 ### SSE Frame Format
 
@@ -1986,12 +1765,12 @@ Keep-alive heartbeats (every 30 s by default):
 
 ### Key Source Files
 
-| File                                            | Role                                                                                |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers         |
-| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                               |
-| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                              |
-| `assistant/src/daemon/server.ts`                | IPC send/broadcast paths that publish to the hub (`send` → `publishAssistantEvent`) |
+| File                                            | Role                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers    |
+| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                          |
+| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                         |
+| `assistant/src/daemon/server.ts`                | Session event paths that publish to the hub (`send` → `publishAssistantEvent`) |
 
 ---
 
@@ -2002,7 +1781,7 @@ The notification module (`assistant/src/notifications/`) uses a signal-based arc
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_thread_created IPC
+                                                      Preference Summary                                    notification_thread_created SSE event
                                                       Thread Candidates                                     (creation-only — not emitted on reuse)
 ```
 
@@ -2037,23 +1816,23 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 
 The notification pipeline uses a single conversation materialization path across producers:
 
-1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the thread (message-level anchoring).
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the thread (message-level anchoring).
 2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback — there is no separate thread-creation path.
 
-### Thread Surfacing via `notification_thread_created` IPC (Creation-Only)
+### Thread Surfacing via `notification_thread_created` (Creation-Only)
 
-The `notification_thread_created` IPC event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing thread does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
+The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is created** by the broadcaster. Reusing an existing thread does not trigger this event — the macOS/iOS client already knows about the conversation from the original creation. This is enforced in `broadcaster.ts` by gating on `pairing.createdNewConversation === true`.
 
-When a new vellum notification thread is created (strategy `start_new_conversation`), the broadcaster emits the IPC event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the thread to the macOS/iOS client so it can display the notification thread in the sidebar and deep-link to it.
+When a new vellum notification thread is created (strategy `start_new_conversation`), the broadcaster emits the event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the thread to the macOS/iOS client so it can display the notification thread in the sidebar and deep-link to it.
 
-### IPC Thread-Created Events
+### Thread-Created Events
 
-Two IPC push events surface new threads in the macOS/iOS client sidebar:
+Two SSE push events surface new threads in the macOS/iOS client sidebar:
 
 - **`notification_thread_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a thread is reused. Payload: `{ conversationId, title, sourceEventName }`.
 - **`task_run_thread_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
 
-All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the IPC event so the macOS `ThreadManager` can create a visible thread in the sidebar.
+All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ThreadManager` can create a visible thread in the sidebar.
 
 ### Thread Routing Decision Flow
 
@@ -2063,7 +1842,7 @@ The decision engine produces per-channel thread actions using a candidate-driven
 2. **LLM decision**: The candidate set is serialized into the system prompt. The LLM chooses `start_new` or `reuse_existing` (with a candidate `conversationId`) per channel.
 3. **Strict validation** (`validateThreadActions`): Reuse targets must exist in the candidate set. Invalid targets are downgraded to `start_new`.
 4. **Pairing execution**: `pairDeliveryWithConversation` executes the thread action — appending to an existing conversation on reuse, creating a new one otherwise.
-5. **IPC gating**: `notification_thread_created` fires only on actual creation, not on reuse.
+5. **Creation-only gating**: `notification_thread_created` fires only on actual creation, not on reuse.
 6. **Audit trail**: Thread actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`).
 
 ### Guardian Call Thread Affinity
@@ -2093,7 +1872,7 @@ Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `
 
 Notifications are delivered to three channel types:
 
-- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
+- **Vellum (always connected)**: SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
 - **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
 
 Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
@@ -2106,12 +1885,12 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/emit-signal.ts`                               | Single entry point for all producers; orchestrates the full pipeline                                                                  |
 | `assistant/src/notifications/decision-engine.ts`                           | LLM-based routing decisions with deterministic fallback                                                                               |
 | `assistant/src/notifications/deterministic-checks.ts`                      | Hard invariant checks (dedupe, source-active suppression, channel availability)                                                       |
-| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC (creation-only)                                     |
+| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_thread_created` SSE event (creation-only)                               |
 | `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes thread reuse decisions                                                     |
 | `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
-| `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata                                                     |
+| `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via SSE with deep-link metadata                                                     |
 | `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
-| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding)                                                   |
+| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum SSE, Telegram chat ID from guardian binding)                                                   |
 | `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
 | `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
 | `assistant/src/notifications/preferences-store.ts`                         | CRUD for user notification preferences                                                                                                |
@@ -2148,7 +1927,6 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Trace events                                 | In-memory (TraceStore)                                            | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                           |
 | Media embed settings                         | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`)              | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                                  |
 | Media embed MIME cache                       | In-memory (`ImageMIMEProbe`)                                      | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                          |
-| IPC blob payloads                            | `~/.vellum/workspace/data/ipc-blobs/`                             | Binary files (UUID names)           | File I/O (atomic write)            | Ephemeral; consumed on hydration, stale sweep every 5min   |
 | Tasks & task runs                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                                  |
 | Work items (Task Queue)                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                         |
 | Recurrence schedules & runs                  | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax                  |
@@ -2167,7 +1945,6 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Notification decisions                       | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                       |
 | Notification deliveries                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                    |
 | Notification preferences                     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences        |
-| IPC transport                                | `~/.vellum/vellum.sock`                                           | Unix domain socket                  | NWConnection (Swift) / Bun net     | Ephemeral                                                  |
 
 ### Sensitive Tool Output Placeholder Substitution
 

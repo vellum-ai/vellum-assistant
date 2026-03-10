@@ -1,5 +1,46 @@
 import Foundation
 
+/// Actor that wraps `MessageURLExtractor.extractAllURLs(from:)` with an
+/// in-memory cache, moving the expensive `NSDataDetector` work off
+/// the main thread via actor isolation.
+///
+/// Backed by `NSCache`, which automatically evicts entries under memory
+/// pressure — no manual LRU bookkeeping required.
+public actor URLExtractionCache {
+    public static let shared = URLExtractionCache()
+
+    /// Wraps `[URL]` so it can be stored in `NSCache`.
+    private class CacheEntry: NSObject {
+        let urls: [URL]
+        init(_ urls: [URL]) {
+            self.urls = urls
+        }
+    }
+
+    private let cache = NSCache<NSString, CacheEntry>()
+
+    private init() {
+        cache.countLimit = 500
+    }
+
+    public func extractAllURLs(from text: String) -> [URL] {
+        let key = text as NSString
+
+        if let cached = cache.object(forKey: key) {
+            return cached.urls
+        }
+
+        let result = MessageURLExtractor.extractAllURLs(from: text)
+        cache.setObject(CacheEntry(result), forKey: key)
+        return result
+    }
+
+    /// Removes all cached entries.
+    public func clearCache() {
+        cache.removeAllObjects()
+    }
+}
+
 /// Extracts plain `http` / `https` URLs from message text.
 ///
 /// This is the first stage of the media-embed pipeline: deterministic,
