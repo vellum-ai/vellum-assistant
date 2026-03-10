@@ -60,88 +60,26 @@ describe("stripMediaPayloadsForRetry", () => {
     ).toContain("Image omitted");
   });
 
-  test("keeps images in summary message when it is the only user message", () => {
-    // This is the bug scenario: forced compaction with minKeepRecentUserTurns: 0
-    // compacts everything, preserving images into the summary message. Media
-    // stubbing should NOT strip those images since there's no other user message.
-    const img = makeImageBlock();
-    const summaryMsg = createContextSummaryMessage(
-      "Prior conversation summary",
-    );
-    summaryMsg.content.push(
-      {
-        type: "text",
-        text: "[The following images were uploaded by the user in earlier messages and are preserved for reference.]",
-      },
-      img,
-    );
-
-    const messages: Message[] = [summaryMsg];
-
-    const result = stripMediaPayloadsForRetry(messages);
-    expect(result.modified).toBe(false);
-    expect(result.replacedBlocks).toBe(0);
-    // The image should still be present
-    const imageBlocks = result.messages[0].content.filter(
-      (b) => b.type === "image",
-    );
-    expect(imageBlocks.length).toBe(1);
-  });
-
-  test("keeps images in summary message when only other user messages are tool-result-only", () => {
-    const img = makeImageBlock();
-    const summaryMsg = createContextSummaryMessage("Summary");
-    summaryMsg.content.push(img);
-
-    const toolResultMsg: Message = {
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          tool_use_id: "tool-1",
-          content: "result text",
-        },
-      ],
-    };
-
+  test("strips images from older user turns, keeps images in latest kept turn", () => {
+    // After compaction, images only exist in kept turns (not in summary messages).
+    // Media retry should keep images in the latest user message and strip older ones.
     const messages: Message[] = [
-      summaryMsg,
-      makeAssistantMessage({ type: "text", text: "ok" }),
-      toolResultMsg,
-    ];
-
-    const result = stripMediaPayloadsForRetry(messages);
-    expect(result.modified).toBe(false);
-    expect(result.replacedBlocks).toBe(0);
-  });
-
-  test("prefers non-summary user message over summary when both exist", () => {
-    const summaryImg = makeImageBlock("BBBB");
-    const summaryMsg = createContextSummaryMessage("Summary");
-    summaryMsg.content.push(summaryImg);
-
-    const userImg = makeImageBlock("CCCC");
-    const userMsg = makeUserMessage({ type: "text", text: "latest" }, userImg);
-
-    const messages: Message[] = [
-      summaryMsg,
+      createContextSummaryMessage("Summary"),
+      makeUserMessage({ type: "text", text: "older kept turn" }, makeImageBlock("AAAA")),
       makeAssistantMessage({ type: "text", text: "response" }),
-      userMsg,
+      makeUserMessage({ type: "text", text: "latest kept turn" }, makeImageBlock("BBBB")),
     ];
 
     const result = stripMediaPayloadsForRetry(messages);
-    // Summary image should be stripped, user image should be kept
     expect(result.modified).toBe(true);
     expect(result.replacedBlocks).toBe(1);
 
-    // Summary message image → stubbed
-    const summaryBlocks = result.messages[0].content;
-    const summaryImageBlocks = summaryBlocks.filter((b) => b.type === "image");
-    expect(summaryImageBlocks.length).toBe(0);
+    // Older kept turn image → stubbed
+    const olderBlocks = result.messages[1].content;
+    expect(olderBlocks.filter((b) => b.type === "image").length).toBe(0);
 
-    // Latest user message image → kept
-    const userBlocks = result.messages[2].content;
-    const userImageBlocks = userBlocks.filter((b) => b.type === "image");
-    expect(userImageBlocks.length).toBe(1);
+    // Latest kept turn image → kept
+    const latestBlocks = result.messages[3].content;
+    expect(latestBlocks.filter((b) => b.type === "image").length).toBe(1);
   });
 });

@@ -94,7 +94,7 @@ struct MainWindowView: View {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
     }
 
-    private func toggleVoiceMode() {
+    func toggleVoiceMode() {
         if voiceModeManager.state != .off {
             voiceModeManager.deactivate()
         } else {
@@ -406,17 +406,6 @@ struct MainWindowView: View {
                 windowState.selection = .panel(.settings)
             }
             if windowState.isConversationVisible {
-                // Voice mode toggle
-                VIconButton(
-                    label: "Voice Mode",
-                    icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
-                    isActive: voiceModeManager.state != .off,
-                    iconOnly: true,
-                    tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
-                ) {
-                    toggleVoiceMode()
-                }
-
                 // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
                 // only visible on normal threads when no messages exist yet
                 if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
@@ -728,6 +717,33 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
             guard let appId = notification.userInfo?["appId"] as? String else { return }
             bundleAndShare(appId: appId)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pinApp)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            appListManager.pinApp(id: appId)
+            NotificationCenter.default.post(
+                name: Notification.Name("MainWindow.appPinStateChanged"),
+                object: nil,
+                userInfo: ["appId": appId, "isPinned": true]
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .unpinApp)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            appListManager.unpinApp(id: appId)
+            NotificationCenter.default.post(
+                name: Notification.Name("MainWindow.appPinStateChanged"),
+                object: nil,
+                userInfo: ["appId": appId, "isPinned": false]
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .queryAppPinState)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            let pinned = appListManager.apps.first(where: { $0.id == appId })?.isPinned ?? false
+            NotificationCenter.default.post(
+                name: Notification.Name("MainWindow.appPinStateChanged"),
+                object: nil,
+                userInfo: ["appId": appId, "isPinned": pinned]
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
             guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }

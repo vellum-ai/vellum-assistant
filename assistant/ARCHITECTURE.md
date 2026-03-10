@@ -801,7 +801,6 @@ The daemon emits two distinct error message types via SSE:
 | `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes       |
 | `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                    | Yes       |
 | `PROVIDER_API`              | Provider returned a server error (5xx)                              | Yes       |
-| `QUEUE_FULL`                | The message queue is full                                           | Yes       |
 | `SESSION_ABORTED`           | Non-user abort interrupted the request                              | Yes       |
 | `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                        | No        |
 | `REGENERATE_FAILED`         | Failed to regenerate a previous response                            | Yes       |
@@ -813,7 +812,7 @@ The daemon classifies errors via `classifySessionError()` in `session-error.ts`.
 Classification uses a two-tier strategy:
 
 1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (not retryable).
-2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle queue and regeneration contexts.
+2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle regeneration contexts.
 
 Debug details are capped at 4,000 characters to prevent oversized payloads.
 

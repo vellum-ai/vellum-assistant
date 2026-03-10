@@ -434,7 +434,7 @@ async function handleDiagnosticsExport(body: {
         "Diagnostics export completed via HTTP",
       );
 
-      return Response.json({ ok: true, filePath: zipPath });
+      return Response.json({ success: true, filePath: zipPath });
     } finally {
       try {
         rmSync(tempDir, { recursive: true, force: true });

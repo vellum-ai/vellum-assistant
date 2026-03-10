@@ -30,6 +30,7 @@ struct AssistantProgressView: View {
     let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
@@ -89,10 +90,6 @@ struct AssistantProgressView: View {
 
     private var currentCall: ToolCallData? {
         toolCalls.first(where: { !$0.isComplete })
-    }
-
-    private var completedCount: Int {
-        toolCalls.filter(\.isComplete).count
     }
 
     /// Single source of truth for denied state — used for both `.denied` phase gating
@@ -180,7 +177,7 @@ struct AssistantProgressView: View {
                     .padding(.bottom, VSpacing.xs)
             }
         }
-        .background(VColor.surface.opacity(0.5))
+        .background(colorScheme == .light ? Moss._50 : VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
@@ -296,7 +293,7 @@ struct AssistantProgressView: View {
                 processingLabel
             } else {
                 Text(headlineText)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
             }
@@ -322,7 +319,7 @@ struct AssistantProgressView: View {
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
-                    .font(VFont.bodyMedium)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
@@ -397,7 +394,7 @@ struct AssistantProgressView: View {
             let overflow = resolved.count - visible.count
 
             ForEach(Array(visible.enumerated()), id: \.offset) { _, confirmation in
-                compactPermissionChip(confirmation)
+                CompactPermissionChip(state: confirmation.state, label: confirmation.toolCategory)
             }
 
             // +N overflow badge with popover
@@ -423,7 +420,7 @@ struct AssistantProgressView: View {
                 .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(Array(resolved.dropFirst(2).enumerated()), id: \.offset) { _, confirmation in
-                            compactPermissionChip(confirmation)
+                            CompactPermissionChip(state: confirmation.state, label: confirmation.toolCategory)
                         }
                     }
                     .padding(VSpacing.sm)
@@ -432,42 +429,6 @@ struct AssistantProgressView: View {
         }
     }
 
-    private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
-        let isApproved = confirmation.state == .approved
-        let isDenied = confirmation.state == .denied
-        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
-
-        return HStack(spacing: VSpacing.xxs) {
-            Group {
-                switch confirmation.state {
-                case .approved:
-                    VIconView(.circleCheck, size: 10)
-                        .foregroundColor(chipColor)
-                case .denied:
-                    VIconView(.circleAlert, size: 10)
-                        .foregroundColor(chipColor)
-                case .timedOut:
-                    VIconView(.clock, size: 10)
-                        .foregroundColor(chipColor)
-                default:
-                    EmptyView()
-                }
-            }
-
-            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
-                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
-                .font(VFont.small)
-                .foregroundColor(chipColor)
-        }
-        .padding(.horizontal, VSpacing.xs)
-        .padding(.vertical, VSpacing.xxs)
-        .background(
-            Capsule().fill(Color.clear)
-        )
-        .overlay(
-            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
-        )
-    }
 }
 
 // MARK: - Step Detail Row
@@ -543,7 +504,7 @@ private struct StepDetailRow: View {
                                 }
                                 return toolCall.actionDescription
                             }())
-                                .font(VFont.bodyMedium)
+                                .font(VFont.caption)
                                 .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -558,7 +519,7 @@ private struct StepDetailRow: View {
                                     buildingStatus: toolCall.buildingStatus
                                 )
                             }())
-                            .font(VFont.bodyMedium)
+                            .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -573,7 +534,7 @@ private struct StepDetailRow: View {
                                     buildingStatus: toolCall.buildingStatus
                                 )
                             }())
-                            .font(VFont.bodyMedium)
+                            .font(VFont.caption)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -585,7 +546,7 @@ private struct StepDetailRow: View {
                     // Permission badge + duration + chevron (completed only)
                     HStack(spacing: VSpacing.xs) {
                         if let decision = toolCall.confirmationDecision {
-                            compactPermissionChip(
+                            CompactPermissionChip(
                                 state: decision,
                                 label: toolCall.confirmationLabel ?? toolCall.friendlyName
                             )
@@ -608,13 +569,15 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.leading, VSpacing.sm)
+            .padding(.trailing, VSpacing.xs)
+            .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
             )
-            .padding(.horizontal, VSpacing.sm)
+            .padding(.leading, VSpacing.sm)
+            .padding(.trailing, VSpacing.xs)
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -842,13 +805,26 @@ private struct StepDetailRow: View {
             : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
     }
 
-    /// Renders a compact permission chip from a confirmation state + label.
-    private func compactPermissionChip(state: ToolConfirmationState, label: String) -> some View {
-        let isApproved = state == .approved
-        let isDenied = state == .denied
-        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+}
 
-        return HStack(spacing: VSpacing.xxs) {
+// MARK: - Compact Permission Chip
+
+/// Shared permission chip used in both the collapsed header (inline chips)
+/// and expanded step detail rows (per-tool-call badge).
+private struct CompactPermissionChip: View {
+    let state: ToolConfirmationState
+    let label: String
+
+    private var chipColor: Color {
+        switch state {
+        case .approved: VColor.iconAccent
+        case .denied: VColor.error
+        default: VColor.textMuted
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: VSpacing.xxs) {
             Group {
                 switch state {
                 case .approved:
@@ -865,8 +841,7 @@ private struct StepDetailRow: View {
                 }
             }
 
-            Text(isApproved ? "\(label) Allowed" :
-                 isDenied ? "\(label) Denied" : "Timed Out")
+            Text(state == .approved || state == .denied ? label : "Timed Out")
                 .font(VFont.small)
                 .foregroundColor(chipColor)
         }

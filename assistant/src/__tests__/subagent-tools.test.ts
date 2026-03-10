@@ -91,7 +91,7 @@ function injectSubagent(
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    enqueueMessage: () => ({ queued: false, rejected: false }),
+    enqueueMessage: () => ({ queued: false }),
     persistUserMessage: () => "msg-1",
     runAgentLoop: async () => {},
   };

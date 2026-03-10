@@ -1,24 +1,21 @@
 /**
- * Type the value of an environment variable into the focused input field.
+ * Type the value of an environment variable into an input field.
  *
  * This tool resolves an environment variable at runtime and types its value
- * via AppleScript keystroke, without ever exposing the secret value in the
- * tool result or conversation context. Use this when a test step requires
- * entering a secret (e.g., an API key).
+ * without ever exposing the secret value in the tool result or conversation
+ * context. Supports clicking an element by ID to focus it before typing.
  */
-
-import { execSync } from "child_process";
-import { writeFileSync } from "fs";
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
 
+import { runAXHelper } from "./ax-helper";
 import type { ToolContext, ToolHandlerResult } from "./types";
 
 export const definition: Anthropic.Tool = {
   name: "type_env_var",
   description:
-    "Type the value of an environment variable into the currently focused input field using AppleScript keystroke. The secret value is never returned in the tool result. Use this for entering API keys or other secrets.",
+    "Type the value of an environment variable into an input field. The secret value is never returned in the tool result. Optionally accepts an element_id to click-to-focus before typing.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -27,13 +24,13 @@ export const definition: Anthropic.Tool = {
         description:
           "The name of the environment variable to type (e.g., ANTHROPIC_API_KEY)",
       },
-      process_name: {
-        type: "string",
+      element_id: {
+        type: "integer",
         description:
-          "The name of the macOS process to type into (e.g., Vellum)",
+          "Optional element ID (from query_elements) to click before typing. If provided, the element is clicked to focus it first.",
       },
     },
-    required: ["env_var", "process_name"],
+    required: ["env_var"],
   },
 };
 
@@ -43,10 +40,9 @@ export async function execute(
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
   const envVar = input.env_var as string;
-  const processName = input.process_name as string;
-  const value = process.env[envVar] ?? "";
+  const elementId = input.element_id as number | undefined;
 
-  if (!value) {
+  if (!process.env[envVar]) {
     return {
       result: {
         success: false,
@@ -55,91 +51,13 @@ export async function execute(
     };
   }
 
-  // Guard: only allow typing env var values into password or secret input
-  // fields to prevent accidental exposure of sensitive values.
-  // Uses macOS Accessibility (System Events) to check the focused UI element's
-  // role — "AXSecureTextField" corresponds to password/secret inputs.
-  //
-  // NOTE: `focused UI element` is a problematic AppleScript construct that
-  // causes compilation errors on some macOS versions. We use the AXFocusedUIElement
-  // attribute instead, and check across all windows since the popup may not be window 1.
-  const checkScript = `
-tell application "System Events"
-  tell process "${processName}"
-    try
-      -- Check each window for a focused element (popup may not be window 1)
-      repeat with w in windows
-        try
-          set focusedEl to value of attribute "AXFocusedUIElement" of w
-          if focusedEl is not missing value then
-            set elRole to value of attribute "AXRole" of focusedEl
-            return elRole
-          end if
-        end try
-      end repeat
-      return "unknown"
-    on error
-      return "unknown"
-    end try
-  end tell
-end tell
-`;
-  const checkPath = `/tmp/pw-agent-check-secret-w${context.workerIndex}.scpt`;
-  try {
-    writeFileSync(checkPath, checkScript, "utf-8");
-    const role = execSync(`osascript ${checkPath}`, {
-      encoding: "utf-8",
-      timeout: 10_000,
-    }).trim();
-
-    if (role !== "AXSecureTextField" && role !== "AXTextField") {
-      return {
-        result: {
-          success: false,
-          data: `Cannot type environment variable ${envVar}: the focused element is not a text input field (role: ${role}). Use fill_secure_credential instead for Secure Credential popups.`,
-        },
-      };
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      result: {
-        success: false,
-        data: `Cannot verify focused element is a secret input: ${message}`,
-      },
-    };
+  const args: string[] = ["--env-var", envVar];
+  if (elementId !== undefined) {
+    args.push("--id", String(elementId));
   }
 
-  const script = `
-tell application "System Events"
-  tell process "${processName}"
-    set frontmost to true
-    delay 0.5
-    keystroke "${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"
-  end tell
-end tell
-`;
-
-  const scriptPath = `/tmp/pw-agent-type-env-var-w${context.workerIndex}.scpt`;
-  try {
-    writeFileSync(scriptPath, script, "utf-8");
-    execSync(`osascript ${scriptPath}`, {
-      encoding: "utf-8",
-      timeout: 30_000,
-    });
-    return {
-      result: {
-        success: true,
-        data: `Typed the value of ${envVar} into ${processName}`,
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      result: {
-        success: false,
-        data: `Failed to type env var: ${message}`,
-      },
-    };
-  }
+  const result = runAXHelper("type-env", args, context);
+  return {
+    result: { success: result.success, data: result.data },
+  };
 }

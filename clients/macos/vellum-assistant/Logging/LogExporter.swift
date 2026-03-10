@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import os
+@preconcurrency import Sentry
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
@@ -47,6 +48,46 @@ enum LogExporter {
                 alert.alertStyle = .warning
                 alert.runModal()
             }
+        }
+    }
+
+    /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
+    static func sendLogsToSentry() {
+        Task {
+            let fileManager = FileManager.default
+            let archiveURL = fileManager.temporaryDirectory
+                .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
+
+            do {
+                try await buildArchive(destination: archiveURL)
+            } catch {
+                log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
+                let alert = NSAlert()
+                alert.messageText = "Send Failed"
+                alert.informativeText = "Could not collect logs: \(error.localizedDescription)"
+                alert.alertStyle = .warning
+                alert.runModal()
+                return
+            }
+
+            let archiveName = defaultArchiveName()
+            let attachment = Attachment(path: archiveURL.path, filename: archiveName)
+            let event = Event(level: .info)
+            event.message = SentryMessage(formatted: "Manual log export")
+            event.tags = ["source": "manual_log_export"]
+
+            await withCheckedContinuation { continuation in
+                MetricKitManager.sendManualReport(event, attachments: [attachment]) {
+                    try? FileManager.default.removeItem(at: archiveURL)
+                    continuation.resume()
+                }
+            }
+
+            let alert = NSAlert()
+            alert.messageText = "Logs Sent"
+            alert.informativeText = "Log archive has been uploaded to Vellum."
+            alert.alertStyle = .informational
+            alert.runModal()
         }
     }
 

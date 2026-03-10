@@ -388,6 +388,12 @@ extension MainWindowView {
                 onEndVoiceMode: {
                     voiceModeManager.deactivate()
                 },
+                onDictateToggle: {
+                    AppDelegate.shared?.voiceInput?.toggleRecording(origin: .chatComposer)
+                },
+                onVoiceModeToggle: {
+                    toggleVoiceMode()
+                },
                 threadId: threadManager.activeThreadId,
                 anchorMessageId: $threadManager.pendingAnchorMessageId
             )
@@ -586,6 +592,8 @@ struct ActiveChatViewWrapper: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
     var threadId: UUID?
     @Binding var anchorMessageId: UUID?
 
@@ -708,6 +716,9 @@ struct ActiveChatViewWrapper: View {
             voiceModeManager: voiceModeManager,
             voiceService: voiceService,
             onEndVoiceMode: onEndVoiceMode,
+            recordingAmplitude: viewModel.recordingAmplitude,
+            onDictateToggle: onDictateToggle,
+            onVoiceModeToggle: onVoiceModeToggle,
             threadId: threadId,
             anchorMessageId: $anchorMessageId,
             displayedMessageCount: viewModel.displayedMessageCount,

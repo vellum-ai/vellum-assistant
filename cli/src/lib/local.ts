@@ -1046,4 +1046,7 @@ export async function stopLocalProcesses(
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
+
+  const ngrokPidFile = join(vellumDir, "ngrok.pid");
+  await stopProcessByPidFile(ngrokPidFile, "ngrok");
 }

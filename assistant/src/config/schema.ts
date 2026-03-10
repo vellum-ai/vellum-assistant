@@ -274,11 +274,6 @@ export const AssistantConfigSchema = z
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
       .default(16000),
-    maxToolUseTurns: z
-      .number({ error: "maxToolUseTurns must be a number" })
-      .int("maxToolUseTurns must be an integer")
-      .nonnegative("maxToolUseTurns must be a non-negative integer")
-      .default(40),
     effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
@@ -334,16 +329,16 @@ export const AssistantConfigSchema = z
   })
   .superRefine((config, ctx) => {
     if (
-      config.contextWindow?.targetInputTokens != null &&
-      config.contextWindow?.maxInputTokens != null &&
-      config.contextWindow.targetInputTokens >=
-        config.contextWindow.maxInputTokens
+      config.contextWindow?.targetBudgetRatio != null &&
+      config.contextWindow?.compactThreshold != null &&
+      config.contextWindow.targetBudgetRatio >=
+        config.contextWindow.compactThreshold
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetInputTokens"],
+        path: ["contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens",
+          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
       });
     }
     const segmentation = config.memory?.segmentation;

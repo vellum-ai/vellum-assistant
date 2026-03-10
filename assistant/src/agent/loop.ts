@@ -27,7 +27,6 @@ export interface AgentLoopConfig {
     | { type: "auto" }
     | { type: "any" }
     | { type: "tool"; name: string };
-  maxToolUseTurns?: number;
   /** Minimum interval (ms) between consecutive LLM calls to prevent spin when tools return instantly */
   minTurnIntervalMs?: number;
 }
@@ -82,18 +81,12 @@ export type AgentEvent =
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
   effort: "high",
-  maxToolUseTurns: 40,
   minTurnIntervalMs: 150,
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
 const PROGRESS_CHECK_REMINDER =
   "You have been using tools for several turns. Check whether you are making meaningful progress toward the user's goal. If you are stuck in a loop or not making progress, summarize what you have tried and ask the user for guidance instead of continuing.";
-
-// Warn the model N turns before the hard limit so it can wrap up gracefully
-const APPROACHING_LIMIT_OFFSET = 5;
-const APPROACHING_LIMIT_WARNING =
-  "You are approaching the tool-use turn limit. You have {remaining} turns remaining. Wrap up your current task — summarize progress and present results to the user. If you cannot finish, explain what remains and ask the user how to proceed.";
 
 export interface ResolvedSystemPrompt {
   systemPrompt: string;
@@ -627,32 +620,7 @@ export class AgentLoop {
 
         // Track tool-use turns and inject progress reminder every N turns
         toolUseTurns++;
-        if (
-          this.config.maxToolUseTurns &&
-          this.config.maxToolUseTurns > 0 &&
-          toolUseTurns >= this.config.maxToolUseTurns
-        ) {
-          const limitMessage = `Tool-use turn limit reached (${this.config.maxToolUseTurns}). Stopping to prevent runaway loops; ask the user for guidance.`;
-          onEvent({ type: "error", error: new Error(limitMessage) });
-          resultBlocks.push({
-            type: "text",
-            text: `<system_notice>${limitMessage}</system_notice>`,
-          });
-          history.push({ role: "user", content: resultBlocks });
-          break;
-        }
-        // Soft warning a few turns before the hard limit
-        const softLimit =
-          (this.config.maxToolUseTurns ?? 0) - APPROACHING_LIMIT_OFFSET;
-        if (softLimit > 0 && toolUseTurns === softLimit) {
-          resultBlocks.push({
-            type: "text",
-            text: `<system_notice>${APPROACHING_LIMIT_WARNING.replace(
-              "{remaining}",
-              String(APPROACHING_LIMIT_OFFSET),
-            )}</system_notice>`,
-          });
-        } else if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
+        if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
           resultBlocks.push({
             type: "text",
             text: `<system_notice>${PROGRESS_CHECK_REMINDER}</system_notice>`,

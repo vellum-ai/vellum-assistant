@@ -24,6 +24,10 @@ struct WakeUpStepView: View {
     @State private var showSubtext = false
     @State private var showButtons = false
 
+    private var primaryButtonTitle: String {
+        onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -46,7 +50,17 @@ struct WakeUpStepView: View {
 
         // Buttons
         VStack(spacing: VSpacing.sm) {
-            if authManager?.isSubmitting == true {
+            if authManager?.isLoading == true {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                    Text("Checking...")
+                        .font(VFont.monoMedium)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(height: 36)
+            } else if authManager?.isSubmitting == true {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -57,7 +71,7 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else {
-                OnboardingButton(title: "Sign in", style: .primary) {
+                OnboardingButton(title: primaryButtonTitle, style: .primary) {
                     onContinueWithVellum()
                 }
                 .accessibilityLabel("Sign in")

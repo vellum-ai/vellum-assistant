@@ -171,6 +171,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       'Rename stored "voice" channel values to "phone" across all tables with channel text columns',
   },
+  {
+    key: "migration_drop_accounts_table_v1",
+    version: 25,
+    description:
+      "Drop the unused legacy accounts table and its leftover indexes after account_manage removal",
+  },
 ];
 
 export interface MigrationValidationResult {

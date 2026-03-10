@@ -141,14 +141,6 @@ export async function runDaemon(): Promise<void> {
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Mint a CLI edge token (JWT) so the CLI can authenticate with the
-    // gateway. Written early so the CLI doesn't time out polling.
-    const httpTokenPath = join(getRootDir(), "http-token");
-    const bearerToken = mintCliEdgeToken();
-    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-    chmodSync(httpTokenPath, 0o600);
-    log.info("Daemon startup: bearer token written");
-
     log.info("Daemon startup: migrations complete");
 
     seedInterfaceFiles();
@@ -168,13 +160,29 @@ export async function runDaemon(): Promise<void> {
     initializeDb();
     log.info("Daemon startup: DB initialized");
 
-    // Backfill vellum guardian binding for existing installations
+    // Ensure a vellum guardian binding exists and mint the CLI edge token
+    // as an actor token bound to the guardian principal.
+    let guardianPrincipalId: string | undefined;
     try {
-      ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
+      guardianPrincipalId = ensureVellumGuardianBinding(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+      );
     } catch (err) {
       log.warn(
         { err },
         "Vellum guardian binding backfill failed — continuing startup",
+      );
+    }
+
+    if (guardianPrincipalId) {
+      const httpTokenPath = join(getRootDir(), "http-token");
+      const bearerToken = mintCliEdgeToken(guardianPrincipalId);
+      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+      chmodSync(httpTokenPath, 0o600);
+      log.info("Daemon startup: CLI edge token written");
+    } else {
+      log.warn(
+        "No guardian principal available — CLI edge token not written",
       );
     }
 

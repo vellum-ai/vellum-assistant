@@ -373,18 +373,14 @@ Examples:
     .option("--json", "Machine-readable JSON output")
     .action(async (opts: { json?: boolean }) => {
       try {
-        const catalog = await fetchCatalog();
-
-        // In dev mode, merge in skills from the repo-local skills/ directory
+        // In dev mode, use the local catalog as the source of truth
+        // and skip the remote Platform API entirely.
         const repoSkillsDir = getRepoSkillsDir();
+        let catalog: CatalogSkill[];
         if (repoSkillsDir) {
-          const localSkills = readLocalCatalog(repoSkillsDir);
-          const remoteIds = new Set(catalog.map((s) => s.id));
-          for (const local of localSkills) {
-            if (!remoteIds.has(local.id)) {
-              catalog.push(local);
-            }
-          }
+          catalog = readLocalCatalog(repoSkillsDir);
+        } else {
+          catalog = await fetchCatalog();
         }
 
         if (opts.json) {

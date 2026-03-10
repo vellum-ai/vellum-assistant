@@ -380,7 +380,7 @@ export class SubagentManager {
   async sendMessage(
     subagentId: string,
     content: string,
-  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "queue_full"> {
+  ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
     const trimmed = content?.trim();
     if (!trimmed) return "empty";
 
@@ -398,7 +398,6 @@ export class SubagentManager {
       onEvent,
       requestId,
     );
-    if (result.rejected) return "queue_full";
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = await managed.session.persistUserMessage(trimmed, []);

@@ -18,18 +18,8 @@ struct HatchingStepView: View {
     @State private var hatchStartTime: Date?
     @State private var elapsedTime: TimeInterval = 0
     @State private var elapsedTimer: Timer?
-    @State private var progressMessageIndex: Int = 0
-    @State private var progressMessageTimer: Timer?
-    @State private var showTimeEstimate = false
     @State private var cliFinished = false
     @State private var failureReason: String?
-
-    private static let progressMessages = [
-        "Getting things ready\u{2026}",
-        "Making things cozy\u{2026}",
-        "Almost there\u{2026}",
-        "Just a moment longer\u{2026}",
-    ]
 
     private var isLocalFlow: Bool {
         state.cloudProvider == "local" || state.cloudProvider.isEmpty
@@ -40,15 +30,6 @@ struct HatchingStepView: View {
         isLocalFlow ? 45.0 : 180.0
     }
 
-    private var timeEstimateText: String {
-        if elapsedTime > expectedDuration * 1.5 {
-            return "Taking a bit longer than usual\u{2026}"
-        }
-        return isLocalFlow
-            ? "This usually takes less than a minute"
-            : "This usually takes a few minutes"
-    }
-
     var body: some View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
@@ -57,11 +38,6 @@ struct HatchingStepView: View {
                 .padding(.bottom, VSpacing.xl)
 
             statusText
-
-            if !state.hatchFailed && !state.hatchCompleted {
-                progressMessageView
-                timeEstimateView
-            }
 
             if state.hatchFailed {
                 failureButtons
@@ -78,13 +54,6 @@ struct HatchingStepView: View {
             startWobble()
             hatchStartTime = Date()
             startElapsedTimer()
-            startProgressMessageRotation()
-            // Fade in time estimate after 2 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                withAnimation(.easeIn(duration: 0.5)) {
-                    showTimeEstimate = true
-                }
-            }
             if !hatchStarted {
                 hatchStarted = true
                 startHatching()
@@ -93,13 +62,11 @@ struct HatchingStepView: View {
         .onDisappear {
             wobbleTimer?.invalidate()
             elapsedTimer?.invalidate()
-            progressMessageTimer?.invalidate()
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
                 wobbleTimer?.invalidate()
                 elapsedTimer?.invalidate()
-                progressMessageTimer?.invalidate()
                 withAnimation(.spring(duration: 0.6, bounce: 0.3)) {
                     eggHatched = true
                 }
@@ -109,7 +76,6 @@ struct HatchingStepView: View {
             if failed {
                 wobbleTimer?.invalidate()
                 elapsedTimer?.invalidate()
-                progressMessageTimer?.invalidate()
             }
         }
     }
@@ -165,32 +131,22 @@ struct HatchingStepView: View {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant has hatched!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
-            } else {
-                Text(isCustomHardware ? "Pairing\u{2026}" : "Hatching\u{2026}")
+            } else if isCustomHardware {
+                Text("Pairing\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
+            } else {
+                Text("Hatching...")
+                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .foregroundColor(VColor.textPrimary)
+                Text("Getting your assistant ready\u{2026}")
+                    .font(.system(size: 14))
+                    .foregroundColor(VColor.textSecondary)
+                Text("Your assistant will ask a few quick questions to get started.\nThis usually takes less than a minute.")
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textMuted)
             }
         }
-    }
-
-    // MARK: - Progress Message
-
-    private var progressMessageView: some View {
-        Text(Self.progressMessages[progressMessageIndex])
-            .font(.system(size: 14))
-            .foregroundColor(VColor.textSecondary)
-            .id(progressMessageIndex)
-            .transition(.opacity)
-            .animation(.easeInOut(duration: 0.6), value: progressMessageIndex)
-    }
-
-    // MARK: - Time Estimate
-
-    private var timeEstimateView: some View {
-        Text(timeEstimateText)
-            .font(.system(size: 13))
-            .foregroundColor(VColor.textMuted)
-            .opacity(showTimeEstimate ? 1 : 0)
     }
 
     // MARK: - Failure Buttons
@@ -234,17 +190,6 @@ struct HatchingStepView: View {
                 // Time-based egg crack: crack at 50% of expected duration
                 if !eggCracked && elapsedTime >= expectedDuration * 0.5 {
                     triggerCrack()
-                }
-            }
-        }
-    }
-
-    private func startProgressMessageRotation() {
-        progressMessageTimer?.invalidate()
-        progressMessageTimer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: true) { _ in
-            Task { @MainActor in
-                withAnimation(.easeInOut(duration: 0.6)) {
-                    progressMessageIndex = (progressMessageIndex + 1) % Self.progressMessages.count
                 }
             }
         }

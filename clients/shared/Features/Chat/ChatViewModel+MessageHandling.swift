@@ -1140,7 +1140,7 @@ extension ChatViewModel {
             flushStreamingBuffer()
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
-            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
+            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" {
                 break
             }
             // Tool chip is now visible — hide the thinking indicator

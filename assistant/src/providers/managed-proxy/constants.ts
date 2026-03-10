@@ -46,6 +46,11 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     managed: true,
     proxyPath: "/v1/runtime-proxy/openrouter",
   },
+  vertex: {
+    name: "vertex",
+    managed: true,
+    proxyPath: "/v1/runtime-proxy/vertex",
+  },
   ollama: { name: "ollama", managed: false },
 };
 

@@ -218,7 +218,6 @@ interface TestSession {
   denyAllPendingConfirmations: () => void;
   enqueueMessage: (...args: unknown[]) => {
     queued: boolean;
-    rejected?: boolean;
     requestId: string;
   };
   traceEmitter: { emit: (...args: unknown[]) => void };

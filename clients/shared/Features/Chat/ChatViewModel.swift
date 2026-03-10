@@ -164,6 +164,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.isRecording }
         set { messageManager.isRecording = newValue }
     }
+    public var recordingAmplitude: Float {
+        get { messageManager.recordingAmplitude }
+        set { messageManager.recordingAmplitude = newValue }
+    }
     public var isWorkspaceRefinementInFlight: Bool {
         get { messageManager.isWorkspaceRefinementInFlight }
         set { messageManager.isWorkspaceRefinementInFlight = newValue }

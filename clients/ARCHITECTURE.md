@@ -653,13 +653,13 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
   "g": "<resolved-gateway-url>",
   "pairingRequestId": "<uuid>",
   "pairingSecret": "<Random Hex Value>",
-  "localLanUrl": "http://<lan-ip>:7830"
+  "localLanUrl": "http://<lan-ip>:7830"  // only present when VELLUM_ENABLE_INSECURE_LAN_PAIRING=1
 }
 ```
 
 **Flow:**
 1. macOS generates a v4 QR code (no bearer token in QR) and pre-registers the pairing request with the daemon via `POST /v1/pairing/register`.
-2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). Tries `localLanUrl` first (3s timeout), falls back to cloud gateway URL (`g`).
+2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). If `localLanUrl` is present (requires `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`), tries it first (3s timeout), then falls back to cloud gateway URL (`g`).
 3. The daemon validates the secret and either auto-approves (if the device is in the allowlist) or sends an SSE event to macOS to show an approval prompt.
 4. macOS shows a floating approval window with three options: Deny, Approve Once, Always Allow.
 5. iOS polls `GET /pairing/status?id=<id>&secret=<secret>` every 2.5s until approved, denied, or expired (5-min TTL).
@@ -700,7 +700,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 
 ### Prerequisites
 
-- A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
+- A gateway URL must be configured (cloud tunnel or LAN). LAN pairing requires setting `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`; when enabled, `localLanUrl` is included in the QR payload.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
 - iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 

@@ -240,6 +240,60 @@ public final class AuthService {
         }
     }
 
+    /// Retrieve a specific managed assistant by ID.
+    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+        let urlString = "\(baseURL)/v1/assistants/\(id)/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET assistants/\(id)/ -> \(statusCode)")
+
+        // 404 = deleted, 403 = access revoked. Both mean this specific
+        // assistant is no longer available to the current user.
+        if statusCode == 404 || statusCode == 403 {
+            return .notFound
+        }
+
+        if statusCode == 401 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            let assistant = try JSONDecoder().decode(PlatformAssistant.self, from: data)
+            return .found(assistant)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     /// Create a new managed assistant via the platform hatch endpoint.
     public func hatchAssistant(
         organizationId: String,

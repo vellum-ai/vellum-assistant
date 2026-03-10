@@ -2,6 +2,8 @@
 import SwiftUI
 
 struct ChatGallerySection: View {
+    @State private var voiceComposerAmplitude: Float = 0.5
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
             // MARK: - Error Banners
@@ -33,6 +35,53 @@ struct ChatGallerySection: View {
                         message: "Your session has expired. Please start a new conversation.",
                         onDismiss: {}
                     )
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - Voice Composer
+            GallerySectionHeader(
+                title: "Voice Composer",
+                description: "VStreamingWaveform in composer context. The composer has three modes: textEntry, dictationInline (with dictation-style waveform), and voiceConversation (with conversation-style waveform)."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    HStack {
+                        Text("Amplitude: \(String(format: "%.2f", voiceComposerAmplitude))")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Slider(value: $voiceComposerAmplitude, in: 0...1, step: 0.05)
+                            .frame(maxWidth: 200)
+                    }
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Conversation style (voice mode)")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                    VStreamingWaveform(
+                        amplitude: voiceComposerAmplitude,
+                        isActive: true,
+                        style: .conversation,
+                        foregroundColor: VColor.accent
+                    )
+                    .frame(width: 120, height: 60)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Dictation style (inline dictation)")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                    VStreamingWaveform(
+                        amplitude: voiceComposerAmplitude,
+                        isActive: true,
+                        style: .dictation,
+                        foregroundColor: VColor.accent
+                    )
+                    .frame(height: 24)
+                    .frame(maxWidth: .infinity)
                 }
             }
 

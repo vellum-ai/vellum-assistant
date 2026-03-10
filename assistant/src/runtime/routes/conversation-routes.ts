@@ -557,11 +557,19 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+  // Desktop, CLI, and web interfaces have an SSE client that can display
+  // permission prompts. Channel interfaces (telegram, slack, etc.) route
+  // approvals through the guardian system and have no interactive prompter UI.
+  const isInteractiveInterface =
+    sourceInterface === "macos" ||
+    sourceInterface === "ios" ||
+    sourceInterface === "cli" ||
+    sourceInterface === "vellum";
   // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
   // resolver, notifiers, trace emitter) can reach the HTTP client.  The
   // IPC socket removal (PR #14431) left sendToClient as a no-op; this
   // restores the delivery path using the SSE hub instead.
-  session.updateClient(onEvent, true);
+  session.updateClient(onEvent, !isInteractiveInterface);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -635,7 +643,7 @@ export async function handleSendMessage(
 
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
-    const result = session.enqueueMessage(
+    session.enqueueMessage(
       content ?? "",
       attachments,
       onEvent,
@@ -648,15 +656,8 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       },
-      { isInteractive: false },
+      { isInteractive: isInteractiveInterface },
     );
-    if (result.rejected) {
-      return httpError(
-        "RATE_LIMITED",
-        "Message queue is full. Please retry later.",
-        429,
-      );
-    }
     return Response.json({ accepted: true, queued: true }, { status: 202 });
   }
 
@@ -677,10 +678,9 @@ export async function handleSendMessage(
   );
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  // Mark non-interactive so conflict clarification doesn't block the turn.
   session
     .runAgentLoop(content ?? "", messageId, onEvent, {
-      isInteractive: false,
+      isInteractive: isInteractiveInterface,
       isUserMessage: true,
     })
     .catch((err) => {

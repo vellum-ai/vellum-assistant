@@ -3,17 +3,473 @@
   "version": 1,
   "skills": [
     {
+      "id": "agentmail",
+      "name": "agentmail",
+      "description": "Run email operations through a provider-agnostic CLI wrapper",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "display-name": "Email CLI Ops",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "amazon",
+      "name": "amazon",
+      "description": "Shop on Amazon and Amazon Fresh using the built-in CLI integration",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📦",
+        "vellum": {
+          "display-name": "Amazon",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "api-mapping",
+      "name": "api-mapping",
+      "description": "Record and analyze API surfaces of web services",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🗺️",
+        "vellum": {
+          "display-name": "API Mapping",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "cli-discover",
+      "name": "cli-discover",
+      "description": "Discover which CLI tools are installed, their versions, and authentication status",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔍",
+        "vellum": {
+          "display-name": "CLI Discovery",
+          "user-invocable": false
+        }
+      }
+    },
+    {
+      "id": "deploy-fullstack-vercel",
+      "name": "deploy-fullstack-vercel",
+      "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🚀",
+        "vellum": {
+          "display-name": "Deploy Fullstack to Vercel"
+        }
+      }
+    },
+    {
+      "id": "document-writer",
+      "name": "document-writer",
+      "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📝",
+        "vellum": {
+          "display-name": "Document Writer",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "elevenlabs-voice",
+      "name": "elevenlabs-voice",
+      "description": "Select and tune an ElevenLabs TTS voice — curated voice list, custom/cloned voices via API key, and tuning parameters",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🗣️",
+        "vellum": {
+          "display-name": "ElevenLabs Voice",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "email-setup",
+      "name": "email-setup",
+      "description": "Create the assistant's own email address via the Vellum hosted API (one-time setup)",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📧",
+        "vellum": {
+          "display-name": "Email Setup",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "frontend-design",
+      "name": "frontend-design",
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🎨"
+      }
+    },
+    {
       "id": "google-oauth-setup",
       "name": "google-oauth-setup",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using CLI tools or guided manual steps",
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
+      "compatibility": "Designed for Vellum personal assistants",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
-          "user-invocable": "true",
+          "display-name": "Google OAuth Setup",
+          "user-invocable": true,
+          "includes": [
+            "browser",
+            "public-ingress"
+          ],
           "credential-setup-for": "gmail"
         }
-      },
-      "compatibility": "Desktop: requires gcloud and gws CLI tools. Channels: requires public ingress for OAuth callback"
+      }
+    },
+    {
+      "id": "guardian-verify-setup",
+      "name": "guardian-verify-setup",
+      "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔐",
+        "vellum": {
+          "display-name": "Guardian Verify Setup",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "influencer",
+      "name": "influencer",
+      "description": "Research influencers on Instagram, TikTok, and X/Twitter using the Chrome extension relay",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔍",
+        "vellum": {
+          "display-name": "Influencer Research",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "macos-automation",
+      "name": "macos-automation",
+      "description": "Automate native macOS apps and system interactions via osascript (AppleScript)",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🍎",
+        "vellum": {
+          "display-name": "macOS Automation",
+          "user-invocable": false,
+          "os": [
+            "darwin"
+          ]
+        }
+      }
+    },
+    {
+      "id": "mcp-setup",
+      "name": "mcp-setup",
+      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔌",
+        "vellum": {
+          "display-name": "MCP Setup",
+          "user-invocable": false
+        }
+      }
+    },
+    {
+      "id": "notion",
+      "name": "notion",
+      "description": "Read and write Notion pages and databases using the Notion API",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📝",
+        "vellum": {
+          "display-name": "Notion",
+          "user-invocable": false
+        }
+      }
+    },
+    {
+      "id": "notion-oauth-setup",
+      "name": "notion-oauth-setup",
+      "description": "Create a Notion integration and OAuth credentials for Notion integration using browser automation",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Notion OAuth Setup",
+          "user-invocable": true,
+          "includes": [
+            "browser",
+            "public-ingress"
+          ]
+        }
+      }
+    },
+    {
+      "id": "oauth-setup",
+      "name": "oauth-setup",
+      "description": "Connect any OAuth service — create app credentials and authorize via browser automation",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "OAuth Setup",
+          "user-invocable": true,
+          "includes": [
+            "browser"
+          ]
+        }
+      }
+    },
+    {
+      "id": "public-ingress",
+      "name": "public-ingress",
+      "description": "Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🌍",
+        "vellum": {
+          "display-name": "Public Ingress",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "restaurant-reservation",
+      "name": "restaurant-reservation",
+      "description": "Book reservations on OpenTable or Resy with explicit confirmations",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🍽️",
+        "vellum": {
+          "display-name": "Restaurant Reservation Booking",
+          "user-invocable": true,
+          "includes": [
+            "browser"
+          ],
+          "disable-model-invocation": true
+        }
+      }
+    },
+    {
+      "id": "screen-recording",
+      "name": "screen-recording",
+      "description": "Record the user's screen as a video file",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🎬",
+        "vellum": {
+          "display-name": "Screen Recording",
+          "os": [
+            "darwin"
+          ]
+        }
+      }
+    },
+    {
+      "id": "self-upgrade",
+      "name": "self-upgrade",
+      "description": "Upgrade vellum to the latest version, restart the assistant, and restart the gateway",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "⬆️",
+        "vellum": {
+          "display-name": "Self Upgrade",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "skills-catalog",
+      "name": "skills-catalog",
+      "description": "Discover bundled skills and search/install community skills from Clawhub",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🧩",
+        "vellum": {
+          "display-name": "Skills Catalog",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "slack-app-setup",
+      "name": "slack-app-setup",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and guardian verification",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "💬",
+        "vellum": {
+          "display-name": "Slack App Setup",
+          "user-invocable": true,
+          "includes": [
+            "guardian-verify-setup"
+          ]
+        }
+      }
+    },
+    {
+      "id": "slack-digest-setup",
+      "name": "slack-digest-setup",
+      "description": "Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery — codifies best practices for high-quality automated summaries",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📊",
+        "vellum": {
+          "display-name": "Slack Digest Setup",
+          "user-invocable": true,
+          "includes": [
+            "slack",
+            "schedule"
+          ]
+        }
+      }
+    },
+    {
+      "id": "slack-oauth-setup",
+      "name": "slack-oauth-setup",
+      "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "display-name": "Slack OAuth Setup",
+          "user-invocable": true,
+          "includes": [
+            "browser"
+          ]
+        }
+      }
+    },
+    {
+      "id": "start-the-day",
+      "name": "start-the-day",
+      "description": "Get a personalized daily briefing with weather, news, and actionable insights",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🌅",
+        "vellum": {
+          "display-name": "Start the Day",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "telegram-setup",
+      "name": "telegram-setup",
+      "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🤖",
+        "vellum": {
+          "display-name": "Telegram Setup",
+          "user-invocable": true,
+          "includes": [
+            "public-ingress"
+          ]
+        }
+      }
+    },
+    {
+      "id": "time-based-actions",
+      "name": "time-based-actions",
+      "description": "Unified routing guide for reminders, schedules, notifications, and tasks — prevents common misrouting",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "⏰",
+        "vellum": {
+          "display-name": "Time-Based Actions"
+        }
+      }
+    },
+    {
+      "id": "twilio-setup",
+      "name": "twilio-setup",
+      "description": "Configure Twilio credentials and phone numbers for voice calls",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "📱",
+        "vellum": {
+          "display-name": "Twilio Setup",
+          "user-invocable": true,
+          "includes": [
+            "public-ingress"
+          ]
+        }
+      }
+    },
+    {
+      "id": "twitter",
+      "name": "twitter",
+      "description": "Read and post on X (formerly Twitter) via OAuth or managed mode",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "𝕏",
+        "vellum": {
+          "display-name": "X",
+          "user-invocable": true
+        }
+      }
+    },
+    {
+      "id": "typescript-eval",
+      "name": "typescript-eval",
+      "description": "Test TypeScript code snippets before persisting as skills",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🧪",
+        "vellum": {
+          "display-name": "TypeScript Evaluation",
+          "user-invocable": false
+        }
+      }
+    },
+    {
+      "id": "vercel-token-setup",
+      "name": "vercel-token-setup",
+      "description": "Set up a Vercel API token for publishing apps using browser automation",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "▲",
+        "vellum": {
+          "display-name": "Vercel Token Setup",
+          "includes": [
+            "browser"
+          ],
+          "credential-setup-for": "vercel:api_token"
+        }
+      }
+    },
+    {
+      "id": "voice-setup",
+      "name": "voice-setup",
+      "description": "Complete voice configuration in chat — PTT key, wake word, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "compatibility": "Designed for Vellum personal assistants",
+      "metadata": {
+        "emoji": "🎙️",
+        "vellum": {
+          "display-name": "Voice Setup",
+          "user-invocable": true,
+          "os": [
+            "darwin"
+          ],
+          "includes": [
+            "elevenlabs-voice"
+          ]
+        }
+      }
     },
     {
       "id": "weather",

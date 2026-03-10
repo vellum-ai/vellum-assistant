@@ -194,7 +194,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 ### iOS Gateway Networking
 - iOS connects to the assistant exclusively via the HTTP gateway
 - Pair via QR code (Settings → Connect on both devices); all pairings require Mac-side approval
-- LAN pairing works automatically when both devices are on the same network
+- LAN pairing is disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1` on the Mac; when enabled, the QR code includes the local gateway URL for direct LAN connections
 
 ### iOS Computer-Use
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)

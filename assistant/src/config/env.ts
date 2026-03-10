@@ -148,8 +148,11 @@ export function isMonitoringEnabled(): boolean {
   return getEnableMonitoring();
 }
 
-export function getSentryDsn(): string | undefined {
-  return str("SENTRY_DSN");
+const DEFAULT_SENTRY_DSN =
+  "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992";
+
+export function getSentryDsn(): string {
+  return str("SENTRY_DSN") ?? DEFAULT_SENTRY_DSN;
 }
 
 // ── Qdrant ───────────────────────────────────────────────────────────────────

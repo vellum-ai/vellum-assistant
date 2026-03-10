@@ -7,7 +7,6 @@ import { isPlainObject } from "../util/object.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
-  FileUploadSurfaceData,
   ListSurfaceData,
   ServerMessage,
   SurfaceData,
@@ -215,7 +214,7 @@ export interface SurfaceSessionContext {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; rejected?: boolean; requestId: string };
+  ): { queued: boolean; requestId: string };
   getQueueDepth(): number;
   processMessage(
     content: string,
@@ -573,23 +572,7 @@ export function handleSurfaceAction(
       requestId,
       surfaceId,
     );
-    if (result.rejected) {
-      log.error({ surfaceId, actionId }, "Relay prompt rejected — queue full");
-      onEvent(
-        buildSessionErrorMessage(ctx.conversationId, {
-          code: "QUEUE_FULL",
-          userMessage:
-            "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-          retryable: true,
-          debugDetails: "Relay prompt rejected — session queue is full",
-        }),
-      );
-      return;
-    }
-
     // Echo the prompt to the client so it appears in the chat UI.
-    // Sent after enqueue succeeds so the user doesn't see a prompt that
-    // won't be processed.
     ctx.sendToClient({
       type: "user_message_echo",
       text: prompt,
@@ -768,29 +751,6 @@ export function handleSurfaceAction(
     return;
   }
 
-  if (result.rejected) {
-    log.error({ surfaceId, actionId }, "Surface action rejected — queue full");
-    ctx.traceEmitter.emit(
-      "request_error",
-      "Surface action rejected — queue full",
-      {
-        requestId,
-        status: "error",
-        attributes: { reason: "queue_full", source: "surface_action" },
-      },
-    );
-    onEvent(
-      buildSessionErrorMessage(ctx.conversationId, {
-        code: "QUEUE_FULL",
-        userMessage:
-          "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-        retryable: true,
-        debugDetails: "Surface action rejected — session queue is full",
-      }),
-    );
-    return;
-  }
-
   if (!retainPending) {
     ctx.pendingSurfaceActions.delete(surfaceId);
   }
@@ -959,7 +919,7 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, request_file, computer_use_request_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
@@ -978,56 +938,6 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
-  }
-
-  if (toolName === "request_file") {
-    const surfaceId = uuid();
-    const prompt =
-      typeof input.prompt === "string" ? input.prompt : "Please share a file";
-    const acceptedTypes = Array.isArray(input.accepted_types)
-      ? (input.accepted_types as string[])
-      : undefined;
-    const maxFiles = typeof input.max_files === "number" ? input.max_files : 1;
-
-    const data: FileUploadSurfaceData = {
-      prompt,
-      acceptedTypes,
-      maxFiles,
-    };
-
-    ctx.surfaceState.set(surfaceId, { surfaceType: "file_upload", data });
-
-    ctx.sendToClient({
-      type: "ui_surface_show",
-      sessionId: ctx.conversationId,
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    } as UiSurfaceShow);
-
-    // Track surface for persistence
-    ctx.currentTurnSurfaces.push({
-      surfaceId,
-      surfaceType: "file_upload",
-      title: "File Request",
-      data,
-    });
-
-    // Non-blocking: return immediately, user action arrives as follow-up message
-    ctx.pendingSurfaceActions.set(surfaceId, {
-      surfaceType: "file_upload" as SurfaceType,
-    });
-    return {
-      content: JSON.stringify({
-        surfaceId,
-        status: "awaiting_user_action",
-        message:
-          "File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.",
-      }),
-      isError: false,
-      yieldToUser: true,
-    };
   }
 
   if (toolName === "ui_show") {

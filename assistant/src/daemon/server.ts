@@ -291,13 +291,6 @@ export class DaemonServer {
         undefined,
         metadata,
       );
-      if (enqueueResult.rejected) {
-        log.warn(
-          { parentSessionId },
-          "Parent session queue full, dropping subagent notification",
-        );
-        return;
-      }
       if (!enqueueResult.queued) {
         const messageId = await parentSession.persistUserMessage(
           message,
