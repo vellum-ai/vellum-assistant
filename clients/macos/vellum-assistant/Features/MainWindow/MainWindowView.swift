@@ -42,7 +42,6 @@ struct MainWindowView: View {
     let settingsStore: SettingsStore
     let authManager: AuthManager
     @ObservedObject var documentManager: DocumentManager
-    let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
@@ -56,7 +55,7 @@ struct MainWindowView: View {
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -70,7 +69,6 @@ struct MainWindowView: View {
         self.authManager = authManager
         self.windowState = windowState
         self.documentManager = documentManager
-        self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
         self.onSendWakeUp = onSendWakeUp
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
@@ -404,17 +402,6 @@ struct MainWindowView: View {
                 windowState.selection = .panel(.settings)
             }
             if windowState.isConversationVisible {
-                // Voice mode toggle
-                VIconButton(
-                    label: "Voice Mode",
-                    icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
-                    isActive: voiceModeManager.state != .off,
-                    iconOnly: true,
-                    tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
-                ) {
-                    toggleVoiceMode()
-                }
-
                 // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
                 // only visible on normal threads when no messages exist yet
                 if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {

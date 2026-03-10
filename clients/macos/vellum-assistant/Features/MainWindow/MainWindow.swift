@@ -221,7 +221,6 @@ public final class MainWindow {
     let usageDashboardStore: UsageDashboardStore
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
-    var onMicrophoneToggle: (() -> Void)?
     let voiceModeManager = VoiceModeManager()
 
     /// Wake-up greeting to auto-send after the "coming alive" transition completes.
@@ -373,7 +372,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

@@ -376,7 +376,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
-                onMicrophoneToggle: onMicrophoneToggle,
+                onMicrophoneToggle: toggleVoiceMode,
                 isTemporaryChat: activeThread?.kind == .private,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceModeManager.openAIVoiceService,
@@ -530,8 +530,7 @@ extension MainWindowView {
                             enterAppEditing(appId: appId)
                         }
                     }
-                },
-                onMicrophoneToggle: onMicrophoneToggle
+                }
             )
         }
     }
@@ -601,7 +600,10 @@ struct ActiveChatViewWrapper: View {
                 windowState.selection = .panel(.settings)
             },
             onSend: {
-                if viewModel.isRecording { onMicrophoneToggle() }
+                if viewModel.isRecording {
+                    voiceModeManager?.deactivate()
+                    NotificationCenter.default.post(name: .stopPTTRecording, object: nil)
+                }
                 viewModel.sendMessage()
             },
             onStop: viewModel.stopGenerating,
@@ -769,7 +771,6 @@ struct DynamicWorkspaceWrapper: View {
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
-    let onMicrophoneToggle: () -> Void
 
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
