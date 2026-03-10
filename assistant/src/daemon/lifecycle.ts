@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -43,10 +44,10 @@ import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { mintCredentialPair } from "../runtime/auth/credential-service.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
-  mintCliEdgeToken,
   mintPairingBearerToken,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
@@ -175,11 +176,23 @@ export async function runDaemon(): Promise<void> {
     }
 
     if (guardianPrincipalId) {
+      const cliDeviceId = "daemon-cli";
+      const hashedDeviceId = createHash("sha256")
+        .update(cliDeviceId)
+        .digest("hex");
+      const credentials = mintCredentialPair({
+        platform: "cli",
+        deviceId: cliDeviceId,
+        guardianPrincipalId,
+        hashedDeviceId,
+      });
+
+      // Write to http-token file for backward compatibility with CLI
+      // consumers that read the token from disk.
       const httpTokenPath = join(getRootDir(), "http-token");
-      const bearerToken = mintCliEdgeToken(guardianPrincipalId);
-      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+      writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);
-      log.info("Daemon startup: CLI edge token written");
+      log.info("Daemon startup: CLI edge token written to credential store and http-token");
     } else {
       log.warn(
         "No guardian principal available — CLI edge token not written",
