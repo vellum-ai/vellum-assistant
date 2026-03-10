@@ -55,11 +55,6 @@ import {
   classifySessionError,
 } from "../session-error.js";
 import {
-  handleConversationSearch,
-  handleHistoryRequest,
-  handleMessageContentRequest,
-} from "./session-history.js";
-import {
   type HandlerContext,
   log,
   pendingStandaloneSecrets,
