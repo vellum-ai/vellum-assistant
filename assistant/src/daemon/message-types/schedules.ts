@@ -58,8 +58,8 @@ export interface SchedulesListResponse {
     name: string;
     enabled: boolean;
     syntax: string;
-    expression: string;
-    cronExpression: string;
+    expression: string | null;
+    cronExpression: string | null;
     timezone: string | null;
     message: string;
     nextRunAt: number;
