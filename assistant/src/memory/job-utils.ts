@@ -247,9 +247,11 @@ export async function embedAndUpsert(
   }
 
   try {
+    const modality = normalized.type;
     await withQdrantBreaker(() =>
       qdrant.upsert(targetType, targetId, vector, {
         text: payloadText,
+        modality,
         created_at: (extraPayload?.created_at as number) ?? now,
         ...(extraPayload as Record<string, unknown> | undefined),
       }),
