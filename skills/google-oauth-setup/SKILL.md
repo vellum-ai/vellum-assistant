@@ -132,15 +132,21 @@ Take a screenshot to check the page state:
 
 ## Step 3: Create or Select a Project
 
-**Goal:** A GCP project named "Vellum Assistant" exists and is selected.
+**Goal:** A GCP project named "Vellum Assistant" exists and is selected, and the project config is saved for API calls.
 
 Tell the user: "Creating Google Cloud project..."
 
 Navigate to `https://console.cloud.google.com/projectcreate`. Take a `browser_snapshot`, find the project name input, type "Vellum Assistant", click **Create**. Wait 10-15 seconds.
 
-- **Success** or redirect: Note the project ID.
+- **Success** or redirect: Note the project ID and project number from the URL or page.
 - **"Project name already in use"**: Navigate to `https://console.cloud.google.com/cloud-resource-manager` to find and select the existing project.
 - **Organization/quota error**: Tell the user and ask them to resolve it.
+
+**After obtaining the project ID and number**, save them for the API calls in Step 5 by running:
+```
+bun --eval 'import { saveProjectConfig } from "./src/config/bundled-skills/google-oauth-setup/lib/session.js"; saveProjectConfig({ projectId: "PROJECT_ID", projectNumber: "PROJECT_NUMBER", savedAt: new Date().toISOString() }); console.log("saved")'
+```
+(Run from the `assistant/` directory with `VELLUM_DATA_DIR` set.)
 
 ## Step 4: Enable Gmail and Calendar APIs
 
@@ -153,33 +159,41 @@ Navigate to each API's library page and enable if not already:
 
 For each: take a `browser_snapshot`. Look for **"Enable"** button (click it) or **"Manage"** (already enabled, skip).
 
-## Step 5: Configure OAuth Consent Screen
+## Step 5: Configure OAuth Consent Screen (hybrid: API + browser)
 
 Tell the user: "Setting up OAuth consent screen..."
 
+This step uses a **hybrid approach**: the CDP API handles scopes and test users deterministically, while browser automation only handles the initial brand creation if needed.
+
+**Invocation pattern for API calls:** Run with `bun --eval` from the `assistant/` directory. Set `VELLUM_DATA_DIR` to the assistant's data directory. Import functions from `./src/config/bundled-skills/google-oauth-setup/lib/client.js`.
+
+### 5a: Check brand status (API)
+
+Call `isBrandConfigured()`. If it returns `true`, skip to **5c**.
+
+### 5b: Create consent screen (browser — only if 5a returned false)
+
 Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
 
-### If already configured
-You'll see a dashboard with the app name and "Edit App". **Skip to Step 6.**
+If you see a user type selection, select **"External"** and click **Create** or **Get Started**.
 
-### If you see user type selection
-Select **"External"** and click **Create** or **Get Started**.
-
-### Consent screen form
+Fill the consent screen form:
 - **App name**: "Vellum Assistant"
 - **User support email**: Select the user's email from the dropdown
 - **Developer contact email**: Type the user's email
-- Click **Save and Continue**
+- Click **Save and Continue** through all pages until you reach the dashboard
 
-**Scopes:** Click **"Add or Remove Scopes"**, paste all 6 at once:
-```
-https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email
-```
-Click **"Add to Table"** / **"Update"**, then **Save and Continue**.
+### 5c: Set scopes (API — deterministic, no browser needed)
 
-**Test users:** Click **"Add Users"**, enter the user's email, click **Add** then **Save and Continue**.
+Call `updateScopes()`. This sets all 6 required scopes (Gmail read/modify/send, Calendar read/events, userinfo.email) in a single API call. No scope picker dialog, no checkboxes.
 
-**Summary:** Click **"Back to Dashboard"**.
+### 5d: Add test user (API — deterministic, no browser needed)
+
+Call `setTestUsers([userEmail])` where `userEmail` is the user's Google email.
+
+### 5e: Verify (API)
+
+Call `getBrandInfo()` and `getTestUsers()` to confirm everything is configured. If scopes or test users are missing, retry the API calls.
 
 ## Step 6: Create OAuth Credentials and Capture Them
 

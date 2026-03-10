@@ -1,37 +1,26 @@
 /**
- * GCP OAuth setup CDP client.
- * Executes API requests through Chrome's CDP (Runtime.evaluate) so requests
- * use the browser's authenticated Google session — no gcloud CLI needed.
+ * GCP OAuth consent screen API client.
  *
- * Two API surfaces are used:
- * 1. clientauthconfig REST API — OAuth client CRUD (create/list clients)
- * 2. OauthEntityService batchGraphql — consent screen / brand / scopes / test users
+ * Executes requests through Chrome's CDP (Runtime.evaluate) so requests use
+ * the browser's authenticated Google session. Only includes functions that
+ * work via the cloudconsole-pa GraphQL proxy (SAPISIDHASH auth).
+ *
+ * Functions for project management, API enablement, and OAuth client CRUD
+ * are NOT included — those endpoints (clientauthconfig, serviceusage,
+ * cloudresourcemanager) return 403 with SAPISIDHASH and must be done via
+ * browser automation.
  */
 
 import {
-  createClientUrl,
-  createProjectUrl,
-  downloadClientJsonUrl,
-  enableApiUrl,
   GCP_API_KEY,
-  getProjectOperationUrl,
-  getProjectUrl,
-  listClientsUrl,
-  listProjectsUrl,
   oauthEntityServiceUrl,
   QUERY_SIGNATURES,
-  REQUIRED_APIS,
   REQUIRED_SCOPE_CODES,
   setApiKey,
 } from "./queries.js";
-import { loadProjectConfig, saveProjectConfig } from "./session.js";
+import { loadProjectConfig } from "./session.js";
 import type {
   BrandInfo,
-  CreateClientRequest,
-  GCPOAuthClient,
-  GCPOperation,
-  GCPProject,
-  ListClientsResponse,
   RequestContext,
   TrustedUserList,
   UpdateBrandInfoResult,
@@ -64,9 +53,6 @@ export class GCPApiError extends Error {
 // CDP transport
 // ---------------------------------------------------------------------------
 
-/**
- * Find a Chrome tab on console.cloud.google.com and return its WS debugger URL.
- */
 async function findGcpTab(): Promise<string> {
   const res = await fetch(`${CDP_BASE}/json/list`).catch(() => null);
   if (!res?.ok) {
@@ -91,14 +77,10 @@ async function findGcpTab(): Promise<string> {
   return tab.webSocketDebuggerUrl;
 }
 
-/**
- * Execute a fetch() call inside Chrome's page context via CDP Runtime.evaluate.
- * The browser handles all cookies, SAPISIDHASH auth headers, and CORS.
- */
 async function cdpFetch(
   wsUrl: string,
   url: string,
-  opts: { method: string; body?: string; headers?: Record<string, string> },
+  opts: { method: string; body?: string },
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
@@ -110,33 +92,23 @@ async function cdpFetch(
     }, 30000);
 
     ws.onopen = () => {
-      // GCP APIs require a SAPISIDHASH Authorization header computed from the
-      // SAPISID cookie. The browser doesn't add this automatically — the GCP
-      // Console JS computes it via SHA-1(timestamp + " " + SAPISID + " " + origin).
-      // We compute it inside the page context where we have access to both
-      // cookies and the SubtleCrypto API.
       const fetchScript = `
         (async function() {
-          // Extract SAPISID from cookies
           var sapisid = (document.cookie.match(/SAPISID=([^;]+)/) || [])[1];
           var headers = {
             'Accept': 'application/json, text/plain, */*',
             'X-Goog-AuthUser': '0',
           };
-          // Only set Content-Type for requests with a body (POST/PUT)
           ${opts.body ? `headers['Content-Type'] = 'application/json';` : ""}
 
           if (sapisid) {
             var ts = Math.floor(Date.now() / 1000);
-            // SAPISIDHASH must be computed against the TARGET API's origin,
-            // not window.location.origin. The GCP Console JS does the same.
-            var origin = new URL(${JSON.stringify(url)}).origin;
+            var origin = window.location.origin;
             var input = ts + ' ' + sapisid + ' ' + origin;
             var msgBuf = new TextEncoder().encode(input);
             var hashBuf = await crypto.subtle.digest('SHA-1', msgBuf);
             var hashArr = Array.from(new Uint8Array(hashBuf));
             var hashHex = hashArr.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
-            // Include all three hash variants like the GCP Console does
             var hash = 'SAPISIDHASH ' + ts + '_' + hashHex
                      + ' SAPISID1PHASH ' + ts + '_' + hashHex
                      + ' SAPISID3PHASH ' + ts + '_' + hashHex;
@@ -231,18 +203,6 @@ async function cdpFetch(
 // API key extraction
 // ---------------------------------------------------------------------------
 
-/**
- * Extract the GCP Console API key used for `clients6.google.com` calls.
- *
- * Strategy (in order):
- * 1. **Resource Timing** — check `performance.getEntriesByType('resource')` for
- *    past requests to `clients6.google.com` that already contain `key=`. This
- *    works instantly because the Console has already made API calls by the time
- *    we run.
- * 2. **Network interception + reload** — enable CDP Network domain, reload the
- *    page, and capture the `key=` param from fresh API calls.
- * 3. **Script-tag scraping** — last resort, may grab the wrong key.
- */
 async function ensureApiKey(): Promise<void> {
   if (GCP_API_KEY) return;
 
@@ -255,14 +215,7 @@ async function ensureApiKey(): Promise<void> {
     return;
   }
 
-  // Strategy 2: Network interception with page reload
-  const keyFromNetwork = await extractApiKeyFromNetworkReload(wsUrl);
-  if (keyFromNetwork) {
-    setApiKey(keyFromNetwork);
-    return;
-  }
-
-  // Strategy 3: Script-tag scraping (last resort)
+  // Strategy 2: Script-tag scraping (fallback)
   const keyFromScripts = await extractApiKeyFromScripts(wsUrl);
   if (keyFromScripts) {
     setApiKey(keyFromScripts);
@@ -272,10 +225,6 @@ async function ensureApiKey(): Promise<void> {
   throw new GCPApiError("Could not extract GCP API key from Console page.");
 }
 
-/**
- * Extract API key from the Resource Timing API — checks URLs of requests the
- * Console already made. Instant, no network traffic needed.
- */
 async function extractApiKeyFromResourceTiming(
   wsUrl: string,
 ): Promise<string | null> {
@@ -317,8 +266,7 @@ async function extractApiKeyFromResourceTiming(
         if (msg.id === 1) {
           clearTimeout(timeout);
           ws.close();
-          const val = msg.result?.result?.value;
-          resolve(val || null);
+          resolve(msg.result?.result?.value || null);
         }
       } catch {
         // ignore
@@ -331,89 +279,6 @@ async function extractApiKeyFromResourceTiming(
   });
 }
 
-/**
- * Extract API key by enabling Network interception, reloading the page,
- * and capturing the key from fresh Console API calls.
- */
-async function extractApiKeyFromNetworkReload(
-  wsUrl: string,
-): Promise<string | null> {
-  return new Promise<string | null>((resolve) => {
-    const ws = new WebSocket(wsUrl);
-    let msgId = 1;
-    let resolved = false;
-
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        ws.close();
-        resolve(null);
-      }
-    }, 20000);
-
-    ws.onopen = () => {
-      // Enable Network domain to intercept requests
-      ws.send(
-        JSON.stringify({ id: msgId++, method: "Network.enable", params: {} }),
-      );
-      // Reload the page to trigger fresh Console API calls
-      ws.send(
-        JSON.stringify({
-          id: msgId++,
-          method: "Page.reload",
-          params: {},
-        }),
-      );
-    };
-
-    ws.onmessage = (event) => {
-      if (resolved) return;
-      try {
-        const msg = JSON.parse(
-          typeof event.data === "string" ? event.data : "",
-        );
-
-        if (msg.method === "Network.requestWillBeSent") {
-          const url: string = msg.params?.request?.url ?? "";
-          if (
-            url.includes("clients6.google.com") ||
-            url.includes("cloudconsole-pa")
-          ) {
-            const keyMatch = url.match(/[?&]key=(AIzaSy[A-Za-z0-9_-]{33})/);
-            if (keyMatch) {
-              resolved = true;
-              clearTimeout(timeout);
-              ws.send(
-                JSON.stringify({
-                  id: msgId++,
-                  method: "Network.disable",
-                  params: {},
-                }),
-              );
-              ws.close();
-              resolve(keyMatch[1]);
-              return;
-            }
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    ws.onerror = () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        resolve(null);
-      }
-    };
-  });
-}
-
-/**
- * Fallback: extract API key from script tags (naive, may grab wrong key).
- */
 async function extractApiKeyFromScripts(wsUrl: string): Promise<string | null> {
   const script = `
     (function() {
@@ -479,27 +344,6 @@ async function throttle(): Promise<void> {
   lastRequestTime = Date.now();
 }
 
-/**
- * Make a REST API call to clientauthconfig via CDP.
- */
-async function restCall<T>(
-  url: string,
-  method: "GET" | "POST",
-  body?: unknown,
-): Promise<T> {
-  await ensureApiKey();
-  const wsUrl = await findGcpTab();
-  await throttle();
-  const result = await cdpFetch(wsUrl, url, {
-    method,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return result as T;
-}
-
-/**
- * Build the requestContext object for OauthEntityService calls.
- */
 function buildRequestContext(
   projectId: string,
   pagePath = "/auth/branding",
@@ -524,9 +368,6 @@ function buildRequestContext(
   };
 }
 
-/**
- * Make a batchGraphql call to OauthEntityService via CDP.
- */
 async function oauthGraphql<T>(
   operationName: string,
   variables: Record<string, unknown>,
@@ -561,10 +402,8 @@ async function oauthGraphql<T>(
     }>;
   }>;
 
-  // Response is always an array; extract data from the first result
   const firstResult = result?.[0]?.results?.[0];
 
-  // Check for GraphQL errors
   if (firstResult?.errors?.length) {
     const msgs = firstResult.errors.map((e) => e.message).join("; ");
     throw new GCPApiError(`${operationName} failed: ${msgs}`);
@@ -577,8 +416,6 @@ async function oauthGraphql<T>(
     );
   }
 
-  // Response keys are camelCase (e.g. "getBrandInfo" not "GetBrandInfo").
-  // Return the raw data object — callers use camelCase keys.
   return data as T;
 }
 
@@ -597,289 +434,9 @@ function requireConfig(): { projectId: string; projectNumber: string } {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — consent screen / brand operations
 // ---------------------------------------------------------------------------
 
-// --- Project Management (Cloud Resource Manager) ---
-
-/**
- * Create a new GCP project and wait for the operation to complete.
- * Returns the project with its projectNumber populated.
- */
-export async function createProject(
-  projectId: string,
-  name = "Vellum Assistant",
-): Promise<GCPProject> {
-  const op = await restCall<GCPOperation>(createProjectUrl(), "POST", {
-    projectId,
-    name,
-  });
-
-  if (!op.name) {
-    throw new GCPApiError("Project creation did not return an operation name.");
-  }
-
-  // Poll until the operation completes (up to 60s)
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const status = await restCall<GCPOperation>(
-      getProjectOperationUrl(op.name),
-      "GET",
-    );
-    if (status.done) {
-      if (status.error) {
-        throw new GCPApiError(
-          `Project creation failed: ${status.error.message}`,
-          status.error.code,
-        );
-      }
-      break;
-    }
-  }
-
-  // Fetch the project to get the projectNumber
-  const project = await restCall<GCPProject>(getProjectUrl(projectId), "GET");
-
-  // Persist the project config
-  saveProjectConfig({
-    projectId: project.projectId,
-    projectNumber: project.projectNumber,
-    savedAt: new Date().toISOString(),
-  });
-
-  return project;
-}
-
-/**
- * Get an existing GCP project by ID.
- */
-export async function getProject(projectId: string): Promise<GCPProject> {
-  return restCall<GCPProject>(getProjectUrl(projectId), "GET");
-}
-
-/**
- * List active GCP projects for the authenticated user.
- */
-export async function listProjects(): Promise<GCPProject[]> {
-  const result = await restCall<{ projects?: GCPProject[] }>(
-    listProjectsUrl(),
-    "GET",
-  );
-  return result.projects ?? [];
-}
-
-/**
- * Find an existing "Vellum Assistant" project or create a new one.
- * Prefers reusing an existing project to avoid hitting GCP project quotas.
- * Returns the project with its projectNumber populated.
- */
-export async function ensureProject(
-  name = "Vellum Assistant",
-): Promise<GCPProject> {
-  // Check saved config first
-  const saved = loadProjectConfig();
-  if (saved) {
-    try {
-      const existing = await getProject(saved.projectId);
-      if (existing.lifecycleState === "ACTIVE") {
-        process.stderr.write(
-          `[gcp-oauth] Reusing saved project: ${existing.projectId} (${existing.projectNumber})\n`,
-        );
-        return existing;
-      }
-    } catch {
-      // Project may have been deleted, continue to search/create
-    }
-  }
-
-  // Search for an existing Vellum Assistant project
-  const projects = await listProjects();
-  const vellumProject = projects.find(
-    (p) =>
-      p.lifecycleState === "ACTIVE" &&
-      (p.name === name || p.projectId.startsWith("vellum-assistant")),
-  );
-
-  if (vellumProject) {
-    process.stderr.write(
-      `[gcp-oauth] Found existing project: ${vellumProject.projectId} (${vellumProject.projectNumber})\n`,
-    );
-    saveProjectConfig({
-      projectId: vellumProject.projectId,
-      projectNumber: vellumProject.projectNumber,
-      savedAt: new Date().toISOString(),
-    });
-    return vellumProject;
-  }
-
-  // No existing project found — create a new one
-  const pid = `vellum-assistant-${Math.floor(10000 + Math.random() * 90000)}`;
-  process.stderr.write(`[gcp-oauth] Creating new project: ${pid}\n`);
-  return createProject(pid, name);
-}
-
-// --- API Enablement (Service Usage) ---
-
-/**
- * Enable a single API on the configured project.
- */
-export async function enableApi(api: string): Promise<void> {
-  const { projectNumber } = requireConfig();
-  const op = await restCall<GCPOperation>(
-    enableApiUrl(projectNumber, api),
-    "POST",
-    {},
-  );
-
-  // If it returns an operation, poll for completion
-  if (op.name && !op.done) {
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      // Service Usage operations use the same URL pattern
-      const status = await restCall<GCPOperation>(
-        `https://serviceusage.clients6.google.com/v1/${op.name}?key=${GCP_API_KEY}`,
-        "GET",
-      );
-      if (status.done) {
-        if (status.error) {
-          throw new GCPApiError(
-            `API enablement failed for ${api}: ${status.error.message}`,
-            status.error.code,
-          );
-        }
-        return;
-      }
-    }
-  }
-}
-
-/**
- * Enable all required APIs (Gmail + Calendar) on the configured project.
- */
-export async function enableRequiredApis(): Promise<void> {
-  for (const api of REQUIRED_APIS) {
-    process.stderr.write(`[gcp-oauth] Enabling ${api}...\n`);
-    await enableApi(api);
-    process.stderr.write(`[gcp-oauth] ${api} enabled\n`);
-  }
-}
-
-// --- OAuth Client CRUD (clientauthconfig REST) ---
-
-export interface CreatedClient {
-  clientId: string;
-  secret: string;
-  displayName: string;
-  type: string;
-}
-
-/**
- * Create an OAuth client and return the client ID + plaintext secret.
- * The secret is only available at creation time.
- */
-export async function createOAuthClient(opts: {
-  displayName: string;
-  type?: "WEB" | "NATIVE_DESKTOP";
-  redirectUris?: string[];
-}): Promise<CreatedClient> {
-  const { projectNumber } = requireConfig();
-  const clientType = opts.type ?? "NATIVE_DESKTOP";
-
-  const body: CreateClientRequest = {
-    type: clientType,
-    displayName: opts.displayName,
-    authType: "SHARED_SECRET",
-    brandId: projectNumber,
-    projectNumber,
-  };
-  if (
-    clientType === "WEB" &&
-    opts.redirectUris &&
-    opts.redirectUris.length > 0
-  ) {
-    body.redirectUris = opts.redirectUris;
-  }
-
-  const result = await restCall<GCPOAuthClient>(
-    createClientUrl(),
-    "POST",
-    body,
-  );
-
-  // The creation response includes the plaintext secret for WEB clients,
-  // but NATIVE_DESKTOP clients may omit it. Fall back to the downloadJson
-  // endpoint which returns the same JSON blob as the "Download JSON" button
-  // in the GCP Console — this always contains the secret.
-  let secret = result.clientSecrets?.[0]?.clientSecret;
-  if (!secret) {
-    process.stderr.write(
-      "[gcp-oauth] Secret not in creation response, downloading client JSON...\n",
-    );
-    secret = await downloadClientSecret(result.clientId);
-  }
-  if (!secret) {
-    throw new GCPApiError(
-      "Client created but could not retrieve the secret from either the creation response or the download JSON endpoint.",
-    );
-  }
-
-  return {
-    clientId: result.clientId,
-    secret: secret,
-    displayName: result.displayName,
-    type: result.type,
-  };
-}
-
-/**
- * Download the client credentials JSON (the "Download JSON" blob from GCP Console)
- * and extract the client_secret. This is the only reliable way to get the secret
- * for NATIVE_DESKTOP clients.
- */
-async function downloadClientSecret(
-  clientId: string,
-): Promise<string | undefined> {
-  if (!GCP_API_KEY) {
-    process.stderr.write(
-      "[gcp-oauth] Cannot download client JSON: GCP_API_KEY is not set (extractApiKey() may not have been called)\n",
-    );
-    return undefined;
-  }
-  try {
-    interface ClientJson {
-      client_id: string;
-      client_secret: string;
-    }
-    const json = await restCall<{
-      installed?: ClientJson;
-      web?: ClientJson;
-    }>(downloadClientJsonUrl(clientId), "GET");
-    return json.installed?.client_secret ?? json.web?.client_secret;
-  } catch (err) {
-    process.stderr.write(
-      `[gcp-oauth] Failed to download client JSON: ${err instanceof Error ? err.message : err}\n`,
-    );
-    return undefined;
-  }
-}
-
-/**
- * List all OAuth clients for the configured project.
- */
-export async function listOAuthClients(): Promise<GCPOAuthClient[]> {
-  const { projectNumber } = requireConfig();
-  const result = await restCall<ListClientsResponse>(
-    listClientsUrl(projectNumber),
-    "GET",
-  );
-  return result.clients ?? [];
-}
-
-// --- Consent Screen / Brand (OauthEntityService) ---
-
-/**
- * Get current brand/consent screen configuration.
- */
 export async function getBrandInfo(): Promise<BrandInfo> {
   const { projectId, projectNumber } = requireConfig();
   const data = await oauthGraphql<{ getBrandInfo: BrandInfo }>(
@@ -890,18 +447,11 @@ export async function getBrandInfo(): Promise<BrandInfo> {
   return data.getBrandInfo;
 }
 
-/**
- * Check if the consent screen / brand is already configured.
- */
 export async function isBrandConfigured(): Promise<boolean> {
   const info = await getBrandInfo();
   return info.isBrandConfigured;
 }
 
-/**
- * Update scopes on the consent screen.
- * Uses scope codes (numeric IDs) that map to OAuth scope URLs.
- */
 export async function updateScopes(
   scopeCodes?: number[],
 ): Promise<UpdateBrandInfoResult> {
@@ -931,9 +481,6 @@ export async function updateScopes(
 
   const op = data.updateBrandInfo;
   if (op.name && !op.done) {
-    // The operation is async. Wait and verify via getBrandInfo instead of
-    // polling (we don't have the GetOperation query signature).
-    // Scopes appear under brandPolicy.unreviewedConfig.scopes (not brandPolicy.scopes).
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       const brand = await getBrandInfo();
@@ -950,9 +497,6 @@ export async function updateScopes(
   return op;
 }
 
-/**
- * Set the list of test users for the OAuth consent screen.
- */
 export async function setTestUsers(emails: string[]): Promise<TrustedUserList> {
   const { projectId, projectNumber } = requireConfig();
   const data = await oauthGraphql<{
@@ -966,24 +510,17 @@ export async function setTestUsers(emails: string[]): Promise<TrustedUserList> {
   return data.setTrustedUserList.trustedUserList;
 }
 
-/**
- * Get the current list of test users.
- */
 export async function getTestUsers(): Promise<string[]> {
   const { projectId, projectNumber } = requireConfig();
   const data = await oauthGraphql<{
     getTrustedUserList: TrustedUserList;
   }>("GetTrustedUserList", { projectNumber }, projectId, "/auth/audience");
   const accounts = data.getTrustedUserList?.userAccount ?? [];
-  // userAccount can be string[] or {email: string}[] depending on API version
   return accounts.map((u: unknown) =>
     typeof u === "string" ? u : (u as { email: string }).email,
   );
 }
 
-/**
- * List OAuth client IDs via the OauthEntityService (lighter than REST list).
- */
 export async function listClientIds(): Promise<
   Array<{ clientId: string; displayName: string }>
 > {
@@ -994,153 +531,6 @@ export async function listClientIds(): Promise<
     };
   }>("ListClientIds", { projectNumber }, projectId, "/auth/clients");
   return data.listClientIds?.clients ?? [];
-}
-
-// --- Convenience: full setup flow ---
-
-export interface SetupResult {
-  projectId: string;
-  projectNumber: string;
-  clientId: string;
-  secret: string;
-  apisEnabled: boolean;
-  brandConfigured: boolean;
-  scopesSet: boolean;
-  testUsersSet: boolean;
-}
-
-/**
- * Run the full automated OAuth setup:
- * 1. Create GCP project (or use existing)
- * 2. Enable Gmail + Calendar APIs
- * 3. Check/configure brand (consent screen)
- * 4. Set required scopes
- * 5. Add test user
- * 6. Create OAuth client
- * 7. Return client ID + secret
- */
-export async function fullSetup(opts: {
-  userEmail: string;
-  projectId?: string;
-  clientName?: string;
-  clientType?: "WEB" | "NATIVE_DESKTOP";
-  redirectUris?: string[];
-}): Promise<SetupResult> {
-  const result: SetupResult = {
-    projectId: "",
-    projectNumber: "",
-    clientId: "",
-    secret: "",
-    apisEnabled: false,
-    brandConfigured: false,
-    scopesSet: false,
-    testUsersSet: false,
-  };
-
-  // 1. Reuse existing project or create a new one
-  let project: GCPProject;
-  if (opts.projectId) {
-    project = await getProject(opts.projectId);
-    saveProjectConfig({
-      projectId: project.projectId,
-      projectNumber: project.projectNumber,
-      savedAt: new Date().toISOString(),
-    });
-  } else {
-    project = await ensureProject();
-  }
-  result.projectId = project.projectId;
-  result.projectNumber = project.projectNumber;
-
-  // 2. Enable APIs
-  await enableRequiredApis();
-  result.apisEnabled = true;
-
-  // 3. Check brand
-  const brandConfigured = await isBrandConfigured();
-  result.brandConfigured = brandConfigured;
-  if (!brandConfigured) {
-    process.stderr.write(
-      "[gcp-oauth] Brand not configured — consent screen setup needed via browser\n",
-    );
-  }
-
-  // 4. Set scopes
-  try {
-    await updateScopes();
-    result.scopesSet = true;
-    process.stderr.write("[gcp-oauth] Scopes configured\n");
-  } catch (err) {
-    process.stderr.write(
-      `[gcp-oauth] Failed to set scopes: ${err instanceof Error ? err.message : err}\n`,
-    );
-  }
-
-  // 5. Add test user
-  try {
-    await setTestUsers([opts.userEmail]);
-    result.testUsersSet = true;
-    process.stderr.write(`[gcp-oauth] Test user added: ${opts.userEmail}\n`);
-  } catch (err) {
-    process.stderr.write(
-      `[gcp-oauth] Failed to add test user: ${err instanceof Error ? err.message : err}\n`,
-    );
-  }
-
-  // 6. Create client
-  const client = await createOAuthClient({
-    displayName: opts.clientName ?? "Vellum Assistant",
-    type: opts.clientType,
-    redirectUris: opts.redirectUris,
-  });
-  result.clientId = client.clientId;
-  result.secret = client.secret;
-  process.stderr.write(
-    `[gcp-oauth] OAuth client created: ${client.clientId}\n`,
-  );
-
-  return result;
-}
-
-/**
- * Create an OAuth client and store its credentials directly in the secure
- * store.  The secret never appears in tool output — it goes straight from
- * the API response into the encrypted store, bypassing the secret scanner.
- *
- * Returns the clientId (safe to display) and a boolean indicating success.
- */
-export async function createAndStoreOAuthClient(opts: {
-  displayName?: string;
-  service?: string;
-  type?: "WEB" | "NATIVE_DESKTOP";
-  redirectUris?: string[];
-}): Promise<{ clientId: string; stored: boolean }> {
-  const { setSecureKey } = await import("../../../../security/secure-keys.js");
-  const service = opts.service ?? "integration:gmail";
-
-  const client = await createOAuthClient({
-    displayName: opts.displayName ?? "Vellum Assistant",
-    type: opts.type,
-    redirectUris: opts.redirectUris,
-  });
-
-  const idOk = setSecureKey(`credential:${service}:client_id`, client.clientId);
-  const secretOk = setSecureKey(
-    `credential:${service}:client_secret`,
-    client.secret,
-  );
-
-  if (idOk && secretOk) {
-    process.stderr.write(
-      `[gcp-oauth] Credentials stored in vault for ${service}\n`,
-    );
-  } else {
-    process.stderr.write(
-      `[gcp-oauth] WARNING: Failed to store credentials (id=${idOk}, secret=${secretOk})\n`,
-    );
-  }
-
-  return { clientId: client.clientId, stored: idOk && secretOk };
 }
 
 export { REQUIRED_SCOPE_CODES } from "./queries.js";

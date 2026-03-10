@@ -53,17 +53,6 @@ function findStoredOAuthField(
   return undefined;
 }
 
-/** Resolve the OAuth client secret from tool input or stored credentials. */
-function getOAuthSecret(
-  input: Record<string, unknown>,
-  service: string,
-): string | undefined {
-  const field = "client_secret";
-  return (
-    (input[field] as string | undefined) ?? findStoredOAuthField(service, field)
-  );
-}
-
 class CredentialStoreTool implements Tool {
   name = "credential_store";
   description =
@@ -772,7 +761,9 @@ class CredentialStoreTool implements Tool {
         const clientId =
           (input.client_id as string | undefined) ??
           findStoredOAuthField(service, "client_id");
-        const clientSecret = getOAuthSecret(input, service);
+        const clientSecret =
+          (input.client_secret as string | undefined) ??
+          findStoredOAuthField(service, "client_secret");
         log.info(
           {
             service,
