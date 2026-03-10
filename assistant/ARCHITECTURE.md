@@ -630,9 +630,9 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 **Public API:**
 
 - `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
-- `skillFlagKey(skillId)` — derives the canonical flag key for a skill, respecting overrides (in `config/skill-state.ts`)
+- `skillFlagKey(skill)` — takes a skill object (anything with a `featureFlag` field) and returns the canonical flag key (`string`) if the skill declares a `featureFlag` in its SKILL.md frontmatter, or `undefined` if it does not (in `config/skill-state.ts`)
 
-**Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
+**Skill-gating guarantee:** Skill feature-flag gating is **opt-in**: only skills whose SKILL.md frontmatter contains a `featureFlag` field are gated. Skills without the field are always available regardless of feature flag state. For skills that declare a `featureFlag`, when the corresponding flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at six independent points:
 
 | Enforcement Point                  | Module                                                   | Effect                                                                                                                                                                                                      |
 | ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -641,24 +641,25 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+| **6. Skill install gate**          | `handleInstallSkill()` in `daemon/handlers/skills.ts`    | When a client requests skill installation, the handler checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                        |
 
-All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config)` for consistency.
+All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
 **Migration path:** The legacy `skills.<id>.enabled` key format is no longer supported. All code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
-| File                                            | Purpose                                                                                                            |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
-| `src/config/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
-| `src/prompts/system-prompt.ts`                  | `appendSkillsCatalog()` — enforcement point 2                                                                      |
-| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
-| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
-| `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                    |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses                                            |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
-| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                |
+| File                                            | Purpose                                                                                                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader                                                               |
+| `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
+| `src/prompts/system-prompt.ts`                  | `appendSkillsCatalog()` — enforcement point 2                                                                                                                             |
+| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
+| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                                                               |
+| `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                                                                           |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses; `handleInstallSkill()` — enforcement point 6                                                     |
+| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
+| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
 
 ---
 
