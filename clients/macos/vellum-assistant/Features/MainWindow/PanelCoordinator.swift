@@ -108,6 +108,11 @@ extension MainWindowView {
                 store: usageDashboardStore,
                 onClose: { windowState.selection = nil }
             )
+        case .taskQueue:
+            TaskQueuePanel(
+                viewModel: taskQueueViewModel,
+                onClose: { windowState.selection = nil }
+            )
         }
     }
 
@@ -481,6 +486,12 @@ extension MainWindowView {
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
+                onClose: { windowState.dismissOverlay() }
+            )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
+        case .taskQueue:
+            TaskQueuePanel(
+                viewModel: taskQueueViewModel,
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
