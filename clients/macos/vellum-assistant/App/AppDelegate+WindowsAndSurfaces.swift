@@ -263,7 +263,11 @@ extension AppDelegate {
         // Clear persisted step so replay always starts at step 0
         OnboardingState.clearPersistedState()
 
-        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
+        let onboarding = OnboardingWindow(
+            daemonClient: daemonClient,
+            authManager: authManager,
+            forceCreateNewManagedAssistant: true
+        )
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
