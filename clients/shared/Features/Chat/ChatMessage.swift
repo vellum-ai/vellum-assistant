@@ -99,15 +99,6 @@ public struct ToolConfirmationData: Equatable {
             return "The assistant wants to update a schedule"
         case "schedule_delete":
             return "The assistant wants to delete a schedule"
-        case "reminder_create":
-            let msg = (input["message"]?.value as? String) ?? ""
-            return msg.isEmpty
-                ? "The assistant wants to set a reminder"
-                : "The assistant wants to remind you: \(msg)"
-        case "reminder_list":
-            return "The assistant wants to list reminders"
-        case "reminder_cancel":
-            return "The assistant wants to cancel a reminder"
         default:
             return "The assistant wants to use \(toolName)"
         }
@@ -352,13 +343,6 @@ public struct ToolConfirmationData: Equatable {
             return jobId.isEmpty ? "Delete schedule" : "Delete schedule \(jobId)"
         case "schedule_list":
             return "List schedules"
-        case "reminder_create":
-            return Self.reminderPreview(input: input)
-        case "reminder_list":
-            return "List reminders"
-        case "reminder_cancel":
-            let id = (input["reminder_id"]?.value as? String) ?? ""
-            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         case "credential_store":
             return Self.credentialPreview(input: input)
         default:
@@ -385,23 +369,6 @@ public struct ToolConfirmationData: Equatable {
 
         if parts.isEmpty { return "\(verb) schedule" }
         return "\(verb): \(parts.joined(separator: " — "))"
-    }
-
-    /// Build a preview string for the reminder tool.
-    private static func reminderPreview(input: [String: AnyCodable]) -> String {
-        let message = (input["message"]?.value as? String) ?? ""
-        let delay = (input["delay"]?.value as? String) ?? ""
-        let at = (input["at"]?.value as? String) ?? ""
-
-        var parts: [String] = []
-        if !message.isEmpty {
-            parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
-        }
-        if !at.isEmpty { parts.append("at \(at)") }
-        else if !delay.isEmpty { parts.append("in \(delay)") }
-
-        if parts.isEmpty { return "Set reminder" }
-        return parts.joined(separator: " ")
     }
 
     /// Build a preview string for the credential_store tool.
@@ -457,7 +424,6 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "Memory"
         case "skill_load":                            return "Skill"
         case "evaluate_typescript_code":              return "Code Sandbox"
-        case _ where toolName.hasPrefix("reminder_"):   return "Reminder"
         case "document_create", "document_update":    return "Document"
         default:
             return toolName
@@ -484,7 +450,6 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return .brain
         case "skill_load":                            return .puzzle
         case "evaluate_typescript_code":              return .fileCode
-        case _ where toolName.hasPrefix("reminder_"):   return .bell
         case "document_create", "document_update":    return .fileText
         default:                                      return .puzzle
         }
@@ -626,17 +591,6 @@ public struct ToolConfirmationData: Equatable {
             return "Allow updating a schedule?"
         case "schedule_delete":
             return "Allow deleting a schedule?"
-        case "reminder_create":
-            let msg = (input["message"]?.value as? String) ?? ""
-            if !msg.isEmpty {
-                let truncated = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
-                return "Allow setting a reminder: \"\(truncated)\"?"
-            }
-            return "Allow setting a reminder?"
-        case "reminder_list":
-            return "Allow listing reminders?"
-        case "reminder_cancel":
-            return "Allow canceling a reminder?"
         default:
             let tc = toolCategory.lowercased()
             if !r.isEmpty { return "Allow using \(tc) \(r)?" }

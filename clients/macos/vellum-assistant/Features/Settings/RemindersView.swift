@@ -5,10 +5,15 @@ struct RemindersView: View {
     let daemonClient: DaemonClient
     @Environment(\.dismiss) var dismiss
 
-    @State private var reminders: [ReminderItem] = []
+    @State private var schedules: [ScheduleItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String? = nil
-    @State private var reminderToCancel: ReminderItem? = nil
+    @State private var scheduleToCancel: ScheduleItem? = nil
+
+    /// Filter to only show one-shot schedules (reminders).
+    private var oneShotSchedules: [ScheduleItem] {
+        schedules.filter { $0.isOneShot }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,11 +44,11 @@ struct RemindersView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
-                    Button("Retry") { loadReminders() }
+                    Button("Retry") { loadSchedules() }
                         .padding(.top, 4)
                 }
                 Spacer()
-            } else if reminders.isEmpty {
+            } else if oneShotSchedules.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
                     VIconView(.bellDot, size: 32)
@@ -57,10 +62,10 @@ struct RemindersView: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(reminders) { reminder in
+                    ForEach(oneShotSchedules) { schedule in
                         ReminderRow(
-                            reminder: reminder,
-                            onCancel: { reminderToCancel = reminder }
+                            schedule: schedule,
+                            onCancel: { scheduleToCancel = schedule }
                         )
                     }
                 }
@@ -68,57 +73,57 @@ struct RemindersView: View {
         }
         .frame(width: 550, height: 450)
         .onAppear {
-            daemonClient.onRemindersListResponse = { items in
-                reminders = items
+            daemonClient.onSchedulesListResponse = { items in
+                schedules = items
                 isLoading = false
             }
-            loadReminders()
+            loadSchedules()
         }
         .onDisappear {
-            daemonClient.onRemindersListResponse = nil
+            daemonClient.onSchedulesListResponse = nil
         }
         .alert("Cancel Reminder?", isPresented: Binding(
-            get: { reminderToCancel != nil },
-            set: { if !$0 { reminderToCancel = nil } }
+            get: { scheduleToCancel != nil },
+            set: { if !$0 { scheduleToCancel = nil } }
         )) {
-            Button("Keep", role: .cancel) { reminderToCancel = nil }
+            Button("Keep", role: .cancel) { scheduleToCancel = nil }
             Button("Cancel Reminder", role: .destructive) {
-                if let reminder = reminderToCancel {
-                    cancelReminder(id: reminder.id)
-                    reminderToCancel = nil
+                if let schedule = scheduleToCancel {
+                    cancelSchedule(id: schedule.id)
+                    scheduleToCancel = nil
                 }
             }
         } message: {
-            if let reminder = reminderToCancel {
-                Text("Cancel the reminder \"\(reminder.label)\"?")
+            if let schedule = scheduleToCancel {
+                Text("Cancel the reminder \"\(schedule.name)\"?")
             }
         }
     }
 
-    @MainActor private func loadReminders() {
+    @MainActor private func loadSchedules() {
         isLoading = true
         errorMessage = nil
         do {
-            try daemonClient.sendListReminders()
+            try daemonClient.sendListSchedules()
         } catch {
             isLoading = false
             errorMessage = error.localizedDescription
         }
     }
 
-    @MainActor private func cancelReminder(id: String) {
-        try? daemonClient.sendCancelReminder(id: id)
+    @MainActor private func cancelSchedule(id: String) {
+        try? daemonClient.sendRemoveSchedule(id: id)
     }
 }
 
 // MARK: - Reminder Row
 
 private struct ReminderRow: View {
-    let reminder: ReminderItem
+    let schedule: ScheduleItem
     let onCancel: () -> Void
 
     private var scheduledDateText: String {
-        let date = Date(timeIntervalSince1970: Double(reminder.fireAt) / 1000.0)
+        let date = Date(timeIntervalSince1970: Double(schedule.nextRunAt) / 1000.0)
         let formatter = DateFormatter()
         formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .medium
@@ -127,14 +132,14 @@ private struct ReminderRow: View {
     }
 
     private var statusDateText: String {
-        switch reminder.status {
-        case "pending":
-            let date = Date(timeIntervalSince1970: Double(reminder.fireAt) / 1000.0)
+        switch schedule.status {
+        case "active":
+            let date = Date(timeIntervalSince1970: Double(schedule.nextRunAt) / 1000.0)
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .abbreviated
             return "Fires: \(formatter.localizedString(for: date, relativeTo: Date()))"
         case "fired":
-            let timestamp = reminder.firedAt ?? reminder.fireAt
+            let timestamp = schedule.lastRunAt ?? schedule.nextRunAt
             let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
             let formatter = DateFormatter()
             formatter.timeZone = .autoupdatingCurrent
@@ -147,8 +152,8 @@ private struct ReminderRow: View {
     }
 
     private var statusColor: Color {
-        switch reminder.status {
-        case "pending": return .blue
+        switch schedule.status {
+        case "active": return .blue
         case "fired": return .green
         case "cancelled": return .secondary
         default: return .secondary
@@ -159,9 +164,9 @@ private struct ReminderRow: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(reminder.label)
+                    Text(schedule.name)
                         .fontWeight(.medium)
-                    Text(reminder.status)
+                    Text(schedule.status)
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -169,13 +174,13 @@ private struct ReminderRow: View {
                         .foregroundStyle(statusColor)
                         .clipShape(Capsule())
                 }
-                Text(reminder.message)
+                Text(schedule.message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 HStack(spacing: 6) {
                     Text(statusDateText)
-                    Text("(\(reminder.mode))")
+                    Text("(\(schedule.mode))")
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -184,7 +189,7 @@ private struct ReminderRow: View {
 
             Spacer()
 
-            if reminder.status == "pending" {
+            if schedule.status == "active" {
                 Button {
                     onCancel()
                 } label: {

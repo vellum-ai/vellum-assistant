@@ -27,7 +27,8 @@ struct IOSThread: Identifiable {
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
 
-    /// Whether this thread was created by a schedule or reminder trigger.
+    /// Whether this thread was created by a schedule trigger (including one-shot/reminders).
+    /// Keeps legacy "Reminder: " prefix check for threads created before unification.
     var isScheduleThread: Bool {
         if scheduleJobId != nil { return true }
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")

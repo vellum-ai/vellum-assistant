@@ -4,8 +4,13 @@ import VellumAssistantShared
 
 struct RemindersSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @State private var reminders: [ReminderItem] = []
+    @State private var schedules: [ScheduleItem] = []
     @State private var loading = false
+
+    /// Filter to only show one-shot schedules (reminders).
+    private var oneShotSchedules: [ScheduleItem] {
+        schedules.filter { $0.isOneShot }
+    }
 
     var body: some View {
         Form {
@@ -16,18 +21,18 @@ struct RemindersSection: View {
                         ProgressView()
                         Spacer()
                     }
-                } else if reminders.isEmpty {
+                } else if oneShotSchedules.isEmpty {
                     Text("No active reminders")
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 } else {
-                    ForEach(reminders, id: \.id) { reminder in
-                        reminderRow(reminder)
+                    ForEach(oneShotSchedules, id: \.id) { schedule in
+                        reminderRow(schedule)
                     }
                     .onDelete { indexSet in
-                        let remindersToCancel = indexSet.map { reminders[$0] }
-                        for reminder in remindersToCancel {
-                            cancelReminder(reminder.id)
+                        let items = indexSet.map { oneShotSchedules[$0] }
+                        for item in items {
+                            cancelSchedule(item.id)
                         }
                     }
                 }
@@ -35,29 +40,29 @@ struct RemindersSection: View {
         }
         .navigationTitle("Reminders")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadReminders() }
+        .onAppear { loadSchedules() }
         .onChange(of: clientProvider.isConnected) { _, connected in
-            if connected { loadReminders() }
+            if connected { loadSchedules() }
         }
         .onDisappear {
             if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onRemindersListResponse = nil
+                daemon.onSchedulesListResponse = nil
             }
         }
     }
 
     @ViewBuilder
-    private func reminderRow(_ reminder: ReminderItem) -> some View {
+    private func reminderRow(_ schedule: ScheduleItem) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(reminder.label)
+            Text(schedule.name)
                 .font(.body)
-            Text(reminder.message)
+            Text(schedule.message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             HStack(spacing: 8) {
-                statusBadge(reminder.status)
-                if let fireTime = formatTimestamp(reminder.fireAt) {
+                statusBadge(schedule.status)
+                if let fireTime = formatTimestamp(schedule.nextRunAt) {
                     Text(fireTime)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -70,7 +75,7 @@ struct RemindersSection: View {
     private func statusBadge(_ status: String) -> some View {
         let (color, label): (Color, String) = {
             switch status {
-            case "pending": return (VColor.warning, "Pending")
+            case "active": return (VColor.warning, "Active")
             case "fired": return (VColor.success, "Fired")
             case "cancelled": return (VColor.textMuted, "Cancelled")
             default: return (VColor.textSecondary, status.capitalized)
@@ -86,24 +91,24 @@ struct RemindersSection: View {
             .clipShape(Capsule())
     }
 
-    private func loadReminders() {
+    private func loadSchedules() {
         guard let daemon = clientProvider.client as? DaemonClient else { return }
         loading = true
-        daemon.onRemindersListResponse = { items in
-            reminders = items
+        daemon.onSchedulesListResponse = { items in
+            schedules = items
             loading = false
         }
         do {
-            try daemon.sendListReminders()
+            try daemon.sendListSchedules()
         } catch {
             loading = false
         }
     }
 
-    private func cancelReminder(_ id: String) {
+    private func cancelSchedule(_ id: String) {
         guard let daemon = clientProvider.client as? DaemonClient else { return }
-        try? daemon.sendCancelReminder(id: id)
-        reminders.removeAll { $0.id == id }
+        try? daemon.sendRemoveSchedule(id: id)
+        schedules.removeAll { $0.id == id }
     }
 
     private func formatTimestamp(_ ms: Int) -> String? {

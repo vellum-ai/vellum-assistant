@@ -95,67 +95,6 @@ function handleCancelSchedule(id: string): Response {
   return handleListSchedules();
 }
 
-/**
- * List reminders by querying one-shot schedules from the schedule store.
- * Maps to the legacy RemindersListResponse shape for client compat.
- */
-function handleListReminders(): Response {
-  const oneShotSchedules = listSchedules({ oneShotOnly: true });
-  const reminders = oneShotSchedules.map((s) => ({
-    id: s.id,
-    label: s.name,
-    message: s.message,
-    fireAt: s.nextRunAt,
-    mode: s.mode,
-    status: mapScheduleStatusToReminderStatus(s.status),
-    firedAt: s.lastRunAt,
-    createdAt: s.createdAt,
-  }));
-
-  reminders.sort((a, b) => {
-    if (a.fireAt == null && b.fireAt == null) return 0;
-    if (a.fireAt == null) return 1;
-    if (b.fireAt == null) return -1;
-    return new Date(a.fireAt).getTime() - new Date(b.fireAt).getTime();
-  });
-
-  return Response.json({
-    type: "reminders_list_response",
-    reminders,
-  });
-}
-
-/**
- * Cancel a reminder by cancelling the corresponding one-shot schedule.
- */
-function handleCancelReminder(id: string): Response {
-  const cancelled = cancelSchedule(id);
-  if (cancelled) {
-    log.info({ id }, "Reminder cancelled via schedule store");
-    return handleListReminders();
-  }
-
-  return httpError("NOT_FOUND", "Reminder not found", 404);
-}
-
-/**
- * Map schedule status values to legacy reminder status values for client compat.
- */
-function mapScheduleStatusToReminderStatus(status: string): string {
-  switch (status) {
-    case "active":
-      return "pending";
-    case "firing":
-      return "firing";
-    case "fired":
-      return "fired";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return status;
-  }
-}
-
 async function handleRunScheduleNow(
   id: string,
   sendMessageDeps?: SendMessageDeps,
@@ -310,19 +249,6 @@ export function scheduleRouteDefinitions(deps: {
       method: "POST",
       policyKey: "schedules/cancel",
       handler: ({ params }) => handleCancelSchedule(params.id),
-    },
-    // Reminder-compat routes: serve reminders from schedule store
-    {
-      endpoint: "reminders",
-      method: "GET",
-      policyKey: "schedules",
-      handler: () => handleListReminders(),
-    },
-    {
-      endpoint: "reminders/:id/cancel",
-      method: "POST",
-      policyKey: "schedules/cancel",
-      handler: ({ params }) => handleCancelReminder(params.id),
     },
   ];
 }

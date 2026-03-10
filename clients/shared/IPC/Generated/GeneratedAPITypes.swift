@@ -3396,56 +3396,6 @@ public struct IPCRegenerateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCReminderCancel: Codable, Sendable {
-    public let type: String
-    public let id: String
-
-    public init(type: String, id: String) {
-        self.type = type
-        self.id = id
-    }
-}
-
-public struct IPCRemindersList: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct IPCRemindersListResponse: Codable, Sendable {
-    public let type: String
-    public let reminders: [IPCRemindersListResponseReminder]
-
-    public init(type: String, reminders: [IPCRemindersListResponseReminder]) {
-        self.type = type
-        self.reminders = reminders
-    }
-}
-
-public struct IPCRemindersListResponseReminder: Codable, Sendable {
-    public let id: String
-    public let label: String
-    public let message: String
-    public let fireAt: Int
-    public let mode: String
-    public let status: String
-    public let firedAt: Int?
-    public let createdAt: Int
-
-    public init(id: String, label: String, message: String, fireAt: Int, mode: String, status: String, firedAt: Int?, createdAt: Int) {
-        self.id = id
-        self.label = label
-        self.message = message
-        self.fireAt = fireAt
-        self.mode = mode
-        self.status = status
-        self.firedAt = firedAt
-        self.createdAt = createdAt
-    }
-}
-
 public struct IPCRemoveTrustRule: Codable, Sendable {
     public let type: String
     public let id: String
@@ -3613,8 +3563,12 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     public let lastRunAt: Int?
     public let lastStatus: String?
     public let description: String
+    public let mode: String
+    public let status: String
+    public let routingIntent: String
+    public let isOneShot: Bool
 
-    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String, cronExpression: String, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String) {
+    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String, cronExpression: String, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -3627,6 +3581,10 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
         self.lastRunAt = lastRunAt
         self.lastStatus = lastStatus
         self.description = description
+        self.mode = mode
+        self.status = status
+        self.routingIntent = routingIntent
+        self.isOneShot = isOneShot
     }
 }
 

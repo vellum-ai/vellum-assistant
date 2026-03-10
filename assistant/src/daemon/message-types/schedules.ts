@@ -1,18 +1,9 @@
-// Schedule, reminder, watcher, and heartbeat types.
+// Schedule, watcher, and heartbeat types.
 
 // === Client → Server ===
 
 export interface SchedulesList {
   type: "schedules_list";
-}
-
-export interface RemindersList {
-  type: "reminders_list";
-}
-
-export interface ReminderCancel {
-  type: "reminder_cancel";
-  id: string;
 }
 
 export interface ScheduleToggle {
@@ -82,20 +73,6 @@ export interface SchedulesListResponse {
   }>;
 }
 
-export interface RemindersListResponse {
-  type: "reminders_list_response";
-  reminders: Array<{
-    id: string;
-    label: string;
-    message: string;
-    fireAt: number;
-    mode: string;
-    status: string;
-    firedAt: number | null;
-    createdAt: number;
-  }>;
-}
-
 export interface HeartbeatAlert {
   type: "heartbeat_alert";
   title: string;
@@ -149,8 +126,6 @@ export type _SchedulesClientMessages =
   | ScheduleToggle
   | ScheduleRemove
   | ScheduleRunNow
-  | RemindersList
-  | ReminderCancel
   | HeartbeatConfig
   | HeartbeatRunsList
   | HeartbeatRunNow
@@ -159,7 +134,6 @@ export type _SchedulesClientMessages =
 
 export type _SchedulesServerMessages =
   | SchedulesListResponse
-  | RemindersListResponse
   | HeartbeatAlert
   | HeartbeatConfigResponse
   | HeartbeatRunsListResponse

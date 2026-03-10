@@ -150,9 +150,6 @@ public final class ToolConfirmationNotificationService {
         case "schedule_update": return "Update Schedule"
         case "schedule_delete": return "Delete Schedule"
         case "schedule_list":   return "List Schedules"
-        case "reminder_create":  return "Create Reminder"
-        case "reminder_list":    return "List Reminders"
-        case "reminder_cancel":  return "Cancel Reminder"
         default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -189,23 +186,6 @@ public final class ToolConfirmationNotificationService {
             return parts.isEmpty ? "\(verb) schedule" : "\(verb): \(parts.joined(separator: " — "))"
         case "schedule_delete":
             return (input["job_id"]?.value as? String) ?? "schedule"
-        case "reminder_create":
-            let msg = (input["message"]?.value as? String) ?? ""
-            let at = (input["at"]?.value as? String) ?? ""
-            let delay = (input["delay"]?.value as? String) ?? ""
-            var parts: [String] = []
-            if !msg.isEmpty {
-                let truncated = msg.count > 60 ? String(msg.prefix(57)) + "..." : msg
-                parts.append("\"\(truncated)\"")
-            }
-            if !at.isEmpty { parts.append("at \(at)") }
-            else if !delay.isEmpty { parts.append("in \(delay)") }
-            return parts.isEmpty ? "Set reminder" : parts.joined(separator: " ")
-        case "reminder_list":
-            return "List reminders"
-        case "reminder_cancel":
-            let id = (input["reminder_id"]?.value as? String) ?? ""
-            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         default:
             // Prefer semantically meaningful keys over arbitrary dictionary order
             let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]

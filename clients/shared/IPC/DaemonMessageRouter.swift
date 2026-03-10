@@ -96,8 +96,6 @@ extension DaemonClient {
             onToolNamesListResponse?(msg)
         case .schedulesListResponse(let msg):
             onSchedulesListResponse?(msg.schedules)
-        case .remindersListResponse(let msg):
-            onRemindersListResponse?(msg.reminders)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
         case .skillsOperationResponse(let msg):

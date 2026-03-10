@@ -7,6 +7,11 @@ struct SchedulesSection: View {
     @State private var schedules: [ScheduleItem] = []
     @State private var loading = false
 
+    /// Filter to only show recurring schedules (exclude one-shot/reminders).
+    private var recurringSchedules: [ScheduleItem] {
+        schedules.filter { !$0.isOneShot }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -16,16 +21,16 @@ struct SchedulesSection: View {
                         ProgressView()
                         Spacer()
                     }
-                } else if schedules.isEmpty {
+                } else if recurringSchedules.isEmpty {
                     Text("No scheduled tasks")
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 } else {
-                    ForEach(schedules, id: \.id) { schedule in
+                    ForEach(recurringSchedules, id: \.id) { schedule in
                         scheduleRow(schedule)
                     }
                     .onDelete { indexSet in
-                        let schedulesToDelete = indexSet.map { schedules[$0] }
+                        let schedulesToDelete = indexSet.map { recurringSchedules[$0] }
                         for schedule in schedulesToDelete {
                             deleteSchedule(schedule.id)
                         }

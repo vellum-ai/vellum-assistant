@@ -391,10 +391,6 @@ public final class HTTPTransport {
         // Suggestion
         case suggestion
 
-        // Reminders
-        case reminders
-        case reminderCancel(id: String)
-
         // Heartbeat
         case heartbeatConfig
         case heartbeatRuns
@@ -784,12 +780,6 @@ public final class HTTPTransport {
         // Suggestion
         case .suggestion:
             return ("/v1/suggestion", nil)
-        // Reminders
-        case .reminders:
-            return ("/v1/reminders", nil)
-        case .reminderCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("/v1/reminders/\(encoded)/cancel", nil)
         // Heartbeat
         case .heartbeatConfig:
             return ("/v1/heartbeat/config", nil)
@@ -1168,12 +1158,6 @@ public final class HTTPTransport {
         // Suggestion
         case .suggestion:
             return ("\(prefix)/suggestion/", nil)
-        // Reminders
-        case .reminders:
-            return ("\(prefix)/reminders/", nil)
-        case .reminderCancel(let id):
-            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
-            return ("\(prefix)/reminders/\(encoded)/cancel/", nil)
         // Heartbeat
         case .heartbeatConfig:
             return ("\(prefix)/heartbeat/config/", nil)

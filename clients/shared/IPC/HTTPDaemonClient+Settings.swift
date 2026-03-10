@@ -54,16 +54,6 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Reminders ---
-            if message is RemindersListMessage {
-                Task { await self.sendGenericPost(.reminders, method: "GET", label: "reminders_list") }
-                return true
-            }
-            if let msg = message as? ReminderCancelMessage {
-                Task { await self.sendGenericPost(.reminderCancel(id: msg.id), label: "reminder_cancel") }
-                return true
-            }
-
             // --- Diagnostics ---
             if let msg = message as? DiagnosticsExportRequestMessage {
                 Task { await self.sendDiagnosticsExport(msg) }

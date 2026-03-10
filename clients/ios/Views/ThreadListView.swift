@@ -107,7 +107,7 @@ struct ThreadListView: View {
         activeThreads.filter { !$0.isScheduleThread }
     }
 
-    /// Active threads created by a schedule or reminder.
+    /// Active threads created by a schedule trigger (including one-shot/reminders).
     private var scheduleThreads: [IOSThread] {
         activeThreads.filter { $0.isScheduleThread }
     }

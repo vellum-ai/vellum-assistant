@@ -10,6 +10,11 @@ struct ScheduledTasksView: View {
     @State private var errorMessage: String? = nil
     @State private var scheduleToDelete: ScheduleItem? = nil
 
+    /// Filter to only show recurring schedules (exclude one-shot/reminders).
+    private var recurringSchedules: [ScheduleItem] {
+        schedules.filter { !$0.isOneShot }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -42,7 +47,7 @@ struct ScheduledTasksView: View {
                         .padding(.top, 4)
                 }
                 Spacer()
-            } else if schedules.isEmpty {
+            } else if recurringSchedules.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
                     VIconView(.clock, size: 32)
@@ -56,7 +61,7 @@ struct ScheduledTasksView: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(schedules) { schedule in
+                    ForEach(recurringSchedules) { schedule in
                         ScheduleRow(
                             schedule: schedule,
                             onToggle: { enabled in toggleSchedule(id: schedule.id, enabled: enabled) },
