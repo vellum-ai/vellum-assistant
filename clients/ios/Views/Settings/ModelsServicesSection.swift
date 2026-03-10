@@ -69,6 +69,11 @@ struct ModelsServicesSection: View {
         .navigationTitle("Models & Services")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { fetchModel() }
+        .onDisappear {
+            if let daemon = clientProvider.client as? DaemonClient {
+                daemon.onModelInfo = nil
+            }
+        }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { fetchModel() }
         }

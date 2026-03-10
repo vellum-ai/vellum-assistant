@@ -120,6 +120,7 @@ struct ChannelsGuardianSection: View {
                     .foregroundColor(VColor.error)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Revoke channel")
         }
     }
 
