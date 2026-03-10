@@ -47,7 +47,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),

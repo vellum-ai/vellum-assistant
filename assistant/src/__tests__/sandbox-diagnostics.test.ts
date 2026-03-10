@@ -19,7 +19,6 @@ mock.module("../util/platform.js", () => ({
   isLinux: () => mockIsLinux,
   getRootDir: () => "/tmp/vellum-test",
   getDataDir: () => "/tmp/vellum-test/data",
-  getSocketPath: () => "/tmp/vellum-test/vellum.sock",
   getDbPath: () => "/tmp/vellum-test/data/db/assistant.db",
   getLogPath: () => "/tmp/vellum-test/data/logs/daemon.log",
   getSandboxRootDir: () => "/tmp/vellum-test/sandbox",

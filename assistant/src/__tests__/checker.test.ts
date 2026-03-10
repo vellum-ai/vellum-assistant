@@ -31,7 +31,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(checkerTestDir, "test.sock"),
   getPidPath: () => join(checkerTestDir, "test.pid"),
   getDbPath: () => join(checkerTestDir, "test.db"),
   getLogPath: () => join(checkerTestDir, "test.log"),

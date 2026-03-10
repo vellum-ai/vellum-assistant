@@ -39,7 +39,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspacePromptPath: (file: string) => `/tmp/workspace/${file}`,
   getPlatformName: () => "linux",
   getClipboardCommand: () => null,
-  getSocketPath: () => "/tmp/test.sock",
   getPidPath: () => "/tmp/test.pid",
   getDbPath: () => "/tmp/data/db/assistant.db",
   getLogPath: () => "/tmp/test.log",

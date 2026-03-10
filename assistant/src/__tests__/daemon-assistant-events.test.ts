@@ -10,7 +10,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => "/tmp/test-daemon-events.sock",
   getSessionTokenPath: () => "/tmp/test-token",
   getRootDir: () => "/tmp/test",
   getDataDir: () => "/tmp/test",
