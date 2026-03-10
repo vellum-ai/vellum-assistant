@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -8,6 +9,47 @@ import VellumAssistantShared
 final class IdentityViewModel {
     var identity: RemoteIdentityInfo?
     var isLoading = false
+
+    var skillsStore: SkillsStore?
+    var contactsStore: ContactsStore?
+
+    // Cached counts — updated via Combine when the stores' @Published properties change.
+    var installedSkillsCount: Int = 0
+    var contactsCount: Int = 0
+
+    private var cancellables: Set<AnyCancellable> = []
+
+    func setUp(daemonClient: DaemonClient) {
+        cancellables.removeAll()
+
+        let skills = SkillsStore(daemonClient: daemonClient)
+        skillsStore = skills
+        let contacts = ContactsStore(daemonClient: daemonClient)
+        contactsStore = contacts
+
+        skills.$skills
+            .map(\.count)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in self?.installedSkillsCount = count }
+            .store(in: &cancellables)
+
+        contacts.$contacts
+            .map(\.count)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in self?.contactsCount = count }
+            .store(in: &cancellables)
+
+        skills.fetchSkills(force: true)
+        contacts.loadContacts()
+    }
+
+    func tearDown() {
+        cancellables.removeAll()
+        skillsStore = nil
+        contactsStore = nil
+        installedSkillsCount = 0
+        contactsCount = 0
+    }
 
     func fetchIdentity(client: any DaemonClientProtocol) async {
         guard let daemonClient = client as? DaemonClient else { return }
@@ -22,8 +64,6 @@ final class IdentityViewModel {
 struct IdentityView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var viewModel = IdentityViewModel()
-    @State private var skillsStore: SkillsStore?
-    @State private var contactsStore: ContactsStore?
     var onConnectTapped: (() -> Void)?
 
     var body: some View {
@@ -40,14 +80,12 @@ struct IdentityView: View {
             .navigationTitle("Intelligence")
         }
         .task(id: "\(clientProvider.clientGeneration)-\(clientProvider.isConnected)") {
-            guard clientProvider.isConnected else { return }
+            guard clientProvider.isConnected else {
+                viewModel.tearDown()
+                return
+            }
             if let daemonClient = clientProvider.client as? DaemonClient {
-                let skills = SkillsStore(daemonClient: daemonClient)
-                skillsStore = skills
-                let contacts = ContactsStore(daemonClient: daemonClient)
-                contactsStore = contacts
-                skills.fetchSkills(force: true)
-                contacts.loadContacts()
+                viewModel.setUp(daemonClient: daemonClient)
             }
             await viewModel.fetchIdentity(client: clientProvider.client)
         }
@@ -68,7 +106,7 @@ struct IdentityView: View {
             Section {
                 // Installed Skills
                 NavigationLink {
-                    if let store = skillsStore {
+                    if let store = viewModel.skillsStore {
                         InstalledSkillsView(skillsStore: store)
                     }
                 } label: {
@@ -80,8 +118,8 @@ struct IdentityView: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
                         Spacer()
-                        if let count = skillsStore?.skills.count, count > 0 {
-                            Text("\(count)")
+                        if viewModel.installedSkillsCount > 0 {
+                            Text("\(viewModel.installedSkillsCount)")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                                 .padding(.horizontal, 8)
@@ -93,11 +131,11 @@ struct IdentityView: View {
                         }
                     }
                 }
-                .disabled(skillsStore == nil)
+                .disabled(viewModel.skillsStore == nil)
 
                 // Community Skills
                 NavigationLink {
-                    if let store = skillsStore {
+                    if let store = viewModel.skillsStore {
                         CommunitySkillsView(skillsStore: store)
                     }
                 } label: {
@@ -110,11 +148,11 @@ struct IdentityView: View {
                             .foregroundColor(VColor.textPrimary)
                     }
                 }
-                .disabled(skillsStore == nil)
+                .disabled(viewModel.skillsStore == nil)
 
                 // Contacts
                 NavigationLink {
-                    if let store = contactsStore {
+                    if let store = viewModel.contactsStore {
                         ContactsListView(contactsStore: store)
                     }
                 } label: {
@@ -126,8 +164,8 @@ struct IdentityView: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
                         Spacer()
-                        if let count = contactsStore?.contacts.count, count > 0 {
-                            Text("\(count)")
+                        if viewModel.contactsCount > 0 {
+                            Text("\(viewModel.contactsCount)")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                                 .padding(.horizontal, 8)
@@ -139,7 +177,7 @@ struct IdentityView: View {
                         }
                     }
                 }
-                .disabled(contactsStore == nil)
+                .disabled(viewModel.contactsStore == nil)
             }
 
             // Workspace section
@@ -159,8 +197,8 @@ struct IdentityView: View {
             }
         }
         .refreshable {
-            skillsStore?.fetchSkills(force: true)
-            contactsStore?.loadContacts()
+            viewModel.skillsStore?.fetchSkills(force: true)
+            viewModel.contactsStore?.loadContacts()
             await viewModel.fetchIdentity(client: clientProvider.client)
         }
     }
