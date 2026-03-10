@@ -11,6 +11,7 @@ export interface QdrantClientConfig {
   vectorSize: number;
   onDisk: boolean;
   quantization: "scalar" | "none";
+  embeddingModel?: string;
 }
 
 export interface QdrantPointPayload {
@@ -60,7 +61,10 @@ export class VellumQdrantClient {
   private readonly vectorSize: number;
   private readonly onDisk: boolean;
   private readonly quantization: "scalar" | "none";
+  private readonly embeddingModel?: string;
   private collectionReady = false;
+
+  private readonly SENTINEL_ID = "00000000-0000-0000-0000-000000000000";
 
   constructor(config: QdrantClientConfig) {
     this.client = new QdrantRestClient({
@@ -71,6 +75,7 @@ export class VellumQdrantClient {
     this.vectorSize = config.vectorSize;
     this.onDisk = config.onDisk;
     this.quantization = config.quantization;
+    this.embeddingModel = config.embeddingModel;
   }
 
   async ensureCollection(): Promise<void> {
@@ -79,8 +84,47 @@ export class VellumQdrantClient {
     try {
       const exists = await this.client.collectionExists(this.collection);
       if (exists.exists) {
-        this.collectionReady = true;
-        return;
+        try {
+          const info = await this.client.getCollection(this.collection);
+          const currentSize = (
+            info.config?.params?.vectors as { size?: number }
+          )?.size;
+          const dimMismatch =
+            currentSize != null && currentSize !== this.vectorSize;
+
+          // Check model identity via a sentinel point that stores the embedding model
+          let modelMismatch = false;
+          if (this.embeddingModel) {
+            const sentinel = await this.readSentinel();
+            if (sentinel && sentinel !== this.embeddingModel) {
+              modelMismatch = true;
+            }
+          }
+
+          if (dimMismatch || modelMismatch) {
+            log.warn(
+              {
+                collection: this.collection,
+                currentSize,
+                expectedSize: this.vectorSize,
+                modelMismatch,
+              },
+              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
+            );
+            await this.client.deleteCollection(this.collection);
+            // Fall through to collection creation below
+          } else {
+            this.collectionReady = true;
+            return;
+          }
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to verify collection compatibility, assuming compatible",
+          );
+          this.collectionReady = true;
+          return;
+        }
       }
     } catch {
       // Collection doesn't exist, create it
@@ -159,6 +203,11 @@ export class VellumQdrantClient {
         field_schema: "keyword",
       }),
     ]);
+
+    // Write sentinel point to record the active embedding model
+    if (this.embeddingModel) {
+      await this.writeSentinel(this.embeddingModel);
+    }
 
     this.collectionReady = true;
     log.info(
@@ -287,7 +336,9 @@ export class VellumQdrantClient {
       });
     }
 
-    const mustNotConditions: Array<Record<string, unknown>> = [];
+    const mustNotConditions: Array<Record<string, unknown>> = [
+      { key: "_meta", match: { value: true } },
+    ];
     if (excludeMessageIds && excludeMessageIds.length > 0) {
       mustNotConditions.push({
         key: "message_id",
@@ -297,10 +348,8 @@ export class VellumQdrantClient {
 
     const filter: Record<string, unknown> = {
       must: mustConditions,
+      must_not: mustNotConditions,
     };
-    if (mustNotConditions.length > 0) {
-      filter.must_not = mustNotConditions;
-    }
 
     return this.search(vector, limit, filter);
   }
@@ -387,6 +436,36 @@ export class VellumQdrantClient {
       msg.includes("doesn't exist") ||
       msg.includes("not found")
     );
+  }
+
+  private async readSentinel(): Promise<string | null> {
+    try {
+      const points = await this.client.retrieve(this.collection, {
+        ids: [this.SENTINEL_ID],
+        with_payload: true,
+        with_vector: false,
+      });
+      if (points.length === 0) return null;
+      return (
+        ((points[0].payload as Record<string, unknown>)
+          ?.embedding_model as string) ?? null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeSentinel(model: string): Promise<void> {
+    await this.client.upsert(this.collection, {
+      wait: true,
+      points: [
+        {
+          id: this.SENTINEL_ID,
+          vector: new Array(this.vectorSize).fill(0), // zero vector, never matched in search
+          payload: { _meta: true, embedding_model: model },
+        },
+      ],
+    });
   }
 
   private async findByTarget(
