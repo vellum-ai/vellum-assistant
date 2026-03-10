@@ -533,6 +533,11 @@ struct ComposerView: View {
     @ViewBuilder
     private var voiceConversationComposer: some View {
         if let manager = voiceModeManager {
+            VStack(spacing: 0) {
+                if !pendingAttachments.isEmpty {
+                    attachmentStrip
+                }
+
             HStack(spacing: VSpacing.md) {
                 // Left section: state label + live transcription
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -582,6 +587,7 @@ struct ComposerView: View {
             }
             .padding(.vertical, VSpacing.md)
             .padding(.horizontal, VSpacing.lg)
+            }
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(VColor.voiceComposerBackground)
