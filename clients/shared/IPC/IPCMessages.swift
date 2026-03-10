@@ -2001,6 +2001,12 @@ public struct DiagnosticsExportResponseMessage: Decodable, Sendable {
     public let success: Bool
     public let filePath: String?
     public let error: String?
+
+    public init(success: Bool, filePath: String?, error: String?) {
+        self.success = success
+        self.filePath = filePath
+        self.error = error
+    }
 }
 
 /// Request daemon environment variables (debug only).
