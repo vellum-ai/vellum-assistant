@@ -898,10 +898,10 @@ function buildDynamicSkillWorkflowSection(
     "1. Validate the gap — confirm no existing tool/skill covers it.",
     "2. Draft a TypeScript snippet exporting a `default` or `run` function (`(input: unknown) => unknown | Promise<unknown>`).",
     '3. Test the snippet by writing it to a temp file with `bash` (e.g., `bash command="mkdir -p /tmp/vellum-eval && cat > /tmp/vellum-eval/snippet.ts << \'SNIPPET_EOF\'\\n...\\nSNIPPET_EOF"`) and running it with `bash command="bun run /tmp/vellum-eval/snippet.ts"`. Do not use `file_write` for temp files outside the working directory. Iterate until it passes (max 3 attempts, then ask the user). Clean up temp files after.',
-    "4. Persist with `scaffold_managed_skill` only after user consent.",
+    '4. After user consent, persist the final skill body with `assistant skills create <skill-id> --name "<name>" --description "<description>" --body-file <path-or-->`.',
     "5. Load with `skill_load` before use.",
     "",
-    "**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.",
+    "**Never persist or delete skills without explicit user confirmation.** To remove: `assistant skills uninstall <skill-id>`.",
     "After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.",
   ];
 

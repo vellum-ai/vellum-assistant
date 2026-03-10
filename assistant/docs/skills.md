@@ -4,7 +4,7 @@ This document describes the security model for the Vellum Assistant skill system
 
 ## Overview
 
-Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (user-installed via `scaffold_managed_skill`), **workspace** (project-local), or **extra** (additional directories configured by the user).
+Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (stored under `~/.vellum/workspace/skills/`, typically via `assistant skills create` or `assistant skills install`), **workspace** (project-local), or **extra** (additional directories configured by the user).
 
 Because skills can introduce arbitrary tool behavior, they are subject to stricter permission defaults than core tools.
 
