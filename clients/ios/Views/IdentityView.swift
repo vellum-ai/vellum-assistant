@@ -39,7 +39,7 @@ struct IdentityView: View {
             }
             .navigationTitle("Intelligence")
         }
-        .task(id: clientProvider.clientGeneration) {
+        .task(id: "\(clientProvider.clientGeneration)-\(clientProvider.isConnected)") {
             guard clientProvider.isConnected else { return }
             if let daemonClient = clientProvider.client as? DaemonClient {
                 let skills = SkillsStore(daemonClient: daemonClient)

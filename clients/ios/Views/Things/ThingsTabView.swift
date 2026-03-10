@@ -23,6 +23,7 @@ struct ThingsTabView: View {
 
 /// Wrapper that lazily creates a `DirectoryStore` once and holds onto it,
 /// avoiding repeated allocation on every SwiftUI body evaluation.
+@MainActor
 private final class LazyDirectoryStore: ObservableObject {
     private var store: DirectoryStore?
     private weak var lastDaemon: DaemonClient?

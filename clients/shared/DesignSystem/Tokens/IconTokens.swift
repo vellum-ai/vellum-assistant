@@ -255,7 +255,7 @@ public enum VIcon: String, CaseIterable, Sendable {
         ns.isTemplate = true
         return Image(nsImage: ns)
         #elseif canImport(UIKit)
-        guard let url = pdfURL, let ui = UIImage(contentsOfFile: url.path) else {
+        guard let url = pdfURL, let ui = Self.rasterizePDF(at: url) else {
             return Image(systemName: "questionmark.square")
         }
         return Image(uiImage: ui.withRenderingMode(.alwaysTemplate))
@@ -277,6 +277,29 @@ public enum VIcon: String, CaseIterable, Sendable {
         guard let img = nsImage else { return nil }
         img.size = NSSize(width: size, height: size)
         return img
+    }
+    #endif
+
+    #if canImport(UIKit)
+    /// Rasterize a PDF file into a `UIImage` using Core Graphics.
+    /// `UIImage(contentsOfFile:)` does not support PDF — it only handles raster formats.
+    private static func rasterizePDF(at url: URL, size: CGFloat = 24) -> UIImage? {
+        guard let doc = CGPDFDocument(url as CFURL),
+              let page = doc.page(at: 1) else { return nil }
+        let box = page.getBoxRect(.cropBox)
+        let scale = UIScreen.main.scale
+        let targetSize = CGSize(width: size * scale, height: size * scale)
+        let scaleX = targetSize.width / box.width
+        let scaleY = targetSize.height / box.height
+        let drawScale = min(scaleX, scaleY)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        return renderer.image { ctx in
+            let cgContext = ctx.cgContext
+            cgContext.translateBy(x: 0, y: size)
+            cgContext.scaleBy(x: drawScale / scale, y: -drawScale / scale)
+            cgContext.translateBy(x: -box.origin.x, y: -box.origin.y)
+            cgContext.drawPDFPage(page)
+        }
     }
     #endif
 }

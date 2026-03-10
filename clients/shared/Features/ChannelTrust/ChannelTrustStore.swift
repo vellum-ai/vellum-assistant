@@ -77,17 +77,16 @@ public final class ChannelTrustStore: ObservableObject {
         isLoadingActions = true
         fetchTask?.cancel()
         fetchTask = Task { [weak self] in
-            guard let self else { return }
+            guard let daemonClient = self?.daemonClient else { return }
             let stream = daemonClient.subscribe()
             do {
                 try daemonClient.sendGuardianActionsPendingRequest(conversationId: conversationId)
             } catch {
-                self.isLoadingActions = false
+                self?.isLoadingActions = false
                 return
             }
             for await message in stream {
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
+                guard let self, !Task.isCancelled else { return }
                 if case .guardianActionsPendingResponse(let response) = message {
                     guard response.conversationId == conversationId else { continue }
                     self.pendingActions = response.prompts
@@ -95,8 +94,7 @@ public final class ChannelTrustStore: ObservableObject {
                     return
                 }
             }
-            guard let self else { return }
-            self.isLoadingActions = false
+            self?.isLoadingActions = false
         }
     }
 
@@ -104,14 +102,13 @@ public final class ChannelTrustStore: ObservableObject {
     public func decideAction(requestId: String, action: String, conversationId: String? = nil) {
         decideTask?.cancel()
         decideTask = Task { [weak self] in
-            guard let self else { return }
+            guard let daemonClient = self?.daemonClient else { return }
             let stream = daemonClient.subscribe()
             do {
                 try daemonClient.sendGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId)
             } catch { return }
             for await message in stream {
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
+                guard let self, !Task.isCancelled else { return }
                 if case .guardianActionDecisionResponse(let response) = message {
                     guard response.requestId == requestId else { continue }
                     if response.applied {
