@@ -150,8 +150,8 @@ mock.module("node:fs", () => {
 import {
   __resetRecordingState,
   handleRecordingStart,
+  handleRecordingStatusCore,
   handleRecordingStop,
-  recordingHandlers,
 } from "../daemon/handlers/recording.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
@@ -334,7 +334,7 @@ describe("handleRecordingStop", () => {
   });
 });
 
-describe("recordingHandlers.recording_status", () => {
+describe("handleRecordingStatusCore", () => {
   beforeEach(() => {
     __resetRecordingState();
     mockMessages.length = 0;
@@ -359,7 +359,7 @@ describe("recordingHandlers.recording_status", () => {
     };
 
     // Should not throw
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
   });
 
   test("handles stopped status with file — creates attachment and notifies client", async () => {
@@ -387,7 +387,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 5000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // Should have sent assistant_text_delta and message_complete
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
@@ -429,7 +429,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 3000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // An assistant message should have been created via addMessage mock
     expect(mockMessages.length).toBeGreaterThanOrEqual(1);
@@ -456,7 +456,7 @@ describe("recordingHandlers.recording_status", () => {
     };
 
     // Should not throw — the handler logs the error and notifies the client
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // No attachment should have been created
     expect(mockAttachments.length).toBe(0);
@@ -490,7 +490,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 2000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // No attachment should have been created for a zero-length file
     expect(mockAttachments.length).toBe(0);
@@ -531,7 +531,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 5000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // Attachment should have been created
     expect(mockAttachments.length).toBe(1);
@@ -568,7 +568,7 @@ describe("recordingHandlers.recording_status", () => {
       durationMs: 5000,
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // No attachment should have been created — path is outside allowlist
     expect(mockAttachments.length).toBe(0);
@@ -601,7 +601,7 @@ describe("recordingHandlers.recording_status", () => {
       error: "Video writer finished with non-completed status 3",
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // No attachment should have been created
     expect(mockAttachments.length).toBe(0);
@@ -634,7 +634,7 @@ describe("recordingHandlers.recording_status", () => {
       error: "Permission denied",
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     // Should send error notification
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
@@ -660,7 +660,7 @@ describe("recordingHandlers.recording_status", () => {
       status: "failed",
     };
 
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThanOrEqual(1);
@@ -682,7 +682,7 @@ describe("recordingHandlers.recording_status", () => {
     };
 
     // Should not throw — uses attachToConversationId as fallback
-    await recordingHandlers.recording_status(statusMsg, ctx);
+    await handleRecordingStatusCore(statusMsg, ctx);
 
     const textDeltas = sent.filter((m) => m.type === "assistant_text_delta");
     expect(textDeltas.length).toBeGreaterThanOrEqual(1);
