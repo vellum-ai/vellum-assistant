@@ -12,9 +12,6 @@ extension AppDelegate {
     func setupVoiceInput() {
         voiceInput = VoiceInputManager()
         voiceInput?.onTranscription = { [weak self] text in
-            self?.voiceTranscriptionWindow?.close()
-            self?.voiceTranscriptionWindow = nil
-
             // Capture prefix before clearing — it was saved when partials started
             let savedPrefix = (self?.preVoiceInputText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             self?.preVoiceInputText = nil
@@ -108,18 +105,8 @@ extension AppDelegate {
                     systemSymbolName: "mic.fill",
                     accessibilityDescription: "Vellum"
                 )
-                let quickInputActive = self?.quickInputWindow?.isVisible ?? false
-                let isDictation = self?.voiceInput?.currentMode == .dictation
-                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation,
-                   let manager = self?.mainWindow?.voiceModeManager {
-                    let window = VoiceTranscriptionWindow(voiceModeManager: manager)
-                    window.show()
-                    self?.voiceTranscriptionWindow = window
-                }
                 self?.textResponseWindow?.updateRecordingState(true)
             } else {
-                self?.voiceTranscriptionWindow?.close()
-                self?.voiceTranscriptionWindow = nil
                 self?.updateMenuBarIcon()
                 self?.textResponseWindow?.updateRecordingState(false)
             }

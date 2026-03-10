@@ -49,7 +49,7 @@ final class WakeWordActivationWindow {
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
-        // Position top-right, slightly below where VoiceTranscriptionWindow appears
+        // Position top-right corner of screen
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.maxX - panelWidth - margin

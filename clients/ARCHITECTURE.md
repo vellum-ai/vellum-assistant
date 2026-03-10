@@ -42,7 +42,7 @@ Low-risk types use Swift's `@Observable` macro (Observation framework) instead o
 | `ConversationInputState` | `@Bindable` (bindings needed for text input) |
 | `BundleConfirmationViewModel` | Plain `var` (read-only in view) |
 
-Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewModel`) remain as `ObservableObject`.
+Types that use Combine `$`-prefixed publishers remain as `ObservableObject`.
 
 ---
 

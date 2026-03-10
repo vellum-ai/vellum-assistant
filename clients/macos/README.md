@@ -474,7 +474,7 @@ Features/
   Settings/           Tabbed settings panels (Appearance, Advanced, Connect, Trust, etc.)
   Sharing/            Content sharing and export
   Surfaces/           Daemon surface rendering (HTML/JSON overlays)
-  Voice/              Voice input UI (VoiceTranscriptionWindow)
+  Voice/              Voice input UI (wake word, voice mode)
 Recording/            Screen recording (HUD, capture, thumbnails)
 Telemetry/            Crash reporting, MetricKit, perf signposts
 Security/             Keychain broker
