@@ -476,13 +476,22 @@ extension AppDelegate {
                             .map { $0.enabled }
                             ?? true
 
+                        var syncSucceeded = true
                         if onboardingValue != daemonValue {
-                            try? await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
+                            do {
+                                try await daemonClient.setFeatureFlag(key: featureFlagKey, enabled: onboardingValue)
+                            } catch {
+                                syncSucceeded = false
+                                log.debug("Failed to sync onboarding privacy flag to daemon: \(error)")
+                            }
                         }
 
-                        // Sync succeeded — clear the flag so subsequent
-                        // reconnects resume daemon-as-source-of-truth.
-                        UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+                        // Only clear the flag when both read and write
+                        // succeeded so a failed write preserves the flag
+                        // for retry on next reconnect.
+                        if syncSucceeded {
+                            UserDefaults.standard.removeObject(forKey: "collectUsageDataExplicitlySet")
+                        }
                     }
                 } else {
                     // No explicit user interaction — use the daemon's value
