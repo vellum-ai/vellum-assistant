@@ -36,7 +36,11 @@ import type {
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./session-slash.js";
+import {
+  isProviderShortcut,
+  resolveSlash,
+  type SlashContext,
+} from "./session-slash.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
@@ -326,7 +330,10 @@ export async function drainQueue(
 
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model or /models UI.
-      if (isModelSlashCommand(next.content)) {
+      if (
+        isModelSlashCommand(next.content) ||
+        isProviderShortcut(next.content)
+      ) {
         next.onEvent(buildModelInfoEvent());
       }
       next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
@@ -676,7 +683,7 @@ export async function processMessage(
 
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.
-    if (isModelSlashCommand(content)) {
+    if (isModelSlashCommand(content) || isProviderShortcut(content)) {
       onEvent(buildModelInfoEvent());
     }
     onEvent({ type: "assistant_text_delta", text: slashResult.message });
