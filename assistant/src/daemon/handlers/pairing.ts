@@ -10,7 +10,7 @@ import type {
   PairingApprovalResponse,
 } from "../message-protocol.js";
 import type { PairingStore } from "../pairing-store.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 /** Module-level reference set by the daemon server at startup. */
 let pairingStoreRef: PairingStore | null = null;
@@ -106,10 +106,3 @@ function handleApprovedDevicesClear(_ctx: HandlerContext): void {
   clearAllDevices();
   log.info("All approved devices cleared via IPC");
 }
-
-export const pairingHandlers = defineHandlers({
-  pairing_approval_response: handlePairingApprovalResponse,
-  approved_devices_list: (_msg, ctx) => handleApprovedDevicesList(ctx),
-  approved_device_remove: handleApprovedDeviceRemove,
-  approved_devices_clear: (_msg, ctx) => handleApprovedDevicesClear(ctx),
-});

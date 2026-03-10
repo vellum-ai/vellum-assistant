@@ -49,7 +49,7 @@ import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
 } from "../message-protocol.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --
 
@@ -611,7 +611,3 @@ export async function handleChannelVerificationSession(
     });
   }
 }
-
-export const channelHandlers = defineHandlers({
-  channel_verification_session: handleChannelVerificationSession,
-});

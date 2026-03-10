@@ -22,7 +22,7 @@ import type {
   TelegramConfigRequest,
   TelegramConfigResponse,
 } from "../message-protocol.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
   /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
@@ -402,7 +402,3 @@ export async function handleTelegramConfig(
     });
   }
 }
-
-export const telegramHandlers = defineHandlers({
-  telegram_config: handleTelegramConfig,
-});

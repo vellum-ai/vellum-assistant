@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getWorkspacePromptPath, readLockfile } from "../../util/platform.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 export interface IdentityFields {
   name: string;
@@ -152,7 +152,3 @@ function handleIdentityGet(ctx: HandlerContext): void {
     });
   }
 }
-
-export const identityHandlers = defineHandlers({
-  identity_get: (_msg, ctx) => handleIdentityGet(ctx),
-});
