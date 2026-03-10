@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  type EmbeddingInput,
   embeddingInputContentHash,
-  isTextInput,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
 } from "./embedding-types.js";
@@ -114,42 +112,5 @@ describe("embeddingInputContentHash", () => {
   test("returns a hex string", () => {
     const hash = embeddingInputContentHash("test");
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
-describe("isTextInput", () => {
-  test("returns true for a raw string", () => {
-    expect(isTextInput("hello")).toBe(true);
-  });
-
-  test("returns true for a TextEmbeddingInput", () => {
-    expect(isTextInput({ type: "text", text: "hello" })).toBe(true);
-  });
-
-  test("returns false for an ImageEmbeddingInput", () => {
-    const input: EmbeddingInput = {
-      type: "image",
-      data: Buffer.from("fake"),
-      mimeType: "image/png",
-    };
-    expect(isTextInput(input)).toBe(false);
-  });
-
-  test("returns false for an AudioEmbeddingInput", () => {
-    const input: EmbeddingInput = {
-      type: "audio",
-      data: Buffer.from("fake"),
-      mimeType: "audio/mp3",
-    };
-    expect(isTextInput(input)).toBe(false);
-  });
-
-  test("returns false for a VideoEmbeddingInput", () => {
-    const input: EmbeddingInput = {
-      type: "video",
-      data: Buffer.from("fake"),
-      mimeType: "video/mp4",
-    };
-    expect(isTextInput(input)).toBe(false);
   });
 });

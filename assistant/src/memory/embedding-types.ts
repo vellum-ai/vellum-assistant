@@ -59,7 +59,3 @@ export function embeddingInputContentHash(input: EmbeddingInput): string {
   }
   return hash.digest("hex");
 }
-
-export function isTextInput(input: EmbeddingInput): input is string | TextEmbeddingInput {
-  return typeof input === "string" || (typeof input === "object" && input.type === "text");
-}

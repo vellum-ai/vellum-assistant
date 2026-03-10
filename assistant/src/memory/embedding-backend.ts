@@ -9,7 +9,6 @@ import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 import {
   type EmbeddingInput,
   embeddingInputContentHash,
-  isTextInput,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
   type TextEmbeddingInput,
@@ -20,7 +19,7 @@ export type {
   MultimodalEmbeddingInput,
   TextEmbeddingInput,
 };
-export { embeddingInputContentHash, isTextInput,normalizeEmbeddingInput };
+export { embeddingInputContentHash, normalizeEmbeddingInput };
 
 const log = getLogger("memory-embeddings");
 
