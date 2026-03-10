@@ -600,7 +600,10 @@ struct ActiveChatViewWrapper: View {
                 windowState.selection = .panel(.settings)
             },
             onSend: {
-                if viewModel.isRecording { voiceModeManager?.deactivate() }
+                if viewModel.isRecording {
+                    voiceModeManager?.deactivate()
+                    NotificationCenter.default.post(name: .stopPTTRecording, object: nil)
+                }
                 viewModel.sendMessage()
             },
             onStop: viewModel.stopGenerating,

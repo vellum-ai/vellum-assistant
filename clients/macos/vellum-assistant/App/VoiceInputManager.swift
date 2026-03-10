@@ -127,7 +127,17 @@ final class VoiceInputManager {
                 self.otherKeyPressedDuringHold = false
             }
         }
-        appSwitchObservers = [workspaceObserver, resignObserver, spaceObserver]
+        let stopPTTObserver = NotificationCenter.default.addObserver(
+            forName: .stopPTTRecording,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isRecording else { return }
+                self.stopRecording()
+            }
+        }
+        appSwitchObservers = [workspaceObserver, resignObserver, spaceObserver, stopPTTObserver]
 
         // Wire the dictation response callback to insert text and manage the overlay
         if onDictationResponse == nil {
