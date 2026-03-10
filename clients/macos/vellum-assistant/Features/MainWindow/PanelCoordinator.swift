@@ -376,7 +376,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
-                onMicrophoneToggle: onMicrophoneToggle,
+                onMicrophoneToggle: toggleVoiceMode,
                 isTemporaryChat: activeThread?.kind == .private,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceModeManager.openAIVoiceService,
@@ -531,7 +531,7 @@ extension MainWindowView {
                         }
                     }
                 },
-                onMicrophoneToggle: onMicrophoneToggle
+                onMicrophoneToggle: toggleVoiceMode
             )
         }
     }

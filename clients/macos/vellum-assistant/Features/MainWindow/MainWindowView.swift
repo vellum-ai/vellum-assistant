@@ -404,17 +404,6 @@ struct MainWindowView: View {
                 windowState.selection = .panel(.settings)
             }
             if windowState.isConversationVisible {
-                // Voice mode toggle
-                VIconButton(
-                    label: "Voice Mode",
-                    icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
-                    isActive: voiceModeManager.state != .off,
-                    iconOnly: true,
-                    tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
-                ) {
-                    toggleVoiceMode()
-                }
-
                 // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
                 // only visible on normal threads when no messages exist yet
                 if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
