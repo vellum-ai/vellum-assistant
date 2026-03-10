@@ -90,9 +90,40 @@ public final class DirectoryStore: ObservableObject {
         }
     }
 
-    /// Share a local app to the cloud.
-    public func shareAppCloud(id: String) {
-        try? daemonClient.sendShareAppCloud(appId: id)
+    /// Share a local app to the cloud. Returns `true` on success.
+    public func shareAppCloud(id: String) async -> Bool {
+        let stream = daemonClient.subscribe()
+
+        do {
+            try daemonClient.sendShareAppCloud(appId: id)
+        } catch {
+            return false
+        }
+
+        // Race the stream listener against a 15-second timeout to avoid waiting
+        // indefinitely when the transport returns early without emitting a response.
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .shareAppCloudResponse(let response) = message {
+                        return response.success
+                    }
+                }
+                return false
+            }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                return nil // sentinel indicating timeout
+            }
+
+            let first = await group.next() ?? nil
+
+            // Cancel the remaining task (timeout or stream listener)
+            group.cancelAll()
+
+            return first ?? false
+        }
     }
 
     // MARK: - Shared Apps
@@ -144,22 +175,45 @@ public final class DirectoryStore: ObservableObject {
         }
     }
 
-    /// Fork a shared app by UUID.
-    public func forkSharedApp(uuid: String) {
-        Task {
-            let stream = daemonClient.subscribe()
+    /// Fork a shared app by UUID. Returns `true` on success.
+    public func forkSharedApp(uuid: String) async -> Bool {
+        let stream = daemonClient.subscribe()
 
-            do {
-                try daemonClient.sendForkSharedApp(uuid: uuid)
-            } catch {
-                return
-            }
+        do {
+            try daemonClient.sendForkSharedApp(uuid: uuid)
+        } catch {
+            return false
+        }
 
-            for await message in stream {
-                if case .forkSharedAppResponse = message {
-                    return
+        // Race the stream listener against a 15-second timeout to avoid waiting
+        // indefinitely when the transport returns early without emitting a response.
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .forkSharedAppResponse(let response) = message {
+                        return response.success
+                    }
                 }
+                return false
             }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                return nil // sentinel indicating timeout
+            }
+
+            let first = await group.next() ?? nil
+
+            // Cancel the remaining task (timeout or stream listener)
+            group.cancelAll()
+
+            if let result = first {
+                if result {
+                    await MainActor.run { self.fetchApps() }
+                }
+                return result
+            }
+            return false // timeout
         }
     }
 

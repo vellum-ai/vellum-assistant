@@ -6,11 +6,45 @@ import VellumAssistantShared
 struct AppsGridView: View {
     @ObservedObject var directoryStore: DirectoryStore
     @State private var appToDelete: AppItem?
+    @State private var errorMessage: String?
+    @State private var showShareSuccess = false
+    @State private var bannerDismissTask: Task<Void, Never>?
+    @AppStorage("pinnedAppIds") private var pinnedAppIdsData: Data = Data()
+    @State private var pinnedAppIds: Set<String> = []
 
     private let columns = [
         GridItem(.flexible(), spacing: VSpacing.md),
         GridItem(.flexible(), spacing: VSpacing.md)
     ]
+
+    // MARK: - Pinned App IDs
+
+    private func decodePinnedIds(from data: Data) -> Set<String> {
+        (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
+    }
+
+    private func togglePin(for appId: String) {
+        var ids = pinnedAppIds
+        if ids.contains(appId) {
+            ids.remove(appId)
+        } else {
+            ids.insert(appId)
+        }
+        pinnedAppIds = ids
+        pinnedAppIdsData = (try? JSONEncoder().encode(ids)) ?? Data()
+    }
+
+    private func isPinned(_ appId: String) -> Bool {
+        pinnedAppIds.contains(appId)
+    }
+
+    private var pinnedApps: [AppItem] {
+        directoryStore.localApps.filter { isPinned($0.id) }
+    }
+
+    private var unpinnedApps: [AppItem] {
+        directoryStore.localApps.filter { !isPinned($0.id) }
+    }
 
     var body: some View {
         Group {
@@ -38,27 +72,103 @@ struct AppsGridView: View {
                 Text("Are you sure you want to delete \"\(app.name)\"? This action cannot be undone.")
             }
         }
+        .alert("Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: {
+            if let msg = errorMessage {
+                Text(msg)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if showShareSuccess {
+                shareSuccessBanner
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onAppear {
+                        bannerDismissTask?.cancel()
+                        bannerDismissTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            withAnimation { showShareSuccess = false }
+                        }
+                    }
+            }
+        }
+        .onDisappear {
+            bannerDismissTask?.cancel()
+            bannerDismissTask = nil
+        }
+        .onAppear {
+            pinnedAppIds = decodePinnedIds(from: pinnedAppIdsData)
+        }
+        .onChange(of: pinnedAppIdsData) { newData in
+            pinnedAppIds = decodePinnedIds(from: newData)
+        }
     }
 
     // MARK: - Grid Content
 
     private var gridContent: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: VSpacing.md) {
-                ForEach(directoryStore.localApps, id: \.id) { app in
-                    appCard(app)
+            VStack(spacing: VSpacing.lg) {
+                if !pinnedApps.isEmpty {
+                    pinnedSection
                 }
+                allAppsSection
             }
-            .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
         }
         .refreshable {
             directoryStore.fetchApps()
-            // fetchApps() fires an internal Task; await loading completion
-            // so the pull-to-refresh spinner stays visible until data arrives.
             while directoryStore.isLoadingApps {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
+        }
+    }
+
+    // MARK: - Pinned Section
+
+    private var pinnedSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(.pin, size: 14)
+                    .foregroundColor(VColor.textMuted)
+                Text("Pinned")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textCase(.uppercase)
+            }
+            .padding(.horizontal, VSpacing.md)
+
+            LazyVGrid(columns: columns, spacing: VSpacing.md) {
+                ForEach(pinnedApps, id: \.id) { app in
+                    appCard(app)
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+        }
+    }
+
+    // MARK: - All Apps Section
+
+    private var allAppsSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            if !pinnedApps.isEmpty {
+                Text("Other Apps")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textCase(.uppercase)
+                    .padding(.horizontal, VSpacing.md)
+            }
+
+            LazyVGrid(columns: columns, spacing: VSpacing.md) {
+                ForEach(unpinnedApps, id: \.id) { app in
+                    appCard(app)
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
         }
     }
 
@@ -69,8 +179,15 @@ struct AppsGridView: View {
             directoryStore.openApp(id: app.id)
         } label: {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text(app.icon ?? "\u{1F4F1}")
-                    .font(.system(size: 32))
+                HStack {
+                    Text(app.icon ?? "\u{1F4F1}")
+                        .font(.system(size: 32))
+                    Spacer()
+                    if isPinned(app.id) {
+                        VIconView(.pin, size: 12)
+                            .foregroundColor(VColor.accent)
+                    }
+                }
 
                 Text(app.name)
                     .font(VFont.bodyBold)
@@ -100,9 +217,30 @@ struct AppsGridView: View {
                 Label { Text("Open") } icon: { VIconView(.externalLink, size: 14) }
             }
             Button {
-                directoryStore.shareAppCloud(id: app.id)
+                togglePin(for: app.id)
             } label: {
-                Label { Text("Share") } icon: { VIconView(.share, size: 14) }
+                Label {
+                    Text(isPinned(app.id) ? "Unpin" : "Pin")
+                } icon: {
+                    VIconView(isPinned(app.id) ? .pinOff : .pin, size: 14)
+                }
+            }
+            Button {
+                Task {
+                    let success = await directoryStore.shareAppCloud(id: app.id)
+                    if success {
+                        withAnimation { showShareSuccess = true }
+                    } else {
+                        errorMessage = "Failed to share app. Please try again."
+                    }
+                }
+            } label: {
+                Label { Text("Share to Cloud") } icon: { VIconView(.upload, size: 14) }
+            }
+            Button {
+                directoryStore.bundleApp(id: app.id)
+            } label: {
+                Label { Text("Bundle for Export") } icon: { VIconView(.package, size: 14) }
             }
             Divider()
             Button(role: .destructive) {
@@ -111,6 +249,23 @@ struct AppsGridView: View {
                 Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
             }
         }
+    }
+
+    // MARK: - Share Success Banner
+
+    private var shareSuccessBanner: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.circleCheck, size: 16)
+                .foregroundColor(.white)
+            Text("Shared to cloud")
+                .font(VFont.bodyBold)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.accent)
+        .cornerRadius(VRadius.lg)
+        .padding(.bottom, VSpacing.lg)
     }
 
     // MARK: - States

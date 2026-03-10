@@ -7,6 +7,9 @@ struct SharedAppsListView: View {
     @ObservedObject var directoryStore: DirectoryStore
     @State private var selectedApp: SharedAppItem?
     @State private var appToDelete: SharedAppItem?
+    @State private var isForkingApp = false
+    @State private var forkDismissTask: Task<Void, Never>?
+    @State private var errorMessage: String?
 
     var body: some View {
         Group {
@@ -48,6 +51,13 @@ struct SharedAppsListView: View {
                 selectedApp = app
             } label: {
                 sharedAppRow(app)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    appToDelete = app
+                } label: {
+                    Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
+                }
             }
         }
         .listStyle(.plain)
@@ -175,17 +185,35 @@ struct SharedAppsListView: View {
 
                 Section {
                     Button {
-                        directoryStore.forkSharedApp(uuid: app.uuid)
-                        selectedApp = nil
+                        isForkingApp = true
+                        forkDismissTask?.cancel()
+                        forkDismissTask = Task { @MainActor in
+                            let success = await directoryStore.forkSharedApp(uuid: app.uuid)
+                            guard !Task.isCancelled else { return }
+                            isForkingApp = false
+                            if success {
+                                selectedApp = nil
+                            } else {
+                                errorMessage = "Failed to fork app. Please try again."
+                            }
+                        }
                     } label: {
-                        Label { Text("Fork App") } icon: { VIconView(.gitBranch, size: 14) }
+                        HStack {
+                            Label { Text("Fork App") } icon: { VIconView(.gitBranch, size: 14) }
+                            Spacer()
+                            if isForkingApp {
+                                ProgressView()
+                            }
+                        }
                     }
+                    .disabled(isForkingApp)
 
                     Button(role: .destructive) {
                         appToDelete = app
                     } label: {
                         Label { Text("Delete App") } icon: { VIconView(.trash, size: 14) }
                     }
+                    .disabled(isForkingApp)
                 }
             }
             .navigationTitle("Shared App")
@@ -193,6 +221,29 @@ struct SharedAppsListView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { selectedApp = nil }
+                        .disabled(isForkingApp)
+                }
+            }
+            .overlay {
+                if isForkingApp {
+                    Color.black.opacity(0.05)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
+            .onDisappear {
+                forkDismissTask?.cancel()
+                forkDismissTask = nil
+                isForkingApp = false
+            }
+            .alert("Error", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: {
+                if let msg = errorMessage {
+                    Text(msg)
                 }
             }
         }
