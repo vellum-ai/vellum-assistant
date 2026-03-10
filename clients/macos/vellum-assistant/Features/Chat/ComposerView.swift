@@ -1,13 +1,39 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
+import os
 #if os(macOS)
 import AppKit
 #endif
 
+private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Composer")
+
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 200
     private let composerActionButtonSize: CGFloat = 34
+
+    // MARK: - ComposerMode
+
+    /// Three-mode state machine for the composer.
+    private enum ComposerMode: Equatable {
+        /// Normal text entry with attach/send buttons.
+        case textEntry
+        /// Inline dictation: text field visible with a recording strip below.
+        case dictationInline
+        /// Full voice conversation with inverse/high-contrast container.
+        case voiceConversation
+    }
+
+    /// The current mode derived from recording and voice-mode state.
+    private var currentMode: ComposerMode {
+        if voiceModeManager.map({ $0.state != .off }) ?? false {
+            return .voiceConversation
+        } else if isRecording {
+            return .dictationInline
+        } else {
+            return .textEntry
+        }
+    }
 
     @Binding var inputText: String
     let hasAPIKey: Bool
@@ -30,6 +56,9 @@ struct ComposerView: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
+    var recordingAmplitude: Float = 0
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 34
     var threadId: UUID?
@@ -44,10 +73,6 @@ struct ComposerView: View {
     @State var slashSelectedIndex = 0
     @State var suppressSlashReopen = false
     @State private var avatarSeed: String = "default"
-
-    private var isVoiceModeActive: Bool {
-        voiceModeManager.map { $0.state != .off } ?? false
-    }
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -72,50 +97,17 @@ struct ComposerView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            // Composer box
-            VStack(spacing: 0) {
-                if !pendingAttachments.isEmpty {
-                    attachmentStrip
-                }
+            // Composer box — switches on the three-mode state machine
+            switch currentMode {
+            case .voiceConversation:
+                voiceConversationComposer
 
-                if isVoiceModeActive {
-                    // Voice mode: replace text field with live transcription + voice controls
-                    HStack(alignment: .center, spacing: VSpacing.md) {
-                        voiceModeContent
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        voiceModeActionButtons
-                            .frame(maxHeight: .infinity, alignment: .center)
-                    }
-                    .frame(height: compactRowHeight, alignment: .center)
-                } else {
-                    composerTextField
-                        .frame(minHeight: composerCompactHeight)
-                        .overlay(alignment: .bottomTrailing) {
-                            composerActionButtons
-                        }
-                }
+            case .dictationInline:
+                dictationInlineComposer
+
+            case .textEntry:
+                textEntryComposer
             }
-            .padding(.top, VSpacing.sm)
-            .padding(.bottom, VSpacing.sm)
-            .padding(.leading, VSpacing.lg)
-            .padding(.trailing, VSpacing.lg)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.composerBackground)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(
-                        isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
-                        lineWidth: isComposerFocused ? 1.5 : 1
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
-            )
-            .shadow(color: .clear, radius: 0)
         }
         .fixedSize(horizontal: false, vertical: true)
         .animation(VAnimation.fast, value: showSlashMenu)
@@ -133,10 +125,9 @@ struct ComposerView: View {
             guard !hasPendingConfirmation else { return }
             composerFocus = true
         }
-    }
-
-    private var compactRowHeight: CGFloat {
-        composerActionButtonSize
+        .onChange(of: currentMode) {
+            composerLog.debug("Composer mode: \(String(describing: currentMode))")
+        }
     }
 
     /// The text overlays (slash highlighting, ghost text) rendered behind / on
@@ -384,6 +375,51 @@ struct ComposerView: View {
         #endif
     }
 
+    // MARK: - Text Entry Mode
+
+    /// Standard composer shell with border, used for textEntry and dictationInline modes.
+    @ViewBuilder
+    private func standardComposerShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            if !pendingAttachments.isEmpty {
+                attachmentStrip
+            }
+            content()
+        }
+        .padding(.top, VSpacing.sm)
+        .padding(.bottom, VSpacing.sm)
+        .padding(.leading, VSpacing.lg)
+        .padding(.trailing, VSpacing.lg)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.composerBackground)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(
+                    isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
+                    lineWidth: isComposerFocused ? 1.5 : 1
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
+        )
+        .shadow(color: .clear, radius: 0)
+    }
+
+    @ViewBuilder
+    private var textEntryComposer: some View {
+        standardComposerShell {
+            composerTextField
+                .frame(minHeight: composerCompactHeight)
+                .overlay(alignment: .bottomTrailing) {
+                    composerActionButtons
+                }
+        }
+    }
+
     @ViewBuilder
     private var composerActionButtons: some View {
         HStack(spacing: 2) {
@@ -418,6 +454,27 @@ struct ComposerView: View {
                         onSend()
                     }
                     .transition(.scale.combined(with: .opacity))
+                } else if inputText.isEmpty && !hasPendingConfirmation {
+                    // Empty input: show dictate + voice mode buttons
+                    VIconButton(
+                        label: "Dictate",
+                        icon: VIcon.mic.rawValue,
+                        iconOnly: true,
+                        size: composerActionButtonSize,
+                        action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                    )
+                    .disabled(!hasAPIKey)
+                    .transition(.scale.combined(with: .opacity))
+
+                    VIconButton(
+                        label: "Voice mode",
+                        icon: VIcon.audioWaveform.rawValue,
+                        iconOnly: true,
+                        size: composerActionButtonSize,
+                        action: { onVoiceModeToggle?() }
+                    )
+                    .disabled(!hasAPIKey)
+                    .transition(.scale.combined(with: .opacity))
                 } else {
                     MicrophoneButton(
                         isRecording: isRecording,
@@ -433,95 +490,132 @@ struct ComposerView: View {
         .animation(VAnimation.spring, value: canSend)
     }
 
-    // MARK: - Voice Mode Content
+    // MARK: - Dictation Inline Mode
+
+    @State private var dictationPulse = false
 
     @ViewBuilder
-    private var voiceModeContent: some View {
-        if let manager = voiceModeManager {
-            HStack(spacing: VSpacing.sm) {
-                // Waveform icon
-                VIconView(.audioWaveform, size: 14)
-                    .foregroundColor(voiceModeIconColor(manager))
+    private var dictationInlineComposer: some View {
+        standardComposerShell {
+            VStack(spacing: VSpacing.sm) {
+                // Text field remains visible for live transcription
+                composerTextField
+                    .frame(minHeight: composerCompactHeight)
 
-                if manager.state == .listening, !manager.liveTranscription.isEmpty {
-                    Text(manager.liveTranscription)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                } else {
-                    Text(manager.stateLabel)
-                        .font(VFont.body)
+                // Inline recording strip
+                HStack(spacing: VSpacing.sm) {
+                    Text("Listening\u{2026}")
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
+                        .opacity(dictationPulse ? 0.4 : 1.0)
+                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: dictationPulse)
+                        .onAppear { dictationPulse = true }
+                        .onDisappear { dictationPulse = false }
+
+                    VStreamingWaveform(
+                        amplitude: recordingAmplitude,
+                        isActive: true,
+                        style: .dictation,
+                        foregroundColor: VColor.accent
+                    )
+                    .frame(height: 24)
+                    .frame(maxWidth: .infinity)
+
+                    VIconButton(
+                        label: "Stop dictation",
+                        icon: VIcon.square.rawValue,
+                        iconOnly: true,
+                        variant: .neutral,
+                        size: composerActionButtonSize,
+                        action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                    )
                 }
             }
         }
     }
 
+    // MARK: - Voice Conversation Mode
+
     @ViewBuilder
-    private var voiceModeActionButtons: some View {
-        if let manager = voiceModeManager, let voiceService {
-            HStack(spacing: 2) {
-                // Waveform amplitude dots
-                voiceModeWaveform(manager: manager, voiceService: voiceService)
-                    .frame(width: 28, height: composerActionButtonSize)
+    private var voiceConversationComposer: some View {
+        if let manager = voiceModeManager {
+            VStack(spacing: 0) {
+                if !pendingAttachments.isEmpty {
+                    attachmentStrip
+                }
 
-                // Mute / unmute
-                VIconButton(
-                    label: manager.state == .listening ? "Mute" : "Unmute",
-                    icon: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
-                    iconOnly: true,
-                    size: composerActionButtonSize,
-                    action: { manager.toggleListening() }
-                )
-                .disabled(manager.state == .processing)
+            HStack(spacing: VSpacing.md) {
+                // Left section: state label + live transcription
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(manager.stateLabel)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.voiceComposerTextSecondary)
 
-                // End voice mode (red X)
-                VIconButton(
-                    label: "End voice mode",
-                    icon: VIcon.x.rawValue,
-                    iconOnly: true,
-                    variant: .danger,
-                    size: composerActionButtonSize,
-                    action: { onEndVoiceMode?() }
+                    if manager.state == .listening, !manager.liveTranscription.isEmpty {
+                        Text(manager.liveTranscription)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.voiceComposerTextPrimary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Center: streaming waveform
+                VStreamingWaveform(
+                    amplitude: voiceConversationAmplitude(manager),
+                    isActive: manager.state == .listening || manager.state == .speaking,
+                    style: .conversation,
+                    foregroundColor: voiceConversationWaveformColor(manager)
                 )
+                .frame(width: 60, height: 32)
+
+                // Right: mute/unmute + end button
+                HStack(spacing: 2) {
+                    VIconButton(
+                        label: manager.state == .listening ? "Mute" : "Unmute",
+                        icon: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
+                        iconOnly: true,
+                        size: composerActionButtonSize,
+                        action: { manager.toggleListening() }
+                    )
+                    .disabled(manager.state == .processing)
+
+                    VIconButton(
+                        label: "End voice mode",
+                        icon: VIcon.x.rawValue,
+                        iconOnly: true,
+                        variant: .danger,
+                        size: composerActionButtonSize,
+                        action: { onEndVoiceMode?() }
+                    )
+                }
             }
-            .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
+            .padding(.vertical, VSpacing.md)
+            .padding(.horizontal, VSpacing.lg)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.voiceComposerBackground)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
     }
 
-    private func voiceModeWaveform(manager: VoiceModeManager, voiceService: OpenAIVoiceService) -> some View {
-        HStack(spacing: 2) {
-            ForEach(0..<4, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(voiceModeIconColor(manager))
-                    .frame(width: 3, height: voiceModeBarHeight(index: i, manager: manager, voiceService: voiceService))
-                    .animation(.easeInOut(duration: 0.12), value: voiceService.amplitude)
-                    .animation(.easeInOut(duration: 0.3), value: voiceService.speakingAmplitude)
-            }
-        }
-    }
-
-    private func voiceModeBarHeight(index: Int, manager: VoiceModeManager, voiceService: OpenAIVoiceService) -> CGFloat {
-        let amp: Float
+    private func voiceConversationAmplitude(_ manager: VoiceModeManager) -> Float {
         switch manager.state {
-        case .listening: amp = voiceService.amplitude
-        case .speaking: amp = voiceService.speakingAmplitude
-        default: return 4
+        case .listening: return voiceService?.amplitude ?? 0
+        case .speaking: return voiceService?.speakingAmplitude ?? 0
+        default: return 0
         }
-        let base: CGFloat = 4
-        let maxExtra: CGFloat = 14
-        let offset = Float(index) * 0.2
-        let value = min(max(amp + offset * amp, 0), 1)
-        return base + CGFloat(value) * maxExtra
     }
 
-    private func voiceModeIconColor(_ manager: VoiceModeManager) -> Color {
+    private func voiceConversationWaveformColor(_ manager: VoiceModeManager) -> Color {
         switch manager.state {
         case .listening: return VColor.accent
         case .speaking: return VColor.success
         case .processing: return VColor.textSecondary
-        default: return Moss._500
+        default: return VColor.accent
         }
     }
 

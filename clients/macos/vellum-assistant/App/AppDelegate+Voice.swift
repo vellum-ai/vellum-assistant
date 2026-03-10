@@ -82,6 +82,9 @@ extension AppDelegate {
             log.info("Action mode triggered from voice dictation — submitting task")
             self.startSession(task: text, source: TaskSubmission.voiceActionSource)
         }
+        voiceInput?.onAmplitudeChanged = { [weak self] amplitude in
+            self?.recordingViewModel?.recordingAmplitude = amplitude
+        }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
             // Check if main window is actively in the foreground (not just existing behind other apps)
             let mainWindowActive = NSApp.isActive && (self?.mainWindow?.isVisible ?? false)
@@ -97,6 +100,7 @@ extension AppDelegate {
                 vm.isRecording = isRecording
             }
             if !isRecording {
+                self?.recordingViewModel?.recordingAmplitude = 0
                 self?.recordingViewModel = nil
             }
 
@@ -110,7 +114,8 @@ extension AppDelegate {
                 )
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
                 let isDictation = self?.voiceInput?.currentMode == .dictation
-                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation,
+                let isChatComposerOrigin = self?.voiceInput?.activeOrigin == .chatComposer
+                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation && !isChatComposerOrigin,
                    let manager = self?.mainWindow?.voiceModeManager {
                     let window = VoiceTranscriptionWindow(voiceModeManager: manager)
                     window.show()

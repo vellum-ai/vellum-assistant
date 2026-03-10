@@ -33,6 +33,7 @@ public final class ChatMessageManager: ObservableObject {
     @Published public var pendingQueuedCount: Int = 0
     @Published public var suggestion: String?
     @Published public var isRecording: Bool = false
+    @Published public var recordingAmplitude: Float = 0
 
     // MARK: - Workspace refinement
 
