@@ -58,6 +58,7 @@ struct ImproveExperienceStepView: View {
                         UserDefaults.standard.set(newValue, forKey: "sendPerformanceReports")
                     }
                 ))
+                .disabled(!collectUsageData)
             }
         }
         .padding(.horizontal, VSpacing.xxl)
