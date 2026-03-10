@@ -277,28 +277,6 @@ export class AgentLoop {
         // base64 blobs in history rapidly exhausts the context budget.
         const providerHistory = stripOldImageBlocks(history);
 
-        // Log context size for debugging context budget issues
-        const historyJson = JSON.stringify(providerHistory);
-        const toolsJson =
-          currentTools.length > 0 ? JSON.stringify(currentTools) : "[]";
-        const systemPromptLen = turnSystemPrompt?.length ?? 0;
-        log.info(
-          {
-            systemPromptChars: systemPromptLen,
-            systemPromptTokens: Math.ceil(systemPromptLen / 4),
-            historyChars: historyJson.length,
-            historyTokens: Math.ceil(historyJson.length / 4),
-            toolsChars: toolsJson.length,
-            toolsTokens: Math.ceil(toolsJson.length / 4),
-            historyMessages: providerHistory.length,
-            totalEstimatedTokens: Math.ceil(
-              (systemPromptLen + historyJson.length + toolsJson.length) / 4,
-            ),
-            historyTurns: providerHistory.length,
-          },
-          "Context size before LLM call",
-        );
-
         const response = await this.provider.sendMessage(
           providerHistory,
           currentTools.length > 0 ? currentTools : undefined,
