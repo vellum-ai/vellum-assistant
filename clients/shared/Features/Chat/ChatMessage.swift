@@ -756,7 +756,7 @@ public struct ClaudeCodeSubStep: Identifiable, Equatable {
 public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
     public let toolName: String
-    public let inputSummary: String
+    public var inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
     public var inputFull: String
     /// Lightweight sentinel tracking `inputFull.count` so that `==` can detect
