@@ -111,7 +111,9 @@ extension AppDelegate {
         window.setContentSize(NSSize(width: 380, height: 300))
         window.center()
 
-        NSApp.setActivationPolicy(.regular)
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 

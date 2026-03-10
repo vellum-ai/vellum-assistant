@@ -17,6 +17,11 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     /// can launch its own bundled daemon cleanly.
     var onWillInstallUpdate: (() -> Void)?
 
+    /// Closure provided by Sparkle to trigger an immediate install-and-relaunch.
+    /// Stored when a background update is ready but the app is actively in use.
+    /// Called later (e.g. on quit or when idle) to apply the deferred update.
+    private var deferredInstallHandler: (() -> Void)?
+
     override init() {
         super.init()
         updaterController = SPUStandardUpdaterController(
@@ -46,6 +51,21 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
         updaterController.updater.canCheckForUpdates
     }
 
+    /// Whether an update has been downloaded and is waiting to be installed.
+    public var hasDeferredUpdate: Bool {
+        deferredInstallHandler != nil
+    }
+
+    /// Install a previously deferred update immediately.
+    /// Call this when the app is about to quit or when it becomes idle.
+    func installDeferredUpdateIfAvailable() {
+        guard let handler = deferredInstallHandler else { return }
+        log.info("Installing deferred update now")
+        deferredInstallHandler = nil
+        onWillInstallUpdate?()
+        handler()
+    }
+
     // MARK: - SPUUpdaterDelegate
 
     nonisolated public func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
@@ -53,5 +73,20 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
             log.info("Will install update \(item.displayVersionString)")
             onWillInstallUpdate?()
         }
+    }
+
+    /// Intercept Sparkle's install-on-quit to prevent a second app process from
+    /// appearing while the user is actively working. Returns `false` to tell
+    /// Sparkle we will handle the relaunch ourselves via the saved handler.
+    nonisolated public func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        Task { @MainActor in
+            log.info("Update \(item.displayVersionString) ready — deferring install until quit")
+            self.deferredInstallHandler = immediateInstallHandler
+        }
+        return false
     }
 }

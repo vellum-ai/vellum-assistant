@@ -339,7 +339,9 @@ public final class MainWindow {
         // Switch to regular activation policy FIRST so macOS allows window
         // foregrounding — calling makeKeyAndOrderFront while still .accessory
         // can silently fail on Spotlight/Dock reopens.
-        NSApp.setActivationPolicy(.regular)
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
 
         // Reuse the existing window if one already exists
         if let existing = window {

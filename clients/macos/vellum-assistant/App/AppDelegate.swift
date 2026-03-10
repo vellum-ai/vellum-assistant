@@ -143,6 +143,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         Self.shared = self
         metricKitManager = MetricKitManager()
 
+        // Prevent macOS from automatically creating window tabs or restoring
+        // SwiftUI-managed windows (the Settings scene renders EmptyView and
+        // can appear as a blank window during activation policy transitions).
+        NSWindow.allowsAutomaticWindowTabbing = false
+
         // Initialize crash reporting eagerly so crashes before the daemon connects
         // are captured. Privacy opt-out is checked after the daemon is ready and
         // applied via SentrySDK.close() — matching the daemon-side pattern in
@@ -326,6 +331,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     // MARK: - Application Lifecycle
 
     public func applicationWillTerminate(_ notification: Notification) {
+        // If Sparkle has a deferred update ready, install it now during
+        // the quit sequence so the new version launches after termination.
+        updateManager.installDeferredUpdateIfAvailable()
+
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }

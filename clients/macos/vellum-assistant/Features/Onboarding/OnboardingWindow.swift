@@ -74,7 +74,9 @@ final class OnboardingWindow {
         }
 
         // Make the app a regular app so the window gets focus
-        NSApp.setActivationPolicy(.regular)
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
 
         // When the user closes the window via the title bar close button,
         // only proceed if onboarding actually completed. Closing before

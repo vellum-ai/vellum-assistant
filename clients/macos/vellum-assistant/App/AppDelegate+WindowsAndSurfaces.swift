@@ -215,28 +215,28 @@ extension AppDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if onboardingWindow != nil { return true }
+        if onboardingWindow != nil { return false }
 
         if authWindow != nil {
             authWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            return true
+            return false
         }
 
         // Don't create the main window while bootstrap is in progress —
         // the bootstrap task will create it with the wake-up greeting
         // once the daemon is connected.
-        if isBootstrapping { return true }
+        if isBootstrapping { return false }
 
         // No assistant hatched yet — re-show onboarding so the user
         // can complete setup instead of landing on a broken main window.
         if !lockfileHasAssistants() && mainWindow == nil {
             showOnboarding()
-            return true
+            return false
         }
 
         showMainWindow()
-        return true
+        return false
     }
 }
 
