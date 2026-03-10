@@ -77,7 +77,6 @@ mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
   getWorkspaceDir: () => testDir,
-  getIpcBlobDir: () => join(testDir, "ipc-blobs"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
