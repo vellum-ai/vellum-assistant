@@ -29,7 +29,25 @@ export const MemoryEmbeddingsConfigSchema = z.object({
     .default("text-embedding-3-small"),
   geminiModel: z
     .string({ error: "memory.embeddings.geminiModel must be a string" })
-    .default("gemini-embedding-001"),
+    .default("gemini-embedding-2-preview"),
+  geminiTaskType: z
+    .enum([
+      "SEMANTIC_SIMILARITY",
+      "CLASSIFICATION",
+      "CLUSTERING",
+      "RETRIEVAL_DOCUMENT",
+      "RETRIEVAL_QUERY",
+      "CODE_RETRIEVAL_QUERY",
+      "QUESTION_ANSWERING",
+      "FACT_VERIFICATION",
+    ], { error: "memory.embeddings.geminiTaskType must be a valid task type" })
+    .optional(),
+  geminiDimensions: z
+    .number({ error: "memory.embeddings.geminiDimensions must be a number" })
+    .int("memory.embeddings.geminiDimensions must be an integer")
+    .min(128, "memory.embeddings.geminiDimensions must be >= 128")
+    .max(3072, "memory.embeddings.geminiDimensions must be <= 3072")
+    .optional(),
   ollamaModel: z
     .string({ error: "memory.embeddings.ollamaModel must be a string" })
     .default("nomic-embed-text"),
@@ -46,7 +64,7 @@ export const QdrantConfigSchema = z.object({
     .number({ error: "memory.qdrant.vectorSize must be a number" })
     .int("memory.qdrant.vectorSize must be an integer")
     .positive("memory.qdrant.vectorSize must be a positive integer")
-    .default(384),
+    .default(768),
   onDisk: z
     .boolean({ error: "memory.qdrant.onDisk must be a boolean" })
     .default(true),
