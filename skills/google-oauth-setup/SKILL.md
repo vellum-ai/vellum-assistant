@@ -7,7 +7,6 @@ metadata:
   vellum:
     display-name: "Google OAuth Setup"
     user-invocable: true
-    includes: ["public-ingress"]
     credential-setup-for: "gmail"
 ---
 

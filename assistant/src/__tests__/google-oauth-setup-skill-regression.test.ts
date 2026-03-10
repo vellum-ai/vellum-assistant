@@ -39,14 +39,14 @@ const manualChannelSection =
     ?.split("## Guardrails and Error Handling")[0] ?? "";
 
 describe("google-oauth-setup skill regression", () => {
-  test("catalog metadata keeps only public-ingress include", () => {
+  test("catalog metadata no longer declares a global public-ingress include", () => {
     const skill = catalog.skills.find(
       (entry) => entry.id === "google-oauth-setup",
     );
     expect(skill).toBeDefined();
     expect(skill!.description).toContain("real Chrome on macOS");
     expect(skill!.description).not.toContain("browser automation");
-    expect(skill!.metadata?.vellum?.includes).toEqual(["public-ingress"]);
+    expect(skill!.metadata?.vellum?.includes).toBeUndefined();
     expect(skill!.metadata?.vellum?.["credential-setup-for"]).toBe("gmail");
   });
 
