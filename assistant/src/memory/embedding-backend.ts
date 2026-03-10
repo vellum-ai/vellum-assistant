@@ -410,7 +410,7 @@ export async function embedWithBackend(
       : inputs;
 
     // Skip text-only backends for multimodal inputs
-    if (backend.provider !== "gemini" && inputs.some((i) => !isTextInput(i))) {
+    if (backend.provider !== "gemini" && inputs.some((i) => typeof i !== "string" && i.type !== "text")) {
       continue;
     }
 
@@ -461,7 +461,7 @@ export async function embedWithBackend(
       }
     }
   }
-  const hasMultimodal = inputs.some((i) => !isTextInput(i));
+  const hasMultimodal = inputs.some((i) => typeof i !== "string" && i.type !== "text");
   if (hasMultimodal) {
     throw new Error(
       "No available embedding backend supports multimodal inputs. Gemini API key is required for image/audio/video embeddings.",
