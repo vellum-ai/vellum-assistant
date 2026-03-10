@@ -41,7 +41,7 @@ struct ChatLoadingSkeleton: View {
     private func assistantRow(_ row: SkeletonRow) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             // Avatar placeholder
-            VSkeletonBone(width: 28, height: 28, radius: 14)
+            VSkeletonBone(width: 28, height: 28, radius: VRadius.pill)
 
             // Text bone
             VSkeletonBone(height: row.boneHeight, radius: VRadius.lg)
