@@ -704,55 +704,63 @@ export async function handleSendMessage(
   const slashResult = resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
-    const provenance = provenanceFromTrustContext(session.trustContext);
-    const channelMeta = {
-      ...provenance,
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    };
-    const userMsg = createUserMessage(rawContent, attachments);
-    const persisted = await addMessage(
-      mapping.conversationId,
-      "user",
-      JSON.stringify(userMsg.content),
-      channelMeta,
-    );
-    session.getMessages().push(userMsg);
+    session.processing = true;
+    try {
+      const provenance = provenanceFromTrustContext(session.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const userMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(userMsg.content),
+        channelMeta,
+      );
+      session.getMessages().push(userMsg);
 
-    const assistantMsg = createAssistantMessage(slashResult.message);
-    await addMessage(
-      mapping.conversationId,
-      "assistant",
-      JSON.stringify(assistantMsg.content),
-      channelMeta,
-    );
-    session.getMessages().push(assistantMsg);
+      const assistantMsg = createAssistantMessage(slashResult.message);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      session.getMessages().push(assistantMsg);
 
-    setConversationOriginChannelIfUnset(mapping.conversationId, sourceChannel);
-    setConversationOriginInterfaceIfUnset(
-      mapping.conversationId,
-      sourceInterface,
-    );
+      setConversationOriginChannelIfUnset(
+        mapping.conversationId,
+        sourceChannel,
+      );
+      setConversationOriginInterfaceIfUnset(
+        mapping.conversationId,
+        sourceInterface,
+      );
 
-    // Emit fresh model info before the text delta so the client has
-    // up-to-date configuredProviders when rendering /model, /models,
-    // and provider shortcut commands (/gpt4, /opus, etc.).
-    if (isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)) {
-      onEvent(buildModelInfoEvent());
+      // Emit fresh model info before the text delta so the client has
+      // up-to-date configuredProviders when rendering /model, /models,
+      // and provider shortcut commands (/gpt4, /opus, etc.).
+      if (isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)) {
+        onEvent(buildModelInfoEvent());
+      }
+
+      onEvent({ type: "assistant_text_delta", text: slashResult.message });
+      onEvent({
+        type: "message_complete",
+        sessionId: mapping.conversationId,
+      });
+
+      return Response.json(
+        { accepted: true, messageId: persisted.id },
+        { status: 202 },
+      );
+    } finally {
+      session.processing = false;
     }
-
-    onEvent({ type: "assistant_text_delta", text: slashResult.message });
-    onEvent({
-      type: "message_complete",
-      sessionId: mapping.conversationId,
-    });
-
-    return Response.json(
-      { accepted: true, messageId: persisted.id },
-      { status: 202 },
-    );
   }
 
   const resolvedContent = slashResult.content;
