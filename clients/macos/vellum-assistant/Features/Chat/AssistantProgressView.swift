@@ -176,7 +176,7 @@ struct AssistantProgressView: View {
             // Code preview (streaming code phase)
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
-                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.xs)
             }
         }
@@ -260,7 +260,7 @@ struct AssistantProgressView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
+        .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.xs)
     }
 
