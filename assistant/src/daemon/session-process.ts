@@ -43,7 +43,7 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 const log = getLogger("session-process");
 
 /** Build a model_info event with fresh config data. */
-function buildModelInfoEvent(): ServerMessage {
+export function buildModelInfoEvent(): ServerMessage {
   const config = getConfig();
   const configured = Object.keys(config.apiKeys).filter(
     (k) => !!config.apiKeys[k],
@@ -58,7 +58,7 @@ function buildModelInfoEvent(): ServerMessage {
 }
 
 /** True when the trimmed content is a /model or /models slash command. */
-function isModelSlashCommand(content: string): boolean {
+export function isModelSlashCommand(content: string): boolean {
   const trimmed = content.trim();
   return (
     trimmed === "/model" ||

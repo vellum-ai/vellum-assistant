@@ -17,6 +17,10 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import {
+  buildModelInfoEvent,
+  isModelSlashCommand,
+} from "../../daemon/session-process.js";
 import { resolveSlash, type SlashContext } from "../../daemon/session-slash.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -24,7 +28,13 @@ import {
   generateCanonicalRequestCode,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
-import { addMessage, getMessages } from "../../memory/conversation-crud.js";
+import {
+  addMessage,
+  getMessages,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../../memory/conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -688,7 +698,9 @@ export async function handleSendMessage(
   const slashResult = resolveSlash(rawContent, slashContext);
 
   if (slashResult.kind === "unknown") {
+    const provenance = provenanceFromTrustContext(session.trustContext);
     const channelMeta = {
+      ...provenance,
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
@@ -703,26 +715,6 @@ export async function handleSendMessage(
     );
     session.getMessages().push(userMsg);
 
-    // Emit fresh model info before the text delta so the client has
-    // up-to-date configuredProviders when rendering /model or /models UI.
-    const trimmed = rawContent.trim();
-    if (
-      trimmed === "/model" ||
-      trimmed === "/models" ||
-      trimmed.startsWith("/model ")
-    ) {
-      const configured = Object.keys(config.apiKeys).filter(
-        (k) => !!config.apiKeys[k],
-      );
-      if (!configured.includes("ollama")) configured.push("ollama");
-      onEvent({
-        type: "model_info",
-        model: config.model,
-        provider: config.provider,
-        configuredProviders: configured,
-      });
-    }
-
     const assistantMsg = createAssistantMessage(slashResult.message);
     await addMessage(
       mapping.conversationId,
@@ -731,6 +723,18 @@ export async function handleSendMessage(
       channelMeta,
     );
     session.getMessages().push(assistantMsg);
+
+    setConversationOriginChannelIfUnset(mapping.conversationId, sourceChannel);
+    setConversationOriginInterfaceIfUnset(
+      mapping.conversationId,
+      sourceInterface,
+    );
+
+    // Emit fresh model info before the text delta so the client has
+    // up-to-date configuredProviders when rendering /model or /models UI.
+    if (isModelSlashCommand(rawContent)) {
+      onEvent(buildModelInfoEvent());
+    }
 
     onEvent({ type: "assistant_text_delta", text: slashResult.message });
     onEvent({
@@ -749,12 +753,20 @@ export async function handleSendMessage(
     session.setPreactivatedSkillIds([slashResult.skillId]);
   }
 
-  const requestId = crypto.randomUUID();
-  const messageId = await session.persistUserMessage(
-    resolvedContent,
-    attachments,
-    requestId,
-  );
+  let messageId: string;
+  try {
+    const requestId = crypto.randomUUID();
+    messageId = await session.persistUserMessage(
+      resolvedContent,
+      attachments,
+      requestId,
+    );
+  } catch (err) {
+    // Reset preactivated skill IDs so a stale activation doesn't leak
+    // into the next message if persistence fails.
+    session.setPreactivatedSkillIds([]);
+    throw err;
+  }
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
   session

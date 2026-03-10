@@ -95,6 +95,30 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => addMessageMock(conversationId, role, content, metadata),
+  getMessages: () => [],
+  provenanceFromTrustContext: (ctx: unknown) =>
+    ctx
+      ? { provenanceTrustClass: (ctx as Record<string, unknown>).trustClass }
+      : { provenanceTrustClass: "unknown" },
+  setConversationOriginChannelIfUnset: () => {},
+  setConversationOriginInterfaceIfUnset: () => {},
+}));
+
+mock.module("../daemon/session-process.js", () => ({
+  buildModelInfoEvent: () => ({
+    type: "model_info",
+    model: "claude-opus-4-6",
+    provider: "anthropic",
+    configuredProviders: ["anthropic", "ollama"],
+  }),
+  isModelSlashCommand: (content: string) => {
+    const trimmed = content.trim();
+    return (
+      trimmed === "/model" ||
+      trimmed === "/models" ||
+      trimmed.startsWith("/model ")
+    );
+  },
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
