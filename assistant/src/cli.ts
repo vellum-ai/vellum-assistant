@@ -699,6 +699,10 @@ export async function startCli(): Promise<void> {
         prompt();
         break;
 
+      case "tool_use_preview_start":
+        // Early preview of tool use — ignored by CLI; full tool_use_start follows.
+        break;
+
       case "tool_use_start":
         toolStreaming = false;
         spinner.start(formatToolProgress(msg.toolName, msg.input));
