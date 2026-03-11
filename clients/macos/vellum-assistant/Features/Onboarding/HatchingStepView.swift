@@ -10,21 +10,9 @@ struct HatchingStepView: View {
     @State private var characterAwake = false
     @State private var pulseScale: CGFloat = 0.9
     @State private var hatchStarted = false
-    @State private var hatchStartTime: Date?
-    @State private var elapsedTime: TimeInterval = 0
-    @State private var elapsedTimer: Timer?
-    @State private var cliFinished = false
     @State private var failureReason: String?
     @State private var selectedPreset = PresetAvatar.random()
-
-    private var isLocalFlow: Bool {
-        state.cloudProvider == "local" || state.cloudProvider.isEmpty
-    }
-
-    /// Expected duration in seconds: local flows are fast, cloud flows take longer.
-    private var expectedDuration: TimeInterval {
-        isLocalFlow ? 45.0 : 180.0
-    }
+    @State private var completionTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -48,27 +36,19 @@ struct HatchingStepView: View {
                 showContent = true
             }
             startPulse()
-            hatchStartTime = Date()
-            startElapsedTimer()
             if !hatchStarted {
                 hatchStarted = true
                 startHatching()
             }
         }
         .onDisappear {
-            elapsedTimer?.invalidate()
+            completionTask?.cancel()
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
-                elapsedTimer?.invalidate()
                 withAnimation(.spring(duration: 0.6, bounce: 0.3)) {
                     characterAwake = true
                 }
-            }
-        }
-        .onChange(of: state.hatchFailed) { _, failed in
-            if failed {
-                elapsedTimer?.invalidate()
             }
         }
     }
@@ -166,33 +146,23 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    // MARK: - Timers
-
-    private func startElapsedTimer() {
-        elapsedTimer?.invalidate()
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                guard let start = hatchStartTime else { return }
-                elapsedTime = Date().timeIntervalSince(start)
-            }
-        }
-    }
-
     /// Called when the CLI process finishes successfully. Saves the preset avatar
-    /// then signals completion after a brief delay for visual polish.
+    /// (for non-pairing flows) then signals completion after a brief delay.
     private func handleHatchSuccess() {
-        cliFinished = true
-
-        // Save the randomly-assigned preset as the user's avatar, but only if
-        // one hasn't already been uploaded/generated (preserves existing avatars
-        // when replaying onboarding during development).
-        if AvatarAppearanceManager.shared.customAvatarImage == nil,
+        // Save the randomly-assigned preset as the user's avatar, but only for
+        // non-pairing flows and only if one hasn't already been uploaded/generated
+        // (preserves existing avatars when replaying onboarding during development).
+        if !isCustomHardware,
+           AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = selectedPreset.image {
             AvatarAppearanceManager.shared.setCustomAvatar(image)
         }
 
-        // Brief delay so the user sees the waking animation before transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        // Brief delay so the user sees the waking animation before transition.
+        // Stored as a cancellable Task so it's cleaned up if the view disappears.
+        completionTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
             state.hatchCompleted = true
         }
     }
