@@ -650,7 +650,7 @@ export class DaemonServer {
           }),
         );
       }
-    } else {
+    } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);
     }
     session.setCommandIntent(options?.commandIntent ?? null);
