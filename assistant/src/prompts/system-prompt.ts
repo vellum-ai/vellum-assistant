@@ -6,7 +6,6 @@ import {
   buildCliReferenceSection,
   buildConfigSection,
   buildContainerizedSection,
-  isOnboardingComplete,
   readPromptFile,
 } from "./sections/core.js";
 import {
@@ -15,7 +14,7 @@ import {
   buildInChatConfigurationSection,
   buildIntegrationSection,
   buildPostToolResponseSection,
-  buildStarterTaskPlaybookSection,
+  buildStarterTaskRoutingSection,
   buildSwarmGuidanceSection,
   buildSystemPermissionSection,
   buildToolPermissionSection,
@@ -55,7 +54,7 @@ export {
   buildInChatConfigurationSection,
   buildIntegrationSection,
   buildPostToolResponseSection,
-  buildStarterTaskPlaybookSection,
+  buildStarterTaskRoutingSection,
   buildSwarmGuidanceSection,
   buildSystemPermissionSection,
   buildToolPermissionSection,
@@ -156,9 +155,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildPhoneCallsRoutingSection());
   parts.push(buildChannelCommandIntentSection());
 
-  if (!isOnboardingComplete()) {
-    parts.push(buildStarterTaskPlaybookSection());
-  }
+  parts.push(buildStarterTaskRoutingSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildAccessPreferenceSection());

@@ -319,15 +319,13 @@ describe("buildSystemPrompt", () => {
       expect(result).not.toContain("use `app_update` to change the HTML");
     });
 
-    test("onboarding playbook does not reference Home Base for accent color", () => {
-      // Starter task playbooks only included during onboarding (BOOTSTRAP.md exists)
+    test("starter task playbooks are not embedded in the system prompt", () => {
+      // Playbooks are now in the onboarding-starter-tasks skill, loaded on demand
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
       const result = buildSystemPrompt();
-      // The make_it_yours playbook should not reference Home Base anymore
-      expect(result).not.toContain("Home Base dashboard");
-      expect(result).not.toContain(
-        "using `app_update` to regenerate the Home Base HTML",
-      );
+      expect(result).not.toContain("## Starter Task Playbooks");
+      expect(result).not.toContain("### Playbook: make_it_yours");
+      expect(result).toContain("## Routing: Starter Tasks");
     });
   });
 
