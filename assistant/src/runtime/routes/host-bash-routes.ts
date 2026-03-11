@@ -35,14 +35,27 @@ export async function handleHostBashResult(
     return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  const interaction = pendingInteractions.resolve(requestId);
-  if (!interaction) {
+  // Peek first (non-destructive) so we can validate the interaction kind
+  // without accidentally consuming a confirmation or secret interaction.
+  const peeked = pendingInteractions.get(requestId);
+  if (!peeked) {
     return httpError(
       "NOT_FOUND",
       "No pending interaction found for this requestId",
       404,
     );
   }
+
+  if (peeked.kind !== "host_bash") {
+    return httpError(
+      "CONFLICT",
+      `Pending interaction is of kind "${peeked.kind}", expected "host_bash"`,
+      409,
+    );
+  }
+
+  // Validation passed — consume the pending interaction.
+  const interaction = pendingInteractions.resolve(requestId)!;
 
   interaction.session.resolveHostBash(requestId, {
     stdout: stdout ?? "",
