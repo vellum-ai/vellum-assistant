@@ -274,8 +274,8 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearAPIKey()
                             apiKeyText = ""
                             anthropicSetupExpanded = false
@@ -303,20 +303,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveAPIKey(apiKeyText)
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                             .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         anthropicSetupExpanded = true
                     }
                 }
@@ -338,8 +338,8 @@ struct SettingsPanel: View {
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
                             perplexitySetupExpanded = false
@@ -367,20 +367,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.savePerplexityKey(perplexityKeyText)
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                             .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         perplexitySetupExpanded = true
                     }
                 }
@@ -402,8 +402,8 @@ struct SettingsPanel: View {
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearBraveKey()
                             braveKeyText = ""
                             braveSetupExpanded = false
@@ -431,20 +431,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveBraveKey(braveKeyText)
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                             .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         braveSetupExpanded = true
                     }
                 }
@@ -466,8 +466,8 @@ struct SettingsPanel: View {
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
                             imageGenSetupExpanded = false
@@ -516,20 +516,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveImageGenKey(imageGenKeyText)
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                             .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         imageGenSetupExpanded = true
                     }
                 }
@@ -548,7 +548,7 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("macOS System Permissions")
+                Text("System Permissions")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
@@ -613,25 +613,19 @@ struct SettingsPanel: View {
             // TRUST RULES section
             if daemonClient != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Trust Rules")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Trust Rules")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("Control which tool actions are automatically allowed or denied")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        VButton(label: "Manage", style: .secondary) {
-                            daemonClient?.isTrustRulesSheetOpen = true
-                            showingTrustRules = true
-                        }
-                        .disabled(store.isAnyTrustRulesSheetOpen)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Trust Rules")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+                        Text("Control which tool actions are automatically allowed or denied")
+                            .font(VFont.sectionDescription)
+                            .foregroundColor(VColor.textMuted)
                     }
+                    VButton(label: "Manage", style: .secondary, size: .medium) {
+                        daemonClient?.isTrustRulesSheetOpen = true
+                        showingTrustRules = true
+                    }
+                    .disabled(store.isAnyTrustRulesSheetOpen)
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -649,23 +643,8 @@ struct SettingsPanel: View {
 
     private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text(subtitle)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            VToggle(isOn: .constant(granted), label: label, helperText: subtitle)
+                .allowsHitTesting(false)
         }
         .buttonStyle(.plain)
     }
