@@ -520,11 +520,25 @@ extension AppDelegate {
         guard !services.settingsStore.isDevMode else { return }
 
         guard let execURL = Bundle.main.executableURL else { return }
-        let cliBinary = execURL.deletingLastPathComponent()
-            .appendingPathComponent("vellum-cli")
-        guard FileManager.default.fileExists(atPath: cliBinary.path) else { return }
+        let macosDir = execURL.deletingLastPathComponent()
 
-        let symlinkPath = "/usr/local/bin/vellum"
+        let cliBinary = macosDir.appendingPathComponent("vellum-cli")
+        if FileManager.default.fileExists(atPath: cliBinary.path) {
+            installSymlink(commandName: "vellum", target: cliBinary.path)
+        }
+
+        let daemonBinary = macosDir.appendingPathComponent("vellum-daemon")
+        if FileManager.default.fileExists(atPath: daemonBinary.path) {
+            installSymlink(commandName: "assistant", target: daemonBinary.path)
+        }
+    }
+
+    /// Creates a symlink at /usr/local/bin/<commandName> pointing to the
+    /// given target binary. Skips creation when the destination already
+    /// exists as a regular file, already points to the correct target,
+    /// or the command resolves elsewhere on PATH (developer's local build).
+    private func installSymlink(commandName: String, target: String) {
+        let symlinkPath = "/usr/local/bin/\(commandName)"
         let fm = FileManager.default
 
         // If the path exists, check whether it's our symlink or something else
@@ -533,7 +547,7 @@ extension AppDelegate {
             if type == .typeSymbolicLink {
                 // Already a symlink — skip if it already points to our binary
                 if let dest = try? fm.destinationOfSymbolicLink(atPath: symlinkPath),
-                   dest == cliBinary.path {
+                   dest == target {
                     return
                 }
             } else {
@@ -542,10 +556,10 @@ extension AppDelegate {
             }
         }
 
-        // Check if `vellum` resolves elsewhere on PATH (developer's local build)
+        // Check if the command resolves elsewhere on PATH (developer's local build)
         let whichProc = Process()
         whichProc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        whichProc.arguments = ["vellum"]
+        whichProc.arguments = [commandName]
         let pipe = Pipe()
         whichProc.standardOutput = pipe
         whichProc.standardError = FileHandle.nullDevice
@@ -575,8 +589,8 @@ extension AppDelegate {
             if (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
                 try fm.removeItem(atPath: symlinkPath)
             }
-            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: cliBinary.path)
-            log.info("Installed CLI symlink: \(symlinkPath) → \(cliBinary.path)")
+            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: target)
+            log.info("Installed CLI symlink: \(symlinkPath) → \(target)")
         } catch {
             log.warning("Could not install CLI symlink at \(symlinkPath): \(error.localizedDescription)")
         }
