@@ -27,6 +27,7 @@ export interface QdrantPointPayload {
   last_seen_at?: number;
   conversation_id?: string;
   message_id?: string;
+  scope_id?: string;
   entity_ids?: string[];
   modality?: "text" | "image" | "audio" | "video";
 }
