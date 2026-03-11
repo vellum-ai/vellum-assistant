@@ -219,6 +219,10 @@ extension MainWindowView {
                     threadManager.createThread()
                     if let id = threadManager.activeThreadId {
                         windowState.selection = .thread(id)
+                    } else {
+                        // Draft mode — clear selection so no sidebar thread is highlighted
+                        windowState.selection = nil
+                        windowState.persistentThreadId = nil
                     }
                 }
             )
@@ -484,6 +488,9 @@ extension MainWindowView {
                 threadManager.createThread()
                 if let id = threadManager.activeThreadId {
                     windowState.selection = .thread(id)
+                } else {
+                    windowState.selection = nil
+                    windowState.persistentThreadId = nil
                 }
             }
 
