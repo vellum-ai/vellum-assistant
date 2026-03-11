@@ -149,6 +149,9 @@ import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-s
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
 import * as setAvatar from "./bundled-skills/settings/tools/set-avatar.js";
 import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config-update.js";
+// ── skill-management ─────────────────────────────────────────────────────────
+import * as skillMgmtDeleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
+import * as skillMgmtScaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
 // ── slack ────────────────────────────────────────────────────────────────────
 import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
 import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
@@ -350,6 +353,10 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["settings:tools/set-avatar.ts", setAvatar],
   ["settings:tools/open-system-settings.ts", openSystemSettings],
   ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
+
+  // skill-management
+  ["skill-management:tools/scaffold-managed.ts", skillMgmtScaffoldManaged],
+  ["skill-management:tools/delete-managed.ts", skillMgmtDeleteManaged],
 
   // slack
   ["slack:tools/slack-scan-digest.ts", slackScanDigest],
