@@ -542,7 +542,7 @@ export function isToolActiveForContext(
     return true;
   }
   if (ASSET_TOOL_NAMES.has(name)) {
-    return ctx.hasAttachments ?? true;
+    return ctx.hasAttachments ?? false;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     return !ctx.hasNoClient;

@@ -568,7 +568,7 @@ export function buildSwarmGuidanceSection(): string {
   return [
     "## Parallel Task Orchestration",
     "",
-    'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+    'When a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"), load the `orchestration` skill using `skill_load` first, then use `swarm_delegate` to decompose and run them in parallel. For single-focus tasks, work directly — do not decompose them into a swarm.',
   ].join("\n");
 }
 
