@@ -517,85 +517,12 @@ public struct ToolConfirmationData: Equatable {
 
     /// Short question asking the user to approve the action.
     public var humanDescription: String {
-        let reason = (input["reason"]?.value as? String) ?? ""
-        // Lowercase the first letter so reason flows naturally mid-sentence (e.g. "to determine..." not "To determine...")
-        let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
-
-        switch toolName {
-        case "request_system_permission":
-            if reason.isEmpty {
-                return "I need \(permissionFriendlyName) access to continue."
-            }
-            return reason
-        case "bash", "host_bash":
-            if !r.isEmpty { return "Allow running a command on your computer \(r)?" }
-            return "Allow running a command on your computer?"
-        case "file_write", "host_file_write":
-            if !r.isEmpty { return "Allow writing a file \(r)?" }
-            let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Allow writing a file?" }
-            return "Allow writing to \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "file_edit", "host_file_edit":
-            if !r.isEmpty { return "Allow editing a file \(r)?" }
-            let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Allow editing a file?" }
-            return "Allow editing \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "file_read", "host_file_read":
-            if !r.isEmpty { return "Allow reading a file \(r)?" }
-            let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Allow reading a file?" }
-            return "Allow reading \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "web_fetch":
-            if !r.isEmpty { return "Allow fetching a URL \(r)?" }
-            let url = (input["url"]?.value as? String) ?? ""
-            if let host = URL(string: url)?.host {
-                return "Allow fetching data from \(host)?"
-            }
-            return "Allow fetching a URL?"
-        case "browser_navigate":
-            if !r.isEmpty { return "Allow opening a page \(r)?" }
-            let url = (input["url"]?.value as? String) ?? ""
-            if let host = URL(string: url)?.host {
-                return "Allow opening \(host)?"
-            }
-            return "Allow opening a page?"
-        case "credential_store":
-            let action = (input["action"]?.value as? String) ?? ""
-            let service = (input["service"]?.value as? String) ?? ""
-            switch action {
-            case "oauth2_connect":
-                return service.isEmpty
-                    ? "Allow connecting an account?"
-                    : "Allow connecting your \(service.capitalized) account?"
-            case "store":
-                return service.isEmpty
-                    ? "Allow saving a credential securely?"
-                    : "Allow saving a \(service) credential securely?"
-            case "delete":
-                return service.isEmpty
-                    ? "Allow removing a stored credential?"
-                    : "Allow removing a \(service) credential?"
-            case "prompt":
-                return service.isEmpty
-                    ? "Allow asking for a credential?"
-                    : "Allow asking for a \(service) credential?"
-            default:
-                return "Allow accessing secure storage?"
-            }
-        case "schedule_create":
-            let name = (input["name"]?.value as? String) ?? ""
-            return name.isEmpty
-                ? "Allow creating a schedule?"
-                : "Allow creating schedule \"\(name)\"?"
-        case "schedule_update":
-            return "Allow updating a schedule?"
-        case "schedule_delete":
-            return "Allow deleting a schedule?"
-        default:
-            let tc = toolCategory.lowercased()
-            if !r.isEmpty { return "Allow using \(tc) \(r)?" }
-            return "Allow using \(tc)?"
-        }
+        confirmationHumanDescription(
+            toolName: toolName,
+            input: input,
+            toolCategory: toolCategory,
+            permissionFriendlyName: permissionFriendlyName
+        )
     }
 
     public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
@@ -642,6 +569,97 @@ public struct ToolConfirmationData: Equatable {
             executionTarget: executionTarget,
             persistentDecisionsAllowed: promptPayload.persistentDecisionsAllowed
         )
+    }
+}
+
+/// Shared helper that builds a human-friendly confirmation description from tool
+/// metadata. Used by both the inline `ToolConfirmationBubble` (via
+/// `ToolConfirmationData.humanDescription`) and system notifications (via
+/// `ToolConfirmationNotificationService`).
+public func confirmationHumanDescription(
+    toolName: String,
+    input: [String: AnyCodable],
+    toolCategory: String? = nil,
+    permissionFriendlyName: String? = nil
+) -> String {
+    let reason = (input["reason"]?.value as? String) ?? ""
+    let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
+
+    switch toolName {
+    case "request_system_permission":
+        if reason.isEmpty {
+            let perm = permissionFriendlyName ?? "Permission"
+            return "I need \(perm) access to continue."
+        }
+        return reason
+    case "bash", "host_bash":
+        if !r.isEmpty { return "Allow running a command on your computer \(r)?" }
+        return "Allow running a command on your computer?"
+    case "file_write", "host_file_write":
+        if !r.isEmpty { return "Allow writing a file \(r)?" }
+        let path = (input["path"]?.value as? String) ?? ""
+        if path.isEmpty { return "Allow writing a file?" }
+        return "Allow writing to \(URL(fileURLWithPath: path).lastPathComponent)?"
+    case "file_edit", "host_file_edit":
+        if !r.isEmpty { return "Allow editing a file \(r)?" }
+        let path = (input["path"]?.value as? String) ?? ""
+        if path.isEmpty { return "Allow editing a file?" }
+        return "Allow editing \(URL(fileURLWithPath: path).lastPathComponent)?"
+    case "file_read", "host_file_read":
+        if !r.isEmpty { return "Allow reading a file \(r)?" }
+        let path = (input["path"]?.value as? String) ?? ""
+        if path.isEmpty { return "Allow reading a file?" }
+        return "Allow reading \(URL(fileURLWithPath: path).lastPathComponent)?"
+    case "web_fetch":
+        if !r.isEmpty { return "Allow fetching a URL \(r)?" }
+        let url = (input["url"]?.value as? String) ?? ""
+        if let host = URL(string: url)?.host {
+            return "Allow fetching data from \(host)?"
+        }
+        return "Allow fetching a URL?"
+    case "browser_navigate":
+        if !r.isEmpty { return "Allow opening a page \(r)?" }
+        let url = (input["url"]?.value as? String) ?? ""
+        if let host = URL(string: url)?.host {
+            return "Allow opening \(host)?"
+        }
+        return "Allow opening a page?"
+    case "credential_store":
+        let action = (input["action"]?.value as? String) ?? ""
+        let service = (input["service"]?.value as? String) ?? ""
+        switch action {
+        case "oauth2_connect":
+            return service.isEmpty
+                ? "Allow connecting an account?"
+                : "Allow connecting your \(service.capitalized) account?"
+        case "store":
+            return service.isEmpty
+                ? "Allow saving a credential securely?"
+                : "Allow saving a \(service) credential securely?"
+        case "delete":
+            return service.isEmpty
+                ? "Allow removing a stored credential?"
+                : "Allow removing a \(service) credential?"
+        case "prompt":
+            return service.isEmpty
+                ? "Allow asking for a credential?"
+                : "Allow asking for a \(service) credential?"
+        default:
+            return "Allow accessing secure storage?"
+        }
+    case "schedule_create":
+        let name = (input["name"]?.value as? String) ?? ""
+        return name.isEmpty
+            ? "Allow creating a schedule?"
+            : "Allow creating schedule \"\(name)\"?"
+    case "schedule_update":
+        return "Allow updating a schedule?"
+    case "schedule_delete":
+        return "Allow deleting a schedule?"
+    default:
+        let tc = (toolCategory ?? toolName.replacingOccurrences(of: "_", with: " ").capitalized).lowercased()
+        if !r.isEmpty { return "Allow using \(tc) \(r)?" }
+        return "Allow using \(tc)?"
     }
 }
 

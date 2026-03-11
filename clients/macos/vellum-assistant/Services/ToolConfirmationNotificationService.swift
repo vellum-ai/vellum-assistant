@@ -108,58 +108,11 @@ public final class ToolConfirmationNotificationService {
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
-        // For shell commands, show both the human-readable reason and the raw command
-        if message.toolName == "bash" || message.toolName == "host_bash" {
-            let command = commandPreview(toolName: message.toolName, input: message.input)
-            if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
-                let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
-                // Don't append a dangling "$ " when command is empty
-                guard !command.isEmpty else {
-                    return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : capitalizedReason
-                }
-                let commandLine = "$ \(command)"
-                let body = "\(capitalizedReason)\n\(commandLine)"
-                if body.count <= 200 { return body }
-                // Truncate reason first to preserve the command
-                let commandBudget = min(commandLine.count, 200)
-                let reasonBudget = 200 - commandBudget - 1 // 1 for newline
-                if reasonBudget >= 4 {
-                    let truncatedReason = String(capitalizedReason.prefix(reasonBudget - 3)) + "..."
-                    let truncatedBody = "\(truncatedReason)\n\(commandLine)"
-                    if truncatedBody.count <= 200 { return truncatedBody }
-                }
-                // Command alone exceeds the limit — truncate it
-                return commandLine.count > 200 ? String(commandLine.prefix(197)) + "..." : commandLine
-            }
-            return command.count > 200 ? String(command.prefix(197)) + "..." : command
-        }
-        // For all other tools, prefer the human-readable reason
-        if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
-            let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
-            // Filter out `reason` key so commandPreview doesn't duplicate it
-            let nonReasonInput = message.input.filter { $0.key != "reason" && $0.key != "reasoning" }
-            let preview = commandPreview(toolName: message.toolName, input: nonReasonInput)
-            if !preview.isEmpty {
-                let body = "\(capitalizedReason)\n\(preview)"
-                if body.count <= 200 { return body }
-                // Truncate reason first to preserve the target preview
-                let previewBudget = min(preview.count, 200)
-                let reasonBudget = 200 - previewBudget - 1 // 1 for newline
-                if reasonBudget >= 4 {
-                    let truncatedReason = String(capitalizedReason.prefix(reasonBudget - 3)) + "..."
-                    let truncatedBody = "\(truncatedReason)\n\(preview)"
-                    if truncatedBody.count <= 200 { return truncatedBody }
-                }
-                // Preview alone exceeds the limit — truncate it
-                return preview.count > 200 ? String(preview.prefix(197)) + "..." : preview
-            }
-            return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : String(capitalizedReason)
-        }
-        let preview = commandPreview(toolName: message.toolName, input: message.input)
-        if preview.count > 200 {
-            return String(preview.prefix(197)) + "..."
-        }
-        return preview
+        let description = confirmationHumanDescription(
+            toolName: message.toolName,
+            input: message.input
+        )
+        return description.count > 200 ? String(description.prefix(197)) + "..." : description
     }
 
     private func toolDisplayName(_ toolName: String) -> String {
@@ -173,53 +126,6 @@ public final class ToolConfirmationNotificationService {
         case "schedule_delete": return "Delete Schedule"
         case "schedule_list":   return "List Schedules"
         default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    private func commandPreview(toolName: String, input: [String: AnyCodable]) -> String {
-        switch toolName {
-        case "bash", "host_bash":
-            return (input["command"]?.value as? String) ?? ""
-        case "file_read":
-            return "read \((input["path"]?.value as? String) ?? "")"
-        case "file_write":
-            return "write \((input["path"]?.value as? String) ?? "")"
-        case "file_edit":
-            return "edit \((input["path"]?.value as? String) ?? "")"
-        case "web_fetch":
-            return "fetch \((input["url"]?.value as? String) ?? "")"
-        case "browser_navigate":
-            return "navigate \((input["url"]?.value as? String) ?? "")"
-        case "schedule_create", "schedule_update":
-            let verb = toolName == "schedule_create" ? "Create" : "Update"
-            let name = (input["name"]?.value as? String) ?? ""
-            let jobId = (input["job_id"]?.value as? String) ?? ""
-            let expr = (input["expression"]?.value as? String)
-                ?? (input["cron_expression"]?.value as? String) ?? ""
-            let message = (input["message"]?.value as? String) ?? ""
-            var parts: [String] = []
-            if !name.isEmpty { parts.append("\"\(name)\"") }
-            if !jobId.isEmpty && name.isEmpty { parts.append(jobId) }
-            if !expr.isEmpty { parts.append(expr) }
-            if parts.isEmpty && !message.isEmpty {
-                let truncated = message.count > 60 ? String(message.prefix(57)) + "..." : message
-                parts.append("\"\(truncated)\"")
-            }
-            return parts.isEmpty ? "\(verb) schedule" : "\(verb): \(parts.joined(separator: " — "))"
-        case "schedule_delete":
-            return (input["job_id"]?.value as? String) ?? "schedule"
-        default:
-            // Prefer semantically meaningful keys over arbitrary dictionary order
-            let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]
-            for key in preferredKeys {
-                if let val = input[key]?.value as? String, !val.isEmpty {
-                    return val.count > 80 ? String(val.prefix(77)) + "..." : val
-                }
-            }
-            if let firstString = input.values.compactMap({ $0.value as? String }).first {
-                return firstString.count > 80 ? String(firstString.prefix(77)) + "..." : firstString
-            }
-            return ""
         }
     }
 
