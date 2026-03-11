@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { routedGenerateAvatar } from "../../media/avatar-router.js";
-import { ManagedAvatarError } from "../../media/avatar-types.js";
+import { generateAvatar } from "../../media/avatar-router.js";
 import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -75,7 +74,7 @@ export const setAvatarTool: Tool = {
         "Circular or rounded composition filling the canvas. " +
         "Subtle background color (not white or transparent).";
 
-      const result = await routedGenerateAvatar(prompt);
+      const result = await generateAvatar(prompt);
       if (!result.imageBase64) {
         return {
           content: "Error: No image data returned. Please try again.",
@@ -92,14 +91,7 @@ export const setAvatarTool: Tool = {
       writeFileSync(tmpPath, pngBuffer);
       renameSync(tmpPath, avatarPath);
 
-      log.info(
-        {
-          avatarPath,
-          pathUsed: result.pathUsed,
-          correlationId: result.correlationId,
-        },
-        "Avatar saved successfully",
-      );
+      log.info({ avatarPath }, "Avatar saved successfully");
 
       // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
 
@@ -108,34 +100,6 @@ export const setAvatarTool: Tool = {
         isError: false,
       };
     } catch (error) {
-      if (error instanceof ManagedAvatarError) {
-        log.error(
-          {
-            error: error.message,
-            statusCode: error.statusCode,
-            code: error.code,
-          },
-          "Avatar generation failed (managed)",
-        );
-        if (error.statusCode === 429) {
-          return {
-            content:
-              "Avatar generation is currently rate limited. Please try again in a moment.",
-            isError: true,
-          };
-        }
-        if (error.statusCode >= 500) {
-          return {
-            content:
-              "Avatar generation is temporarily unavailable. Please try again later.",
-            isError: true,
-          };
-        }
-        return {
-          content: `Avatar generation failed: ${error.message}`,
-          isError: true,
-        };
-      }
       const message = mapGeminiError(error);
       log.error({ error: message }, "Avatar generation failed");
       return {
