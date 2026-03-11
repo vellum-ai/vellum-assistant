@@ -5,16 +5,49 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
+import { execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { Command } from "commander";
 
-import {
-  ensureChromeWithCdp,
-  minimizeChromeWindow,
-  restoreChromeWindow,
-} from "../../../tools/browser/chrome-cdp.js";
+const execFileAsync = promisify(execFile);
+
+async function ensureChromeWithCdp(opts?: {
+  startUrl?: string;
+  port?: number;
+}): Promise<{ baseUrl: string; launchedByUs: boolean; userDataDir: string }> {
+  const args = ["browser", "chrome", "launch"];
+  if (opts?.startUrl) args.push("--start-url", opts.startUrl);
+  if (opts?.port) args.push("--port", String(opts.port));
+  const { stdout } = await execFileAsync("assistant", args);
+  const result = JSON.parse(stdout);
+  if (!result.ok) throw new Error(result.error ?? "Chrome launch failed");
+  return result;
+}
+
+async function minimizeChromeWindow(cdpBase?: string): Promise<void> {
+  const args = ["browser", "chrome", "minimize"];
+  if (cdpBase) {
+    const port = new URL(cdpBase).port;
+    if (port) args.push("--port", port);
+  }
+  const { stdout } = await execFileAsync("assistant", args);
+  const result = JSON.parse(stdout);
+  if (!result.ok) throw new Error(result.error ?? "Chrome minimize failed");
+}
+
+async function restoreChromeWindow(cdpBase?: string): Promise<void> {
+  const args = ["browser", "chrome", "restore"];
+  if (cdpBase) {
+    const port = new URL(cdpBase).port;
+    if (port) args.push("--port", port);
+  }
+  const { stdout } = await execFileAsync("assistant", args);
+  const result = JSON.parse(stdout);
+  if (!result.ok) throw new Error(result.error ?? "Chrome restore failed");
+}
 import {
   addToCart,
   getDropoffOptions,
