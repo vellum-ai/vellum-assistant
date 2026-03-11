@@ -102,6 +102,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
+  hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -181,6 +183,7 @@ export function createToolExecutor(
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
+      hostFileProxy: ctx.hostFileProxy,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }

@@ -42,7 +42,7 @@ class HostFileReadTool implements Tool {
 
   async execute(
     input: Record<string, unknown>,
-    _context: ToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -50,6 +50,24 @@ class HostFileReadTool implements Tool {
         content: "Error: path is required and must be a string",
         isError: true,
       };
+    }
+
+    // Proxy to connected client for execution on the user's machine
+    // when a capable client is available (managed/cloud-hosted mode).
+    if (context.hostFileProxy?.isAvailable()) {
+      return context.hostFileProxy.request(
+        {
+          type: "host_file_request",
+          requestId: "", // proxy generates its own
+          sessionId: context.sessionId,
+          operation: "read",
+          path: rawPath,
+          offset: typeof input.offset === "number" ? input.offset : undefined,
+          limit: typeof input.limit === "number" ? input.limit : undefined,
+        },
+        context.sessionId,
+        context.signal,
+      );
     }
 
     const ops = new FileSystemOps(hostPolicy);
