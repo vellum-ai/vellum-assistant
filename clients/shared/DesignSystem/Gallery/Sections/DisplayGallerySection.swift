@@ -169,6 +169,35 @@ struct DisplayGallerySection: View {
             }
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - VAvatarImage
+            #if os(macOS)
+            GallerySectionHeader(
+                title: "VAvatarImage",
+                description: "Avatar with transparency-aware clip shape. Transparent images show full artwork; opaque images clip to a circle."
+            )
+
+            HStack(spacing: VSpacing.lg) {
+                ForEach([
+                    ("24pt", CGFloat(24)),
+                    ("28pt", CGFloat(28)),
+                    ("40pt", CGFloat(40)),
+                    ("52pt", CGFloat(52)),
+                ], id: \.0) { label, size in
+                    VStack(spacing: VSpacing.xs) {
+                        VAvatarImage(
+                            image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
+                            size: size
+                        )
+                        Text(label)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            #endif
+
             // MARK: - VStreamingWaveform
             GallerySectionHeader(
                 title: "VStreamingWaveform",

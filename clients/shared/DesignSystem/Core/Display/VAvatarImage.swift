@@ -14,31 +14,31 @@ public struct VAvatarImage: View {
     /// Whether to show a subtle border around the avatar.
     public var showBorder: Bool = true
 
+    /// Cached transparency result to avoid expensive bitmap analysis on every render.
+    private let isTransparent: Bool
+
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.surfaceBorder, showBorder: Bool = true) {
         self.image = image
         self.size = size
         self.borderColor = borderColor
         self.showBorder = showBorder
+        self.isTransparent = Self.imageHasTransparency(image)
     }
 
     public var body: some View {
         Image(nsImage: image)
             .interpolation(.none)
             .resizable()
-            .aspectRatio(contentMode: hasTransparency ? .fit : .fill)
+            .aspectRatio(contentMode: isTransparent ? .fit : .fill)
             .frame(width: size, height: size)
-            .clipShape(hasTransparency ? AnyShape(RoundedRectangle(cornerRadius: 0)) : AnyShape(Circle()))
+            .clipShape(isTransparent ? AnyShape(RoundedRectangle(cornerRadius: 0)) : AnyShape(Circle()))
             .overlay {
-                if showBorder && !hasTransparency {
+                if showBorder && !isTransparent {
                     Circle()
                         .strokeBorder(borderColor, lineWidth: 1)
                 }
             }
-    }
-
-    /// Check whether the underlying image has any transparent pixels.
-    private var hasTransparency: Bool {
-        Self.imageHasTransparency(image)
+            .accessibilityHidden(true)
     }
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
