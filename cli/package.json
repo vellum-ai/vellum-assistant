@@ -11,7 +11,7 @@
     "./src/commands/*": "./src/commands/*.ts"
   },
   "bin": {
-    "assistant": "./src/index.ts"
+    "vellum": "./src/index.ts"
   },
   "scripts": {
     "format": "prettier --write .",
