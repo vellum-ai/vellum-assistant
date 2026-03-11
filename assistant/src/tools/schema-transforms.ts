@@ -33,7 +33,7 @@ export function injectReasonField(
     }
 
     const properties = schema.properties as Record<string, unknown>;
-    if ("reason" in properties) {
+    if (schemaDefinesProperty(schema, "reason")) {
       return def;
     }
 

@@ -125,6 +125,28 @@ describe("injectReasonField", () => {
     expect(Object.is(result[0], defs[0])).toBe(true);
   });
 
+  test("skips tools with reason defined inside allOf member (composite schema)", () => {
+    const defs = [
+      makeDef("my_tool", {
+        type: "object",
+        properties: { foo: { type: "string" } },
+        allOf: [
+          {
+            properties: { reason: { type: "string" } },
+          },
+        ],
+        required: [],
+      }),
+    ];
+    const result = injectReasonField(defs);
+    // Should be the exact same object reference (no injection)
+    expect(Object.is(result[0], defs[0])).toBe(true);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    const props = schema.properties as Record<string, unknown>;
+    // Top-level properties should NOT have reason injected
+    expect("reason" in props).toBe(false);
+  });
+
   test("handles empty definitions array", () => {
     const result = injectReasonField([]);
     expect(result).toEqual([]);
