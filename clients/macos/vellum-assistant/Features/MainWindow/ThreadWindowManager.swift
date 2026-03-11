@@ -20,10 +20,27 @@ final class ThreadWindowManager: ObservableObject {
     /// Published so the sidebar can show visual indicators.
     @Published private(set) var detachedThreadIds: Set<UUID> = []
 
+    private var threadsCancellable: AnyCancellable?
+
     init(threadManager: ThreadManager, daemonClient: DaemonClient, settingsStore: SettingsStore) {
         self.threadManager = threadManager
         self.daemonClient = daemonClient
         self.settingsStore = settingsStore
+        observeThreadArchival()
+    }
+
+    /// Close detached windows when their thread is archived or deleted.
+    private func observeThreadArchival() {
+        threadsCancellable = threadManager.$threads
+            .sink { [weak self] threads in
+                guard let self else { return }
+                let activeIds = Set(threads.filter { !$0.isArchived }.map(\.id))
+                for detachedId in self.detachedThreadIds {
+                    if !activeIds.contains(detachedId) {
+                        self.closeWindow(threadId: detachedId)
+                    }
+                }
+            }
     }
 
     /// Open a thread in a new window. If already open, focus the existing window.
@@ -58,6 +75,18 @@ final class ThreadWindowManager: ObservableObject {
 
         windows[threadId] = window
         detachedThreadIds.insert(threadId)
+
+        // Switch the main window away from this thread to avoid two windows
+        // with the same shared ChatViewModel both showing an active composer.
+        if threadManager.activeThreadId == threadId {
+            let next = threadManager.visibleThreads.first(where: { $0.id != threadId })
+            if let next {
+                threadManager.selectThread(id: next.id)
+            } else {
+                threadManager.enterDraftMode()
+            }
+        }
+
         log.info("Opened thread \(threadId) in new window")
     }
 

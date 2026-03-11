@@ -1581,9 +1581,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     // MARK: - Detached Window Support
 
     /// Get or create a ViewModel for use in a detached window.
-    /// Unlike the private `getOrCreateViewModel`, this is accessible to ThreadWindowManager.
+    /// Unlike the private `getOrCreateViewModel`, this also ensures the message
+    /// loop is started and history is loaded — the same initialization that
+    /// `activeThreadId.didSet` performs for the main window.
     func getOrCreateViewModel(forDetached threadId: UUID) -> ChatViewModel? {
-        return getOrCreateViewModel(for: threadId)
+        let vm = getOrCreateViewModel(for: threadId)
+        vm?.ensureMessageLoopStarted()
+        sessionRestorer.loadHistoryIfNeeded(threadId: threadId)
+        return vm
     }
 
     /// Pin a ViewModel so it won't be evicted by LRU cache management.
