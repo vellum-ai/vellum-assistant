@@ -520,12 +520,17 @@ extension AppDelegate {
         guard !services.settingsStore.isDevMode else { return }
 
         guard let execURL = Bundle.main.executableURL else { return }
-        let cliBinary = execURL.deletingLastPathComponent()
-            .appendingPathComponent("vellum-cli")
-        guard FileManager.default.fileExists(atPath: cliBinary.path) else { return }
+        let macosDir = execURL.deletingLastPathComponent()
 
-        installSymlink(commandName: "vellum", target: cliBinary.path)
-        installSymlink(commandName: "assistant", target: cliBinary.path)
+        let cliBinary = macosDir.appendingPathComponent("vellum-cli")
+        if FileManager.default.fileExists(atPath: cliBinary.path) {
+            installSymlink(commandName: "vellum", target: cliBinary.path)
+        }
+
+        let assistantCliBinary = macosDir.appendingPathComponent("vellum-assistant-cli")
+        if FileManager.default.fileExists(atPath: assistantCliBinary.path) {
+            installSymlink(commandName: "assistant", target: assistantCliBinary.path)
+        }
     }
 
     /// Creates a symlink at /usr/local/bin/<commandName> pointing to the

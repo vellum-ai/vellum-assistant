@@ -731,7 +731,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin cli-bin assistant-cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -1038,6 +1038,12 @@ jobs:
             "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
           chmod +x cli-bin/vellum-cli
 
+          # Assistant CLI
+          mkdir -p assistant-cli-bin
+          bun build --compile --target=bun-darwin-x64 \
+            "$ASSISTANT_SRC_DIR/src/index.ts" --outfile assistant-cli-bin/vellum-assistant-cli
+          chmod +x assistant-cli-bin/vellum-assistant-cli
+
           # Gateway
           (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p gateway-bin
@@ -1072,7 +1078,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin cli-bin assistant-cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           df -h .

@@ -3,7 +3,8 @@
   "version": "0.4.45",
   "description": "Install the full Vellum stack locally",
   "bin": {
-    "vellum": "./bin/vellum.js"
+    "vellum": "./bin/vellum.js",
+    "assistant": "./bin/assistant.js"
   },
   "scripts": {
     "test": "bun test"
