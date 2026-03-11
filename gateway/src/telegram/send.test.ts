@@ -3,6 +3,7 @@ import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 
 // Mock fetch at the transport level (same pattern as all other test files)
 // instead of mocking ./api.js — mock.module for api.js leaks across test
@@ -54,7 +55,7 @@ const sampleApproval: ApprovalPayload = {
 /** Mock credential cache providing test bot token. */
 const testCreds: CredentialCache = {
   get: async (key: string) => {
-    if (key === "credential:telegram:bot_token") return "test-bot-token";
+    if (key === credentialKey("telegram", "bot_token")) return "test-bot-token";
     return undefined;
   },
   invalidate: () => {},

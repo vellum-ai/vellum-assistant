@@ -48,7 +48,11 @@ function riskCacheKey(
   workingDir?: string,
   manifestOverride?: ManifestOverride,
 ): string {
-  const inputJson = JSON.stringify(input);
+  // Strip `reason` before computing the cache key — it is cosmetic and varies
+  // per invocation even for identical tool operations, causing unnecessary
+  // cache misses.
+  const { reason: _reason, ...cacheableInput } = input;
+  const inputJson = JSON.stringify(cacheableInput);
   const hash = createHash("sha256")
     .update(inputJson)
     .update("\0")

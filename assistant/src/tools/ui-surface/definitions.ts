@@ -126,11 +126,6 @@ export const uiShowTool: Tool = {
             description:
               "Whether to block until the user interacts with an action. Defaults to true when actions are provided.",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are showing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["surface_type", "data"],
       },
@@ -168,11 +163,6 @@ export const uiUpdateTool: Tool = {
             type: "object",
             description: "Partial data to merge into the existing surface data",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are updating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["surface_id", "data"],
       },
@@ -203,11 +193,6 @@ export const uiDismissTool: Tool = {
           surface_id: {
             type: "string",
             description: "The ID of the surface to dismiss",
-          },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are dismissing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
         required: ["surface_id"],

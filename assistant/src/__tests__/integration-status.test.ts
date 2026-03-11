@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { credentialKey } from "../security/credential-key.js";
+
 const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
 
@@ -36,12 +38,21 @@ describe("integration-status", () => {
     });
 
     test("returns all connected when all keys are set", () => {
-      secureKeyValues.set("credential:integration:gmail:access_token", "tok");
-      secureKeyValues.set("credential:integration:slack:access_token", "tok");
+      secureKeyValues.set(
+        credentialKey("integration:gmail", "access_token"),
+        "tok",
+      );
+      secureKeyValues.set(
+        credentialKey("integration:slack", "access_token"),
+        "tok",
+      );
       mockTwilioAccountSid = "sid";
-      secureKeyValues.set("credential:twilio:auth_token", "auth");
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
-      secureKeyValues.set("credential:telegram:webhook_secret", "secret");
+      secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
+      secureKeyValues.set(
+        credentialKey("telegram", "webhook_secret"),
+        "secret",
+      );
 
       const summary = getIntegrationSummary();
       expect(summary.every((s: { connected: boolean }) => s.connected)).toBe(
@@ -51,9 +62,12 @@ describe("integration-status", () => {
 
     test("returns mixed status", () => {
       mockTwilioAccountSid = "sid";
-      secureKeyValues.set("credential:twilio:auth_token", "auth");
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
-      secureKeyValues.set("credential:telegram:webhook_secret", "secret");
+      secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
+      secureKeyValues.set(
+        credentialKey("telegram", "webhook_secret"),
+        "secret",
+      );
 
       const summary = getIntegrationSummary();
       const connected = summary.filter(
@@ -82,7 +96,7 @@ describe("integration-status", () => {
     });
 
     test("Telegram disconnected when only bot_token is set (missing webhook_secret)", () => {
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
 
       const summary = getIntegrationSummary();
       const telegram = summary.find(
@@ -95,9 +109,12 @@ describe("integration-status", () => {
   describe("formatIntegrationSummary", () => {
     test("shows checkmarks and crosses", () => {
       mockTwilioAccountSid = "sid";
-      secureKeyValues.set("credential:twilio:auth_token", "auth");
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
-      secureKeyValues.set("credential:telegram:webhook_secret", "secret");
+      secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
+      secureKeyValues.set(
+        credentialKey("telegram", "webhook_secret"),
+        "secret",
+      );
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
@@ -113,12 +130,21 @@ describe("integration-status", () => {
     });
 
     test("all connected", () => {
-      secureKeyValues.set("credential:integration:gmail:access_token", "tok");
-      secureKeyValues.set("credential:integration:slack:access_token", "tok");
+      secureKeyValues.set(
+        credentialKey("integration:gmail", "access_token"),
+        "tok",
+      );
+      secureKeyValues.set(
+        credentialKey("integration:slack", "access_token"),
+        "tok",
+      );
       mockTwilioAccountSid = "sid";
-      secureKeyValues.set("credential:twilio:auth_token", "auth");
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
-      secureKeyValues.set("credential:telegram:webhook_secret", "secret");
+      secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
+      secureKeyValues.set(
+        credentialKey("telegram", "webhook_secret"),
+        "secret",
+      );
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
@@ -134,13 +160,16 @@ describe("integration-status", () => {
     });
 
     test("returns true when any integration in category is connected", () => {
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
-      secureKeyValues.set("credential:telegram:webhook_secret", "secret");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
+      secureKeyValues.set(
+        credentialKey("telegram", "webhook_secret"),
+        "secret",
+      );
       expect(hasCapability("messaging")).toBe(true);
     });
 
     test("returns false when only partial credentials exist for category integrations", () => {
-      secureKeyValues.set("credential:telegram:bot_token", "tok");
+      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
       // Missing webhook_secret — Telegram should not count as connected
       expect(hasCapability("messaging")).toBe(false);
     });
@@ -150,7 +179,10 @@ describe("integration-status", () => {
     });
 
     test("email category checks Gmail", () => {
-      secureKeyValues.set("credential:integration:gmail:access_token", "tok");
+      secureKeyValues.set(
+        credentialKey("integration:gmail", "access_token"),
+        "tok",
+      );
       expect(hasCapability("email")).toBe(true);
     });
   });

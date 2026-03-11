@@ -3,6 +3,7 @@ import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getEmailService } from "../email/service.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
@@ -11,6 +12,7 @@ import type {
   ChannelProbeContext,
   ChannelReadinessSnapshot,
   ReadinessCheckResult,
+  SetupStatus,
 } from "./channel-readiness-types.js";
 import { probeLocalGatewayHealth } from "./local-gateway-health.js";
 
@@ -31,55 +33,83 @@ function hasIngressConfigured(): boolean {
   }
 }
 
+// ── Shared check helpers ────────────────────────────────────────────────────
+
+/** Build a check result from a boolean condition. */
+function check(
+  name: string,
+  passed: boolean,
+  passMessage: string,
+  failMessage: string,
+): ReadinessCheckResult {
+  return { name, passed, message: passed ? passMessage : failMessage };
+}
+
+/** Check that a secure credential key exists. */
+function checkCredential(
+  name: string,
+  service: string,
+  field: string,
+  label: string,
+): ReadinessCheckResult {
+  const exists = !!getSecureKey(credentialKey(service, field));
+  return check(
+    name,
+    exists,
+    `${label} is configured`,
+    `${label} is not configured`,
+  );
+}
+
+/** Check that public ingress is configured and enabled. */
+function checkIngress(): ReadinessCheckResult {
+  const has = hasIngressConfigured();
+  return check(
+    "ingress",
+    has,
+    "Public ingress URL is configured",
+    "Public ingress URL is not configured or disabled",
+  );
+}
+
 // ── Voice Probe ─────────────────────────────────────────────────────────────
 
 const voiceProbe: ChannelProbe = {
   channel: "phone",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
-    const results: ReadinessCheckResult[] = [];
-
     const hasCreds = hasTwilioCredentials();
-    results.push({
-      name: "twilio_credentials",
-      passed: hasCreds,
-      message: hasCreds
-        ? "Twilio credentials are configured"
-        : "Twilio Account SID and Auth Token are not configured",
-    });
+    const hasPhone = !!resolveTwilioPhoneNumber();
+    const ingress = checkIngress();
 
-    const resolvedNumber = resolveTwilioPhoneNumber();
-    const hasPhone = !!resolvedNumber;
-    results.push({
-      name: "phone_number",
-      passed: hasPhone,
-      message: hasPhone
-        ? "Phone number is assigned for voice calls"
-        : "No phone number assigned for voice calls",
-    });
+    const checks: ReadinessCheckResult[] = [
+      check(
+        "twilio_credentials",
+        hasCreds,
+        "Twilio credentials are configured",
+        "Twilio Account SID and Auth Token are not configured",
+      ),
+      check(
+        "phone_number",
+        hasPhone,
+        "Phone number is assigned for voice calls",
+        "No phone number assigned for voice calls",
+      ),
+      ingress,
+    ];
 
-    const hasIngress = hasIngressConfigured();
-    results.push({
-      name: "ingress",
-      passed: hasIngress,
-      message: hasIngress
-        ? "Public ingress URL is configured"
-        : "Public ingress URL is not configured or disabled",
-    });
-
-    if (hasIngress) {
-      const gatewayHealth = await probeLocalGatewayHealth();
-      results.push({
-        name: "gateway_health",
-        passed: gatewayHealth.healthy,
-        message: gatewayHealth.healthy
-          ? `Local gateway is serving requests at ${gatewayHealth.target}`
-          : `Local gateway is not serving requests at ${gatewayHealth.target}${
-              gatewayHealth.error ? `: ${gatewayHealth.error}` : ""
-            }`,
-      });
+    if (ingress.passed) {
+      const gw = await probeLocalGatewayHealth();
+      checks.push(
+        check(
+          "gateway_health",
+          gw.healthy,
+          `Local gateway is serving requests at ${gw.target}`,
+          `Local gateway is not serving requests at ${gw.target}${gw.error ? `: ${gw.error}` : ""}`,
+        ),
+      );
     }
 
-    return results;
+    return checks;
   },
 };
 
@@ -87,41 +117,16 @@ const voiceProbe: ChannelProbe = {
 
 const telegramProbe: ChannelProbe = {
   channel: "telegram",
-  runLocalChecks(): ReadinessCheckResult[] {
-    const results: ReadinessCheckResult[] = [];
-
-    const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
-    results.push({
-      name: "bot_token",
-      passed: hasBotToken,
-      message: hasBotToken
-        ? "Telegram bot token is configured"
-        : "Telegram bot token is not configured",
-    });
-
-    const hasWebhookSecret = !!getSecureKey(
-      "credential:telegram:webhook_secret",
-    );
-    results.push({
-      name: "webhook_secret",
-      passed: hasWebhookSecret,
-      message: hasWebhookSecret
-        ? "Telegram webhook secret is configured"
-        : "Telegram webhook secret is not configured",
-    });
-
-    const hasIngress = hasIngressConfigured();
-    results.push({
-      name: "ingress",
-      passed: hasIngress,
-      message: hasIngress
-        ? "Public ingress URL is configured"
-        : "Public ingress URL is not configured or disabled",
-    });
-
-    return results;
-  },
-  // Telegram has no remote checks currently
+  runLocalChecks: () => [
+    checkCredential("bot_token", "telegram", "bot_token", "Telegram bot token"),
+    checkCredential(
+      "webhook_secret",
+      "telegram",
+      "webhook_secret",
+      "Telegram webhook secret",
+    ),
+    checkIngress(),
+  ],
 };
 
 // ── Email Probe ─────────────────────────────────────────────────────────────
@@ -129,43 +134,33 @@ const telegramProbe: ChannelProbe = {
 const emailProbe: ChannelProbe = {
   channel: "email",
   runLocalChecks(): ReadinessCheckResult[] {
-    const results: ReadinessCheckResult[] = [];
-
     const hasApiKey = !!(
-      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+      getSecureKey("agentmail") ||
+      getSecureKey(credentialKey("agentmail", "api_key"))
     );
-    results.push({
-      name: "agentmail_api_key",
-      passed: hasApiKey,
-      message: hasApiKey
-        ? "AgentMail API key is configured"
-        : "AgentMail API key is not configured",
-    });
-
     const invitePolicy = getChannelInvitePolicy("email");
-    results.push({
-      name: "invite_policy",
-      passed: invitePolicy.codeRedemptionEnabled,
-      message: invitePolicy.codeRedemptionEnabled
-        ? "Email invite code redemption is enabled"
-        : "Email invite code redemption is disabled",
-    });
-
-    const hasIngress = hasIngressConfigured();
-    results.push({
-      name: "ingress",
-      passed: hasIngress,
-      message: hasIngress
-        ? "Public ingress URL is configured"
-        : "Public ingress URL is not configured or disabled",
-    });
-
-    return results;
+    return [
+      check(
+        "agentmail_api_key",
+        hasApiKey,
+        "AgentMail API key is configured",
+        "AgentMail API key is not configured",
+      ),
+      check(
+        "invite_policy",
+        invitePolicy.codeRedemptionEnabled,
+        "Email invite code redemption is enabled",
+        "Email invite code redemption is disabled",
+      ),
+      checkIngress(),
+    ];
   },
+  // runRemoteChecks UNCHANGED — keep the existing inbox_configured check as-is
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     // Only worth checking if the API key is present
     const hasApiKey = !!(
-      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+      getSecureKey("agentmail") ||
+      getSecureKey(credentialKey("agentmail", "api_key"))
     );
     if (!hasApiKey) return [];
 
@@ -199,77 +194,47 @@ const emailProbe: ChannelProbe = {
 const whatsappProbe: ChannelProbe = {
   channel: "whatsapp",
   runLocalChecks(): ReadinessCheckResult[] {
-    const results: ReadinessCheckResult[] = [];
-
-    const hasPhoneNumberId = !!getSecureKey(
-      "credential:whatsapp:phone_number_id",
-    );
-    results.push({
-      name: "whatsapp_phone_number_id",
-      passed: hasPhoneNumberId,
-      message: hasPhoneNumberId
-        ? "WhatsApp phone number ID is configured"
-        : "WhatsApp phone number ID is not configured",
-    });
-
-    const hasAccessToken = !!getSecureKey("credential:whatsapp:access_token");
-    results.push({
-      name: "whatsapp_access_token",
-      passed: hasAccessToken,
-      message: hasAccessToken
-        ? "WhatsApp access token is configured"
-        : "WhatsApp access token is not configured",
-    });
-
-    const hasAppSecret = !!getSecureKey("credential:whatsapp:app_secret");
-    results.push({
-      name: "whatsapp_app_secret",
-      passed: hasAppSecret,
-      message: hasAppSecret
-        ? "WhatsApp app secret is configured"
-        : "WhatsApp app secret is not configured",
-    });
-
-    const hasWebhookVerifyToken = !!getSecureKey(
-      "credential:whatsapp:webhook_verify_token",
-    );
-    results.push({
-      name: "whatsapp_webhook_verify_token",
-      passed: hasWebhookVerifyToken,
-      message: hasWebhookVerifyToken
-        ? "WhatsApp webhook verify token is configured"
-        : "WhatsApp webhook verify token is not configured",
-    });
-
     const displayNumber = resolveWhatsAppDisplayNumber();
-    const hasDisplayNumber = !!displayNumber;
-    results.push({
-      name: "whatsapp_display_phone_number",
-      passed: hasDisplayNumber,
-      message: hasDisplayNumber
-        ? `WhatsApp display phone number is configured (${displayNumber})`
-        : "WhatsApp display phone number is not configured — set whatsapp.phoneNumber in workspace config",
-    });
-
     const invitePolicy = getChannelInvitePolicy("whatsapp");
-    results.push({
-      name: "invite_policy",
-      passed: invitePolicy.codeRedemptionEnabled,
-      message: invitePolicy.codeRedemptionEnabled
-        ? "WhatsApp invite code redemption is enabled"
-        : "WhatsApp invite code redemption is disabled",
-    });
-
-    const hasIngress = hasIngressConfigured();
-    results.push({
-      name: "ingress",
-      passed: hasIngress,
-      message: hasIngress
-        ? "Public ingress URL is configured"
-        : "Public ingress URL is not configured or disabled",
-    });
-
-    return results;
+    return [
+      checkCredential(
+        "whatsapp_phone_number_id",
+        "whatsapp",
+        "phone_number_id",
+        "WhatsApp phone number ID",
+      ),
+      checkCredential(
+        "whatsapp_access_token",
+        "whatsapp",
+        "access_token",
+        "WhatsApp access token",
+      ),
+      checkCredential(
+        "whatsapp_app_secret",
+        "whatsapp",
+        "app_secret",
+        "WhatsApp app secret",
+      ),
+      checkCredential(
+        "whatsapp_webhook_verify_token",
+        "whatsapp",
+        "webhook_verify_token",
+        "WhatsApp webhook verify token",
+      ),
+      check(
+        "whatsapp_display_phone_number",
+        !!displayNumber,
+        `WhatsApp display phone number is configured (${displayNumber})`,
+        "WhatsApp display phone number is not configured — set whatsapp.phoneNumber in workspace config",
+      ),
+      check(
+        "invite_policy",
+        invitePolicy.codeRedemptionEnabled,
+        "WhatsApp invite code redemption is enabled",
+        "WhatsApp invite code redemption is disabled",
+      ),
+      checkIngress(),
+    ];
   },
 };
 
@@ -277,26 +242,20 @@ const whatsappProbe: ChannelProbe = {
 
 const slackProbe: ChannelProbe = {
   channel: "slack",
-  runLocalChecks(): ReadinessCheckResult[] {
-    const hasBotToken = !!getSecureKey("credential:slack_channel:bot_token");
-    const hasAppToken = !!getSecureKey("credential:slack_channel:app_token");
-    return [
-      {
-        name: "bot_token",
-        passed: hasBotToken,
-        message: hasBotToken
-          ? "Slack bot token is configured"
-          : "Slack bot token is not configured",
-      },
-      {
-        name: "app_token",
-        passed: hasAppToken,
-        message: hasAppToken
-          ? "Slack app token is configured"
-          : "Slack app token is not configured",
-      },
-    ];
-  },
+  runLocalChecks: () => [
+    checkCredential(
+      "bot_token",
+      "slack_channel",
+      "bot_token",
+      "Slack bot token",
+    ),
+    checkCredential(
+      "app_token",
+      "slack_channel",
+      "app_token",
+      "Slack app token",
+    ),
+  ],
 };
 
 // ── Service ─────────────────────────────────────────────────────────────────
@@ -369,6 +328,18 @@ export class ChannelReadinessService {
           : true;
       const ready = allLocalPassed && allRemotePassed;
 
+      // setupStatus: considers all checks (credentials + infrastructure)
+      const consideredChecks = [
+        ...localChecks,
+        ...(remoteChecks && remoteChecksAffectReadiness ? remoteChecks : []),
+      ];
+      const anyCheckPassed = consideredChecks.some((c) => c.passed);
+      const setupStatus: SetupStatus = !anyCheckPassed
+        ? "not_configured"
+        : ready
+          ? "ready"
+          : "incomplete";
+
       const reasons: Array<{ code: string; text: string }> = [];
       for (const check of localChecks) {
         if (!check.passed) {
@@ -386,6 +357,7 @@ export class ChannelReadinessService {
       const snapshot: ChannelReadinessSnapshot = {
         channel: ch,
         ready,
+        setupStatus,
         checkedAt:
           remoteChecks && cached && !remoteChecksFreshlyFetched
             ? cached.checkedAt
@@ -422,6 +394,7 @@ export class ChannelReadinessService {
     return {
       channel,
       ready: false,
+      setupStatus: "not_configured",
       checkedAt: Date.now(),
       stale: false,
       reasons: [

@@ -584,11 +584,11 @@ Entry points:
 
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
-    → setSecureKey("credential:telegram:bot_token", token)
+    → setSecureKey("credential/telegram/bot_token", token)
     → upsertCredentialMetadata("telegram", "bot_token", {})
     → Stores bot username in config at telegram.botUsername
     → Auto-generates webhook secret if missing
-      → setSecureKey("credential:telegram:webhook_secret", secret)
+      → setSecureKey("credential/telegram/webhook_secret", secret)
       → upsertCredentialMetadata("telegram", "webhook_secret", {})
       → On storage failure: rolls back bot_token + metadata, returns error
     → If webhook secret already exists: upserts metadata anyway (self-heal)
@@ -660,7 +660,7 @@ The Slack channel requires two tokens:
 | App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection   |
 | Bot token | `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
 
-Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same broker-first fallback strategy as Telegram credentials.
+Both tokens are stored in secure storage (`credential/slack_channel/app_token`, `credential/slack_channel/bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same broker-first fallback strategy as Telegram credentials.
 
 **Auto-reconnect behavior:**
 
@@ -1057,7 +1057,7 @@ The resolution is performed by `resolveCallerIdentity()` in `call-domain.ts`:
 
 1. **Per-call override** — If `callerIdentityMode` is provided in the call input and `calls.callerIdentity.allowPerCallOverride` is enabled, the requested mode is used (source: `per_call_override`).
 2. **Implicit default** — Otherwise, `assistant_number` is always used (source: `implicit_default`). There is no configurable default mode — this is a strict policy.
-3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential:twilio:user_phone_number` secure key (source: `secure_key`).
+3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential/twilio/user_phone_number` secure key (source: `secure_key`).
 4. **Eligibility check** — User numbers are verified against the Twilio API to confirm they can be used as an outbound caller ID.
 
 Both the resolved mode and source are logged at info level on success, and rejections are logged at warn level.

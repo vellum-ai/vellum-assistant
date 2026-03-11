@@ -2328,6 +2328,7 @@ public final class HTTPTransport {
         struct ChannelReadinessSnapshot: Decodable {
             let channel: String
             let ready: Bool
+            let setupStatus: String?
             let channelHandle: String?
             let localChecks: [CheckResult]?
             let remoteChecks: [CheckResult]?
@@ -2491,6 +2492,7 @@ public final class HTTPTransport {
                 .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
                 ready: snapshot.ready,
+                setupStatus: snapshot.setupStatus,
                 channelHandle: snapshot.channelHandle,
                 checks: checks
             )

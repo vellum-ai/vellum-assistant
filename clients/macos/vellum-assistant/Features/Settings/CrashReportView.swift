@@ -214,9 +214,12 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             crashReportWindowObserver = nil
         }
+        let closingWindow = crashReportWindow
         crashReportWindow?.close()
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        // The window may still report isVisible briefly after close(),
+        // so exclude it from the visible-window check.
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 
     private func handleCrashReportWindowWillClose() {
@@ -224,8 +227,12 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             crashReportWindowObserver = nil
         }
+        // Capture the window before clearing the reference — it is still
+        // isVisible during willCloseNotification, so we must exclude it
+        // from the visible-window check.
+        let closingWindow = crashReportWindow
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 }
 

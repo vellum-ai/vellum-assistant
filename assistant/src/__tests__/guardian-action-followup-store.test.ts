@@ -314,7 +314,7 @@ describe("guardian-action-followup-store", () => {
     const request = createTestRequest("conv-followup-15");
     markTimedOutWithReason(request.id, "call_timeout");
     startFollowupFromExpiredRequest(request.id, "Late answer");
-    progressFollowupState(request.id, "dispatching", "message_back");
+    progressFollowupState(request.id, "dispatching", "call_back");
 
     const result = finalizeFollowup(request.id, "failed");
     expect(result).not.toBeNull();

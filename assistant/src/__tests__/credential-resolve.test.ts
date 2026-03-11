@@ -12,6 +12,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { credentialKey } from "../security/credential-key.js";
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
@@ -56,7 +57,7 @@ describe("credential resolver", () => {
       expect(result!.credentialId).toBe(created.credentialId);
       expect(result!.service).toBe("github");
       expect(result!.field).toBe("token");
-      expect(result!.storageKey).toBe("credential:github:token");
+      expect(result!.storageKey).toBe(credentialKey("github", "token"));
       expect(result!.metadata.allowedTools).toEqual([
         "browser_fill_credential",
       ]);
@@ -111,7 +112,7 @@ describe("credential resolver", () => {
       expect(result!.credentialId).toBe(created.credentialId);
       expect(result!.service).toBe("gmail");
       expect(result!.field).toBe("password");
-      expect(result!.storageKey).toBe("credential:gmail:password");
+      expect(result!.storageKey).toBe(credentialKey("gmail", "password"));
     });
 
     test("returns undefined for non-existent ID", () => {
@@ -190,10 +191,10 @@ describe("credential resolver", () => {
   });
 
   describe("storage key format", () => {
-    test("storage key follows credential:{service}:{field} format", () => {
+    test("storage key follows credential/{service}/{field} format", () => {
       upsertCredentialMetadata("my-service", "api-key");
       const result = resolveByServiceField("my-service", "api-key");
-      expect(result!.storageKey).toBe("credential:my-service:api-key");
+      expect(result!.storageKey).toBe(credentialKey("my-service", "api-key"));
     });
   });
 

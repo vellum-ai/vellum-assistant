@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { credentialKey } from "../security/credential-key.js";
 import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
 
 // ---------------------------------------------------------------------------
@@ -238,7 +239,7 @@ function seedCredential(
     ...extra,
   };
   metadataStore.push(record);
-  secureKeyStore.set(`credential:${service}:${field}`, secret);
+  secureKeyStore.set(credentialKey(service, field), secret);
   return record;
 }
 
@@ -437,7 +438,7 @@ describe("assistant credentials CLI", () => {
       expect(parsed.credentialId).toBeTruthy();
 
       // Verify secret stored in mock map
-      expect(secureKeyStore.get("credential:twilio:account_sid")).toBe(
+      expect(secureKeyStore.get(credentialKey("twilio", "account_sid"))).toBe(
         "AC1234567890",
       );
 
@@ -546,7 +547,7 @@ describe("assistant credentials CLI", () => {
       expect(meta2!.updatedAt).toBeGreaterThan(firstUpdatedAt);
 
       // Verify secret is overwritten
-      expect(secureKeyStore.get("credential:twilio:account_sid")).toBe(
+      expect(secureKeyStore.get(credentialKey("twilio", "account_sid"))).toBe(
         "new_value",
       );
     });
@@ -568,7 +569,9 @@ describe("assistant credentials CLI", () => {
       expect(parsed.field).toBe("auth_token");
 
       // Verify both removed
-      expect(secureKeyStore.has("credential:twilio:auth_token")).toBe(false);
+      expect(secureKeyStore.has(credentialKey("twilio", "auth_token"))).toBe(
+        false,
+      );
       expect(
         metadataStore.find(
           (m) => m.service === "twilio" && m.field === "auth_token",
@@ -833,8 +836,10 @@ describe("assistant credentials CLI", () => {
       expect(parsed.value).toBe("instance_secret_abc123");
 
       // Verify the correct key was looked up in the secure store
-      expect(secureKeyStore.has("credential:twilio:auth_token")).toBe(true);
-      expect(secureKeyStore.get("credential:twilio:auth_token")).toBe(
+      expect(secureKeyStore.has(credentialKey("twilio", "auth_token"))).toBe(
+        true,
+      );
+      expect(secureKeyStore.get(credentialKey("twilio", "auth_token"))).toBe(
         "instance_secret_abc123",
       );
     });

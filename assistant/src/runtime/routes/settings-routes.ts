@@ -23,19 +23,30 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
-import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
+import {
+  assertMetadataWritable,
+  getCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import {
   type ManifestOverride,
   resolveExecutionTarget,
 } from "../../tools/execution-target.js";
 import { getAllTools, getTool } from "../../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../../tools/schema-transforms.js";
 import { isSideEffectTool } from "../../tools/side-effects.js";
 import { setAvatarTool } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
@@ -134,9 +145,9 @@ function getClientSecret(
   rawService: string,
 ): string | undefined {
   return (
-    getSecureKey(`credential:${resolvedService}:client_secret`) ??
+    getSecureKey(credentialKey(resolvedService, "client_secret")) ??
     (resolvedService !== rawService
-      ? getSecureKey(`credential:${rawService}:client_secret`)
+      ? getSecureKey(credentialKey(rawService, "client_secret"))
       : undefined) ??
     undefined
   );
@@ -162,9 +173,16 @@ async function handleOAuthConnectStart(body: {
 
   const resolvedService = resolveService(body.service);
 
-  let clientId = getSecureKey(`credential:${resolvedService}:client_id`);
+  // client_id is stored in metadata (oauth2ClientId), not the secure store.
+  let clientId = getCredentialMetadata(
+    resolvedService,
+    "access_token",
+  )?.oauth2ClientId;
   if (!clientId && resolvedService !== body.service) {
-    clientId = getSecureKey(`credential:${body.service}:client_id`);
+    clientId = getCredentialMetadata(
+      body.service,
+      "access_token",
+    )?.oauth2ClientId;
   }
 
   if (!clientId) {
@@ -204,6 +222,25 @@ async function handleOAuthConnectStart(body: {
         authUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
+        // Emit oauth_connect_result to all connected SSE clients so the
+        // UI can update immediately when the deferred browser flow completes.
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "oauth_connect_result",
+              success: deferredResult.success,
+              service: deferredResult.service,
+              accountInfo: deferredResult.accountInfo,
+              error: deferredResult.error,
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err, service: deferredResult.service },
+              "Failed to publish oauth_connect_result event",
+            );
+          });
+
         if (!deferredResult.success) {
           log.warn(
             {
@@ -320,23 +357,34 @@ function resolveManifestOverride(
 function handleToolNamesList(): Response {
   const tools = getAllTools();
   const nameSet = new Set(tools.map((t) => t.name));
-  const schemas: Record<
-    string,
-    {
-      type: string;
-      properties?: Record<string, unknown>;
-      required?: string[];
-    }
-  > = {};
+  type SchemaShape = {
+    type: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  const schemas: Record<string, SchemaShape> = {};
+
+  // Collect raw definitions from the registry so we can transform them.
+  const rawDefs: import("../../providers/types.js").ToolDefinition[] = [];
   for (const tool of tools) {
     try {
-      const def = tool.getDefinition();
-      schemas[tool.name] = def.input_schema as (typeof schemas)[string];
+      rawDefs.push(tool.getDefinition());
     } catch {
       // Skip tools whose definitions can't be resolved
     }
   }
 
+  // Apply reason injection so settings/debug schemas match runtime behavior.
+  const transformedDefs = injectReasonField(rawDefs, REASON_SKIP_SET);
+  for (const def of transformedDefs) {
+    schemas[def.name] = def.input_schema as SchemaShape;
+  }
+
+  // Skill manifest schemas are served raw (untransformed). Unlike runtime tool
+  // schemas which have `reason` injected via injectReasonField(), skill manifests
+  // reflect the original TOOLS.json content. This is intentional: skill tools are
+  // invoked through skill_execute (which has its own reason field), so their
+  // individual schemas are never sent to the LLM directly.
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {
@@ -348,8 +396,7 @@ function handleToolNamesList(): Response {
         for (const entry of manifest.tools) {
           if (nameSet.has(entry.name)) continue;
           nameSet.add(entry.name);
-          schemas[entry.name] =
-            entry.input_schema as unknown as (typeof schemas)[string];
+          schemas[entry.name] = entry.input_schema as unknown as SchemaShape;
         }
       } catch {
         // Skip skills whose manifests can't be parsed

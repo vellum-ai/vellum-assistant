@@ -106,8 +106,8 @@ function writeEncryptedStore(botToken: string, webhookSecret: string): void {
     version: 1,
     salt: salt.toString("hex"),
     entries: {
-      "credential:telegram:bot_token": encrypt(botToken, key),
-      "credential:telegram:webhook_secret": encrypt(webhookSecret, key),
+      "credential/telegram/bot_token": encrypt(botToken, key),
+      "credential/telegram/webhook_secret": encrypt(webhookSecret, key),
     },
   };
 

@@ -63,6 +63,7 @@ mock.module("../tools/registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { credentialKey } from "../security/credential-key.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
@@ -200,6 +201,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
+      "security/credential-key.ts", // credential key builder + migration
       "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
       "tools/credentials/broker.ts", // brokered credential access
@@ -230,7 +232,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
       "daemon/ride-shotgun-handler.ts", // learn session cookie persistence
       "daemon/session-messaging.ts", // credential storage during session messaging
-      "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
+      "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -414,7 +416,10 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
         allowedTools: tc.allowedTools,
         allowedDomains: tc.allowedDomains,
       });
-      setSecureKey(`credential:${tc.credentialId}:token`, "test-secret-value");
+      setSecureKey(
+        credentialKey(tc.credentialId, "token"),
+        "test-secret-value",
+      );
 
       const result = await broker.browserFill({
         service: tc.credentialId,
@@ -439,7 +444,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey("credential:github:token", "ghp_secret123");
+    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -503,7 +508,10 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
   });
 
   test("client secret is read from secure store, not metadata", () => {
-    setSecureKey("credential:integration:gmail:client_secret", "my-secret");
+    setSecureKey(
+      credentialKey("integration:gmail", "client_secret"),
+      "my-secret",
+    );
     upsertCredentialMetadata("integration:gmail", "access_token", {
       oauth2TokenUrl: "https://oauth2.googleapis.com/token",
       oauth2ClientId: "test-client-id",
@@ -514,9 +522,9 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
     expect("oauth2ClientSecret" in meta!).toBe(false);
 
     // Secret is in secure store
-    expect(getSecureKey("credential:integration:gmail:client_secret")).toBe(
-      "my-secret",
-    );
+    expect(
+      getSecureKey(credentialKey("integration:gmail", "client_secret")),
+    ).toBe("my-secret");
   });
 
   test("v2 metadata with oauth2ClientSecret is stripped on migration", () => {

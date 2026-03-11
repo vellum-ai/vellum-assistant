@@ -82,11 +82,26 @@ extension AppDelegate {
 
     @objc func performRestart() {
         let bundleURL = Bundle.main.bundleURL
+
+        // Write a timestamped sentinel so the new instance's single-instance
+        // guard knows this is an intentional restart, not a duplicate launch.
+        // The sentinel contains the current Unix timestamp; the new instance
+        // honours it only if it is less than 30 seconds old, so a stale file
+        // left by a crash does not permanently disable the guard.
+        let sentinelDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".vellum")
+        try? FileManager.default.createDirectory(at: sentinelDir, withIntermediateDirectories: true)
+        let sentinelPath = sentinelDir.appendingPathComponent("restart-in-progress")
+        let timestamp = "\(Date().timeIntervalSince1970)"
+        try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
+
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
             if let error {
                 log.error("Restart failed — could not launch new instance: \(error.localizedDescription)")
+                // Clean up the sentinel so a failed restart doesn't leave
+                // a file that could bypass the guard on the next launch.
+                try? FileManager.default.removeItem(at: sentinelPath)
                 return
             }
             DispatchQueue.main.async {

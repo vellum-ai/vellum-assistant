@@ -83,7 +83,6 @@ export type GuardianActionCopyGenerator = (
 /** The disposition returned by the guardian follow-up conversation engine. */
 export type GuardianFollowUpDisposition =
   | "call_back"
-  | "message_back"
   | "decline"
   | "keep_pending";
 

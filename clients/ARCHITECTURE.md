@@ -52,7 +52,7 @@ Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewMod
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
     end
 
     subgraph "UserDefaults (plist)"

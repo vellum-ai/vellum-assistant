@@ -31,6 +31,10 @@ import {
   getAllToolDefinitions,
   getMcpToolDefinitions,
 } from "../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../tools/schema-transforms.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
@@ -335,10 +339,22 @@ export function createToolExecutor(
     // with the real tool name.
     if (name === "skill_execute") {
       const toolName = typeof input.tool === "string" ? input.tool : "";
-      const toolInput =
+      const rawToolInput =
         input.input != null && typeof input.input === "object"
           ? (input.input as Record<string, unknown>)
           : {};
+
+      // Clone to avoid mutating shared input objects
+      const toolInput = { ...rawToolInput };
+
+      // Propagate outer reason when inner input lacks a valid one
+      if (
+        typeof input.reason === "string" &&
+        input.reason &&
+        (typeof toolInput.reason !== "string" || toolInput.reason.length === 0)
+      ) {
+        toolInput.reason = input.reason;
+      }
 
       if (!toolName) {
         return {
@@ -663,6 +679,6 @@ export function createResolveToolsCallback(
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return allBaseDefs;
+    return injectReasonField(allBaseDefs, REASON_SKIP_SET);
   };
 }

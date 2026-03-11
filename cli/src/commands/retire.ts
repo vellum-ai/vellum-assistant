@@ -9,6 +9,10 @@ import {
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
+import {
+  getPlatformUrl,
+  readPlatformToken,
+} from "../lib/platform-client";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
@@ -18,7 +22,12 @@ import {
 } from "../lib/process";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
-import { openLogFile, closeLogFile, writeToLogFile } from "../lib/xdg-log";
+import {
+  openLogFile,
+  closeLogFile,
+  resetLogFile,
+  writeToLogFile,
+} from "../lib/xdg-log";
 
 function resolveCloud(entry: AssistantEntry): string {
   if (entry.cloud) {
@@ -172,6 +181,34 @@ async function retireCustom(entry: AssistantEntry): Promise<void> {
   console.log(`\u2705 Custom instance retired.`);
 }
 
+async function retireVellum(assistantId: string): Promise<void> {
+  console.log("\u{1F5D1}\ufe0f  Retiring platform-hosted instance...\n");
+
+  const token = readPlatformToken();
+  if (!token) {
+    console.error(
+      "Error: Not logged in. Run `vellum login --token <token>` first.",
+    );
+    process.exit(1);
+  }
+
+  const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "X-Session-Token": token },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    console.error(
+      `Error: Platform retire failed (${response.status}): ${body}`,
+    );
+    process.exit(1);
+  }
+
+  console.log("\u2705 Platform-hosted instance retired.");
+}
+
 function parseSource(): string | undefined {
   const args = process.argv.slice(4);
   for (let i = 0; i < args.length; i++) {
@@ -213,6 +250,9 @@ function teeConsoleToLogFile(fd: number | "ignore"): void {
 }
 
 export async function retire(): Promise<void> {
+  if (process.env.VELLUM_DESKTOP_APP) {
+    resetLogFile("retire.log");
+  }
   const logFd = process.env.VELLUM_DESKTOP_APP
     ? openLogFile("retire.log")
     : "ignore";
@@ -281,6 +321,8 @@ async function retireInner(): Promise<void> {
     await retireLocal(name, entry);
   } else if (cloud === "custom") {
     await retireCustom(entry);
+  } else if (cloud === "vellum") {
+    await retireVellum(entry.assistantId);
   } else {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);

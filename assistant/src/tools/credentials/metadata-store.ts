@@ -33,12 +33,14 @@ export interface CredentialMetadata {
   alias?: string;
   /** Templates describing how to inject this credential into proxied requests. */
   injectionTemplates?: CredentialInjectionTemplate[];
+  /** Whether a refresh token exists in the secure store for this service. */
+  hasRefreshToken?: boolean;
   createdAt: number;
   updatedAt: number;
 }
 
 /** Current on-disk schema version. */
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 4;
 
 interface MetadataFile {
   version: typeof CURRENT_VERSION;
@@ -126,6 +128,10 @@ function migrateRecordV1toV2(
     injectionTemplates: Array.isArray(record.injectionTemplates)
       ? (record.injectionTemplates as CredentialInjectionTemplate[])
       : undefined,
+    hasRefreshToken:
+      typeof record.hasRefreshToken === "boolean"
+        ? record.hasRefreshToken
+        : undefined,
     createdAt: record.createdAt as number,
     updatedAt: record.updatedAt as number,
   };
@@ -141,6 +147,33 @@ function migrateRecordV2toV3(record: CredentialMetadata): CredentialMetadata {
   return rest;
 }
 
+/**
+ * Migrate v3 credentials to v4:
+ * - Delete ghost `refresh_token` metadata records
+ * - Set `hasRefreshToken: true` on corresponding `access_token` records
+ */
+function migrateV3toV4(
+  credentials: CredentialMetadata[],
+): CredentialMetadata[] {
+  // Collect services that had refresh_token ghost records
+  const servicesWithRefresh = new Set<string>();
+  for (const c of credentials) {
+    if (c.field === "refresh_token") {
+      servicesWithRefresh.add(c.service);
+    }
+  }
+
+  // Remove all refresh_token records and set hasRefreshToken on access_token records
+  const filtered = credentials.filter((c) => c.field !== "refresh_token");
+  for (const c of filtered) {
+    if (c.field === "access_token" && servicesWithRefresh.has(c.service)) {
+      c.hasRefreshToken = true;
+    }
+  }
+
+  return filtered;
+}
+
 function loadFile(): LoadResult {
   const raw = readTextFileSync(getMetadataPath());
   if (raw == null) {
@@ -152,7 +185,12 @@ function loadFile(): LoadResult {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === "number" ? data.version : 1;
-    if (fileVersion !== 1 && fileVersion !== 2 && fileVersion !== 3) {
+    if (
+      fileVersion !== 1 &&
+      fileVersion !== 2 &&
+      fileVersion !== 3 &&
+      fileVersion !== 4
+    ) {
       // Unrecognized version (future, fractional, negative, zero) — refuse to touch it
       return { unknownVersion: true };
     }
@@ -163,16 +201,22 @@ function loadFile(): LoadResult {
     const validRecords = rawCredentials.filter(isValidCredentialRecord);
 
     if (fileVersion < CURRENT_VERSION) {
-      // Apply migrations in sequence: v1→v2→v3
+      // Apply migrations in sequence: v1→v2→v3→v4
       let credentials: CredentialMetadata[];
       if (fileVersion === 1) {
-        credentials = validRecords
-          .map(migrateRecordV1toV2)
-          .map(migrateRecordV2toV3);
+        credentials = migrateV3toV4(
+          validRecords.map(migrateRecordV1toV2).map(migrateRecordV2toV3),
+        );
+      } else if (fileVersion === 2) {
+        credentials = migrateV3toV4(
+          (validRecords as unknown as CredentialMetadata[]).map(
+            migrateRecordV2toV3,
+          ),
+        );
       } else {
-        // fileVersion === 2
-        credentials = (validRecords as unknown as CredentialMetadata[]).map(
-          migrateRecordV2toV3,
+        // fileVersion === 3
+        credentials = migrateV3toV4(
+          validRecords as unknown as CredentialMetadata[],
         );
       }
       const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
@@ -238,6 +282,7 @@ export function upsertCredentialMetadata(
     alias?: string | null;
     /** Pass `null` to explicitly clear injection templates. */
     injectionTemplates?: CredentialInjectionTemplate[] | null;
+    hasRefreshToken?: boolean;
   },
 ): CredentialMetadata {
   const result = loadFile();
@@ -290,6 +335,8 @@ export function upsertCredentialMetadata(
         existing.injectionTemplates = policy.injectionTemplates;
       }
     }
+    if (policy?.hasRefreshToken !== undefined)
+      existing.hasRefreshToken = policy.hasRefreshToken;
     existing.updatedAt = now;
     saveFile(data);
     return existing;
@@ -309,6 +356,7 @@ export function upsertCredentialMetadata(
     oauth2TokenEndpointAuthMethod: policy?.oauth2TokenEndpointAuthMethod,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
+    hasRefreshToken: policy?.hasRefreshToken,
     createdAt: now,
     updatedAt: now,
   };

@@ -1,5 +1,7 @@
 import type { Command } from "commander";
 
+import type { ExtensionCommand } from "../../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../../browser-extension-relay/server.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
@@ -16,22 +18,36 @@ import {
 } from "../../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
-// Shared relay helper
+// Shared relay helper — dual-path: in-process first, gateway fallback
 // ---------------------------------------------------------------------------
 
 async function relayCommand(command: Record<string, unknown>): Promise<void> {
   try {
-    if (!isSigningKeyInitialized()) {
-      initAuthSigningKey(loadOrCreateSigningKey());
-    }
-
-    const { data } = await gatewayPost<{
-      id: string;
+    // Try the in-process extensionRelayServer first (for when CLI runs
+    // within the daemon). Falls back to gateway HTTP for out-of-process
+    // CLI contexts.
+    let data: {
+      id?: string;
       success: boolean;
       result?: unknown;
       error?: string;
       tabId?: number;
-    }>("/v1/browser-relay/command", command);
+    };
+
+    try {
+      data = await extensionRelayServer.sendCommand(
+        command as Omit<ExtensionCommand, "id">,
+      );
+    } catch {
+      // In-process relay unavailable — fall back to gateway HTTP
+      if (!isSigningKeyInitialized()) {
+        initAuthSigningKey(loadOrCreateSigningKey());
+      }
+      ({ data } = await gatewayPost<typeof data>(
+        "/v1/browser-relay/command",
+        command,
+      ));
+    }
 
     if (data.success) {
       process.stdout.write(
@@ -367,15 +383,24 @@ Examples:
     )
     .action(async () => {
       try {
-        if (!isSigningKeyInitialized()) {
-          initAuthSigningKey(loadOrCreateSigningKey());
-        }
-        const data = await gatewayGet<{
+        // Dual-path: try in-process first, fall back to gateway HTTP
+        let data: {
           connected: boolean;
-          connectionId?: string;
-          lastHeartbeatAt?: number;
+          connectionId?: string | null;
+          lastHeartbeatAt?: number | null;
           pendingCommandCount: number;
-        }>("/v1/browser-relay/status");
+        };
+
+        try {
+          data = extensionRelayServer.getStatus();
+        } catch {
+          // In-process relay unavailable — fall back to gateway HTTP
+          if (!isSigningKeyInitialized()) {
+            initAuthSigningKey(loadOrCreateSigningKey());
+          }
+          data = await gatewayGet<typeof data>("/v1/browser-relay/status");
+        }
+
         process.stdout.write(
           JSON.stringify({
             ok: true,

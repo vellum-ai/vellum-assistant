@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -64,5 +65,27 @@ describe("formatConfirmationCommandPreview", () => {
       input: { path: "/tmp/sample.txt" },
     });
     expect(preview).toBe("edit /tmp/sample.txt");
+  });
+});
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+describe("new-session conversationKey format", () => {
+  test("uses a valid UUID, not a timestamp", () => {
+    // Mirror the key construction in startCli()
+    const key = `builtin-cli:${randomUUID()}`;
+    const suffix = key.replace("builtin-cli:", "");
+
+    expect(suffix).toMatch(UUID_RE);
+    // A numeric timestamp would parse to a finite number; a UUID must not.
+    expect(Number.isFinite(Number(suffix))).toBe(false);
+  });
+
+  test("generates unique keys across calls", () => {
+    const key1 = `builtin-cli:${randomUUID()}`;
+    const key2 = `builtin-cli:${randomUUID()}`;
+
+    expect(key1).not.toBe(key2);
   });
 });

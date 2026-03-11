@@ -40,11 +40,6 @@ export const setAvatarTool: Tool = {
               "A text description of the desired avatar appearance, " +
               'e.g. "a friendly purple cat with green eyes wearing a tiny hat".',
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["description"],
       },

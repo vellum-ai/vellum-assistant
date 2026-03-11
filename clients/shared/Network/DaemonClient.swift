@@ -2099,6 +2099,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Rich channel readiness information returned by `fetchChannelReadiness()`.
     public struct ChannelReadinessInfo {
         public let ready: Bool
+        public let setupStatus: String?
         public let channelHandle: String?
         public let checks: [ReadinessCheck]
 
@@ -2131,6 +2132,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             struct Snapshot: Decodable {
                 let channel: String
                 let ready: Bool
+                let setupStatus: String?
                 let channelHandle: String?
                 let localChecks: [CheckResult]?
                 let remoteChecks: [CheckResult]?
@@ -2148,6 +2150,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 .map { ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = ChannelReadinessInfo(
                 ready: snapshot.ready,
+                setupStatus: snapshot.setupStatus,
                 channelHandle: snapshot.channelHandle,
                 checks: checks
             )

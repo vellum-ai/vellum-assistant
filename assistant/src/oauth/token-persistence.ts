@@ -6,6 +6,7 @@
  * orchestrator without duplicating storage logic.
  */
 
+import { credentialKey, migrateKeys } from "../security/credential-key.js";
 import type {
   OAuth2FlowResult,
   TokenEndpointAuthMethod,
@@ -14,10 +15,7 @@ import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+import { upsertCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 
@@ -56,6 +54,8 @@ export interface StoreOAuth2TokensParams {
 export async function storeOAuth2Tokens(
   params: StoreOAuth2TokensParams,
 ): Promise<{ accountInfo?: string }> {
+  migrateKeys();
+
   const {
     service,
     tokens,
@@ -71,7 +71,7 @@ export async function storeOAuth2Tokens(
   } = params;
 
   const tokenStored = await setSecureKeyAsync(
-    `credential:${service}:access_token`,
+    credentialKey(service, "access_token"),
     tokens.accessToken,
   );
   if (!tokenStored) {
@@ -97,17 +97,11 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  // Persist client credentials in keychain for defense in depth
-  const clientIdStored = await setSecureKeyAsync(
-    `credential:${service}:client_id`,
-    clientId,
-  );
-  if (!clientIdStored) {
-    throw new Error("Failed to store client_id in secure storage");
-  }
+  // client_id is stored in metadata only (oauth2ClientId field) — not the
+  // secure store. token-manager.ts reads it from meta?.oauth2ClientId.
   if (clientSecret) {
     const clientSecretStored = await setSecureKeyAsync(
-      `credential:${service}:client_secret`,
+      credentialKey(service, "client_secret"),
       clientSecret,
     );
     if (!clientSecretStored) {
@@ -136,8 +130,6 @@ export async function storeOAuth2Tokens(
   if (resolvedAccountInfo) {
     try {
       const {
-        deleteNestedKey,
-        getNestedValue,
         invalidateConfigCache,
         loadRawConfig,
         saveRawConfig,
@@ -145,21 +137,12 @@ export async function storeOAuth2Tokens(
       } = await import("../config/loader.js");
       const raw = loadRawConfig();
 
-      // Migrate old path → new path if needed
-      const oldPath = `integrations.accountInfo.${service}`;
-      const newPath = `integrations.${service}.accountInfo`;
-      const oldValue = getNestedValue(raw, oldPath);
-      if (oldValue != null && getNestedValue(raw, newPath) == null) {
-        setNestedValue(raw, newPath, oldValue);
-      }
-
-      // Write to the new namespaced path
-      setNestedValue(raw, newPath, resolvedAccountInfo);
-
-      // Clean up old path if it existed
-      if (oldValue != null) {
-        deleteNestedKey(raw, ["integrations", "accountInfo", service]);
-      }
+      // Write to the namespaced path
+      setNestedValue(
+        raw,
+        `integrations.${service}.accountInfo`,
+        resolvedAccountInfo,
+      );
 
       saveRawConfig(raw);
       invalidateConfigCache();
@@ -170,18 +153,22 @@ export async function storeOAuth2Tokens(
 
   if (tokens.refreshToken) {
     const refreshStored = await setSecureKeyAsync(
-      `credential:${service}:refresh_token`,
+      credentialKey(service, "refresh_token"),
       tokens.refreshToken,
     );
     if (refreshStored) {
-      upsertCredentialMetadata(service, "refresh_token", {});
+      upsertCredentialMetadata(service, "access_token", {
+        hasRefreshToken: true,
+      });
     }
   } else {
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
-    await deleteSecureKeyAsync(`credential:${service}:refresh_token`);
-    deleteCredentialMetadata(service, "refresh_token");
+    await deleteSecureKeyAsync(credentialKey(service, "refresh_token"));
+    upsertCredentialMetadata(service, "access_token", {
+      hasRefreshToken: false,
+    });
   }
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)

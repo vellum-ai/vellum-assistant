@@ -501,13 +501,15 @@ async function finalizeLearnRecording(
     // Save cookies to the encrypted credential store (keyed by target domain)
     // so they don't need to be persisted in the plaintext recording file.
     if (session.targetDomain && cookies.length > 0) {
+      const { credentialKey: credKey } =
+        await import("../security/credential-key.js");
       const { setSecureKeyAsync } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =
         await import("../tools/credentials/metadata-store.js");
 
       const service = session.targetDomain;
       const field = "session:cookies";
-      const storageKey = `credential:${service}:${field}`;
+      const storageKey = credKey(service, field);
       const stored = await setSecureKeyAsync(
         storageKey,
         JSON.stringify(cookies),

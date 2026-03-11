@@ -74,6 +74,15 @@ export class RateLimitProvider implements Provider {
 
     if (this.requestTimestamps.length >= limit) {
       const waitSec = Math.ceil((oldestInWindow + 60_000 - now) / 1000);
+      log.warn(
+        {
+          provider: this.name,
+          limit,
+          currentCount: this.requestTimestamps.length,
+          retryAfterSec: waitSec,
+        },
+        `Provider rate limit exceeded: ${limit} requests/minute for ${this.name}`,
+      );
       throw new RateLimitError(
         `Rate limit exceeded: ${limit} requests/minute. Try again in ${waitSec}s.`,
       );
@@ -85,6 +94,14 @@ export class RateLimitProvider implements Provider {
     if (limit <= 0) return;
 
     if (this.sessionTokens >= limit) {
+      log.warn(
+        {
+          provider: this.name,
+          sessionTokens: this.sessionTokens,
+          limit,
+        },
+        `Session token budget exhausted for ${this.name}: ${this.sessionTokens.toLocaleString()}/${limit.toLocaleString()}`,
+      );
       throw new RateLimitError(
         `Session token budget exhausted: ${this.sessionTokens.toLocaleString()}/${limit.toLocaleString()} tokens used. Start a new session to continue.`,
       );

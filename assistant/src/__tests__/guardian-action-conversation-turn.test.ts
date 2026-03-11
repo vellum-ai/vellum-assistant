@@ -181,25 +181,6 @@ describe("guardian-action-conversation-turn", () => {
     expect(result.replyText).toBe("Sure, I'll call them back right away.");
   });
 
-  test('classifies "send a text message" as message_back', async () => {
-    const generator = createMockGenerator({
-      disposition: "message_back",
-      replyText: "Got it, I'll send them a text message.",
-    });
-
-    const result = await processGuardianFollowUpTurn(
-      {
-        questionText: "What is the gate code?",
-        lateAnswerText: "The gate code is 1234",
-        guardianReply: "Just send them a text",
-      },
-      generator,
-    );
-
-    expect(result.disposition).toBe("message_back");
-    expect(result.replyText).toBe("Got it, I'll send them a text message.");
-  });
-
   test('classifies "never mind" as decline', async () => {
     const generator = createMockGenerator({
       disposition: "decline",
@@ -448,19 +429,6 @@ describe("guardian-action-conversation-turn", () => {
     expect(updated!.followupAction).toBe("call_back");
   });
 
-  test("message_back disposition transitions to dispatching with message_back action", () => {
-    const { request } = createAwaitingChoiceRequest("conv-turn-7");
-
-    const updated = progressFollowupState(
-      request.id,
-      "dispatching",
-      "message_back",
-    );
-    expect(updated).not.toBeNull();
-    expect(updated!.followupState).toBe("dispatching");
-    expect(updated!.followupAction).toBe("message_back");
-  });
-
   test("decline disposition finalizes to declined", () => {
     const { request } = createAwaitingChoiceRequest("conv-turn-8");
 
@@ -488,7 +456,7 @@ describe("guardian-action-conversation-turn", () => {
     const second = progressFollowupState(
       request.id,
       "dispatching",
-      "message_back",
+      "call_back",
     );
     expect(second).toBeNull();
 
