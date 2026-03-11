@@ -105,7 +105,6 @@ import * as messagingDraft from "./bundled-skills/messaging/tools/messaging-draf
 import * as messagingListConversations from "./bundled-skills/messaging/tools/messaging-list-conversations.js";
 import * as messagingMarkRead from "./bundled-skills/messaging/tools/messaging-mark-read.js";
 import * as messagingRead from "./bundled-skills/messaging/tools/messaging-read.js";
-import * as messagingReply from "./bundled-skills/messaging/tools/messaging-reply.js";
 import * as messagingSearch from "./bundled-skills/messaging/tools/messaging-search.js";
 import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.js";
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
@@ -301,7 +300,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-read.ts", messagingRead],
   ["messaging:tools/messaging-search.ts", messagingSearch],
   ["messaging:tools/messaging-send.ts", messagingSend],
-  ["messaging:tools/messaging-reply.ts", messagingReply],
   ["messaging:tools/messaging-mark-read.ts", messagingMarkRead],
   ["messaging:tools/messaging-analyze-style.ts", messagingAnalyzeStyle],
   ["messaging:tools/messaging-draft.ts", messagingDraft],
