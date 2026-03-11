@@ -45,6 +45,12 @@ export function extractTextFromStoredMessageContent(raw: string): string {
             );
           }
           break;
+        case "server_tool_use":
+          lines.push(`[web search: ${block.name}]`);
+          break;
+        case "web_search_tool_result":
+          lines.push("[web search results]");
+          break;
         default:
           lines.push("<unknown_content_block />");
       }
