@@ -262,6 +262,7 @@ struct OnboardingFlowView: View {
             }
 
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
+            SentryDeviceInfo.updateAssistantTag(assistant.id)
 
             isBootstrappingManaged = false
             log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); proceeding to app")

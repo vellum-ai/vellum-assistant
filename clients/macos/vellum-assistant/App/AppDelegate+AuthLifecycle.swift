@@ -282,6 +282,7 @@ extension AppDelegate {
 
         // 3. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         assistant.writeToWorkspaceConfig()
@@ -438,6 +439,7 @@ extension AppDelegate {
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
         UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 

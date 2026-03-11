@@ -31,11 +31,24 @@ enum SentryDeviceInfo {
     static func configureSentryScope() {
         SentrySDK.configureScope { scope in
             scope.setTag(value: deviceId, key: "device_id")
-            scope.setTag(value: ProcessInfo.processInfo.hostName, key: "hostname")
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
                 scope.setTag(value: assistantId, key: "assistant_id")
+            } else {
+                scope.removeTag(key: "assistant_id")
             }
             scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
+        }
+    }
+
+    /// Updates the `assistant_id` Sentry tag when the connected assistant changes.
+    /// Call from assistant switch, sign-in, and sign-out flows.
+    static func updateAssistantTag(_ assistantId: String?) {
+        SentrySDK.configureScope { scope in
+            if let id = assistantId {
+                scope.setTag(value: id, key: "assistant_id")
+            } else {
+                scope.removeTag(key: "assistant_id")
+            }
         }
     }
 
