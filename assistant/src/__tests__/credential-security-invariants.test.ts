@@ -560,7 +560,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       readFileSync(join(TEST_DIR, "metadata.json"), "utf-8"),
     );
     expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
-    expect(raw.version).toBe(3);
+    expect(raw.version).toBe(4);
   });
 });
 

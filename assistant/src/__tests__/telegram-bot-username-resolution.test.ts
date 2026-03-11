@@ -38,6 +38,9 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (_keyId: string) => mockSecureKey,
+  setSecureKey: (_account: string, _value: string) => true,
+  deleteSecureKey: (_account: string) => "deleted" as const,
+  listSecureKeys: () => [] as string[],
 }));
 
 // Suppress logger output during tests
