@@ -97,7 +97,12 @@ export async function run(
     }
     messageIds = resolved;
   } else if (messageIds?.length) {
-    // Use message_ids directly
+    // Batch message_ids path requires surface action confirmation
+    if (!context.triggeredBySurfaceAction) {
+      return err(
+        "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
+      );
+    }
   } else if (messageId) {
     // Single message path
     try {
