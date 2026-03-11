@@ -162,8 +162,8 @@ extension AppDelegate {
 
             // 2. Send task_submit — daemon classifies and creates the session
             let screenBounds = CGDisplayBounds(CGMainDisplayID())
-            let messageAttachments: [IPCAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
-                IPCAttachment(
+            let messageAttachments: [UserMessageAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
+                UserMessageAttachment(
                     filename: $0.fileName,
                     mimeType: $0.mimeType,
                     data: $0.data.base64EncodedString(),
@@ -285,7 +285,7 @@ extension AppDelegate {
     /// Guardian questions are time-sensitive, so they are foregrounded when the
     /// app is active. All notification types get a fallback native alert when
     /// backgrounded to guarantee delivery if the notification_intent event is late.
-    func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
+    func handleNotificationThreadCreated(_ msg: NotificationThreadCreated) {
         // Guardian scoping: skip thread creation for notifications targeted at
         // a different guardian identity. When the local principal is nil (not yet
         // bootstrapped), pass through all notifications so urgent prompts aren't

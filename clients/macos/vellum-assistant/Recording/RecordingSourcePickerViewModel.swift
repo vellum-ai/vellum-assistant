@@ -147,8 +147,8 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     }
 
     /// Computed recording options for the current selection.
-    var selectedRecordingOptions: IPCRecordingOptions {
-        IPCRecordingOptions(
+    var selectedRecordingOptions: RecordingOptions {
+        RecordingOptions(
             captureScope: captureScope.rawValue.lowercased(),
             displayId: captureScope == .display ? selectedDisplayId.map { String($0) } : nil,
             windowId: captureScope == .window ? selectedWindowId.map { Double($0) } : nil,

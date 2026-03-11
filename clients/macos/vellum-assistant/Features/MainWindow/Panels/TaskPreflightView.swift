@@ -97,7 +97,7 @@ struct TaskPreflightView: View {
 
     // MARK: - Permissions List
 
-    private func permissionsListView(_ permissions: [IPCWorkItemPreflightResponsePermission]) -> some View {
+    private func permissionsListView(_ permissions: [WorkItemPreflightResponsePermission]) -> some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -134,7 +134,7 @@ struct TaskPreflightView: View {
         }
     }
 
-    private func permissionRow(_ permission: IPCWorkItemPreflightResponsePermission) -> some View {
+    private func permissionRow(_ permission: WorkItemPreflightResponsePermission) -> some View {
         let isApproved = approvedTools.contains(permission.tool)
         return HStack(spacing: VSpacing.sm) {
             Button {
@@ -197,7 +197,7 @@ struct TaskPreflightView: View {
 
     // MARK: - Approve Footer
 
-    private func approveFooter(permissions: [IPCWorkItemPreflightResponsePermission]) -> some View {
+    private func approveFooter(permissions: [WorkItemPreflightResponsePermission]) -> some View {
         HStack {
             Spacer()
             Button {

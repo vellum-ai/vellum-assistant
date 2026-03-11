@@ -158,7 +158,7 @@ struct TaskQueuePanel: View {
 
 /// A single task row in the macOS task queue panel.
 private struct TaskQueueRow: View {
-    let item: IPCWorkItemsListResponseItem
+    let item: WorkItemsListResponseItem
     let hasOutput: Bool
     let runningIds: Set<String>
     let timeoutIds: Set<String>

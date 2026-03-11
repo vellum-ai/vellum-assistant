@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// Centralizes task queue state and daemon callbacks for the macOS Task Queue panel.
 @MainActor
 class TaskQueueViewModel: ObservableObject {
-    @Published var items: [IPCWorkItemsListResponseItem] = []
+    @Published var items: [WorkItemsListResponseItem] = []
     @Published var isLoading = true
     @Published var errorMessage: String?
 
@@ -17,12 +17,12 @@ class TaskQueueViewModel: ObservableObject {
     @Published var cancelInFlightIds: Set<String> = []
 
     /// The currently selected item for output detail viewing.
-    @Published var selectedOutputItem: IPCWorkItemsListResponseItem?
+    @Published var selectedOutputItem: WorkItemsListResponseItem?
     /// Loading/loaded/error state for the output detail sheet.
     @Published var outputState: TaskOutputState = .loading
 
     /// The item currently undergoing permission preflight.
-    @Published var preflightItem: IPCWorkItemsListResponseItem?
+    @Published var preflightItem: WorkItemsListResponseItem?
     /// Loading/loaded/error state for the preflight sheet.
     @Published var preflightState: TaskPreflightState = .loading
 
@@ -34,7 +34,7 @@ class TaskQueueViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
 
     /// Tracks the item awaiting a preflight response from the daemon.
-    private var pendingPreflightItem: IPCWorkItemsListResponseItem?
+    private var pendingPreflightItem: WorkItemsListResponseItem?
 
     private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
 
@@ -50,7 +50,7 @@ class TaskQueueViewModel: ObservableObject {
 
     // MARK: - Filtered Items
 
-    var filteredItems: [IPCWorkItemsListResponseItem] {
+    var filteredItems: [WorkItemsListResponseItem] {
         switch statusFilter {
         case .all:
             return items
@@ -196,7 +196,7 @@ class TaskQueueViewModel: ObservableObject {
     }
 
     /// Whether a task's status indicates it may have output to display.
-    func taskHasOutput(_ item: IPCWorkItemsListResponseItem) -> Bool {
+    func taskHasOutput(_ item: WorkItemsListResponseItem) -> Bool {
         let status = WorkItemStatus(rawStatus: item.status)
         switch status {
         case .awaitingReview, .done, .failed: return true
@@ -208,7 +208,7 @@ class TaskQueueViewModel: ObservableObject {
 
     /// Initiates the run flow via a preflight check. The permission sheet only
     /// appears if the daemon reports non-empty permissions.
-    func initiateRun(item: IPCWorkItemsListResponseItem) {
+    func initiateRun(item: WorkItemsListResponseItem) {
         logger.info("initiateRun: id=\(item.id, privacy: .public)")
         guard !runInFlightIds.contains(item.id) else {
             logger.warning("initiateRun: skipping — already in flight for id=\(item.id, privacy: .public)")
@@ -287,7 +287,7 @@ class TaskQueueViewModel: ObservableObject {
 
     // MARK: - Output
 
-    func fetchOutput(for item: IPCWorkItemsListResponseItem) {
+    func fetchOutput(for item: WorkItemsListResponseItem) {
         logger.info("fetchOutput: id=\(item.id, privacy: .public)")
         selectedOutputItem = item
         outputState = .loading
@@ -351,14 +351,14 @@ class TaskQueueViewModel: ObservableObject {
 /// Loading/loaded/error state for fetching task output.
 enum TaskOutputState {
     case loading
-    case loaded(IPCWorkItemOutputResponseOutput)
+    case loaded(WorkItemOutputResponseOutput)
     case error(String)
 }
 
 /// Loading/loaded/error state for the permission preflight check.
 enum TaskPreflightState {
     case loading
-    case loaded([IPCWorkItemPreflightResponsePermission])
+    case loaded([WorkItemPreflightResponsePermission])
     case error(String)
 }
 
