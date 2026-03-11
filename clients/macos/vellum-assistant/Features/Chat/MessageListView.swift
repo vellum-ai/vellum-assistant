@@ -299,13 +299,9 @@ struct MessageListView: View {
         return nil
     }
 
-    /// Floating avatar anchored at the bottom of the conversation, Claude-style.
+    /// Floating avatar pinned to the bottom of the scroll viewport, Claude-style.
     private var assistantAvatarFooter: some View {
-        HStack {
-            VAvatarImage(image: appearance.chatAvatarImage, size: 52)
-            Spacer()
-        }
-        .padding(.top, VSpacing.xs)
+        VAvatarImage(image: appearance.chatAvatarImage, size: 52)
     }
 
     @ViewBuilder
@@ -463,11 +459,6 @@ struct MessageListView: View {
                         thinkingIndicatorRow(displayMessages: displayMessages)
                     }
 
-                    // Floating avatar — anchored at bottom of conversation, Claude-style.
-                    if displayMessages.contains(where: { $0.role == .assistant }) || shouldShowThinkingIndicator {
-                        assistantAvatarFooter
-                    }
-
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
                         .onAppear {
@@ -547,6 +538,15 @@ struct MessageListView: View {
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
+            }
+            // Floating avatar — pinned to the bottom of the scroll viewport so it
+            // doesn't jump during streaming. Sits outside the LazyVStack content.
+            .overlay(alignment: .bottomLeading) {
+                if visibleMessages.contains(where: { $0.role == .assistant }) || shouldShowThinkingIndicator {
+                    assistantAvatarFooter
+                        .padding(.leading, VSpacing.xl)
+                        .padding(.bottom, VSpacing.md)
+                }
             }
             .overlay(alignment: .bottom) {
                 if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
