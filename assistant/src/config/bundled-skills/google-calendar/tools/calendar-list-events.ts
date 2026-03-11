@@ -3,7 +3,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import * as calendar from "../calendar-client.js";
-import { ok, withCalendarToken } from "./shared.js";
+import { getCalendarConnection, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -17,20 +17,19 @@ export async function run(
   const singleEvents = (input.single_events as boolean) ?? true;
   const orderBy = input.order_by as "startTime" | "updated" | undefined;
 
-  return withCalendarToken(async (token) => {
-    const result = await calendar.listEvents(token, calendarId, {
-      timeMin,
-      timeMax,
-      maxResults,
-      query,
-      singleEvents,
-      orderBy,
-    });
-
-    if (!result.items?.length) {
-      return ok("No events found in the specified time range.");
-    }
-
-    return ok(JSON.stringify(result, null, 2));
+  const connection = getCalendarConnection();
+  const result = await calendar.listEvents(connection, calendarId, {
+    timeMin,
+    timeMax,
+    maxResults,
+    query,
+    singleEvents,
+    orderBy,
   });
+
+  if (!result.items?.length) {
+    return ok("No events found in the specified time range.");
+  }
+
+  return ok(JSON.stringify(result, null, 2));
 }
