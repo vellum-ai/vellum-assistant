@@ -104,9 +104,6 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if !hasAPIKey {
-                    APIKeyBanner(onOpenSettings: onOpenSettings)
-                }
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
                     HStack {
@@ -131,7 +128,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -141,7 +137,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
@@ -156,7 +151,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -166,7 +160,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
@@ -303,6 +296,53 @@ struct ChatView: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
+        }
+        .overlay(alignment: .top) {
+            VStack(spacing: VSpacing.xs) {
+                // DEBUG: hardcoded error toast for visual testing
+                #if DEBUG
+                ChatSessionErrorToast(
+                    message: "Something went wrong. Please try again.",
+                    actionLabel: "Retry",
+                    onAction: {},
+                    onDismiss: {}
+                )
+                #endif
+
+                if !hasAPIKey {
+                    ChatSessionErrorToast(
+                        message: "API key not set. Add one in Settings to start chatting.",
+                        icon: .keyRound,
+                        accentColor: VColor.warning,
+                        actionLabel: "Open Settings",
+                        onAction: onOpenSettings,
+                        onDismiss: {}
+                    )
+                }
+
+                if let sessionError {
+                    ChatSessionErrorToast(
+                        error: sessionError,
+                        onRetry: onRetry,
+                        onCopyDebugInfo: onCopyDebugInfo,
+                        onDismiss: onDismissSessionError
+                    )
+                }
+
+                if let errorText, sessionError == nil {
+                    ChatSessionErrorToast(
+                        message: errorText,
+                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
+                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
+                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
+                        onDismiss: onDismissError
+                    )
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.top, VSpacing.sm)
+            .animation(VAnimation.fast, value: sessionError != nil)
+            .animation(VAnimation.fast, value: errorText != nil)
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)

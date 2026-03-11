@@ -14,7 +14,6 @@ struct ChatEmptyStateView: View {
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
-    let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -24,7 +23,6 @@ struct ChatEmptyStateView: View {
     let onFileDrop: ([URL]) -> Void
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
-    let onDismissError: () -> Void
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
@@ -85,41 +83,30 @@ struct ChatEmptyStateView: View {
             .padding(.horizontal, VSpacing.xl)
             .padding(.bottom, VSpacing.xl)
 
-            VStack(spacing: 0) {
-                if let errorText {
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        onDismiss: onDismissError
-                    )
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.xs)
-                }
-
-                ComposerView(
-                    inputText: $inputText,
-                    hasAPIKey: hasAPIKey,
-                    isSending: isSending,
-                    hasPendingConfirmation: false,
-                    isRecording: isRecording,
-                    suggestion: suggestion,
-                    pendingAttachments: pendingAttachments,
-                    isLoadingAttachment: isLoadingAttachment,
-                    onSend: onSend,
-                    onStop: onStop,
-                    onAcceptSuggestion: onAcceptSuggestion,
-                    onAttach: onAttach,
-                    onRemoveAttachment: onRemoveAttachment,
-                    onPaste: onPaste,
-                    onFileDrop: onFileDrop,
-                    onDropImageData: onDropImageData,
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    recordingAmplitude: recordingAmplitude,
-                    onDictateToggle: onDictateToggle,
-                    onVoiceModeToggle: onVoiceModeToggle,
-                    placeholderText: placeholder,
-                    threadId: threadId
-                )
-            }
+            ComposerView(
+                inputText: $inputText,
+                hasAPIKey: hasAPIKey,
+                isSending: isSending,
+                hasPendingConfirmation: false,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onFileDrop: onFileDrop,
+                onDropImageData: onDropImageData,
+                onMicrophoneToggle: onMicrophoneToggle,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                placeholderText: placeholder,
+                threadId: threadId
+            )
             .frame(maxWidth: 500)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
@@ -152,7 +139,6 @@ struct ChatTemporaryChatEmptyStateView: View {
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
-    let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -162,7 +148,6 @@ struct ChatTemporaryChatEmptyStateView: View {
     let onFileDrop: ([URL]) -> Void
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
-    let onDismissError: () -> Void
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
@@ -191,41 +176,30 @@ struct ChatTemporaryChatEmptyStateView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.bottom, VSpacing.xxl)
 
-            VStack(spacing: 0) {
-                if let errorText {
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        onDismiss: onDismissError
-                    )
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.xs)
-                }
-
-                ComposerView(
-                    inputText: $inputText,
-                    hasAPIKey: hasAPIKey,
-                    isSending: isSending,
-                    hasPendingConfirmation: false,
-                    isRecording: isRecording,
-                    suggestion: suggestion,
-                    pendingAttachments: pendingAttachments,
-                    isLoadingAttachment: isLoadingAttachment,
-                    onSend: onSend,
-                    onStop: onStop,
-                    onAcceptSuggestion: onAcceptSuggestion,
-                    onAttach: onAttach,
-                    onRemoveAttachment: onRemoveAttachment,
-                    onPaste: onPaste,
-                    onFileDrop: onFileDrop,
-                    onDropImageData: onDropImageData,
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    recordingAmplitude: recordingAmplitude,
-                    onDictateToggle: onDictateToggle,
-                    onVoiceModeToggle: onVoiceModeToggle,
-                    placeholderText: "Ask anything...",
-                    threadId: threadId
-                )
-            }
+            ComposerView(
+                inputText: $inputText,
+                hasAPIKey: hasAPIKey,
+                isSending: isSending,
+                hasPendingConfirmation: false,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onFileDrop: onFileDrop,
+                onDropImageData: onDropImageData,
+                onMicrophoneToggle: onMicrophoneToggle,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                placeholderText: "Ask anything...",
+                threadId: threadId
+            )
 
             Spacer()
             Spacer()

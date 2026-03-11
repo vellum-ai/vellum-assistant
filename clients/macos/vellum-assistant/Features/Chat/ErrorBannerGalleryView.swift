@@ -143,14 +143,21 @@ struct ErrorBannerGalleryView: View {
 
                 divider()
 
-                // MARK: - APIKeyBanner
+                // MARK: - API Key Warning (via ChatSessionErrorToast)
 
                 sectionHeader(
-                    "APIKeyBanner",
-                    description: "Warning banner prompting the user to set an API key."
+                    "API Key Warning",
+                    description: "Missing API key warning using ChatSessionErrorToast with warning style."
                 )
 
-                APIKeyBanner(onOpenSettings: {})
+                ChatSessionErrorToast(
+                    message: "API key not set. Add one in Settings to start chatting.",
+                    icon: .keyRound,
+                    accentColor: VColor.warning,
+                    actionLabel: "Open Settings",
+                    onAction: {},
+                    onDismiss: {}
+                )
 
                 divider()
 

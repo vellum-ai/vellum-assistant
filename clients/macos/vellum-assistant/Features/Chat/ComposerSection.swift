@@ -55,24 +55,6 @@ struct ComposerSection: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if let sessionError {
-                ChatSessionErrorToast(
-                    error: sessionError,
-                    onRetry: onRetrySessionError,
-                    onCopyDebugInfo: onCopyDebugInfo,
-                    onDismiss: onDismissSessionError
-                )
-            }
-
-            if let errorText, sessionError == nil {
-                ChatSessionErrorToast(
-                    message: errorText,
-                    subtitle: isConnectionError ? connectionDiagnosticHint : nil,
-                    actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
-                    onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
-                    onDismiss: onDismissError
-                )
-            }
             ComposerView(
                 inputText: $inputText,
                 hasAPIKey: hasAPIKey,
