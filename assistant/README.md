@@ -124,7 +124,7 @@ assistant/
 ├── drizzle/                  # Database migrations
 ├── drizzle.config.ts         # Drizzle ORM config (SQLite)
 ├── docs/                     # Internal documentation
-├── scripts/                  # Test runners and IPC codegen
+├── scripts/                  # Test runners and message codegen
 ├── Dockerfile                # Production container image
 └── package.json
 ```
@@ -194,7 +194,7 @@ Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these ac
 
 The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal type and `ingress.write` scope to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
-- **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and IPC principals are rejected with 403.
+- **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and local principals are rejected with 403.
 - **Dev bypass:** When `DISABLE_HTTP_AUTH` + `VELLUM_UNSAFE_AUTH_BYPASS=1` are set, JWT verification is skipped and a synthetic dev context is used.
 
 ## Twilio Setup Primitive
@@ -259,7 +259,7 @@ The channel guardian service generates verification challenge instructions with 
 ### Operator Notes
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
-- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the HTTP request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
 - **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
 
 ### Vellum Guardian Identity (Actor Tokens)
@@ -350,7 +350,7 @@ Guardian verification can also be initiated through normal desktop chat. When th
 | `/v1/channel-verification-sessions/revoke` | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                                                                                                  |
 | `/v1/channel-verification-sessions/status` | GET    | Check guardian binding status. Query: `?channel=<channel>`                                                                                                                                                                                        |
 
-These endpoints share the same business logic as the IPC-based verification flow via `verification-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
+These endpoints share the same business logic as the HTTP-based verification flow via `verification-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
 
 **Security constraint:** Guardian verification control-plane endpoints are restricted to guardian and desktop (trusted) actors only. Non-guardian and unverified-channel actors cannot invoke these endpoints conversationally via tools. Attempts are denied with a message explaining that guardian verification actions are restricted to guardian users.
 

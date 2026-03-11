@@ -104,7 +104,7 @@ One reminder creates one notification signal. The routing intent on that single 
 
 Channel availability is resolved when the signal is emitted (not when the reminder is created):
 
-- **Vellum** — always connected (local IPC)
+- **Vellum** — always connected (local HTTP)
 - **Telegram** — connected when an active guardian binding exists
 - **SMS** — connected when an active guardian binding exists
 
