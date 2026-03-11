@@ -158,15 +158,16 @@ enum LogExporter {
             to: tempDir.appendingPathComponent("port-diagnostics.json")
         )
 
-        // 9. Report metadata — reason, message, and email from the log report form
+        // 9. Report metadata — reason and message from the log report form.
+        // Email is intentionally excluded from the archive to avoid sending PII to Sentry.
+        // It is persisted locally via @AppStorage("logReportEmail") and can be correlated
+        // with the device_id Sentry tag when follow-up is needed.
         if let formData {
-            var metadata: [String: String] = [
+            let metadata: [String: String] = [
                 "reason": formData.reason.rawValue,
                 "message": formData.message,
+                "device_id": SentryDeviceInfo.deviceId,
             ]
-            if !formData.email.isEmpty {
-                metadata["email"] = formData.email
-            }
             if let data = try? JSONSerialization.data(
                 withJSONObject: metadata,
                 options: [.prettyPrinted, .sortedKeys]
