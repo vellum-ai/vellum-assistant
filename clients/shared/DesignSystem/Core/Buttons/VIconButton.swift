@@ -56,10 +56,9 @@ public struct VIconButton: View {
         }
         .focused($isFocused)
         .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused, size: size, variant: variant))
-        .onHover { hovering in
+        .pointerCursor(onHover: { hovering in
             isHovered = hovering
-        }
-        .pointerCursor()
+        })
         .accessibilityLabel(label)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
     }
@@ -131,8 +130,6 @@ public struct VIconButtonStyle: ButtonStyle {
             .focusEffectDisabled()
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(VAnimation.fast, value: configuration.isPressed)
-            .animation(VAnimation.fast, value: isHovered)
-            .animation(VAnimation.fast, value: isFocused)
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {

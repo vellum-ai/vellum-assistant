@@ -19,7 +19,6 @@ import { navigateSettingsTabTool } from "./system/navigate-settings.js";
 import { openSystemSettingsTool } from "./system/open-system-settings.js";
 import { voiceConfigUpdateTool } from "./system/voice-config.js";
 import type { Tool } from "./types.js";
-import { screenWatchTool } from "./watch/screen-watch.js";
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects.
@@ -39,7 +38,6 @@ import "./filesystem/write.js";
 import "./network/web-fetch.js";
 import "./network/web-search.js";
 import "./skills/load.js";
-import "./swarm/delegate.js";
 import "./system/request-permission.js";
 import "./terminal/shell.js";
 
@@ -64,7 +62,6 @@ export const eagerModuleToolNames: string[] = [
   "request_system_permission",
   "asset_search",
   "asset_materialize",
-  "swarm_delegate",
   "view_image",
 ];
 
@@ -78,7 +75,6 @@ export const explicitTools: Tool[] = [
   memoryDeleteTool,
   memoryRecallTool,
   credentialStoreTool,
-  screenWatchTool,
   voiceConfigUpdateTool,
   setAvatarTool,
   openSystemSettingsTool,
@@ -87,8 +83,9 @@ export const explicitTools: Tool[] = [
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
 // Tools that defer module loading until first invocation.
-// bash and swarm_delegate were previously lazy but are now eagerly registered
-// via side-effect imports above, preserving their full definitions (including
-// the `reason` field on bash) and fixing bun --compile module-not-found crashes.
+// bash was previously lazy but is now eagerly registered via side-effect
+// imports above, preserving its full definition (including the `reason` field)
+// and fixing bun --compile module-not-found crashes.
+// swarm_delegate has been moved to the orchestration bundled skill.
 
 export const lazyTools: LazyToolDescriptor[] = [];

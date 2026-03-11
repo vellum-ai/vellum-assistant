@@ -126,6 +126,8 @@ import * as sequenceResume from "./bundled-skills/messaging/tools/sequence-resum
 import * as sequenceUpdate from "./bundled-skills/messaging/tools/sequence-update.js";
 // ── notifications ───────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
+// ── orchestration ───────────────────────────────────────────────────────────
+import * as swarmDelegate from "./bundled-skills/orchestration/tools/swarm-delegate.js";
 // ── phone-calls ─────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -140,6 +142,8 @@ import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
 import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js";
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
+// ── screen-watch ─────────────────────────────────────────────────────────────
+import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── skill-management ─────────────────────────────────────────────────────────
 import * as skillMgmtDeleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
 import * as skillMgmtScaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
@@ -316,6 +320,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
 
+  // orchestration
+  ["orchestration:tools/swarm-delegate.ts", swarmDelegate],
+
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
   ["phone-calls:tools/call-status.ts", callStatus],
@@ -326,6 +333,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["playbooks:tools/playbook-list.ts", playbookList],
   ["playbooks:tools/playbook-update.ts", playbookUpdate],
   ["playbooks:tools/playbook-delete.ts", playbookDelete],
+
+  // screen-watch
+  ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
 
   // schedule
   ["schedule:tools/schedule-create.ts", scheduleCreate],
