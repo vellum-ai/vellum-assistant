@@ -99,7 +99,6 @@ struct MessageListView: View {
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
-    @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
     @State private var scrollDebounceTask: Task<Void, Never>?
@@ -297,11 +296,6 @@ struct MessageListView: View {
         }
 
         return nil
-    }
-
-    /// Floating avatar pinned to the bottom of the scroll viewport, Claude-style.
-    private var assistantAvatarFooter: some View {
-        VAvatarImage(image: appearance.chatAvatarImage, size: 52)
     }
 
     @ViewBuilder
@@ -538,20 +532,6 @@ struct MessageListView: View {
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
                 if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
-            }
-            // Floating avatar — pinned to the bottom of the scroll viewport so it
-            // doesn't jump during streaming. Sits outside the LazyVStack content.
-            .overlay(alignment: .bottom) {
-                if visibleMessages.contains(where: { $0.role == .assistant }) || isSending {
-                    HStack {
-                        assistantAvatarFooter
-                        Spacer()
-                    }
-                    .padding(.horizontal, VSpacing.xl)
-                    .padding(.bottom, VSpacing.md)
-                    .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                    .frame(maxWidth: .infinity)
-                }
             }
             .overlay(alignment: .bottom) {
                 if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {

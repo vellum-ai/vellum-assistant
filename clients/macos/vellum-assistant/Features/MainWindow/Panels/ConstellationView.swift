@@ -1123,14 +1123,43 @@ struct ConstellationView: View {
             // Center avatar on top of everything (full-size for constellation display)
             VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
                 .background(
-                    Circle()
-                        .fill(VColor.background.opacity(0.9))
-                        .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Forest._500.opacity(0.4), lineWidth: 2)
-                        .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+                    ZStack {
+                        // Outer glow ring
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Forest._500.opacity(0.25),
+                                        Forest._500.opacity(0.08),
+                                        Color.clear
+                                    ],
+                                    center: .center,
+                                    startRadius: (centerAvatarSize + 16) / 2 - 4,
+                                    endRadius: (centerAvatarSize + 16) / 2 + 12
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 40, height: centerAvatarSize + 40)
+
+                        // Frosted backdrop
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        VColor.background.opacity(0.95),
+                                        VColor.background.opacity(0.85)
+                                    ],
+                                    center: .center,
+                                    startRadius: 0,
+                                    endRadius: (centerAvatarSize + 16) / 2
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+
+                        // Subtle inner ring
+                        Circle()
+                            .stroke(Forest._500.opacity(0.3), lineWidth: 1.5)
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+                    }
                 )
                 .allowsHitTesting(false)
                 .position(effectivePosition(forId: "__center__"))
