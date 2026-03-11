@@ -9,6 +9,7 @@ import {
 } from "../qdrant-circuit-breaker.js";
 import type { QdrantSearchResult } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
+import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import {
   memoryItems,
   memoryItemSources,
@@ -166,10 +167,15 @@ export async function semanticSearch(
         finalScore: 0,
       });
     } else if (payload.target_type === "media") {
-      // Media points don't currently store scope_id in their Qdrant payload,
-      // so we can't verify scope membership. Skip them when a scope filter is
-      // active to prevent cross-scope media leakage.
-      if (scopeIds) continue;
+      // Media points don't store scope_id directly in their Qdrant payload.
+      // Derive scope from the conversation_id when available; treat media
+      // without a conversation association as belonging to the "default" scope.
+      if (scopeIds) {
+        const mediaScopeId = payload.conversation_id
+          ? getConversationMemoryScopeId(payload.conversation_id)
+          : "default";
+        if (!scopeIds.includes(mediaScopeId)) continue;
+      }
       candidates.push({
         key: `media:${payload.target_id}`,
         type: "media",
