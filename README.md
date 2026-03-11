@@ -44,7 +44,7 @@ The platform has three main domains:
 
 - **Assistant runtime** (`assistant/`): Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
 - **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the assistant).
-- **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
+- **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
 
 Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md), [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md), and [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md).
 
@@ -280,30 +280,11 @@ See [`assistant/docs/architecture/security.md`](assistant/docs/architecture/secu
 
 Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
 
-### Messaging (Gmail, Slack, Telegram, SMS/Twilio)
+### Messaging (Gmail, Slack, Telegram)
 
-The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. SMS is supported via Twilio as a send-only provider — it can send outbound SMS messages but does not support listing conversations, reading history, or searching (SMS is stateless). **Note:** SMS only — MMS (media messages) is not currently supported. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
+The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
 
-Connect Gmail and Slack via the Settings UI or the `integration_connect` HTTP endpoint. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions. SMS uses Twilio credentials (Account SID + Auth Token) — see the `twilio-setup` skill for setup instructions.
-
-#### Per-assistant phone number mapping (SMS)
-
-In multi-assistant setups, each assistant can have its own dedicated Twilio phone number. Inbound SMS is routed to the correct assistant based on which number received the message, and outbound SMS is sent from the assistant's mapped number.
-
-Configure via `sms.assistantPhoneNumbers` in the gateway config file (`~/.vellum/workspace/config.json`):
-
-```json
-{
-  "sms": {
-    "assistantPhoneNumbers": {
-      "assistant-id-1": "+15551234567",
-      "assistant-id-2": "+15559876543"
-    }
-  }
-}
-```
-
-The `TWILIO_PHONE_NUMBER` environment variable (or `sms.phoneNumber` in the config file) serves as the global fallback when no per-assistant mapping matches. If an `assistantId` is provided in a `/deliver/sms` request and has a mapped phone number, that number is used as the sender; otherwise, the global `TWILIO_PHONE_NUMBER` is used.
+Connect Gmail and Slack via the Settings UI or the `integration_connect` HTTP endpoint. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
 
 </details>
 

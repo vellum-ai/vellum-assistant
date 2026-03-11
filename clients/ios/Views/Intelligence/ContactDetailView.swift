@@ -234,7 +234,7 @@ struct ContactDetailView: View {
         let icon: VIcon = {
             switch type {
             case "email": return .mail
-            case "sms", "phone": return .phone
+            case "phone": return .phone
             case "slack": return .hash
             case "discord": return .messageCircle
             case "telegram": return .send

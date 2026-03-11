@@ -40,7 +40,7 @@ Then figure out together:
    ```
 
    The two actions MUST have different labels and prompts. Double-check before calling ui_show that you are not repeating the same suggestion.
-   If `ui_show` is not available (voice, SMS, or other non-dashboard channels), present the two suggestions as plain text messages instead, numbered so the user can reply with which one they'd like. If the user types a response instead of clicking, continue via the text path. If they want to defer both suggestions and do something else entirely, that's fine too.
+   If `ui_show` is not available (voice or other non-dashboard channels), present the two suggestions as plain text messages instead, numbered so the user can reply with which one they'd like. If the user types a response instead of clicking, continue via the text path. If they want to defer both suggestions and do something else entirely, that's fine too.
 
 ## Requirements
 

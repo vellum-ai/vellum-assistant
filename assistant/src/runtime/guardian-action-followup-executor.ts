@@ -250,7 +250,6 @@ export async function executeFollowupAction(
     actionResult = await executeCallBack(request, counterparty);
   } else {
     // decline is already handled in M5 — should not reach the executor.
-    // message_back (SMS) is no longer supported.
     finalizeFollowup(requestId, "failed");
     const errorText = await composeGuardianActionMessageGenerative(
       {

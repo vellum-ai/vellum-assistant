@@ -551,7 +551,7 @@ export function listPendingCanonicalGuardianRequestsByDestinationConversation(
  * This bridges inbound guardian replies (which arrive on a specific chat)
  * back to their canonical request records. Unlike the conversation-based
  * variant, this uses the chat-level addressing that channel transports
- * (Telegram, SMS) natively provide — critical for voice-originated
+ * (Telegram) natively provide — critical for voice-originated
  * `pending_question` requests that lack `guardianExternalUserId`.
  */
 export function listPendingCanonicalGuardianRequestsByDestinationChat(
