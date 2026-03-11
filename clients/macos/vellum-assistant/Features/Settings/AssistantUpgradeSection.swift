@@ -175,6 +175,8 @@ struct AssistantUpgradeSection: View {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
                 // Refresh releases to update UI without clearing success message
                 await loadReleasesQuietly()
+                // Clear any error from the releases fetch so it doesn't appear alongside the success
+                if successMessage != nil { errorMessage = nil }
             } else {
                 errorMessage = "Upgrade failed (HTTP \(httpResponse.statusCode))"
             }

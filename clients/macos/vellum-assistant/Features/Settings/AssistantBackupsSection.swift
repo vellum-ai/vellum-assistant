@@ -306,6 +306,8 @@ struct AssistantBackupsSection: View {
             if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
                     successMessage = "Backup created successfully"
                     await loadManagedBackupsQuietly()
+                    // Clear any error from the backups fetch so it doesn't appear alongside the success
+                    if successMessage != nil { errorMessage = nil }
             } else {
                 errorMessage = "Failed to create backup (HTTP \(httpResponse.statusCode))"
             }
