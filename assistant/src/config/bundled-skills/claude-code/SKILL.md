@@ -14,6 +14,7 @@ You are delegating a coding task to Claude Code, an autonomous AI coding agent. 
 ## Capabilities
 
 Claude Code can:
+
 - Read, write, and edit files across a codebase
 - Run shell commands (build, test, lint, deploy scripts)
 - Perform multi-step engineering tasks autonomously (refactoring, implementing features, debugging)
@@ -23,6 +24,7 @@ Claude Code can:
 ## When to Delegate
 
 Delegate to Claude Code when the task involves:
+
 - Writing or modifying source code
 - Running build/test/lint commands and iterating on failures
 - Exploring a codebase to answer architectural questions
@@ -31,6 +33,7 @@ Delegate to Claude Code when the task involves:
 - Any task that benefits from direct filesystem and shell access
 
 Do NOT delegate when:
+
 - The user just wants a conversational answer or explanation
 - The task is pure information retrieval with no code changes needed
 - The user explicitly wants to discuss an approach before implementation
@@ -46,9 +49,13 @@ Do NOT delegate when:
 
 Claude Code supports scoped worker profiles that restrict tool access:
 
-- **general** (default) — Full access to all tools. Backward-compatible with existing behavior.
-- **researcher** — Read-only access. Can search, read files, and browse the web but cannot write or execute commands.
-- **coder** — Full read/write/execute access optimized for implementation tasks.
-- **reviewer** — Read-only access tailored for code review, with emphasis on analysis and feedback.
+- **general** (default) -- Full access to all tools. Backward-compatible with existing behavior.
+- **researcher** -- Read-only access. Can search, read files, and browse the web but cannot write or execute commands.
+- **coder** -- Full read/write/execute access optimized for implementation tasks.
+- **reviewer** -- Read-only access tailored for code review, with emphasis on analysis and feedback.
 
 Select the profile that best matches the task to enforce least-privilege access.
+
+## Access Preference for Coding Tasks
+
+When working on code, prefer the sandbox environment first. Install tools with `bash` (e.g. `apt-get install -y git`) if needed. Only fall back to host tools (`host_bash`) when you need access to the user's local git repos, host-installed CLIs with existing auth, or host-specific resources.
