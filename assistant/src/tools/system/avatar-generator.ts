@@ -3,6 +3,7 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { routedGenerateAvatar } from "../../media/avatar-router.js";
+import { ManagedAvatarError } from "../../media/avatar-types.js";
 import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -107,6 +108,34 @@ export const setAvatarTool: Tool = {
         isError: false,
       };
     } catch (error) {
+      if (error instanceof ManagedAvatarError) {
+        log.error(
+          {
+            error: error.message,
+            statusCode: error.statusCode,
+            code: error.code,
+          },
+          "Avatar generation failed (managed)",
+        );
+        if (error.statusCode === 429) {
+          return {
+            content:
+              "Avatar generation is currently rate limited. Please try again in a moment.",
+            isError: true,
+          };
+        }
+        if (error.statusCode >= 500) {
+          return {
+            content:
+              "Avatar generation is temporarily unavailable. Please try again later.",
+            isError: true,
+          };
+        }
+        return {
+          content: `Avatar generation failed: ${error.message}`,
+          isError: true,
+        };
+      }
       const message = mapGeminiError(error);
       log.error({ error: message }, "Avatar generation failed");
       return {
