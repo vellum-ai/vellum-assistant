@@ -1928,11 +1928,9 @@ public typealias TelegramConfigResponseMessage = TelegramConfigResponse
 /// Capabilities of a Twilio phone number.
 public struct TwilioNumberCapabilities: Codable, Sendable {
     public let voice: Bool
-    public let sms: Bool
 
-    public init(voice: Bool, sms: Bool) {
+    public init(voice: Bool) {
         self.voice = voice
-        self.sms = sms
     }
 }
 
