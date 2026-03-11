@@ -9,6 +9,7 @@ struct HatchingStepView: View {
     @State private var showContent = false
     @State private var characterAwake = false
     @State private var pulseScale: CGFloat = 0.9
+    @State private var showCharacter = true
     @State private var hatchStarted = false
     @State private var failureReason: String?
     @State private var selectedPreset = PresetAvatar.random()
@@ -46,8 +47,15 @@ struct HatchingStepView: View {
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
-                withAnimation(.spring(duration: 0.6, bounce: 0.3)) {
-                    characterAwake = true
+                characterAwake = true
+            }
+        }
+        .onChange(of: state.hatchFailed) { _, failed in
+            if failed {
+                // Stop the pulse animation and fade out the character
+                // so it doesn't keep pulsing behind the error text.
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showCharacter = false
                 }
             }
         }
@@ -59,12 +67,11 @@ struct HatchingStepView: View {
         ZStack {
             if let image = selectedPreset.image {
                 Image(nsImage: image)
-                    .interpolation(.none)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 100, height: 100)
                     .scaleEffect(characterAwake ? 1.1 : pulseScale)
-                    .opacity(characterAwake ? 1.0 : 0.6)
+                    .opacity(showCharacter ? (characterAwake ? 1.0 : 0.6) : 0)
                     .animation(.spring(duration: 0.6, bounce: 0.3), value: characterAwake)
                     .accessibilityHidden(true)
             }

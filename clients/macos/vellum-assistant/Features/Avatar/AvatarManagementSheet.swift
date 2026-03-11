@@ -140,7 +140,6 @@ struct AvatarManagementSheet: View {
                         onClose()
                     } label: {
                         Image(nsImage: image)
-                            .interpolation(.none)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity)
