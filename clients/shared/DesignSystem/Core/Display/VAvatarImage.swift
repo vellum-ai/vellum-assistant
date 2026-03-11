@@ -3,17 +3,24 @@ import SwiftUI
 /// Reusable avatar image that adapts its clip shape based on image transparency.
 /// Images with transparent backgrounds render unclipped so the full artwork
 /// (ears, antennae, etc.) is visible. Opaque images render in a circle.
-struct VAvatarImage: View {
-    let image: NSImage
-    let size: CGFloat
+public struct VAvatarImage: View {
+    public let image: NSImage
+    public let size: CGFloat
 
     /// Optional border color. Defaults to `VColor.surfaceBorder`.
-    var borderColor: Color = VColor.surfaceBorder
+    public var borderColor: Color = VColor.surfaceBorder
 
     /// Whether to show a subtle border around the avatar.
-    var showBorder: Bool = true
+    public var showBorder: Bool = true
 
-    var body: some View {
+    public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.surfaceBorder, showBorder: Bool = true) {
+        self.image = image
+        self.size = size
+        self.borderColor = borderColor
+        self.showBorder = showBorder
+    }
+
+    public var body: some View {
         Image(nsImage: image)
             .interpolation(.none)
             .resizable()
@@ -29,7 +36,6 @@ struct VAvatarImage: View {
     }
 
     /// Check whether the underlying image has any transparent pixels.
-    /// Cached per-image identity via the image's hash to avoid re-scanning.
     private var hasTransparency: Bool {
         Self.imageHasTransparency(image)
     }
