@@ -3,7 +3,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import * as calendar from "../calendar-client.js";
-import { ok, withCalendarToken } from "./shared.js";
+import { getCalendarConnection, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -14,14 +14,13 @@ export async function run(
   const calendarIds = (input.calendar_ids as string[]) ?? ["primary"];
   const timezone = input.timezone as string | undefined;
 
-  return withCalendarToken(async (token) => {
-    const result = await calendar.freeBusy(token, {
-      timeMin,
-      timeMax,
-      timeZone: timezone,
-      items: calendarIds.map((id) => ({ id })),
-    });
-
-    return ok(JSON.stringify(result, null, 2));
+  const connection = getCalendarConnection();
+  const result = await calendar.freeBusy(connection, {
+    timeMin,
+    timeMax,
+    timeZone: timezone,
+    items: calendarIds.map((id) => ({ id })),
   });
+
+  return ok(JSON.stringify(result, null, 2));
 }

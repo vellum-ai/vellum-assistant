@@ -3,7 +3,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import * as calendar from "../calendar-client.js";
-import { ok, withCalendarToken } from "./shared.js";
+import { getCalendarConnection, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -40,9 +40,8 @@ export async function run(
     eventBody.attendees = attendees.map((email) => ({ email }));
   }
 
-  return withCalendarToken(async (token) => {
-    const event = await calendar.createEvent(token, eventBody, calendarId);
-    const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : "";
-    return ok(`Event created (ID: ${event.id}).${link}`);
-  });
+  const connection = getCalendarConnection();
+  const event = await calendar.createEvent(connection, eventBody, calendarId);
+  const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : "";
+  return ok(`Event created (ID: ${event.id}).${link}`);
 }
