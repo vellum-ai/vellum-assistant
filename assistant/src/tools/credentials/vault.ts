@@ -33,10 +33,10 @@ import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 const log = getLogger("credential-vault");
 
 /**
- * Look up a stored OAuth field (e.g. client_id or client_secret) for a service.
- * Checks both the canonical and alias service names.
+ * Look up a stored OAuth secret (e.g. client_secret) for a service from the
+ * secure store. Checks both the canonical and alias service names.
  */
-function findStoredOAuthField(
+function findStoredOAuthSecret(
   service: string,
   field: string,
 ): string | undefined {
@@ -49,6 +49,23 @@ function findStoredOAuthField(
   for (const svc of servicesToCheck) {
     const value = getSecureKey(`credential:${svc}:${field}`);
     if (value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Look up the stored OAuth client_id for a service from credential metadata.
+ * Checks both the canonical and alias service names.
+ */
+function findStoredOAuthClientId(service: string): string | undefined {
+  const servicesToCheck = [service];
+  for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
+    if (canonical === service) servicesToCheck.push(alias);
+    if (alias === service) servicesToCheck.push(canonical);
+  }
+  for (const svc of servicesToCheck) {
+    const meta = getCredentialMetadata(svc, "access_token");
+    if (meta?.oauth2ClientId) return meta.oauth2ClientId;
   }
   return undefined;
 }
@@ -757,13 +774,13 @@ class CredentialStoreTool implements Tool {
         // Fill missing params from provider profile
         const profile = getProviderProfile(service);
 
-        // Look up client_id/client_secret from stored credentials if not provided
+        // Look up client_id from metadata and client_secret from secure store
         const clientId =
           (input.client_id as string | undefined) ??
-          findStoredOAuthField(service, "client_id");
+          findStoredOAuthClientId(service);
         const clientSecret =
           (input.client_secret as string | undefined) ??
-          findStoredOAuthField(service, "client_secret");
+          findStoredOAuthSecret(service, "client_secret");
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;

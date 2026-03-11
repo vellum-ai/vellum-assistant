@@ -25,7 +25,10 @@ import {
 } from "../../permissions/checker.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
-import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
+import {
+  assertMetadataWritable,
+  getCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import {
   type ManifestOverride,
   resolveExecutionTarget,
@@ -162,9 +165,16 @@ async function handleOAuthConnectStart(body: {
 
   const resolvedService = resolveService(body.service);
 
-  let clientId = getSecureKey(`credential:${resolvedService}:client_id`);
+  // client_id is stored in metadata (oauth2ClientId), not the secure store.
+  let clientId = getCredentialMetadata(
+    resolvedService,
+    "access_token",
+  )?.oauth2ClientId;
   if (!clientId && resolvedService !== body.service) {
-    clientId = getSecureKey(`credential:${body.service}:client_id`);
+    clientId = getCredentialMetadata(
+      body.service,
+      "access_token",
+    )?.oauth2ClientId;
   }
 
   if (!clientId) {

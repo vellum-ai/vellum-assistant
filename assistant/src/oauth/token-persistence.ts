@@ -97,14 +97,8 @@ export async function storeOAuth2Tokens(
     }
   }
 
-  // Persist client credentials in keychain for defense in depth
-  const clientIdStored = await setSecureKeyAsync(
-    `credential:${service}:client_id`,
-    clientId,
-  );
-  if (!clientIdStored) {
-    throw new Error("Failed to store client_id in secure storage");
-  }
+  // client_id is stored in metadata only (oauth2ClientId field) — not the
+  // secure store. token-manager.ts reads it from meta?.oauth2ClientId.
   if (clientSecret) {
     const clientSecretStored = await setSecureKeyAsync(
       `credential:${service}:client_secret`,
