@@ -43,6 +43,7 @@ extension HTTPTransport {
         }
     }
 
+    #if os(macOS)
     /// Execute a host bash request locally and post the result back to the daemon.
     /// Spawns `/bin/bash -c -- <command>` via `Foundation.Process`, enforces a
     /// timeout, and collects stdout/stderr.
@@ -137,4 +138,5 @@ extension HTTPTransport {
             await self.postHostBashResult(result)
         }
     }
+    #endif
 }
