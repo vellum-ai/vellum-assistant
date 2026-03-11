@@ -104,10 +104,9 @@ struct SettingsPanel: View {
                     ScrollView {
                         selectedTabContent
                             .padding(.top, VSpacing.lg)
-                            .padding(.leading, VSpacing.lg)
                             .padding(.trailing, VSpacing.xl)
                             .padding(.bottom, VSpacing.xl)
-                            .frame(maxWidth: 700, alignment: .top)
+                            .frame(maxWidth: 900, alignment: .top)
                             .frame(maxWidth: .infinity)
                     }
                 }

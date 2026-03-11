@@ -59,7 +59,7 @@ public struct VToggle: View {
 
     private var trackColor: Color {
         if !isEnabled {
-            return VColor.toggleOff
+            return isOn ? VColor.toggleOn.opacity(0.5) : VColor.toggleOff
         }
         return isOn ? VColor.toggleOn : VColor.toggleOff
     }
