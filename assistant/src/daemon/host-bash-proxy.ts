@@ -52,9 +52,9 @@ export class HostBashProxy {
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
       const shellMaxTimeoutSec = getConfig().timeouts.shellMaxTimeoutSec;
-      // Generous timeout: let the client-side timeout fire first
-      const proxyTimeoutSec = shellMaxTimeoutSec + 30;
       const timeoutSec = input.timeout_seconds ?? shellMaxTimeoutSec;
+      // Proxy timeout: slightly after client-side timeout, but before executor's outer timeout
+      const proxyTimeoutSec = timeoutSec + 3;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         this.onInternalResolve?.(requestId);
