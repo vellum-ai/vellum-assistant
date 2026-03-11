@@ -259,8 +259,7 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("openai", "user-key");
   } else {
-    // No user OpenAI key — route through Vertex managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = buildManagedBaseUrl("openai");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "openai");
@@ -338,8 +337,7 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("fireworks", "user-key");
   } else {
-    // No user Fireworks key — route through Vertex managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = buildManagedBaseUrl("fireworks");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "fireworks");
@@ -371,8 +369,7 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("openrouter", "user-key");
   } else {
-    // No user OpenRouter key — route through Vertex managed proxy
-    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    const managedBaseUrl = buildManagedBaseUrl("openrouter");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "openrouter");

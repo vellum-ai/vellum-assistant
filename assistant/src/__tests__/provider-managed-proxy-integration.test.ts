@@ -335,11 +335,24 @@ describe("managed proxy integration — constants integrity", () => {
     }
   });
 
-  test("all managed providers route through the vertex proxy path", () => {
-    for (const meta of Object.values(MANAGED_PROVIDER_META)) {
-      if (meta.managed && meta.proxyPath) {
-        expect(meta.proxyPath).toBe("/v1/runtime-proxy/vertex");
-      }
-    }
+  test("anthropic and gemini route through vertex proxy path", () => {
+    expect(MANAGED_PROVIDER_META.anthropic.proxyPath).toBe(
+      "/v1/runtime-proxy/vertex",
+    );
+    expect(MANAGED_PROVIDER_META.gemini.proxyPath).toBe(
+      "/v1/runtime-proxy/vertex",
+    );
+  });
+
+  test("other providers use their own proxy paths", () => {
+    expect(MANAGED_PROVIDER_META.openai.proxyPath).toBe(
+      "/v1/runtime-proxy/openai",
+    );
+    expect(MANAGED_PROVIDER_META.fireworks.proxyPath).toBe(
+      "/v1/runtime-proxy/fireworks",
+    );
+    expect(MANAGED_PROVIDER_META.openrouter.proxyPath).toBe(
+      "/v1/runtime-proxy/openrouter",
+    );
   });
 });

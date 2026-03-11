@@ -107,7 +107,7 @@ describe("buildManagedBaseUrl", () => {
 
   test("builds correct URL for managed providers", () => {
     expect(buildManagedBaseUrl("openai")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/vertex",
+      "https://platform.example.com/v1/runtime-proxy/openai",
     );
     expect(buildManagedBaseUrl("anthropic")).toBe(
       "https://platform.example.com/v1/runtime-proxy/vertex",
@@ -116,10 +116,10 @@ describe("buildManagedBaseUrl", () => {
       "https://platform.example.com/v1/runtime-proxy/vertex",
     );
     expect(buildManagedBaseUrl("fireworks")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/vertex",
+      "https://platform.example.com/v1/runtime-proxy/fireworks",
     );
     expect(buildManagedBaseUrl("openrouter")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/vertex",
+      "https://platform.example.com/v1/runtime-proxy/openrouter",
     );
   });
 

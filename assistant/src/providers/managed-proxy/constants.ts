@@ -24,7 +24,7 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   openai: {
     name: "openai",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/vertex",
+    proxyPath: "/v1/runtime-proxy/openai",
   },
   anthropic: {
     name: "anthropic",
@@ -39,12 +39,12 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   fireworks: {
     name: "fireworks",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/vertex",
+    proxyPath: "/v1/runtime-proxy/fireworks",
   },
   openrouter: {
     name: "openrouter",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/vertex",
+    proxyPath: "/v1/runtime-proxy/openrouter",
   },
   vertex: {
     name: "vertex",
