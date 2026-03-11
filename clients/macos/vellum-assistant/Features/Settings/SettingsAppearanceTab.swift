@@ -353,6 +353,15 @@ struct SettingsAppearanceTab: View {
         let utcOffset: String
     }
 
+    /// Stable timezone metadata (city, region, offset label) — computed once.
+    private struct TimezoneMetadata {
+        let identifier: String
+        let city: String
+        let region: String
+        let utcOffset: String
+        let tz: TimeZone
+    }
+
     private var selectedCityPlaceholder: String {
         guard !selectedTimezone.isEmpty,
               let tz = TimeZone(identifier: selectedTimezone) else {
@@ -369,13 +378,9 @@ struct SettingsAppearanceTab: View {
         return tz.localizedName(for: .standard, locale: .current) ?? selectedTimezone
     }
 
-    /// Pre-computed timezone entries (DateFormatter is expensive to create per-item).
-    private static let allTimezoneEntries: [TimezoneEntry] = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        let now = Date()
-
-        return knownTimezones.compactMap { id -> TimezoneEntry? in
+    /// Stable metadata cached once; time-sensitive fields computed on access.
+    private static let timezoneMetadata: [TimezoneMetadata] = {
+        knownTimezones.compactMap { id -> TimezoneMetadata? in
             guard let tz = TimeZone(identifier: id) else { return nil }
             let parts = id.components(separatedBy: "/")
             let city = (parts.last ?? id).replacingOccurrences(of: "_", with: " ")
@@ -388,27 +393,35 @@ struct SettingsAppearanceTab: View {
                 ? String(format: "GMT%+d:%02d", hours, minutes)
                 : String(format: "GMT%+d", hours)
 
-            formatter.timeZone = tz
-            let timeStr = formatter.string(from: now)
-
-            let label = "\(offsetStr) — \(city)"
-            return TimezoneEntry(
-                identifier: id, city: city, region: region,
-                displayLabel: label, currentTime: timeStr, utcOffset: offsetStr
-            )
+            return TimezoneMetadata(identifier: id, city: city, region: region, utcOffset: offsetStr, tz: tz)
         }
         .sorted { $0.identifier < $1.identifier }
     }()
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return f
+    }()
+
     private var filteredTimezones: [TimezoneEntry] {
         let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return Self.allTimezoneEntries }
-
-        return Self.allTimezoneEntries.filter {
+        let source = query.isEmpty ? Self.timezoneMetadata : Self.timezoneMetadata.filter {
             $0.city.lowercased().contains(query)
             || $0.region.lowercased().contains(query)
             || $0.utcOffset.lowercased().contains(query)
             || $0.identifier.lowercased().contains(query)
+        }
+        let now = Date()
+        let formatter = Self.timeFormatter
+        return source.map { meta in
+            formatter.timeZone = meta.tz
+            return TimezoneEntry(
+                identifier: meta.identifier, city: meta.city, region: meta.region,
+                displayLabel: "\(meta.utcOffset) — \(meta.city)",
+                currentTime: formatter.string(from: now),
+                utcOffset: meta.utcOffset
+            )
         }
     }
 

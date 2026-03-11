@@ -250,8 +250,8 @@ public enum VColor {
     public static let buttonDangerPressed = Color(hex: 0xE0745A)
 
     // Tag & shortcut
-    public static let tagText = Moss._400
-    public static let tagBorder = Moss._100
+    public static let tagText = adaptiveColor(light: Moss._500, dark: Moss._400)
+    public static let tagBorder = adaptiveColor(light: Stone._300, dark: Moss._100)
 
     // Unread indicator
     public static let unreadIndicator = Danger._600
