@@ -639,12 +639,16 @@ export class DaemonServer {
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Non-desktop sessions (CLI,
     // channels, headless) fall back to local execution.
+    // Reuse the existing proxy if the session is actively processing a
+    // host bash request to avoid orphaning in-flight requests.
     if (resolvedInterface === "macos" || resolvedInterface === "ios") {
-      session.setHostBashProxy(
-        new HostBashProxy(session.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
+      if (!session.isProcessing() || !session.hostBashProxy) {
+        session.setHostBashProxy(
+          new HostBashProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      }
     } else {
       session.setHostBashProxy(undefined);
     }

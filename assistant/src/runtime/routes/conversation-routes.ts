@@ -612,20 +612,26 @@ export async function handleSendMessage(
     sourceInterface === "ios" ||
     sourceInterface === "cli" ||
     sourceInterface === "vellum";
-  // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
-  session.updateClient(onEvent, !isInteractiveInterface);
   // Only create the host bash proxy for desktop client interfaces that can
   // execute commands on the user's machine. Non-desktop sessions (CLI,
   // channels, headless) fall back to local execution.
+  // Set the proxy BEFORE updateClient so updateClient's call to
+  // hostBashProxy.updateSender targets the correct (new) proxy.
   if (sourceInterface === "macos" || sourceInterface === "ios") {
-    const proxy = new HostBashProxy(onEvent, (requestId) => {
-      pendingInteractions.resolve(requestId);
-    });
-    proxy.updateSender(onEvent, true);
-    session.setHostBashProxy(proxy);
+    // Reuse the existing proxy if the session is actively processing a
+    // host bash request to avoid orphaning in-flight requests.
+    if (!session.isProcessing() || !session.hostBashProxy) {
+      const proxy = new HostBashProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostBashProxy(proxy);
+    }
   } else {
     session.setHostBashProxy(undefined);
   }
+  // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
+  // Called after setHostBashProxy so updateSender targets the current proxy.
+  session.updateClient(onEvent, !isInteractiveInterface);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)

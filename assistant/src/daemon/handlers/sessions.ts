@@ -152,6 +152,12 @@ export function makeEventSender(params: {
         conversationId,
         kind: "secret",
       });
+    } else if (event.type === "host_bash_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
+      });
     }
 
     ctx.send(event);
@@ -396,7 +402,6 @@ export async function handleSessionCreate(
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });
-    session.updateClient(sendEvent, false);
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
@@ -408,14 +413,15 @@ export async function handleSessionCreate(
       assistantMessageInterface: transportInterface,
     });
     // Only create the host bash proxy for desktop client interfaces that can
-    // execute commands on the user's machine.
+    // execute commands on the user's machine. Set before updateClient so
+    // updateClient's call to hostBashProxy.updateSender targets the new proxy.
     if (transportInterface === "macos" || transportInterface === "ios") {
       const proxy = new HostBashProxy(sendEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
-      proxy.updateSender(sendEvent, true);
       session.setHostBashProxy(proxy);
     }
+    session.updateClient(sendEvent, false);
     session
       .processMessage(msg.initialMessage, [], sendEvent, requestId)
       .catch((err) => {

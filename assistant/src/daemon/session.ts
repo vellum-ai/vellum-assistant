@@ -581,6 +581,9 @@ export class Session {
   }
 
   setHostBashProxy(proxy: HostBashProxy | undefined): void {
+    if (this.hostBashProxy && this.hostBashProxy !== proxy) {
+      this.hostBashProxy.dispose();
+    }
     this.hostBashProxy = proxy;
   }
 
