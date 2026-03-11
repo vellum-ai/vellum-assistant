@@ -403,6 +403,14 @@ export class Session {
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
+  /** Restore host proxy availability based on whether a real client is connected. */
+  restoreProxyAvailability(): void {
+    if (!this.hasNoClient) {
+      this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostFileProxy?.updateSender(this.sendToClient, true);
+    }
+  }
+
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }

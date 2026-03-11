@@ -120,6 +120,8 @@ export interface ProcessSessionContext {
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void;
+  /** Restore host proxy availability based on whether a real client is connected. */
+  restoreProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -272,6 +274,10 @@ export async function drainQueue(
   // returns false and tool execution falls back to local.
   if (next.isInteractive === false) {
     session.clearProxyAvailability();
+  } else {
+    // Restore proxy availability for interactive messages in case a prior
+    // non-interactive drain disabled it.
+    session.restoreProxyAvailability();
   }
 
   // Resolve slash commands for queued messages
