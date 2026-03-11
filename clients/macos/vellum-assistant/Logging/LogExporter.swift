@@ -21,6 +21,7 @@ private let log = Logger(
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
+/// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 @MainActor
 enum LogExporter {
 
@@ -159,6 +160,11 @@ enum LogExporter {
         // 7. Auth debug info — non-sensitive token expiry and refresh metadata
         writeAuthDebugInfo(
             to: tempDir.appendingPathComponent("auth-debug.json")
+        )
+
+        // 8. Port diagnostics — which processes are listening on assistant ports
+        PortDiagnostics.write(
+            to: tempDir.appendingPathComponent("port-diagnostics.json")
         )
 
         // Verify we have at least one file to export

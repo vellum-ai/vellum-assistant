@@ -43,7 +43,6 @@ import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
-  logPortDiagnostics,
   startLocalDaemon,
   startGateway,
   stopLocalProcesses,
@@ -755,8 +754,6 @@ async function hatchLocal(
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
-
-  logPortDiagnostics(resources);
 
   await startLocalDaemon(watch, resources);
 
