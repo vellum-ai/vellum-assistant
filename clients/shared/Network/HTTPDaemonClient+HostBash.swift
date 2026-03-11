@@ -142,6 +142,10 @@ extension HTTPTransport {
                     } catch {
                         // Clear the handler since we never started
                         process.terminationHandler = nil
+                        // Close the write ends so readDataToEndOfFile() returns
+                        // immediately, unblocking the GCD reader threads.
+                        try? stdoutPipe.fileHandleForWriting.close()
+                        try? stderrPipe.fileHandleForWriting.close()
                         continuation.resume(throwing: error)
                     }
                 }
