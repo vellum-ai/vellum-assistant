@@ -301,22 +301,12 @@ struct MessageListView: View {
 
     @ViewBuilder
     private func thinkingIndicatorRow(displayMessages: [ChatMessage]) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(nsImage: appearance.chatAvatarImage)
-                .interpolation(.none)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 28, height: 28)
-                .clipShape(Circle())
-                .padding(.top, 2)
-
-            RunningIndicator(
-                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                    ? "Waking up..."
-                    : assistantStatusText ?? "Thinking",
-                showIcon: false
-            )
-        }
+        RunningIndicator(
+            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                ? "Waking up..."
+                : assistantStatusText ?? "Thinking",
+            showIcon: false
+        )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -456,7 +446,6 @@ struct MessageListView: View {
                             onTap: { onSubagentTap?(subagent.id) }
                         )
                             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                            .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
@@ -945,22 +934,12 @@ private struct MessageCellView: View {
 
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(nsImage: appearance.chatAvatarImage)
-                .interpolation(.none)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 28, height: 28)
-                .clipShape(Circle())
-                .padding(.top, 2)
-
-            RunningIndicator(
-                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                    ? "Waking up..."
-                    : assistantStatusText ?? "Thinking",
-                showIcon: false
-            )
-        }
+        RunningIndicator(
+            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                ? "Waking up..."
+                : assistantStatusText ?? "Thinking",
+            showIcon: false
+        )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
     }
@@ -1055,7 +1034,6 @@ private struct MessageCellView: View {
                 onTap: { onSubagentTap?(subagent.id) }
             )
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                .padding(.leading, 36)
                 .id("subagent-\(subagent.id)")
         }
 
