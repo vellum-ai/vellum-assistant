@@ -110,7 +110,7 @@
       "scope": "assistant",
       "key": "feature_flags.gmail.enabled",
       "label": "Gmail",
-      "description": "Enable Gmail management skill (archive, label, triage, declutter)",
+      "description": "Enable Gmail management skill (archive, label, declutter)",
       "defaultEnabled": true
     },
     {
