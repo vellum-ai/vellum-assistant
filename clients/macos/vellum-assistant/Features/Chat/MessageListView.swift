@@ -100,6 +100,8 @@ struct MessageListView: View {
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
+    @State private var avatarBreathing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
     @State private var scrollDebounceTask: Task<Void, Never>?
@@ -324,6 +326,29 @@ struct MessageListView: View {
                     Circle()
                         .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
                 )
+                .scaleEffect(reduceMotion ? 1.0 : (avatarBreathing ? 1.0 : 0.92))
+                .opacity(reduceMotion ? 1.0 : (avatarBreathing ? 1.0 : 0.85))
+                .animation(
+                    reduceMotion
+                        ? nil
+                        : Animation.easeInOut(duration: 2.5).repeatForever(autoreverses: true),
+                    value: avatarBreathing
+                )
+                .onAppear {
+                    if !reduceMotion {
+                        avatarBreathing = true
+                    }
+                }
+                .onDisappear {
+                    avatarBreathing = false
+                }
+                .onChange(of: reduceMotion) { _, newValue in
+                    if newValue {
+                        avatarBreathing = false
+                    } else {
+                        avatarBreathing = true
+                    }
+                }
             Spacer()
         }
         .padding(.top, VSpacing.xs)
