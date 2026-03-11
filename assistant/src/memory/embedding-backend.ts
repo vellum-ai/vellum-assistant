@@ -581,18 +581,33 @@ function selectFallbackBackends(
 }
 
 /**
- * Returns true when the currently resolved embedding backend supports
- * multimodal inputs (images, audio, video). Today only Gemini does.
+ * Returns true when multimodal inputs (images, audio, video) can be embedded
+ * with the current configuration. Today only Gemini supports multimodal.
  *
- * This replaces the earlier heuristic that checked `auto + gemini key`,
- * which was wrong because `auto` mode may resolve to a text-only backend
- * (local, OpenAI) even when a Gemini key exists.
+ * In `auto` mode the primary backend is usually `local`, but `embedWithBackend`
+ * builds a fallback chain that includes Gemini when available. We check the
+ * primary backend *and* the fallback chain so multimodal jobs are enqueued
+ * whenever Gemini is reachable — matching what `embedWithBackend` would do at
+ * embed time.
  */
 export function selectedBackendSupportsMultimodal(
   config: AssistantConfig,
 ): boolean {
   const { backend } = selectEmbeddingBackend(config);
-  return backend?.provider === "gemini";
+  if (!backend) return false;
+  if (backend.provider === "gemini") return true;
+
+  // In auto mode with a local primary, embedWithBackend builds fallbacks
+  // that may include Gemini. Check whether any fallback supports multimodal.
+  if (
+    config.memory.embeddings.provider === "auto" &&
+    backend.provider === "local"
+  ) {
+    const fallbacks = selectFallbackBackends(config, "local");
+    return fallbacks.some((fb) => fb.provider === "gemini");
+  }
+
+  return false;
 }
 
 function isOllamaConfigured(config: AssistantConfig): boolean {
