@@ -1,20 +1,19 @@
 import Foundation
 import SwiftUI
+@preconcurrency import Sentry
 import VellumAssistantShared
 
-/// Account settings tab — sign-in/out, assistant identity, switch/retire/hatch.
+/// Developer settings tab — consolidates all internal tooling: assistant info,
+/// switching/wake controls, gateway settings, hatch, retire, advanced dev tools
+/// (permission simulator, feature flags, env vars), and Sentry testing.
 @MainActor
-struct SettingsAccountTab: View {
+struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
     var authManager: AuthManager
     var onClose: () -> Void
 
-    // -- Account / Vellum section state --
-    @State private var platformUrlText: String = ""
-    @FocusState private var isPlatformUrlFocused: Bool
-
-    // -- Assistant Info state (from SettingsAdvancedTab) --
+    // -- Assistant Info state --
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
@@ -26,37 +25,60 @@ struct SettingsAccountTab: View {
     @State private var isHatchFlagEnabled: Bool = true
     @State private var isLoadingHatchFlag: Bool = false
     @State private var showingHatchConfirmation: Bool = false
-
-    // -- Display names (resolved from IDENTITY.md, keyed by assistant ID) --
     @State private var displayNames: [String: String] = [:]
-
-    // -- Wake/sleep toggle state --
     @State private var awakeStates: [String: Bool] = [:]
     @State private var transitioningStates: Set<String> = []
 
-    /// Whether the hatch new assistant feature flag is enabled.
-    /// Defaults to `true` until the gateway responds. Once the gateway response
-    /// arrives, this reflects the value of `feature_flags.hatch-new-assistant.enabled`.
+    // -- Advanced dev state --
+    @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
+    @State private var assistantFlags: [DaemonClient.AssistantFeatureFlag] = []
+    @State private var assistantFlagsError: String?
+    @State private var isLoadingAssistantFlags = false
+    @State private var showingEnvVars = false
+    @State private var appEnvVars: [(String, String)] = []
+    @State private var daemonEnvVars: [(String, String)] = []
+    @State private var testerModel: ToolPermissionTesterModel?
+
+    // -- Sentry testing state --
+    @State private var lastSentryStatus: String?
+    @State private var sentryDismissTask: Task<Void, Never>?
+    @State private var isSentryEnabled: Bool = true
 
     private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            accountSection
+            // Assistant Info
             assistantInfoSection
+            // Switch Assistant
             switchAssistantSection
+            // Gateway Settings
             GatewaySettingsCard(
                 store: store,
                 daemonClient: daemonClient,
                 isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
             )
+            // Hatch New Assistant
             hatchNewAssistantSection
+            // Retire Assistant
             retireAssistantSection
+
+            // Permission Simulator
+            if let model = testerModel {
+                ToolPermissionTesterView(model: model)
+            }
+
+            // Assistant Feature Flags
+            assistantFeatureFlagSection
+            // macOS Feature Flags
+            macOSFeatureFlagSection
+            // Environment Variables
+            environmentVariablesSection
+            // Sentry Testing
+            sentryTestingSection
         }
         .onAppear {
-            Task { await authManager.checkSession() }
-            store.refreshPlatformConfig()
-            platformUrlText = store.platformBaseUrl
+            // Assistant info setup
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             refreshAwakeStates()
@@ -70,11 +92,16 @@ struct SettingsAccountTab: View {
                 }
             }
             Task { await loadHatchFlag() }
-        }
-        .onChange(of: store.platformBaseUrl) { _, newValue in
-            if !isPlatformUrlFocused {
-                platformUrlText = newValue
+
+            // Advanced dev setup
+            macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()
+            if testerModel == nil, let dc = daemonClient {
+                testerModel = ToolPermissionTesterModel(daemonClient: dc)
             }
+            Task { await loadAssistantFlags() }
+
+            // Sentry setup
+            isSentryEnabled = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -110,70 +137,13 @@ struct SettingsAccountTab: View {
             .frame(minWidth: 260)
             .interactiveDismissDisabled()
         }
-    }
-
-    // MARK: - Account Section
-
-    private var accountSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Account & Platform")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Platform URL")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
-
-            TextField("https://platform.vellum.ai", text: $platformUrlText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .focused($isPlatformUrlFocused)
-
-            VButton(label: "Save", style: .primary) {
-                store.savePlatformBaseUrl(platformUrlText)
-                isPlatformUrlFocused = false
-            }
-            .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            Divider().background(VColor.surfaceBorder)
-
-            Text("Sign in to Your Account")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
-
-            if authManager.isLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Checking...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if authManager.currentUser != nil {
-                VButton(label: "Log Out", style: .danger) {
-                    Task { await authManager.logout() }
-                }
-            } else {
-                VButton(
-                    label: authManager.isSubmitting ? "Signing in..." : "Sign In",
-                    style: .primary
-                ) {
-                    Task { await authManager.startWorkOSLogin() }
-                }
-                .disabled(authManager.isSubmitting)
-            }
-
-            if let error = authManager.errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
+        .sheet(isPresented: $showingEnvVars) {
+            SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .onDisappear {
+            daemonClient?.onEnvVarsResponse = nil
+            sentryDismissTask?.cancel()
+        }
     }
 
     // MARK: - Assistant Info
@@ -212,9 +182,8 @@ struct SettingsAccountTab: View {
                     .transition(.opacity)
             }
 
-            // Process status (child view observes @Published changes)
             if let daemonClient {
-                AccountDaemonStatusRows(daemonClient: daemonClient)
+                DeveloperDaemonStatusRows(daemonClient: daemonClient)
             }
         }
         .padding(VSpacing.lg)
@@ -327,11 +296,9 @@ struct SettingsAccountTab: View {
             .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: selectedAssistantId) { oldValue, newValue in
-                // Skip if reverting to current or unchanged
                 let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
                 guard newValue != currentId, newValue != oldValue else { return }
                 guard let assistant = lockfileAssistants.first(where: { $0.assistantId == newValue }) else { return }
-                // Only switch if the selected assistant is awake
                 guard awakeStates[assistant.assistantId] == true else {
                     selectedAssistantId = currentId
                     return
@@ -346,9 +313,7 @@ struct SettingsAccountTab: View {
     }
 
     private func toggleDisabled(for assistant: LockfileAssistant) -> Bool {
-        // Remote assistants are always awake — can't toggle
         if assistant.isRemote { return true }
-        // Mid-transition — prevent double-toggle
         if transitioningStates.contains(assistant.assistantId) { return true }
         return false
     }
@@ -361,7 +326,6 @@ struct SettingsAccountTab: View {
         }
     }
 
-    /// Returns the display name for an assistant, falling back to the assistant ID.
     private func displayLabel(for assistant: LockfileAssistant) -> String {
         displayNames[assistant.assistantId] ?? assistant.assistantId
     }
@@ -390,8 +354,6 @@ struct SettingsAccountTab: View {
                     try await cli.sleep(name: assistant.assistantId)
                 }
                 awakeStates[assistant.assistantId] = awake
-                // If we just slept the active assistant, auto-switch to
-                // another awake one so the app stays connected.
                 if !awake && assistant.assistantId == selectedAssistantId {
                     if let next = lockfileAssistants.first(where: {
                         $0.assistantId != assistant.assistantId && (awakeStates[$0.assistantId] ?? false)
@@ -401,7 +363,6 @@ struct SettingsAccountTab: View {
                     }
                 }
             } catch {
-                // On failure, re-check actual state
                 let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
                 awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
             }
@@ -450,8 +411,6 @@ struct SettingsAccountTab: View {
 
     // MARK: - Hatch New Assistant
 
-    /// Fetch the hatch-new-assistant flag from the gateway API.
-    /// Falls back to the local workspace config if the gateway is unreachable.
     private func loadHatchFlag() async {
         guard let daemonClient else { return }
         isLoadingHatchFlag = true
@@ -462,13 +421,9 @@ struct SettingsAccountTab: View {
                 isLoadingHatchFlag = false
                 return
             }
-        } catch {
-            // Gateway unreachable — fall through to local config fallback
-        }
+        } catch {}
 
         let config = WorkspaceConfigIO.read()
-
-        // Check canonical assistantFeatureFlagValues first (new format)
         if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
             if let enabled = canonicalFlags[Self.hatchNewAssistantFlagKey] {
                 isHatchFlagEnabled = enabled
@@ -476,7 +431,6 @@ struct SettingsAccountTab: View {
                 return
             }
         }
-        // On failure, default to showing the hatch section
         isHatchFlagEnabled = true
         isLoadingHatchFlag = false
     }
@@ -518,13 +472,370 @@ struct SettingsAccountTab: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    // MARK: - Assistant Feature Flags
+
+    private func loadAssistantFlags() async {
+        guard let daemonClient else { return }
+        isLoadingAssistantFlags = true
+        assistantFlagsError = nil
+        do {
+            assistantFlags = try await daemonClient.getFeatureFlags()
+        } catch {
+            assistantFlagsError = error.localizedDescription
+        }
+        isLoadingAssistantFlags = false
+    }
+
+    private var assistantFeatureFlagSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            HStack {
+                Text("Assistant Feature Flags")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                if isLoadingAssistantFlags {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                }
+            }
+
+            Text("Sourced from the gateway API. Changes are synced remotely.")
+                .font(VFont.sectionDescription)
+                .foregroundColor(VColor.textMuted)
+
+            if let error = assistantFlagsError {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.triangleAlert, size: 12)
+                        .foregroundColor(VColor.warning)
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                }
+            } else if assistantFlags.isEmpty && !isLoadingAssistantFlags {
+                Text("No assistant feature flags available.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(assistantFlags) { flag in
+                    assistantFlagRow(flag: flag)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
+        let flagBinding = Binding<Bool>(
+            get: {
+                assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
+            },
+            set: { newValue in
+                if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                    assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                        key: flag.key,
+                        enabled: newValue,
+                        defaultEnabled: flag.defaultEnabled,
+                        description: flag.description,
+                        label: flag.label
+                    )
+                }
+                NotificationCenter.default.post(
+                    name: .assistantFeatureFlagDidChange,
+                    object: nil,
+                    userInfo: ["key": flag.key, "enabled": newValue]
+                )
+                Task {
+                    do {
+                        try await daemonClient?.setFeatureFlag(key: flag.key, enabled: newValue)
+                    } catch {
+                        if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                            assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                                key: flag.key,
+                                enabled: !newValue,
+                                defaultEnabled: flag.defaultEnabled,
+                                description: flag.description,
+                                label: flag.label
+                            )
+                        }
+                        NotificationCenter.default.post(
+                            name: .assistantFeatureFlagDidChange,
+                            object: nil,
+                            userInfo: ["key": flag.key, "enabled": !newValue]
+                        )
+                    }
+                }
+            }
+        )
+        return HStack {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(flag.displayName)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if let description = flag.description, !description.isEmpty {
+                    Text(description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            Spacer()
+            VToggle(isOn: flagBinding)
+                .accessibilityLabel(flag.displayName)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
+    }
+
+    // MARK: - macOS Feature Flags
+
+    private var macOSFeatureFlagSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("macOS Feature Flags")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("Local-only flags stored in UserDefaults on this Mac.")
+                    .font(VFont.sectionDescription)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if macOSFlagStates.isEmpty {
+                Text("No macOS feature flags available.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
+                    macOSFlagRow(index: index, entry: entry)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func macOSFlagRow(index: Int, entry: MacOSFeatureFlagState) -> some View {
+        let flagBinding = Binding<Bool>(
+            get: { macOSFlagStates[index].enabled },
+            set: { newValue in
+                macOSFlagStates[index].enabled = newValue
+                MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
+                NotificationCenter.default.post(
+                    name: .assistantFeatureFlagDidChange,
+                    object: nil,
+                    userInfo: ["key": entry.key, "enabled": newValue]
+                )
+            }
+        )
+        return HStack {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(entry.label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if !entry.description.isEmpty {
+                    Text(entry.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            Spacer()
+            VToggle(isOn: flagBinding)
+                .accessibilityLabel(entry.label)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
+    }
+
+    // MARK: - Environment Variables
+
+    @ViewBuilder
+    private var environmentVariablesSection: some View {
+        if daemonClient != nil {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Environment Variables")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Environment Variables")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("View env vars for both the app and daemon processes")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    VButton(label: "View", style: .secondary) {
+                        appEnvVars = ProcessInfo.processInfo.environment
+                            .sorted(by: { $0.key < $1.key })
+                            .map { ($0.key, $0.value) }
+                        daemonEnvVars = []
+                        daemonClient?.onEnvVarsResponse = { response in
+                            Task { @MainActor in
+                                self.daemonEnvVars = response.vars
+                                    .sorted(by: { $0.key < $1.key })
+                                    .map { ($0.key, $0.value) }
+                            }
+                        }
+                        try? daemonClient?.sendEnvVarsRequest()
+                        showingEnvVars = true
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Sentry Testing
+
+    private var sentryTestingSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Sentry Testing")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("Trigger test events to validate that Sentry is receiving reports from this app.")
+                    .font(VFont.sectionDescription)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if !isSentryEnabled {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.triangleAlert, size: 12)
+                        .foregroundColor(VColor.warning)
+                    Text("Usage data collection is disabled. Non-fatal events will be silently dropped unless you enable \"Collect usage data\" in the Privacy tab.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+            }
+
+            if let status = lastSentryStatus {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.circleCheck, size: 12)
+                        .foregroundColor(VColor.success)
+                    Text(status)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                }
+                .transition(.opacity)
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VButton(label: "Trigger Fatal Crash", style: .danger) {
+                        fatalError("Sentry test crash")
+                    }
+                    Text("Calls fatalError() — will terminate the app immediately.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                Divider().foregroundColor(VColor.divider)
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VButton(label: "Send Test Error", style: .secondary) {
+                        sendSentryTestEvent(level: .error, label: "error")
+                    }
+                    Text("Captures a Sentry event with level .error")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                Divider().foregroundColor(VColor.divider)
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VButton(label: "Send Test Warning", style: .secondary) {
+                        sendSentryTestEvent(level: .warning, label: "warning")
+                    }
+                    Text("Captures a Sentry event with level .warning")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                Divider().foregroundColor(VColor.divider)
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VButton(label: "Send Test Message", style: .secondary) {
+                        sendSentryTestEvent(level: .info, label: "info message")
+                    }
+                    Text("Captures a Sentry event with level .info")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                Divider().foregroundColor(VColor.divider)
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VButton(label: "Test Performance Transaction", style: .secondary) {
+                        guard isSentryEnabled else {
+                            showSentryStatus("Sentry is disabled — transaction not sent.")
+                            return
+                        }
+                        MetricKitManager.sentrySerialQueue.async {
+                            guard SentrySDK.isEnabled else {
+                                Task { @MainActor in showSentryStatus("Sentry is disabled — transaction not sent.") }
+                                return
+                            }
+                            let transaction = SentrySDK.startTransaction(
+                                name: "settings-debug-test",
+                                operation: "test.transaction"
+                            )
+                            transaction.finish()
+                            Task { @MainActor in
+                                showSentryStatus("Transaction finished (10% sample rate — may not appear in Sentry).")
+                            }
+                        }
+                    }
+                    Text("Starts and finishes a Sentry transaction. Only ~10% are sampled and sent.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sendSentryTestEvent(level: SentryLevel, label: String) {
+        guard isSentryEnabled else {
+            showSentryStatus("Sentry is disabled — \(label) not sent.")
+            return
+        }
+        let event = Event(level: level)
+        event.message = SentryMessage(formatted: "Sentry test \(label) from Settings debug tab")
+        event.tags = ["source": "settings_debug"]
+        MetricKitManager.captureSentryEvent(event)
+        showSentryStatus("\(label.capitalized) event sent!")
+    }
+
+    private func showSentryStatus(_ message: String) {
+        sentryDismissTask?.cancel()
+        withAnimation { lastSentryStatus = message }
+        sentryDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                if lastSentryStatus == message { lastSentryStatus = nil }
+            }
+        }
+    }
 }
 
-// MARK: - Daemon Status Rows
+// MARK: - Daemon Status Rows (Developer Tab)
 
-/// Extracted child view so SwiftUI observes `DaemonClient`'s `@Published`
-/// properties and re-renders when connection or memory status changes.
-private struct AccountDaemonStatusRows: View {
+private struct DeveloperDaemonStatusRows: View {
     @ObservedObject var daemonClient: DaemonClient
 
     var body: some View {

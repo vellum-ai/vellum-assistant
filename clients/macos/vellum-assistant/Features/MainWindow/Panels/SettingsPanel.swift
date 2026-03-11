@@ -7,8 +7,6 @@ enum SettingsTab: String {
     case modelsAndServices = "Models & Services"
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
-    case automation = "Automation"
-    case appearance = "Appearance"
     case contacts = "Contacts"
     case developer = "Developer"
 
@@ -16,7 +14,7 @@ enum SettingsTab: String {
     static func primaryTabs(contactsEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .general, .channels, .modelsAndServices, .voice,
-            .automation, .appearance, .permissionsAndPrivacy
+            .permissionsAndPrivacy
         ]
         if contactsEnabled {
             tabs.append(.contacts)
@@ -53,10 +51,6 @@ struct SettingsPanel: View {
     @State private var braveSetupExpanded = false
     @State private var imageGenSetupExpanded = false
     @State private var showingTrustRules = false
-    @State private var showingReminders = false
-    @State private var showingScheduledTasks = false
-    @State private var showingHeartbeatConfig = false
-    @State private var showingHeartbeatRuns = false
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var microphoneGranted: Bool = false
@@ -189,26 +183,6 @@ struct SettingsPanel: View {
                 TrustRulesView(daemonClient: daemonClient)
             }
         }
-        .sheet(isPresented: $showingReminders) {
-            if let daemonClient {
-                RemindersView(daemonClient: daemonClient)
-            }
-        }
-        .sheet(isPresented: $showingScheduledTasks) {
-            if let daemonClient {
-                ScheduledTasksView(daemonClient: daemonClient)
-            }
-        }
-        .sheet(isPresented: $showingHeartbeatConfig) {
-            if let daemonClient {
-                HeartbeatConfigView(daemonClient: daemonClient)
-            }
-        }
-        .sheet(isPresented: $showingHeartbeatRuns) {
-            if let daemonClient {
-                HeartbeatRunsView(daemonClient: daemonClient)
-            }
-        }
     }
 
     // MARK: - Nav Sidebar
@@ -249,7 +223,7 @@ struct SettingsPanel: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .general:
-            SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
+            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         case .channels:
             SettingsChannelsTab(store: store, daemonClient: daemonClient)
         case .modelsAndServices:
@@ -258,17 +232,10 @@ struct SettingsPanel: View {
             VoiceSettingsView(store: store)
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
-        case .automation:
-            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks, showingHeartbeatConfig: $showingHeartbeatConfig, showingHeartbeatRuns: $showingHeartbeatRuns)
-        case .appearance:
-            SettingsAppearanceTab(store: store)
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store)
         case .developer:
-            Text("Developer")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }
     }
 
