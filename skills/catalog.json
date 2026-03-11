@@ -137,10 +137,7 @@
         "vellum": {
           "display-name": "Google OAuth Setup",
           "user-invocable": "true",
-          "includes": [
-            "browser",
-            "public-ingress"
-          ],
+          "includes": ["browser", "public-ingress"],
           "credential-setup-for": "gmail"
         }
       },
@@ -181,9 +178,7 @@
         "vellum": {
           "display-name": "macOS Automation",
           "user-invocable": "false",
-          "os": [
-            "darwin"
-          ]
+          "os": ["darwin"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -223,10 +218,7 @@
         "vellum": {
           "display-name": "Notion OAuth Setup",
           "user-invocable": "true",
-          "includes": [
-            "browser",
-            "public-ingress"
-          ]
+          "includes": ["browser", "public-ingress"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -240,9 +232,7 @@
         "vellum": {
           "display-name": "OAuth Setup",
           "user-invocable": "true",
-          "includes": [
-            "browser"
-          ]
+          "includes": ["browser"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -269,9 +259,7 @@
         "vellum": {
           "display-name": "Restaurant Reservation Booking",
           "user-invocable": "true",
-          "includes": [
-            "browser"
-          ],
+          "includes": ["browser"],
           "disable-model-invocation": "true"
         }
       },
@@ -285,9 +273,7 @@
         "emoji": "🎬",
         "vellum": {
           "display-name": "Screen Recording",
-          "os": [
-            "darwin"
-          ]
+          "os": ["darwin"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -339,9 +325,7 @@
         "vellum": {
           "display-name": "Slack App Setup",
           "user-invocable": "true",
-          "includes": [
-            "guardian-verify-setup"
-          ]
+          "includes": ["guardian-verify-setup"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -355,10 +339,7 @@
         "vellum": {
           "display-name": "Slack Digest Setup",
           "user-invocable": "true",
-          "includes": [
-            "slack",
-            "schedule"
-          ]
+          "includes": ["slack", "schedule"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -372,9 +353,7 @@
         "vellum": {
           "display-name": "Slack OAuth Setup",
           "user-invocable": "true",
-          "includes": [
-            "browser"
-          ]
+          "includes": ["browser"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -401,9 +380,7 @@
         "vellum": {
           "display-name": "Telegram Setup",
           "user-invocable": "true",
-          "includes": [
-            "public-ingress"
-          ]
+          "includes": ["public-ingress"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -429,9 +406,7 @@
         "vellum": {
           "display-name": "Twilio Setup",
           "user-invocable": "true",
-          "includes": [
-            "public-ingress"
-          ]
+          "includes": ["public-ingress"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -457,9 +432,7 @@
         "emoji": "▲",
         "vellum": {
           "display-name": "Vercel Token Setup",
-          "includes": [
-            "browser"
-          ],
+          "includes": ["browser"],
           "credential-setup-for": "vercel:api_token"
         }
       },
@@ -474,12 +447,8 @@
         "vellum": {
           "display-name": "Voice Setup",
           "user-invocable": "true",
-          "os": [
-            "darwin"
-          ],
-          "includes": [
-            "elevenlabs-voice"
-          ]
+          "os": ["darwin"],
+          "includes": ["elevenlabs-voice"]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
