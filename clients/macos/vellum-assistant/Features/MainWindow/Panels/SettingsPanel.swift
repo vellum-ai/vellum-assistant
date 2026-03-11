@@ -640,29 +640,6 @@ struct SettingsPanel: View {
                 .vCard(background: VColor.surfaceSubtle)
             }
 
-            // COMPUTER USAGE section (moved from Advanced)
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Computer Usage")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    Text("Max Steps per Session")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    VInfoTooltip("Maximum number of tool-use steps the assistant can take in a single session")
-                    Spacer()
-                    Text("\(Int(store.maxSteps))")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
             // PRIVACY section (merged from SettingsPrivacyTab)
             SettingsPrivacyTab(daemonClient: daemonClient, store: store)
 
@@ -723,14 +700,20 @@ struct SettingsPanel: View {
                 // Fall through to local config fallback.
             }
         }
+        // Build resolved values: start with bundled registry defaults, then overlay persisted overrides
+        let registry = loadFeatureFlagRegistry()
+        let registryDefaults = Dictionary(
+            uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? []).map { ($0.key, $0.defaultEnabled) }
+        )
         let config = WorkspaceConfigIO.read()
-        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
-            if let contactsEnabled = canonicalFlags[Self.contactsFeatureFlagKey] {
-                isContactsEnabled = contactsEnabled
-            }
-            if let developerEnabled = canonicalFlags[Self.developerFeatureFlagKey] {
-                isDeveloperEnabled = developerEnabled
-            }
+        let persistedFlags = (config["assistantFeatureFlagValues"] as? [String: Bool]) ?? [:]
+        let resolved = registryDefaults.merging(persistedFlags) { _, persisted in persisted }
+
+        if let contactsEnabled = resolved[Self.contactsFeatureFlagKey] {
+            isContactsEnabled = contactsEnabled
+        }
+        if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
+            isDeveloperEnabled = developerEnabled
         }
     }
 

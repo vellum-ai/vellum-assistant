@@ -127,7 +127,7 @@
       "key": "feature_flags.settings-developer-nav.enabled",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
-      "defaultEnabled": false
+      "defaultEnabled": true
     }
   ]
 }
