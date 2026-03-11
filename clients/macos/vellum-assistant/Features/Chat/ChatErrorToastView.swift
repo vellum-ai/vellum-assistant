@@ -67,8 +67,9 @@ struct ChatSessionErrorToast: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .center, spacing: VSpacing.sm) {
+        HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 14)
+                .offset(y: -1)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(message)
@@ -118,9 +119,10 @@ struct ChatSessionErrorToast: View {
             .accessibilityLabel("Dismiss error")
         }
         .foregroundColor(.white) // Intentional: always white on solid accent background
+        .frame(minHeight: 32)
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
         .background(accent)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .transition(.move(edge: .top).combined(with: .opacity))
