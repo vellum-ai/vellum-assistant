@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
@@ -146,9 +147,11 @@ export async function embedAttachmentJob(
 
   // Use messageId + blockIndex as targetId for uniqueness
   const targetId = `${messageId}:${blockIndex}`;
+  const memoryScopeId = getConversationMemoryScopeId(message.conversationId);
   await embedAndUpsert(config, "media", targetId, input, {
     created_at: message.createdAt,
     message_id: messageId,
     conversation_id: message.conversationId,
+    memory_scope_id: memoryScopeId,
   });
 }
