@@ -59,9 +59,6 @@ describe("Messaging skill split", () => {
     "sequence_delete",
     "sequence_enroll",
     "sequence_enrollment_list",
-    "sequence_pause",
-    "sequence_resume",
-    "sequence_cancel",
     "sequence_import",
     "sequence_analytics",
   ];
