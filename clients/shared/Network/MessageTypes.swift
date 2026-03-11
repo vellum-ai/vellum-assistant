@@ -133,30 +133,32 @@ public struct AnyCodable: Codable, Equatable, @unchecked Sendable {
 // MARK: - Client → Server Messages (Encodable)
 
 /// Attachment payload sent inline as base64.
-/// Backed by generated `IPCUserMessageAttachment`.
-public typealias IPCAttachment = IPCUserMessageAttachment
+/// Backed by generated `UserMessageAttachment`.
+public typealias Attachment = UserMessageAttachment
+@available(*, deprecated, renamed: "Attachment")
+public typealias IPCAttachment = UserMessageAttachment
 
-extension IPCUserMessageAttachment {
+extension UserMessageAttachment {
     public init(filename: String, mimeType: String, data: String, extractedText: String?) {
         self.init(id: nil, filename: filename, mimeType: mimeType, data: data, extractedText: extractedText, sizeBytes: nil, thumbnailData: nil)
     }
 }
 
 /// Sent to create a new computer-use session.
-/// Backed by generated `IPCCuSessionCreate`.
-public typealias CuSessionCreateMessage = IPCCuSessionCreate
+/// Backed by generated `CuSessionCreate`.
+public typealias CuSessionCreateMessage = CuSessionCreate
 
-extension IPCCuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?) {
+extension CuSessionCreate {
+    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [Attachment]?, interactionType: String?) {
         self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
     }
 }
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
-/// Backed by generated `IPCCuObservation`.
-public typealias CuObservationMessage = IPCCuObservation
+/// Backed by generated `CuObservation`.
+public typealias CuObservationMessage = CuObservation
 
-extension IPCCuObservation {
+extension CuObservation {
     public init(
         sessionId: String,
         axTree: String?,
@@ -171,8 +173,8 @@ extension IPCCuObservation {
         captureDisplayId: Double? = nil,
         executionResult: String?,
         executionError: String?,
-        axTreeBlob: IPCIpcBlobRef? = nil,
-        screenshotBlob: IPCIpcBlobRef? = nil,
+        axTreeBlob: BlobRef? = nil,
+        screenshotBlob: BlobRef? = nil,
         userGuidance: String? = nil
     ) {
         self.init(
@@ -198,45 +200,45 @@ extension IPCCuObservation {
 }
 
 /// Sent to start a ride shotgun observation session.
-/// Backed by generated `IPCRideShotgunStart`.
-public typealias RideShotgunStartMessage = IPCRideShotgunStart
+/// Backed by generated `RideShotgunStart`.
+public typealias RideShotgunStartMessage = RideShotgunStart
 
-extension IPCRideShotgunStart {
+extension RideShotgunStart {
     public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, navigateDomain: String? = nil, autoNavigate: Bool? = nil) {
         self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain, navigateDomain: navigateDomain, autoNavigate: autoNavigate)
     }
 }
 
 /// Sent to stop a ride shotgun session early (with recording finalization).
-/// Backed by generated `IPCRideShotgunStop`.
-public typealias RideShotgunStopMessage = IPCRideShotgunStop
+/// Backed by generated `RideShotgunStop`.
+public typealias RideShotgunStopMessage = RideShotgunStop
 
-extension IPCRideShotgunStop {
+extension RideShotgunStop {
     public init(watchId: String) {
         self.init(type: "ride_shotgun_stop", watchId: watchId)
     }
 }
 
 /// Sent by the watch agent with OCR text from periodic screen captures.
-/// Backed by generated `IPCWatchObservation`.
-public typealias WatchObservationMessage = IPCWatchObservation
+/// Backed by generated `WatchObservation`.
+public typealias WatchObservationMessage = WatchObservation
 
-extension IPCWatchObservation {
+extension WatchObservation {
     public init(watchId: String, sessionId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Int, totalExpected: Int) {
         self.init(type: "watch_observation", watchId: watchId, sessionId: sessionId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleIdentifier, timestamp: timestamp, captureIndex: captureIndex, totalExpected: totalExpected)
     }
 }
 
 /// Sent to create a new Q&A session.
-/// Backed by generated `IPCSessionCreateRequest`.
-public typealias SessionCreateMessage = IPCSessionCreateRequest
+/// Backed by generated `SessionCreateRequest`.
+public typealias SessionCreateMessage = SessionCreateRequest
 
 private func buildSessionTransportMetadata(
     channelId: String?,
     interfaceId: String?,
     hints: [String]?,
     uxBrief: String?
-) -> IPCSessionTransportMetadata? {
+) -> SessionTransportMetadata? {
     guard let channelId, !channelId.isEmpty else { return nil }
 
     var payload: [String: Any] = ["channelId": channelId]
@@ -253,13 +255,13 @@ private func buildSessionTransportMetadata(
     guard JSONSerialization.isValidJSONObject(payload) else { return nil }
     do {
         let data = try JSONSerialization.data(withJSONObject: payload)
-        return try JSONDecoder().decode(IPCSessionTransportMetadata.self, from: data)
+        return try JSONDecoder().decode(SessionTransportMetadata.self, from: data)
     } catch {
         return nil
     }
 }
 
-extension IPCSessionCreateRequest {
+extension SessionCreateRequest {
     private static var defaultTransportInterface: String {
         #if os(macOS)
         return "macos"
@@ -270,7 +272,7 @@ extension IPCSessionCreateRequest {
         #endif
     }
 
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
@@ -304,10 +306,10 @@ extension IPCSessionCreateRequest {
 }
 
 /// Sent to add a user message to an existing Q&A session.
-/// Backed by generated `IPCUserMessage`.
-public typealias UserMessageMessage = IPCUserMessage
+/// Backed by generated `UserMessage`.
+public typealias UserMessageMessage = UserMessage
 
-extension IPCUserMessage {
+extension UserMessage {
     /// Platform-derived default channel identifier.
     private static var defaultChannel: String {
         return "vellum"
@@ -324,63 +326,57 @@ extension IPCUserMessage {
         #endif
     }
 
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil) {
+    public init(sessionId: String, content: String, attachments: [Attachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil) {
         self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel, interface: interface ?? Self.defaultInterface, pttActivationKey: pttActivationKey, microphonePermissionGranted: microphonePermissionGranted)
     }
 }
 
 /// Sent to request daemon-side classification and session creation.
-/// Backed by generated `IPCTaskSubmit`.
-public typealias TaskSubmitMessage = IPCTaskSubmit
+/// Backed by generated `TaskSubmit`.
+public typealias TaskSubmitMessage = TaskSubmit
 
-extension IPCTaskSubmit {
-    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?) {
+extension TaskSubmit {
+    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [Attachment]?, source: String?) {
         self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
     }
 }
 
 /// Sent to cancel the active generation.
-/// Backed by generated `IPCCancelRequest`.
-public typealias CancelMessage = IPCCancelRequest
+/// Backed by generated `CancelRequest`.
+public typealias CancelMessage = CancelRequest
 
-extension IPCCancelRequest {
+extension CancelRequest {
     public init(sessionId: String) {
         self.init(type: "cancel", sessionId: sessionId)
     }
 }
 
 /// Sent to abort a running computer-use session.
-/// Backed by generated `IPCCuSessionAbort`.
-public typealias CuSessionAbortMessage = IPCCuSessionAbort
+/// Backed by generated `CuSessionAbort`.
+public typealias CuSessionAbortMessage = CuSessionAbort
 
-extension IPCCuSessionAbort {
+extension CuSessionAbort {
     public init(sessionId: String) {
         self.init(type: "cu_session_abort", sessionId: sessionId)
     }
 }
 
-/// Authenticate to the daemon on initial socket connect.
-/// Backed by generated `IPCAuthMessage`.
-public typealias AuthMessage = IPCAuthMessage
 
-extension IPCAuthMessage {
+extension AuthMessage {
     public init(token: String) {
         self.init(type: "auth", token: token)
     }
 }
 
-/// Keepalive ping.
-/// Backed by generated `IPCPingMessage`.
-public typealias PingMessage = IPCPingMessage
 
-extension IPCPingMessage {
+extension PingMessage {
     public init() {
         self.init(type: "ping")
     }
 }
 
 /// Sent when user interacts with a surface.
-/// Hand-written to allow optional `sessionId` (the generated `IPCUiSurfaceAction` requires non-nil).
+/// Hand-written to allow optional `sessionId` (the generated `UiSurfaceAction` requires non-nil).
 public struct UiSurfaceActionMessage: Codable, Sendable {
     public let type: String
     public let sessionId: String?
@@ -398,106 +394,106 @@ public struct UiSurfaceActionMessage: Codable, Sendable {
 }
 
 /// Sent when user requests undo on a workspace surface.
-/// Backed by generated `IPCUiSurfaceUndoRequest`.
-public typealias UiSurfaceUndoMessage = IPCUiSurfaceUndoRequest
+/// Backed by generated `UiSurfaceUndoRequest`.
+public typealias UiSurfaceUndoMessage = UiSurfaceUndoRequest
 
-extension IPCUiSurfaceUndoRequest {
+extension UiSurfaceUndoRequest {
     public init(sessionId: String, surfaceId: String) {
         self.init(type: "ui_surface_undo", sessionId: sessionId, surfaceId: surfaceId)
     }
 }
 
 /// Result of a surface undo operation.
-/// Backed by generated `IPCUiSurfaceUndoResult`.
-public typealias UiSurfaceUndoResultMessage = IPCUiSurfaceUndoResult
+/// Backed by generated `UiSurfaceUndoResult`.
+public typealias UiSurfaceUndoResultMessage = UiSurfaceUndoResult
 
 /// Sent when a persistent app's JS makes a data request via the RPC bridge.
-/// Backed by generated `IPCAppDataRequest`.
-public typealias AppDataRequestMessage = IPCAppDataRequest
+/// Backed by generated `AppDataRequest`.
+public typealias AppDataRequestMessage = AppDataRequest
 
-extension IPCAppDataRequest {
+extension AppDataRequest {
     public init(surfaceId: String, callId: String, method: String, appId: String, recordId: String?, data: [String: AnyCodable]?) {
         self.init(type: "app_data_request", surfaceId: surfaceId, callId: callId, method: method, appId: appId, recordId: recordId, data: data)
     }
 }
 
 /// Sent to request opening a URL in the user's browser.
-/// Backed by generated `IPCLinkOpenRequest`.
-public typealias LinkOpenRequestMessage = IPCLinkOpenRequest
+/// Backed by generated `LinkOpenRequest`.
+public typealias LinkOpenRequestMessage = LinkOpenRequest
 
-extension IPCLinkOpenRequest {
+extension LinkOpenRequest {
     public init(url: String, metadata: [String: AnyCodable]?) {
         self.init(type: "link_open_request", url: url, metadata: metadata)
     }
 }
 
 /// Sent to request opening an app by ID.
-/// Backed by generated `IPCAppOpenRequest`.
-public typealias AppOpenRequestMessage = IPCAppOpenRequest
+/// Backed by generated `AppOpenRequest`.
+public typealias AppOpenRequestMessage = AppOpenRequest
 
-extension IPCAppOpenRequest {
+extension AppOpenRequest {
     public init(appId: String) {
         self.init(type: "app_open_request", appId: appId)
     }
 }
 
 /// Sent to update an app's preview screenshot.
-/// Backed by generated `IPCAppUpdatePreviewRequest`.
-public typealias AppUpdatePreviewRequestMessage = IPCAppUpdatePreviewRequest
+/// Backed by generated `AppUpdatePreviewRequest`.
+public typealias AppUpdatePreviewRequestMessage = AppUpdatePreviewRequest
 
-extension IPCAppUpdatePreviewRequest {
+extension AppUpdatePreviewRequest {
     public init(appId: String, preview: String) {
         self.init(type: "app_update_preview", appId: appId, preview: preview)
     }
 }
 
 /// Response from updating an app's preview screenshot.
-/// Backed by generated `IPCAppUpdatePreviewResponse`.
-public typealias AppUpdatePreviewResponseMessage = IPCAppUpdatePreviewResponse
+/// Backed by generated `AppUpdatePreviewResponse`.
+public typealias AppUpdatePreviewResponseMessage = AppUpdatePreviewResponse
 
 /// Sent to request a single app's preview screenshot.
-/// Backed by generated `IPCAppPreviewRequest`.
-public typealias AppPreviewRequestMessage = IPCAppPreviewRequest
+/// Backed by generated `AppPreviewRequest`.
+public typealias AppPreviewRequestMessage = AppPreviewRequest
 
 /// Response with a single app's preview screenshot.
-/// Backed by generated `IPCAppPreviewResponse`.
-public typealias AppPreviewResponseMessage = IPCAppPreviewResponse
+/// Backed by generated `AppPreviewResponse`.
+public typealias AppPreviewResponseMessage = AppPreviewResponse
 
 /// Sent to request the list of all apps.
-/// Backed by generated `IPCAppsListRequest`.
-public typealias AppsListRequestMessage = IPCAppsListRequest
+/// Backed by generated `AppsListRequest`.
+public typealias AppsListRequestMessage = AppsListRequest
 
-extension IPCAppsListRequest {
+extension AppsListRequest {
     public init() {
         self.init(type: "apps_list")
     }
 }
 
 /// Sent to request the list of shared/received apps.
-/// Backed by generated `IPCSharedAppsListRequest`.
-public typealias SharedAppsListRequestMessage = IPCSharedAppsListRequest
+/// Backed by generated `SharedAppsListRequest`.
+public typealias SharedAppsListRequestMessage = SharedAppsListRequest
 
-extension IPCSharedAppsListRequest {
+extension SharedAppsListRequest {
     public init() {
         self.init(type: "shared_apps_list")
     }
 }
 
 /// Sent to delete a persistent user-created app by ID.
-/// Backed by generated `IPCAppDeleteRequest`.
-public typealias AppDeleteRequestMessage = IPCAppDeleteRequest
+/// Backed by generated `AppDeleteRequest`.
+public typealias AppDeleteRequestMessage = AppDeleteRequest
 
-extension IPCAppDeleteRequest {
+extension AppDeleteRequest {
     public init(appId: String) {
         self.init(type: "app_delete", appId: appId)
     }
 }
 
 /// Sent to delete a shared app by UUID.
-/// Backed by generated `IPCSharedAppDeleteRequest`.
-public typealias SharedAppDeleteRequestMessage = IPCSharedAppDeleteRequest
+/// Backed by generated `SharedAppDeleteRequest`.
+public typealias SharedAppDeleteRequestMessage = SharedAppDeleteRequest
 
-extension IPCSharedAppDeleteRequest {
+extension SharedAppDeleteRequest {
     public init(uuid: String) {
         self.init(type: "shared_app_delete", uuid: uuid)
     }
@@ -518,50 +514,50 @@ public struct ForkSharedAppResponseMessage: Decodable, Sendable {
 }
 
 /// Sent to request bundling an app for sharing.
-/// Backed by generated `IPCBundleAppRequest`.
-public typealias BundleAppRequestMessage = IPCBundleAppRequest
+/// Backed by generated `BundleAppRequest`.
+public typealias BundleAppRequestMessage = BundleAppRequest
 
-extension IPCBundleAppRequest {
+extension BundleAppRequest {
     public init(appId: String) {
         self.init(type: "bundle_app", appId: appId)
     }
 }
 
 /// Sent to open and scan a .vellum bundle.
-/// Backed by generated `IPCOpenBundleRequest`.
-public typealias OpenBundleMessage = IPCOpenBundleRequest
+/// Backed by generated `OpenBundleRequest`.
+public typealias OpenBundleMessage = OpenBundleRequest
 
-extension IPCOpenBundleRequest {
+extension OpenBundleRequest {
     public init(filePath: String) {
         self.init(type: "open_bundle", filePath: filePath)
     }
 }
 
 /// Sent to request the list of all past sessions/conversations.
-/// Backed by generated `IPCSessionListRequest`.
-public typealias SessionListRequestMessage = IPCSessionListRequest
+/// Backed by generated `SessionListRequest`.
+public typealias SessionListRequestMessage = SessionListRequest
 
-extension IPCSessionListRequest {
+extension SessionListRequest {
     public init(offset: Int? = nil, limit: Int? = nil) {
         self.init(type: "session_list", offset: offset.map(Double.init), limit: limit.map(Double.init))
     }
 }
 
 /// Sent to regenerate the last assistant response.
-/// Backed by generated `IPCRegenerateRequest`.
-public typealias RegenerateMessage = IPCRegenerateRequest
+/// Backed by generated `RegenerateRequest`.
+public typealias RegenerateMessage = RegenerateRequest
 
-extension IPCRegenerateRequest {
+extension RegenerateRequest {
     public init(sessionId: String) {
         self.init(type: "regenerate", sessionId: sessionId)
     }
 }
 
 /// Sent to request message history for a specific session.
-/// Backed by generated `IPCHistoryRequest`.
-public typealias HistoryRequestMessage = IPCHistoryRequest
+/// Backed by generated `HistoryRequest`.
+public typealias HistoryRequestMessage = HistoryRequest
 
-extension IPCHistoryRequest {
+extension HistoryRequest {
     public init(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil, maxTextChars: Int? = nil, maxToolResultChars: Int? = nil) {
         self.init(
             type: "history_request",
@@ -576,143 +572,143 @@ extension IPCHistoryRequest {
 }
 
 /// Sent to request the list of available skills.
-/// Backed by generated `IPCSkillsListRequest`.
-public typealias SkillsListRequestMessage = IPCSkillsListRequest
+/// Backed by generated `SkillsListRequest`.
+public typealias SkillsListRequestMessage = SkillsListRequest
 
-extension IPCSkillsListRequest {
+extension SkillsListRequest {
     public init() {
         self.init(type: "skills_list")
     }
 }
 
 /// Sent to request the full body of a specific skill.
-/// Backed by generated `IPCSkillDetailRequest`.
-public typealias SkillDetailRequestMessage = IPCSkillDetailRequest
+/// Backed by generated `SkillDetailRequest`.
+public typealias SkillDetailRequestMessage = SkillDetailRequest
 
-extension IPCSkillDetailRequest {
+extension SkillDetailRequest {
     public init(skillId: String) {
         self.init(type: "skill_detail", skillId: skillId)
     }
 }
 
 /// Enable a skill.
-/// Backed by generated `IPCSkillsEnableRequest`.
-public typealias SkillsEnableMessage = IPCSkillsEnableRequest
+/// Backed by generated `SkillsEnableRequest`.
+public typealias SkillsEnableMessage = SkillsEnableRequest
 
-extension IPCSkillsEnableRequest {
+extension SkillsEnableRequest {
     public init(name: String) {
         self.init(type: "skills_enable", name: name)
     }
 }
 
 /// Disable a skill.
-/// Backed by generated `IPCSkillsDisableRequest`.
-public typealias SkillsDisableMessage = IPCSkillsDisableRequest
+/// Backed by generated `SkillsDisableRequest`.
+public typealias SkillsDisableMessage = SkillsDisableRequest
 
-extension IPCSkillsDisableRequest {
+extension SkillsDisableRequest {
     public init(name: String) {
         self.init(type: "skills_disable", name: name)
     }
 }
 
 /// Configure a skill's env/apiKey/config.
-/// Backed by generated `IPCSkillsConfigureRequest`.
-public typealias SkillsConfigureMessage = IPCSkillsConfigureRequest
+/// Backed by generated `SkillsConfigureRequest`.
+public typealias SkillsConfigureMessage = SkillsConfigureRequest
 
-extension IPCSkillsConfigureRequest {
+extension SkillsConfigureRequest {
     public init(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
         self.init(type: "skills_configure", name: name, env: env, apiKey: apiKey, config: config)
     }
 }
 
 /// Install a skill from ClaWHub.
-/// Backed by generated `IPCSkillsInstallRequest`.
-public typealias SkillsInstallMessage = IPCSkillsInstallRequest
+/// Backed by generated `SkillsInstallRequest`.
+public typealias SkillsInstallMessage = SkillsInstallRequest
 
-extension IPCSkillsInstallRequest {
+extension SkillsInstallRequest {
     public init(slug: String, version: String? = nil) {
         self.init(type: "skills_install", slug: slug, version: version)
     }
 }
 
 /// Uninstall a skill.
-/// Backed by generated `IPCSkillsUninstallRequest`.
-public typealias SkillsUninstallMessage = IPCSkillsUninstallRequest
+/// Backed by generated `SkillsUninstallRequest`.
+public typealias SkillsUninstallMessage = SkillsUninstallRequest
 
-extension IPCSkillsUninstallRequest {
+extension SkillsUninstallRequest {
     public init(name: String) {
         self.init(type: "skills_uninstall", name: name)
     }
 }
 
 /// Update a skill.
-/// Backed by generated `IPCSkillsUpdateRequest`.
-public typealias SkillsUpdateMessage = IPCSkillsUpdateRequest
+/// Backed by generated `SkillsUpdateRequest`.
+public typealias SkillsUpdateMessage = SkillsUpdateRequest
 
-extension IPCSkillsUpdateRequest {
+extension SkillsUpdateRequest {
     public init(name: String) {
         self.init(type: "skills_update", name: name)
     }
 }
 
 /// Check for skill updates.
-/// Backed by generated `IPCSkillsCheckUpdatesRequest`.
-public typealias SkillsCheckUpdatesMessage = IPCSkillsCheckUpdatesRequest
+/// Backed by generated `SkillsCheckUpdatesRequest`.
+public typealias SkillsCheckUpdatesMessage = SkillsCheckUpdatesRequest
 
-extension IPCSkillsCheckUpdatesRequest {
+extension SkillsCheckUpdatesRequest {
     public init() {
         self.init(type: "skills_check_updates")
     }
 }
 
 /// Search for skills on ClaWHub.
-/// Backed by generated `IPCSkillsSearchRequest`.
-public typealias SkillsSearchMessage = IPCSkillsSearchRequest
+/// Backed by generated `SkillsSearchRequest`.
+public typealias SkillsSearchMessage = SkillsSearchRequest
 
-extension IPCSkillsSearchRequest {
+extension SkillsSearchRequest {
     public init(query: String) {
         self.init(type: "skills_search", query: query)
     }
 }
 
 /// Inspect a ClaWHub skill for detailed info.
-/// Backed by generated `IPCSkillsInspectRequest`.
-public typealias SkillsInspectMessage = IPCSkillsInspectRequest
+/// Backed by generated `SkillsInspectRequest`.
+public typealias SkillsInspectMessage = SkillsInspectRequest
 
-extension IPCSkillsInspectRequest {
+extension SkillsInspectRequest {
     public init(slug: String) {
         self.init(type: "skills_inspect", slug: slug)
     }
 }
 
 /// Draft a skill from source text.
-/// Backed by generated `IPCSkillsDraftRequest`.
-public typealias SkillsDraftRequestMessage = IPCSkillsDraftRequest
+/// Backed by generated `SkillsDraftRequest`.
+public typealias SkillsDraftRequestMessage = SkillsDraftRequest
 
-extension IPCSkillsDraftRequest {
+extension SkillsDraftRequest {
     public init(sourceText: String) {
         self.init(type: "skills_draft", sourceText: sourceText)
     }
 }
 
 /// Create a managed skill.
-/// Backed by generated `IPCSkillsCreateRequest`.
-public typealias SkillsCreateMessage = IPCSkillsCreateRequest
+/// Backed by generated `SkillsCreateRequest`.
+public typealias SkillsCreateMessage = SkillsCreateRequest
 
-extension IPCSkillsCreateRequest {
+extension SkillsCreateRequest {
     public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
         self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite)
     }
 }
 
-/// Backed by generated `IPCSkillsDraftResponse`.
-public typealias SkillsDraftResponseMessage = IPCSkillsDraftResponse
+/// Backed by generated `SkillsDraftResponse`.
+public typealias SkillsDraftResponseMessage = SkillsDraftResponse
 
 /// Response to a sign_bundle_payload request from the daemon.
-/// Backed by generated `IPCSignBundlePayloadResponse`.
-public typealias SignBundlePayloadResponseMessage = IPCSignBundlePayloadResponse
+/// Backed by generated `SignBundlePayloadResponse`.
+public typealias SignBundlePayloadResponseMessage = SignBundlePayloadResponse
 
-extension IPCSignBundlePayloadResponse {
+extension SignBundlePayloadResponse {
     public init(requestId: String, signature: String, keyId: String, publicKey: String) {
         self.init(type: "sign_bundle_payload_response", requestId: requestId, signature: signature, keyId: keyId, publicKey: publicKey, error: nil)
     }
@@ -723,10 +719,10 @@ extension IPCSignBundlePayloadResponse {
 }
 
 /// Response to a get_signing_identity request from the daemon.
-/// Backed by generated `IPCGetSigningIdentityResponse`.
-public typealias GetSigningIdentityResponseMessage = IPCGetSigningIdentityResponse
+/// Backed by generated `GetSigningIdentityResponse`.
+public typealias GetSigningIdentityResponseMessage = GetSigningIdentityResponse
 
-extension IPCGetSigningIdentityResponse {
+extension GetSigningIdentityResponse {
     public init(requestId: String, keyId: String, publicKey: String) {
         self.init(type: "get_signing_identity_response", requestId: requestId, keyId: keyId, publicKey: publicKey, error: nil)
     }
@@ -744,90 +740,90 @@ extension IPCGetSigningIdentityResponse {
 // include a `type` field that the old hand-maintained types omitted).
 
 /// Action to execute from the inference server.
-public typealias CuActionMessage = IPCCuAction
+public typealias CuActionMessage = CuAction
 
-extension IPCCuAction {
+extension CuAction {
     public init(sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String?, stepNumber: Int) {
         self.init(type: "cu_action", sessionId: sessionId, toolName: toolName, input: input, reasoning: reasoning, stepNumber: stepNumber)
     }
 }
 
 /// Session completed successfully.
-public typealias CuCompleteMessage = IPCCuComplete
+public typealias CuCompleteMessage = CuComplete
 
-extension IPCCuComplete {
+extension CuComplete {
     public init(sessionId: String, summary: String, stepCount: Int, isResponse: Bool?) {
         self.init(type: "cu_complete", sessionId: sessionId, summary: summary, stepCount: stepCount, isResponse: isResponse)
     }
 }
 
 /// Session-level error from the server.
-public typealias CuErrorMessage = IPCCuError
+public typealias CuErrorMessage = CuError
 
-extension IPCCuError {
+extension CuError {
     public init(sessionId: String, message: String) {
         self.init(type: "cu_error", sessionId: sessionId, message: message)
     }
 }
 
 /// Echoes a user message back to the client (e.g. relay_prompt from a surface action).
-/// Backed by generated `IPCUserMessageEcho`.
-public typealias UserMessageEchoMessage = IPCUserMessageEcho
+/// Backed by generated `UserMessageEcho`.
+public typealias UserMessageEchoMessage = UserMessageEcho
 
 /// Streamed text delta from the assistant's response.
-/// Backed by generated `IPCAssistantTextDelta`.
-public typealias AssistantTextDeltaMessage = IPCAssistantTextDelta
+/// Backed by generated `AssistantTextDelta`.
+public typealias AssistantTextDeltaMessage = AssistantTextDelta
 
-extension IPCAssistantTextDelta {
+extension AssistantTextDelta {
     public init(text: String, sessionId: String? = nil) {
         self.init(type: "assistant_text_delta", text: text, sessionId: sessionId)
     }
 }
 
 /// Streamed thinking delta from the assistant's reasoning.
-public typealias AssistantThinkingDeltaMessage = IPCAssistantThinkingDelta
+public typealias AssistantThinkingDeltaMessage = AssistantThinkingDelta
 
-extension IPCAssistantThinkingDelta {
+extension AssistantThinkingDelta {
     public init(thinking: String) {
         self.init(type: "assistant_thinking_delta", thinking: thinking)
     }
 }
 
 /// Signals that the assistant's message is complete.
-/// Backed by generated `IPCMessageComplete`.
-public typealias MessageCompleteMessage = IPCMessageComplete
+/// Backed by generated `MessageComplete`.
+public typealias MessageCompleteMessage = MessageComplete
 
-extension IPCMessageComplete {
-    public init(sessionId: String? = nil, attachments: [IPCUserMessageAttachment]? = nil) {
+extension MessageComplete {
+    public init(sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil) {
         self.init(type: "message_complete", sessionId: sessionId, attachments: attachments)
     }
 }
 
 /// Session metadata from the server (e.g. generated title).
-/// Backed by generated `IPCSessionInfo`.
-public typealias SessionInfoMessage = IPCSessionInfo
+/// Backed by generated `SessionInfo`.
+public typealias SessionInfoMessage = SessionInfo
 
-extension IPCSessionInfo {
+extension SessionInfo {
     public init(sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
         self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, threadType: threadType)
     }
 }
 
 /// Session title update push message emitted after first-turn auto-titling.
-/// Backed by generated `IPCSessionTitleUpdated`.
-public typealias SessionTitleUpdatedMessage = IPCSessionTitleUpdated
+/// Backed by generated `SessionTitleUpdated`.
+public typealias SessionTitleUpdatedMessage = SessionTitleUpdated
 
-extension IPCSessionTitleUpdated {
+extension SessionTitleUpdated {
     public init(sessionId: String, title: String) {
         self.init(type: "session_title_updated", sessionId: sessionId, title: title)
     }
 }
 
 /// Memory recall telemetry event.
-/// Backed by generated `IPCMemoryRecalled`.
-public typealias MemoryRecalledMessage = IPCMemoryRecalled
+/// Backed by generated `MemoryRecalled`.
+public typealias MemoryRecalledMessage = MemoryRecalled
 
-extension IPCMemoryRecalled {
+extension MemoryRecalled {
     public init(
         provider: String,
         model: String,
@@ -845,7 +841,7 @@ extension IPCMemoryRecalled {
         rerankApplied: Bool,
         injectedTokens: Int,
         latencyMs: Double,
-        topCandidates: [IPCMemoryRecalledCandidateDebug]
+        topCandidates: [MemoryRecalledCandidateDebug]
     ) {
         self.init(
             type: "memory_recalled",
@@ -871,42 +867,40 @@ extension IPCMemoryRecalled {
 }
 
 /// Memory availability/degradation status event.
-/// Backed by generated `IPCMemoryStatus`.
-public typealias MemoryStatusMessage = IPCMemoryStatus
+/// Backed by generated `MemoryStatus`.
+public typealias MemoryStatusMessage = MemoryStatus
 
 /// Daemon response after classifying and routing a task_submit.
-public typealias TaskRoutedMessage = IPCTaskRouted
+public typealias TaskRoutedMessage = TaskRouted
 
 /// Daemon response to a dictation_request with cleaned text and mode classification.
-public typealias DictationResponseMessage = IPCDictationResponse
+public typealias DictationResponseMessage = DictationResponse
 
-extension IPCDictationContext {
-    public static func create(bundleIdentifier: String, appName: String, windowTitle: String, selectedText: String?, cursorInTextField: Bool) -> IPCDictationContext {
-        IPCDictationContext(bundleIdentifier: bundleIdentifier, appName: appName, windowTitle: windowTitle, selectedText: selectedText, cursorInTextField: cursorInTextField)
+extension DictationContext {
+    public static func create(bundleIdentifier: String, appName: String, windowTitle: String, selectedText: String?, cursorInTextField: Bool) -> DictationContext {
+        DictationContext(bundleIdentifier: bundleIdentifier, appName: appName, windowTitle: windowTitle, selectedText: selectedText, cursorInTextField: cursorInTextField)
     }
 }
 
-extension IPCDictationRequest {
-    public init(transcription: String, context: IPCDictationContext, profileId: String? = nil) {
+extension DictationRequest {
+    public init(transcription: String, context: DictationContext, profileId: String? = nil) {
         self.init(type: "dictation_request", transcription: transcription, context: context, profileId: profileId)
     }
 }
 
 /// Bootstrap failure during learn-mode recording setup.
-public typealias RideShotgunErrorMessage = IPCRideShotgunError
+public typealias RideShotgunErrorMessage = RideShotgunError
 
 /// Progress update from a ride shotgun auto-navigation session.
-public typealias RideShotgunProgressMessage = IPCRideShotgunProgress
+public typealias RideShotgunProgressMessage = RideShotgunProgress
 
 /// Result from a ride shotgun observation session.
-public typealias RideShotgunResultMessage = IPCRideShotgunResult
+public typealias RideShotgunResultMessage = RideShotgunResult
 
 /// Instructs the client to open a URL in the browser.
-/// Backed by generated `IPCOpenUrl`.
-public typealias OpenUrlMessage = IPCOpenUrl
+/// Backed by generated `OpenUrl`.
+public typealias OpenUrlMessage = OpenUrl
 
-/// Daemon status sent on connect — includes runtime HTTP port when available.
-public typealias DaemonStatusMessage = IPCDaemonStatusMessage
 
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
@@ -935,8 +929,8 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
 }
 
 /// Surface action button data.
-/// Backed by generated `IPCSurfaceAction`.
-public typealias SurfaceActionData = IPCSurfaceAction
+/// Backed by generated `SurfaceAction`.
+public typealias SurfaceActionData = SurfaceAction
 
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
@@ -947,8 +941,8 @@ public struct UiSurfaceUpdateMessage: Decodable, Sendable {
 }
 
 /// Surface dismiss command from daemon.
-/// Backed by generated `IPCUiSurfaceDismiss`.
-public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
+/// Backed by generated `UiSurfaceDismiss`.
+public typealias UiSurfaceDismissMessage = UiSurfaceDismiss
 
 /// Surface completion message from daemon, sent when user interaction completes a surface.
 public struct UiSurfaceCompleteMessage: Decodable, Sendable {
@@ -959,18 +953,17 @@ public struct UiSurfaceCompleteMessage: Decodable, Sendable {
 }
 
 /// Document editor messages — backed by generated types from the message contract.
-public typealias DocumentEditorShowMessage = IPCDocumentEditorShow
-public typealias DocumentEditorUpdateMessage = IPCDocumentEditorUpdate
-public typealias DocumentSaveRequestMessage = IPCDocumentSaveRequest
-public typealias DocumentSaveResponseMessage = IPCDocumentSaveResponse
-public typealias DocumentLoadRequestMessage = IPCDocumentLoadRequest
-public typealias DocumentLoadResponseMessage = IPCDocumentLoadResponse
-public typealias DocumentListRequestMessage = IPCDocumentListRequest
-public typealias DocumentListResponseMessage = IPCDocumentListResponse
-public typealias DocumentListResponseDocument = IPCDocumentListResponseDocument
+public typealias DocumentEditorShowMessage = DocumentEditorShow
+public typealias DocumentEditorUpdateMessage = DocumentEditorUpdate
+public typealias DocumentSaveRequestMessage = DocumentSaveRequest
+public typealias DocumentSaveResponseMessage = DocumentSaveResponse
+public typealias DocumentLoadRequestMessage = DocumentLoadRequest
+public typealias DocumentLoadResponseMessage = DocumentLoadResponse
+public typealias DocumentListRequestMessage = DocumentListRequest
+public typealias DocumentListResponseMessage = DocumentListResponse
 
 /// Confirms undo/regenerate removed messages.
-public typealias UndoCompleteMessage = IPCUndoComplete
+public typealias UndoCompleteMessage = UndoComplete
 
 /// Confirms generation was cancelled.
 /// Kept hand-maintained — the Swift type includes `sessionId` for session
@@ -984,30 +977,30 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 }
 
 /// Notifies client that active generation yielded to queued work at a checkpoint.
-/// Backed by generated `IPCGenerationHandoff`.
-public typealias GenerationHandoffMessage = IPCGenerationHandoff
+/// Backed by generated `GenerationHandoff`.
+public typealias GenerationHandoffMessage = GenerationHandoff
 
-extension IPCGenerationHandoff {
-    public init(sessionId: String, requestId: String?, queuedCount: Int, attachments: [IPCUserMessageAttachment]? = nil) {
+extension GenerationHandoff {
+    public init(sessionId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil) {
         self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount, attachments: attachments)
     }
 }
 
 /// Notifies client that a message has been queued for processing.
-/// Backed by generated `IPCMessageQueued`.
-public typealias MessageQueuedMessage = IPCMessageQueued
+/// Backed by generated `MessageQueued`.
+public typealias MessageQueuedMessage = MessageQueued
 
-extension IPCMessageQueued {
+extension MessageQueued {
     public init(sessionId: String, requestId: String, position: Int) {
         self.init(type: "message_queued", sessionId: sessionId, requestId: requestId, position: position)
     }
 }
 
 /// Notifies client that a queued message has been dequeued and is now being processed.
-/// Backed by generated `IPCMessageDequeued`.
-public typealias MessageDequeuedMessage = IPCMessageDequeued
+/// Backed by generated `MessageDequeued`.
+public typealias MessageDequeuedMessage = MessageDequeued
 
-extension IPCMessageDequeued {
+extension MessageDequeued {
     public init(sessionId: String, requestId: String) {
         self.init(type: "message_dequeued", sessionId: sessionId, requestId: requestId)
     }
@@ -1015,68 +1008,65 @@ extension IPCMessageDequeued {
 
 /// Request-level terminal signal for a queued/dequeued lifecycle.
 /// Does not imply the active assistant turn has completed.
-/// Backed by generated `IPCMessageRequestComplete`.
-public typealias MessageRequestCompleteMessage = IPCMessageRequestComplete
+/// Backed by generated `MessageRequestComplete`.
+public typealias MessageRequestCompleteMessage = MessageRequestComplete
 
-extension IPCMessageRequestComplete {
+extension MessageRequestComplete {
     public init(sessionId: String, requestId: String, runStillActive: Bool? = nil) {
         self.init(type: "message_request_complete", sessionId: sessionId, requestId: requestId, runStillActive: runStillActive)
     }
 }
 
 /// Notifies client that a queued message was successfully deleted.
-/// Backed by generated `IPCMessageQueuedDeleted`.
-public typealias MessageQueuedDeletedMessage = IPCMessageQueuedDeleted
+/// Backed by generated `MessageQueuedDeleted`.
+public typealias MessageQueuedDeletedMessage = MessageQueuedDeleted
 
-extension IPCMessageQueuedDeleted {
+extension MessageQueuedDeleted {
     public init(sessionId: String, requestId: String) {
         self.init(type: "message_queued_deleted", sessionId: sessionId, requestId: requestId)
     }
 }
 
 /// Client → Server request to delete a specific queued message.
-/// Backed by generated `IPCDeleteQueuedMessage`.
-public typealias DeleteQueuedMessageMessage = IPCDeleteQueuedMessage
+/// Backed by generated `DeleteQueuedMessage`.
+public typealias DeleteQueuedMessageMessage = DeleteQueuedMessage
 
-extension IPCDeleteQueuedMessage {
+extension DeleteQueuedMessage {
     public init(sessionId: String, requestId: String) {
         self.init(type: "delete_queued_message", sessionId: sessionId, requestId: requestId)
     }
 }
 
-/// Server-level error message.
-/// Backed by generated `IPCErrorMessage`.
-public typealias ErrorMessage = IPCErrorMessage
 
-extension IPCErrorMessage {
+extension ErrorMessage {
     public init(message: String, category: String? = nil) {
         self.init(type: "error", message: message, category: category)
     }
 }
 
 /// Response from the daemon for a persistent app data request.
-/// Backed by generated `IPCAppDataResponse`.
-public typealias AppDataResponseMessage = IPCAppDataResponse
+/// Backed by generated `AppDataResponse`.
+public typealias AppDataResponseMessage = AppDataResponse
 
 /// ClaWHub metadata for a skill.
-/// Backed by generated `IPCSkillsListResponseSkillClawhub`.
-public typealias ClawhubInfo = IPCSkillsListResponseSkillClawhub
+/// Backed by generated `SkillsListResponseSkillClawhub`.
+public typealias ClawhubInfo = SkillsListResponseSkillClawhub
 
 /// Missing requirements preventing a skill from full operation.
-/// Backed by generated `IPCSkillsListResponseSkillMissingRequirements`.
-public typealias MissingRequirements = IPCSkillsListResponseSkillMissingRequirements
+/// Backed by generated `SkillsListResponseSkillMissingRequirements`.
+public typealias MissingRequirements = SkillsListResponseSkillMissingRequirements
 
 /// Provenance metadata indicating whether a skill is first-party, third-party, or local.
-/// Backed by generated `IPCSkillsListResponseSkillProvenance`.
-public typealias SkillProvenance = IPCSkillsListResponseSkillProvenance
+/// Backed by generated `SkillsListResponseSkillProvenance`.
+public typealias SkillProvenance = SkillsListResponseSkillProvenance
 
 /// Full skill info from the daemon's resolved skill list.
-/// Backed by generated `IPCSkillsListResponseSkill`.
-public typealias SkillInfo = IPCSkillsListResponseSkill
+/// Backed by generated `SkillsListResponseSkill`.
+public typealias SkillInfo = SkillsListResponseSkill
 
-extension IPCSkillsListResponseSkill: Identifiable {}
+extension SkillsListResponseSkill: Identifiable {}
 
-extension IPCSkillsListResponseSkill {
+extension SkillsListResponseSkill {
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
         Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
@@ -1084,79 +1074,79 @@ extension IPCSkillsListResponseSkill {
 }
 
 /// Response containing the list of available skills.
-/// Backed by generated `IPCSkillsListResponse`.
-public typealias SkillsListResponseMessage = IPCSkillsListResponse
+/// Backed by generated `SkillsListResponse`.
+public typealias SkillsListResponseMessage = SkillsListResponse
 
 /// Response containing the full body of a specific skill.
-/// Backed by generated `IPCSkillDetailResponse`.
-public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
+/// Backed by generated `SkillDetailResponse`.
+public typealias SkillDetailResponseMessage = SkillDetailResponse
 
 // MARK: - Conversation Search
 
 /// Response containing conversation search results.
-/// Backed by generated `IPCConversationSearchResponse`.
-public typealias ConversationSearchResponseMessage = IPCConversationSearchResponse
+/// Backed by generated `ConversationSearchResponse`.
+public typealias ConversationSearchResponseMessage = ConversationSearchResponse
 
 // MARK: - Workspace Files
 
 /// Request to list workspace files.
-public typealias WorkspaceFilesListRequestMessage = IPCWorkspaceFilesListRequest
+public typealias WorkspaceFilesListRequestMessage = WorkspaceFilesListRequest
 
-extension IPCWorkspaceFilesListRequest {
+extension WorkspaceFilesListRequest {
     public init() {
         self.init(type: "workspace_files_list")
     }
 }
 
 /// Request to read a workspace file's content.
-public typealias WorkspaceFileReadRequestMessage = IPCWorkspaceFileReadRequest
+public typealias WorkspaceFileReadRequestMessage = WorkspaceFileReadRequest
 
-extension IPCWorkspaceFileReadRequest {
+extension WorkspaceFileReadRequest {
     public init(path: String) {
         self.init(type: "workspace_file_read", path: path)
     }
 }
 
 /// Response containing the list of workspace files.
-public typealias WorkspaceFilesListResponseMessage = IPCWorkspaceFilesListResponse
+public typealias WorkspaceFilesListResponseMessage = WorkspaceFilesListResponse
 
 /// Individual workspace file entry.
-public typealias WorkspaceFileInfo = IPCWorkspaceFilesListResponseFile
+public typealias WorkspaceFileInfo = WorkspaceFilesListResponseFile
 
-extension IPCWorkspaceFilesListResponseFile: Identifiable {
+extension WorkspaceFilesListResponseFile: Identifiable {
     public var id: String { path }
 }
 
 /// Response containing a workspace file's content.
-public typealias WorkspaceFileReadResponseMessage = IPCWorkspaceFileReadResponse
+public typealias WorkspaceFileReadResponseMessage = WorkspaceFileReadResponse
 
 /// Request to fetch assistant identity info via HTTP.
-public typealias IdentityGetRequestMessage = IPCIdentityGetRequest
+public typealias IdentityGetRequestMessage = IdentityGetRequest
 
-extension IPCIdentityGetRequest {
+extension IdentityGetRequest {
     public init() {
         self.init(type: "identity_get")
     }
 }
 
 /// Response containing assistant identity info.
-public typealias IdentityGetResponseMessage = IPCIdentityGetResponse
+public typealias IdentityGetResponseMessage = IdentityGetResponse
 
 /// Request to generate a custom avatar via DALL-E.
-public typealias GenerateAvatarRequestMessage = IPCGenerateAvatarRequest
+public typealias GenerateAvatarRequestMessage = GenerateAvatarRequest
 
-extension IPCGenerateAvatarRequest {
+extension GenerateAvatarRequest {
     public init(description: String) {
         self.init(type: "generate_avatar", description: description)
     }
 }
 
 /// Response indicating whether avatar generation succeeded.
-public typealias GenerateAvatarResponseMessage = IPCGenerateAvatarResponse
+public typealias GenerateAvatarResponseMessage = GenerateAvatarResponse
 
 /// Push event: skill state changed.
-/// Backed by generated `IPCSkillStateChanged`.
-public typealias SkillStateChangedMessage = IPCSkillStateChanged
+/// Backed by generated `SkillStateChanged`.
+public typealias SkillStateChangedMessage = SkillStateChanged
 
 /// A skill returned from a search or explore query.
 /// Kept hand-maintained — this type is decoded from the `data` field of
@@ -1211,20 +1201,20 @@ public struct SkillsOperationResponseMessage: Decodable, Sendable {
 }
 
 /// Skill info from a ClaWHub inspect response.
-/// Backed by generated `IPCSkillsInspectResponseDataSkill`.
-public typealias ClawhubInspectSkill = IPCSkillsInspectResponseDataSkill
+/// Backed by generated `SkillsInspectResponseDataSkill`.
+public typealias ClawhubInspectSkill = SkillsInspectResponseDataSkill
 
 /// Owner info from a ClaWHub inspect response.
-/// Backed by generated `IPCSkillsInspectResponseDataOwner`.
-public typealias ClawhubInspectOwner = IPCSkillsInspectResponseDataOwner
+/// Backed by generated `SkillsInspectResponseDataOwner`.
+public typealias ClawhubInspectOwner = SkillsInspectResponseDataOwner
 
 /// Stats from a ClaWHub inspect response.
-/// Backed by generated `IPCSkillsInspectResponseDataStats`.
-public typealias ClawhubInspectStats = IPCSkillsInspectResponseDataStats
+/// Backed by generated `SkillsInspectResponseDataStats`.
+public typealias ClawhubInspectStats = SkillsInspectResponseDataStats
 
 // The server may omit stats fields for newly created skills,
 // so we default missing values to 0 instead of crashing.
-extension IPCSkillsInspectResponseDataStats {
+extension SkillsInspectResponseDataStats {
     enum CodingKeys: String, CodingKey {
         case stars, installs, downloads, versions
     }
@@ -1241,150 +1231,147 @@ extension IPCSkillsInspectResponseDataStats {
 }
 
 /// Version info from a ClaWHub inspect response.
-/// Backed by generated `IPCSkillsInspectResponseDataLatestVersion`.
-public typealias ClawhubInspectVersion = IPCSkillsInspectResponseDataLatestVersion
+/// Backed by generated `SkillsInspectResponseDataLatestVersion`.
+public typealias ClawhubInspectVersion = SkillsInspectResponseDataLatestVersion
 
 /// File entry from a ClaWHub inspect response.
-/// Backed by generated `IPCSkillsInspectResponseDataFile`.
-public typealias ClawhubInspectFile = IPCSkillsInspectResponseDataFile
+/// Backed by generated `SkillsInspectResponseDataFile`.
+public typealias ClawhubInspectFile = SkillsInspectResponseDataFile
 
 /// Full inspect data for a ClaWHub skill.
-/// Backed by generated `IPCSkillsInspectResponseData`.
-public typealias ClawhubInspectData = IPCSkillsInspectResponseData
+/// Backed by generated `SkillsInspectResponseData`.
+public typealias ClawhubInspectData = SkillsInspectResponseData
 
 // Backward-compatible typed accessors. The generated struct now uses
 // concrete types (Int?, String?) instead of AnyCodable?, so these are
 // simple pass-throughs for existing call sites.
-extension IPCSkillsInspectResponseData {
+extension SkillsInspectResponseData {
     public var createdAtInt: Int? { createdAt }
     public var updatedAtInt: Int? { updatedAt }
     public var skillMdContentString: String? { skillMdContent }
 }
 
 /// Response from inspecting a ClaWHub skill.
-/// Backed by generated `IPCSkillsInspectResponse`.
-public typealias SkillsInspectResponseMessage = IPCSkillsInspectResponse
+/// Backed by generated `SkillsInspectResponse`.
+public typealias SkillsInspectResponseMessage = SkillsInspectResponse
 
-/// Attention state metadata for a conversation's latest assistant message.
-/// Backed by generated `IPCAssistantAttention`.
-public typealias AssistantAttention = IPCAssistantAttention
 
 /// Response containing the list of past sessions.
-/// Backed by generated `IPCSessionListResponse`.
-public typealias SessionListResponseMessage = IPCSessionListResponse
+/// Backed by generated `SessionListResponse`.
+public typealias SessionListResponseMessage = SessionListResponse
 
 /// Response containing message history for a session.
-/// Backed by generated `IPCHistoryResponse`.
-public typealias HistoryResponseMessage = IPCHistoryResponse
+/// Backed by generated `HistoryResponse`.
+public typealias HistoryResponseMessage = HistoryResponse
 
 
 /// A single scheduled task item returned from the daemon.
-/// Backed by generated `IPCSchedulesListResponseSchedule`.
-public typealias ScheduleItem = IPCSchedulesListResponseSchedule
+/// Backed by generated `SchedulesListResponseSchedule`.
+public typealias ScheduleItem = SchedulesListResponseSchedule
 
-extension IPCSchedulesListResponseSchedule: Identifiable {}
+extension SchedulesListResponseSchedule: Identifiable {}
 
 /// Response containing all scheduled tasks.
-/// Backed by generated `IPCSchedulesListResponse`.
-public typealias SchedulesListResponseMessage = IPCSchedulesListResponse
+/// Backed by generated `SchedulesListResponse`.
+public typealias SchedulesListResponseMessage = SchedulesListResponse
 
 /// Request all schedules from the daemon.
-/// Backed by generated `IPCSchedulesList`.
-public typealias SchedulesListMessage = IPCSchedulesList
+/// Backed by generated `SchedulesList`.
+public typealias SchedulesListMessage = SchedulesList
 
-extension IPCSchedulesList {
+extension SchedulesList {
     public init() {
         self.init(type: "schedules_list")
     }
 }
 
 /// Toggle a schedule's enabled state.
-/// Backed by generated `IPCScheduleToggle`.
-public typealias ScheduleToggleMessage = IPCScheduleToggle
+/// Backed by generated `ScheduleToggle`.
+public typealias ScheduleToggleMessage = ScheduleToggle
 
-extension IPCScheduleToggle {
+extension ScheduleToggle {
     public init(id: String, enabled: Bool) {
         self.init(type: "schedule_toggle", id: id, enabled: enabled)
     }
 }
 
 /// Remove a schedule by ID.
-/// Backed by generated `IPCScheduleRemove`.
-public typealias ScheduleRemoveMessage = IPCScheduleRemove
+/// Backed by generated `ScheduleRemove`.
+public typealias ScheduleRemoveMessage = ScheduleRemove
 
-extension IPCScheduleRemove {
+extension ScheduleRemove {
     public init(id: String) {
         self.init(type: "schedule_remove", id: id)
     }
 }
 
 /// Cancel a schedule (preserves the record with status 'cancelled').
-/// Backed by generated `IPCScheduleCancel`.
-public typealias ScheduleCancelMessage = IPCScheduleCancel
+/// Backed by generated `ScheduleCancel`.
+public typealias ScheduleCancelMessage = ScheduleCancel
 
-extension IPCScheduleCancel {
+extension ScheduleCancel {
     public init(id: String) {
         self.init(type: "schedule_cancel", id: id)
     }
 }
 
 /// Run a schedule immediately as a one-off.
-/// Backed by generated `IPCScheduleRunNow`.
-public typealias ScheduleRunNowMessage = IPCScheduleRunNow
+/// Backed by generated `ScheduleRunNow`.
+public typealias ScheduleRunNowMessage = ScheduleRunNow
 
-extension IPCScheduleRunNow {
+extension ScheduleRunNow {
     public init(id: String) {
         self.init(type: "schedule_run_now", id: id)
     }
 }
 
 /// A single trust rule item returned from the daemon.
-/// Backed by generated `IPCTrustRulesListResponseRule`.
-public typealias TrustRuleItem = IPCTrustRulesListResponseRule
+/// Backed by generated `TrustRulesListResponseRule`.
+public typealias TrustRuleItem = TrustRulesListResponseRule
 
-extension IPCTrustRulesListResponseRule: Identifiable {}
+extension TrustRulesListResponseRule: Identifiable {}
 
 /// Response containing all trust rules.
-/// Backed by generated `IPCTrustRulesListResponse`.
-public typealias TrustRulesListResponseMessage = IPCTrustRulesListResponse
+/// Backed by generated `TrustRulesListResponse`.
+public typealias TrustRulesListResponseMessage = TrustRulesListResponse
 
 /// A single app item returned from the daemon.
-/// Backed by generated `IPCAppsListResponseApp`.
-public typealias AppItem = IPCAppsListResponseApp
+/// Backed by generated `AppsListResponseApp`.
+public typealias AppItem = AppsListResponseApp
 
-extension IPCAppsListResponseApp: Identifiable {}
+extension AppsListResponseApp: Identifiable {}
 
 /// Response containing the list of all apps.
-/// Backed by generated `IPCAppsListResponse`.
-public typealias AppsListResponseMessage = IPCAppsListResponse
+/// Backed by generated `AppsListResponse`.
+public typealias AppsListResponseMessage = AppsListResponse
 
 /// A single shared app item returned from the daemon.
-/// Backed by generated `IPCSharedAppsListResponseApp`.
-public typealias SharedAppItem = IPCSharedAppsListResponseApp
+/// Backed by generated `SharedAppsListResponseApp`.
+public typealias SharedAppItem = SharedAppsListResponseApp
 
-extension IPCSharedAppsListResponseApp: Identifiable {
+extension SharedAppsListResponseApp: Identifiable {
     public var id: String { uuid }
 }
 
 /// Response containing the list of shared apps.
-/// Backed by generated `IPCSharedAppsListResponse`.
-public typealias SharedAppsListResponseMessage = IPCSharedAppsListResponse
+/// Backed by generated `SharedAppsListResponse`.
+public typealias SharedAppsListResponseMessage = SharedAppsListResponse
 
 /// Response from deleting a persistent user-created app.
-/// Backed by generated `IPCAppDeleteResponse`.
-public typealias AppDeleteResponseMessage = IPCAppDeleteResponse
+/// Backed by generated `AppDeleteResponse`.
+public typealias AppDeleteResponseMessage = AppDeleteResponse
 
 /// Response from deleting a shared app.
-/// Backed by generated `IPCSharedAppDeleteResponse`.
-public typealias SharedAppDeleteResponseMessage = IPCSharedAppDeleteResponse
+/// Backed by generated `SharedAppDeleteResponse`.
+public typealias SharedAppDeleteResponseMessage = SharedAppDeleteResponse
 
 /// Response from bundling an app.
-/// Backed by generated `IPCBundleAppResponse`.
-public typealias BundleAppResponseMessage = IPCBundleAppResponse
+/// Backed by generated `BundleAppResponse`.
+public typealias BundleAppResponseMessage = BundleAppResponse
 
 /// Request from daemon to sign a bundle payload.
-/// Backed by generated `IPCSignBundlePayloadRequest`.
-public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
+/// Backed by generated `SignBundlePayloadRequest`.
+public typealias SignBundlePayloadMessage = SignBundlePayloadRequest
 
 /// Real-time execution trace event from the daemon.
 /// Wire type: `"trace_event"`
@@ -1441,71 +1428,71 @@ public struct SessionErrorMessage: Decodable, Sendable {
 }
 
 /// Generic notification intent from daemon.
-/// Backed by generated `IPCNotificationIntent`.
-public typealias NotificationIntentMessage = IPCNotificationIntent
+/// Backed by generated `NotificationIntent`.
+public typealias NotificationIntentMessage = NotificationIntent
 
 /// Watch session started notification from daemon.
-/// Backed by generated `IPCWatchStarted`.
-public typealias WatchStartedMessage = IPCWatchStarted
+/// Backed by generated `WatchStarted`.
+public typealias WatchStartedMessage = WatchStarted
 
 /// Watch session complete request from daemon.
-/// Backed by generated `IPCWatchCompleteRequest`.
-public typealias WatchCompleteRequestMessage = IPCWatchCompleteRequest
+/// Backed by generated `WatchCompleteRequest`.
+public typealias WatchCompleteRequestMessage = WatchCompleteRequest
 
 /// Tool execution started.
-/// Backed by generated `IPCToolUseStart`.
-public typealias ToolUseStartMessage = IPCToolUseStart
+/// Backed by generated `ToolUseStart`.
+public typealias ToolUseStartMessage = ToolUseStart
 
 /// Tool use preview started (emitted during LLM tool input streaming for immediate UI feedback).
-/// Backed by generated `IPCToolUsePreviewStart`.
-public typealias ToolUsePreviewStartMessage = IPCToolUsePreviewStart
+/// Backed by generated `ToolUsePreviewStart`.
+public typealias ToolUsePreviewStartMessage = ToolUsePreviewStart
 
 /// Streaming tool input delta (e.g. partial JSON as tool input is generated).
-/// Backed by generated `IPCToolInputDelta`.
-public typealias ToolInputDeltaMessage = IPCToolInputDelta
+/// Backed by generated `ToolInputDelta`.
+public typealias ToolInputDeltaMessage = ToolInputDelta
 
 /// Streaming tool output chunk.
-/// Backed by generated `IPCToolOutputChunk`.
-public typealias ToolOutputChunkMessage = IPCToolOutputChunk
+/// Backed by generated `ToolOutputChunk`.
+public typealias ToolOutputChunkMessage = ToolOutputChunk
 
 /// Tool execution completed.
-/// Backed by generated `IPCToolResult`.
-public typealias ToolResultMessage = IPCToolResult
+/// Backed by generated `ToolResult`.
+public typealias ToolResultMessage = ToolResult
 
 /// Follow-up suggestion response from daemon.
-/// Backed by generated `IPCSuggestionResponse`.
-public typealias SuggestionResponseMessage = IPCSuggestionResponse
+/// Backed by generated `SuggestionResponse`.
+public typealias SuggestionResponseMessage = SuggestionResponse
 
 /// Secret input request from daemon.
-/// Backed by generated `IPCSecretRequest`.
-public typealias SecretRequestMessage = IPCSecretRequest
+/// Backed by generated `SecretRequest`.
+public typealias SecretRequestMessage = SecretRequest
 
 /// Permission confirmation request from daemon.
-/// Backed by generated `IPCConfirmationRequest`.
-public typealias ConfirmationRequestMessage = IPCConfirmationRequest
+/// Backed by generated `ConfirmationRequest`.
+public typealias ConfirmationRequestMessage = ConfirmationRequest
 
 
 // Equatable conformance for generated types used in SwiftUI previews and tests.
 // Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
-extension IPCConfirmationRequestAllowlistOption: Equatable {
+extension ConfirmationRequestAllowlistOption: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.label == rhs.label && lhs.description == rhs.description && lhs.pattern == rhs.pattern
     }
 }
-extension IPCConfirmationRequestScopeOption: Equatable {
+extension ConfirmationRequestScopeOption: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.label == rhs.label && lhs.scope == rhs.scope
     }
 }
-extension IPCConfirmationRequestDiff: Equatable {
+extension ConfirmationRequestDiff: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.filePath == rhs.filePath && lhs.oldContent == rhs.oldContent && lhs.newContent == rhs.newContent && lhs.isNewFile == rhs.isNewFile
     }
 }
 
 /// Authoritative confirmation state transition from daemon.
-/// Backed by generated `IPCConfirmationStateChanged`.
-public typealias ConfirmationStateChangedMessage = IPCConfirmationStateChanged
+/// Backed by generated `ConfirmationStateChanged`.
+public typealias ConfirmationStateChangedMessage = ConfirmationStateChanged
 
 // MARK: - Host Bash Proxy
 
@@ -1556,45 +1543,45 @@ public struct HostBashResultPayload: Codable, Sendable {
 }
 
 /// Server-side assistant activity lifecycle event.
-/// Backed by generated `IPCAssistantActivityState`.
-public typealias AssistantActivityStateMessage = IPCAssistantActivityState
+/// Backed by generated `AssistantActivityState`.
+public typealias AssistantActivityStateMessage = AssistantActivityState
 
 
 /// Request a follow-up suggestion for the current session.
-/// Backed by generated `IPCSuggestionRequest`.
-public typealias SuggestionRequestMessage = IPCSuggestionRequest
+/// Backed by generated `SuggestionRequest`.
+public typealias SuggestionRequestMessage = SuggestionRequest
 
-extension IPCSuggestionRequest {
+extension SuggestionRequest {
     public init(sessionId: String, requestId: String) {
         self.init(type: "suggestion_request", sessionId: sessionId, requestId: requestId)
     }
 }
 
 /// Client response to a permission confirmation request.
-/// Backed by generated `IPCConfirmationResponse`.
-public typealias ConfirmationResponseMessage = IPCConfirmationResponse
+/// Backed by generated `ConfirmationResponse`.
+public typealias ConfirmationResponseMessage = ConfirmationResponse
 
-extension IPCConfirmationResponse {
+extension ConfirmationResponse {
     public init(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil) {
         self.init(type: "confirmation_response", requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope)
     }
 }
 
 /// Client response to a secret input request.
-/// Backed by generated `IPCSecretResponse`.
-public typealias SecretResponseMessage = IPCSecretResponse
+/// Backed by generated `SecretResponse`.
+public typealias SecretResponseMessage = SecretResponse
 
-extension IPCSecretResponse {
+extension SecretResponse {
     public init(requestId: String, value: String?, delivery: String? = nil) {
         self.init(type: "secret_response", requestId: requestId, value: value, delivery: delivery)
     }
 }
 
 /// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
-/// Backed by generated `IPCAddTrustRule`.
-public typealias AddTrustRuleMessage = IPCAddTrustRule
+/// Backed by generated `AddTrustRule`.
+public typealias AddTrustRuleMessage = AddTrustRule
 
-extension IPCAddTrustRule {
+extension AddTrustRule {
     public init(
         toolName: String,
         pattern: String,
@@ -1616,98 +1603,97 @@ extension IPCAddTrustRule {
 }
 
 /// Request all trust rules from the daemon.
-/// Backed by generated `IPCTrustRulesList`.
-public typealias TrustRulesListMessage = IPCTrustRulesList
+/// Backed by generated `TrustRulesList`.
+public typealias TrustRulesListMessage = TrustRulesList
 
-extension IPCTrustRulesList {
+extension TrustRulesList {
     public init() {
         self.init(type: "trust_rules_list")
     }
 }
 
 /// Remove a trust rule by its ID.
-/// Backed by generated `IPCRemoveTrustRule`.
-public typealias RemoveTrustRuleMessage = IPCRemoveTrustRule
+/// Backed by generated `RemoveTrustRule`.
+public typealias RemoveTrustRuleMessage = RemoveTrustRule
 
-extension IPCRemoveTrustRule {
+extension RemoveTrustRule {
     public init(id: String) {
         self.init(type: "remove_trust_rule", id: id)
     }
 }
 
 /// Update fields on an existing trust rule.
-/// Backed by generated `IPCUpdateTrustRule`.
-public typealias UpdateTrustRuleMessage = IPCUpdateTrustRule
+/// Backed by generated `UpdateTrustRule`.
+public typealias UpdateTrustRuleMessage = UpdateTrustRule
 
-extension IPCUpdateTrustRule {
+extension UpdateTrustRule {
     public init(id: String, tool: String? = nil, pattern: String? = nil, scope: String? = nil, decision: String? = nil, priority: Int? = nil) {
         self.init(type: "update_trust_rule", id: id, tool: tool, pattern: pattern, scope: scope, decision: decision, priority: priority)
     }
 }
 
 /// Simulate a tool permission check without executing the tool.
-/// Backed by generated `IPCToolPermissionSimulateRequest`.
-public typealias ToolPermissionSimulateMessage = IPCToolPermissionSimulateRequest
+/// Backed by generated `ToolPermissionSimulateRequest`.
+public typealias ToolPermissionSimulateMessage = ToolPermissionSimulateRequest
 
-extension IPCToolPermissionSimulateRequest {
+extension ToolPermissionSimulateRequest {
     public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil) {
         self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects)
     }
 }
 
 /// Response from a tool permission simulation.
-/// Backed by generated `IPCToolPermissionSimulateResponse`.
-public typealias ToolPermissionSimulateResponseMessage = IPCToolPermissionSimulateResponse
+/// Backed by generated `ToolPermissionSimulateResponse`.
+public typealias ToolPermissionSimulateResponseMessage = ToolPermissionSimulateResponse
 
 /// Request the list of all registered tool names.
-/// Backed by generated `IPCToolNamesListRequest`.
-public typealias ToolNamesListMessage = IPCToolNamesListRequest
+/// Backed by generated `ToolNamesListRequest`.
+public typealias ToolNamesListMessage = ToolNamesListRequest
 
-extension IPCToolNamesListRequest {
+extension ToolNamesListRequest {
     public init() {
         self.init(type: "tool_names_list")
     }
 }
 
 /// Response containing all registered tool names.
-/// Backed by generated `IPCToolNamesListResponse`.
-public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
+/// Backed by generated `ToolNamesListResponse`.
+public typealias ToolNamesListResponseMessage = ToolNamesListResponse
 
 /// Response from opening and scanning a .vellum bundle.
-/// Backed by generated `IPCOpenBundleResponse`.
-public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
-
+/// Backed by generated `OpenBundleResponse`.
+public typealias OpenBundleResponseMessage = OpenBundleResponse
 
 
 // MARK: - Publish / Unpublish Page Messages
 
 /// Sent to publish a static page via Vercel.
-/// Backed by generated `IPCPublishPageRequest`.
-public typealias PublishPageRequestMessage = IPCPublishPageRequest
+/// Backed by generated `PublishPageRequest`.
+public typealias PublishPageRequestMessage = PublishPageRequest
 
-extension IPCPublishPageRequest {
+extension PublishPageRequest {
     public init(html: String, title: String? = nil, appId: String? = nil) {
         self.init(type: "publish_page", html: html, title: title, appId: appId)
     }
 }
 
 /// Response from publishing a static page.
-/// Backed by generated `IPCPublishPageResponse`.
-public typealias PublishPageResponseMessage = IPCPublishPageResponse
+/// Backed by generated `PublishPageResponse`.
+public typealias PublishPageResponseMessage = PublishPageResponse
 
 /// Sent to unpublish a page and delete its Vercel deployment.
-/// Backed by generated `IPCUnpublishPageRequest`.
-public typealias UnpublishPageRequestMessage = IPCUnpublishPageRequest
+/// Backed by generated `UnpublishPageRequest`.
+public typealias UnpublishPageRequestMessage = UnpublishPageRequest
 
-extension IPCUnpublishPageRequest {
+extension UnpublishPageRequest {
     public init(deploymentId: String) {
         self.init(type: "unpublish_page", deploymentId: deploymentId)
     }
 }
 
 /// Response from unpublishing a page.
-/// Backed by generated `IPCUnpublishPageResponse`.
-public typealias UnpublishPageResponseMessage = IPCUnpublishPageResponse
+/// Backed by generated `UnpublishPageResponse`.
+public typealias UnpublishPageResponseMessage = UnpublishPageResponse
 
 // MARK: - Push Notification Device Token (Manual)
 
@@ -1725,20 +1711,19 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
 }
 
 
-
 // MARK: - Cloud Sharing Messages (Manual)
 
 /// Sent to request sharing an app via a cloud link.
-/// Backed by generated `IPCShareAppCloudRequest`.
-public typealias ShareAppCloudRequestMessage = IPCShareAppCloudRequest
+/// Backed by generated `ShareAppCloudRequest`.
+public typealias ShareAppCloudRequestMessage = ShareAppCloudRequest
 
-extension IPCShareAppCloudRequest {
+extension ShareAppCloudRequest {
     public init(appId: String) {
         self.init(type: "share_app_cloud", appId: appId)
     }
 }
 
-public typealias ShareAppCloudResponseMessage = IPCShareAppCloudResponse
+public typealias ShareAppCloudResponseMessage = ShareAppCloudResponse
 
 // MARK: - Slack Webhook Messages (Manual)
 
@@ -1837,70 +1822,70 @@ extension PlatformConfigResponseMessage: Decodable {
 // MARK: - Model Config Messages
 
 /// Request the current model/provider configuration.
-/// Backed by generated `IPCModelGetRequest`.
-public typealias ModelGetRequestMessage = IPCModelGetRequest
+/// Backed by generated `ModelGetRequest`.
+public typealias ModelGetRequestMessage = ModelGetRequest
 
-extension IPCModelGetRequest {
+extension ModelGetRequest {
     public init() {
         self.init(type: "model_get")
     }
 }
 
 /// Set the active model.
-/// Backed by generated `IPCModelSetRequest`.
-public typealias ModelSetRequestMessage = IPCModelSetRequest
+/// Backed by generated `ModelSetRequest`.
+public typealias ModelSetRequestMessage = ModelSetRequest
 
-extension IPCModelSetRequest {
+extension ModelSetRequest {
     public init(model: String) {
         self.init(type: "model_set", model: model)
     }
 }
 
 /// Set the active image generation model.
-/// Backed by generated `IPCImageGenModelSetRequest`.
-public typealias ImageGenModelSetRequestMessage = IPCImageGenModelSetRequest
+/// Backed by generated `ImageGenModelSetRequest`.
+public typealias ImageGenModelSetRequestMessage = ImageGenModelSetRequest
 
-extension IPCImageGenModelSetRequest {
+extension ImageGenModelSetRequest {
     public init(model: String) {
         self.init(type: "image_gen_model_set", model: model)
     }
 }
 
 /// Response containing the current model/provider info.
-/// Backed by generated `IPCModelInfo`.
-public typealias ModelInfoMessage = IPCModelInfo
+/// Backed by generated `ModelInfo`.
+public typealias ModelInfoMessage = ModelInfo
 
 // MARK: - Vercel API Config Messages
 
 /// Sent to get/set/delete the Vercel API token.
-/// Backed by generated `IPCVercelApiConfigRequest`.
-public typealias VercelApiConfigRequestMessage = IPCVercelApiConfigRequest
+/// Backed by generated `VercelApiConfigRequest`.
+public typealias VercelApiConfigRequestMessage = VercelApiConfigRequest
 
-extension IPCVercelApiConfigRequest {
+extension VercelApiConfigRequest {
     public init(action: String, apiToken: String? = nil) {
         self.init(type: "vercel_api_config", action: action, apiToken: apiToken)
     }
 }
 
 /// Response from Vercel API config operations.
-/// Backed by generated `IPCVercelApiConfigResponse`.
-public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
+/// Backed by generated `VercelApiConfigResponse`.
+public typealias VercelApiConfigResponseMessage = VercelApiConfigResponse
 
 // MARK: - Telegram Config Messages
 
 /// Sent to get/set/clear Telegram bot config.
-/// Backed by generated `IPCTelegramConfigRequest`.
-public typealias TelegramConfigRequestMessage = IPCTelegramConfigRequest
+/// Backed by generated `TelegramConfigRequest`.
+public typealias TelegramConfigRequestMessage = TelegramConfigRequest
 
-extension IPCTelegramConfigRequest {
-    public init(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) {
+extension TelegramConfigRequest {
+    public init(action: String, botToken: String? = nil, commands: [TelegramConfigRequestCommand]? = nil) {
         self.init(type: "telegram_config", action: action, botToken: botToken, commands: commands)
     }
 }
 
 /// Response from Telegram config operations.
-/// Backed by generated `IPCTelegramConfigResponse`.
-public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
+/// Backed by generated `TelegramConfigResponse`.
+public typealias TelegramConfigResponseMessage = TelegramConfigResponse
 
 // MARK: - Twilio Number Models (standalone, no generated-type dependency)
 
@@ -1931,10 +1916,10 @@ public struct TwilioNumberInfo: Codable, Sendable {
 // MARK: - Channel Verification Session Messages
 
 /// Channel verification session request (create_session, status, cancel_session, revoke, resend_session).
-/// Backed by generated `IPCChannelVerificationSessionRequest`.
-public typealias ChannelVerificationSessionRequestMessage = IPCChannelVerificationSessionRequest
+/// Backed by generated `ChannelVerificationSessionRequest`.
+public typealias ChannelVerificationSessionRequestMessage = ChannelVerificationSessionRequest
 
-extension IPCChannelVerificationSessionRequest {
+extension ChannelVerificationSessionRequest {
     public init(
         action: String,
         channel: String? = nil,
@@ -1960,58 +1945,58 @@ extension IPCChannelVerificationSessionRequest {
 }
 
 /// Channel verification session response.
-/// Backed by generated `IPCChannelVerificationSessionResponse`.
-public typealias ChannelVerificationSessionResponseMessage = IPCChannelVerificationSessionResponse
+/// Backed by generated `ChannelVerificationSessionResponse`.
+public typealias ChannelVerificationSessionResponseMessage = ChannelVerificationSessionResponse
 
 // MARK: - Twitter Integration Config Messages
 
 /// Sent to get/set Twitter integration config.
-/// Backed by generated `IPCTwitterIntegrationConfigRequest`.
-public typealias TwitterIntegrationConfigRequestMessage = IPCTwitterIntegrationConfigRequest
+/// Backed by generated `TwitterIntegrationConfigRequest`.
+public typealias TwitterIntegrationConfigRequestMessage = TwitterIntegrationConfigRequest
 
-extension IPCTwitterIntegrationConfigRequest {
+extension TwitterIntegrationConfigRequest {
     public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil, strategy: String? = nil) {
         self.init(type: "twitter_integration_config", action: action, mode: mode, clientId: clientId, clientSecret: clientSecret, strategy: strategy)
     }
 }
 
 /// Response from Twitter integration config operations.
-/// Backed by generated `IPCTwitterIntegrationConfigResponse`.
-public typealias TwitterIntegrationConfigResponseMessage = IPCTwitterIntegrationConfigResponse
+/// Backed by generated `TwitterIntegrationConfigResponse`.
+public typealias TwitterIntegrationConfigResponseMessage = TwitterIntegrationConfigResponse
 
 // MARK: - Twitter Auth Messages
 
 /// Sent to start the Twitter OAuth connect flow.
-/// Backed by generated `IPCTwitterAuthStartRequest`.
-public typealias TwitterAuthStartMessage = IPCTwitterAuthStartRequest
+/// Backed by generated `TwitterAuthStartRequest`.
+public typealias TwitterAuthStartMessage = TwitterAuthStartRequest
 
-extension IPCTwitterAuthStartRequest {
+extension TwitterAuthStartRequest {
     public init() {
         self.init(type: "twitter_auth_start")
     }
 }
 
 /// Sent to query Twitter auth status.
-/// Backed by generated `IPCTwitterAuthStatusRequest`.
-public typealias TwitterAuthStatusRequestMessage = IPCTwitterAuthStatusRequest
+/// Backed by generated `TwitterAuthStatusRequest`.
+public typealias TwitterAuthStatusRequestMessage = TwitterAuthStatusRequest
 
-extension IPCTwitterAuthStatusRequest {
+extension TwitterAuthStatusRequest {
     public init() {
         self.init(type: "twitter_auth_status")
     }
 }
 
 /// Result of a Twitter OAuth connect attempt.
-/// Backed by generated `IPCTwitterAuthResult`.
-public typealias TwitterAuthResultMessage = IPCTwitterAuthResult
+/// Backed by generated `TwitterAuthResult`.
+public typealias TwitterAuthResultMessage = TwitterAuthResult
 
 /// Response to a Twitter auth status query.
-/// Backed by generated `IPCTwitterAuthStatusResponse`.
-public typealias TwitterAuthStatusResponseMessage = IPCTwitterAuthStatusResponse
+/// Backed by generated `TwitterAuthStatusResponse`.
+public typealias TwitterAuthStatusResponseMessage = TwitterAuthStatusResponse
 
 /// Authentication result from the daemon after the client sends an `auth` message.
-/// Backed by generated `IPCAuthResult`.
-public typealias AuthResultMessage = IPCAuthResult
+/// Backed by generated `AuthResult`.
+public typealias AuthResultMessage = AuthResult
 
 /// Sent to request a diagnostics export (zip) for a conversation.
 /// Wire type: `"diagnostics_export_request"`
@@ -2041,26 +2026,26 @@ public struct DiagnosticsExportResponseMessage: Decodable, Sendable {
 }
 
 /// Request daemon environment variables (debug only).
-/// Backed by generated `IPCEnvVarsRequest`.
-public typealias EnvVarsRequestMessage = IPCEnvVarsRequest
+/// Backed by generated `EnvVarsRequest`.
+public typealias EnvVarsRequestMessage = EnvVarsRequest
 
-extension IPCEnvVarsRequest {
+extension EnvVarsRequest {
     public init() {
         self.init(type: "env_vars_request")
     }
 }
 
 /// Response containing daemon environment variables (debug only).
-/// Backed by generated `IPCEnvVarsResponse`.
-public typealias EnvVarsResponseMessage = IPCEnvVarsResponse
+/// Backed by generated `EnvVarsResponse`.
+public typealias EnvVarsResponseMessage = EnvVarsResponse
 
-extension IPCSessionSwitchRequest {
+extension SessionSwitchRequest {
     public init(sessionId: String) {
         self.init(type: "session_switch", sessionId: sessionId)
     }
 }
 
-extension IPCConversationSeenSignal {
+extension ConversationSeenSignal {
     public init(
         conversationId: String,
         sourceChannel: String,
@@ -2085,7 +2070,7 @@ extension IPCConversationSeenSignal {
     }
 }
 
-extension IPCConversationUnreadSignal {
+extension ConversationUnreadSignal {
     public init(
         conversationId: String,
         sourceChannel: String,
@@ -2193,22 +2178,22 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case notificationIntent(NotificationIntentMessage)
-    case notificationThreadCreated(IPCNotificationThreadCreated)
+    case notificationThreadCreated(NotificationThreadCreated)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case toolPermissionSimulateResponse(ToolPermissionSimulateResponseMessage)
     case toolNamesListResponse(ToolNamesListResponseMessage)
-    case acceptStarterBundleResponse(IPCAcceptStarterBundleResponse)
+    case acceptStarterBundleResponse(AcceptStarterBundleResponse)
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
     case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
     case appPreviewResponse(AppPreviewResponseMessage)
-    case appDiffResponse(IPCAppDiffResponse)
-    case appFileAtVersionResponse(IPCAppFileAtVersionResponse)
-    case appHistoryResponse(IPCAppHistoryResponse)
-    case appRestoreResponse(IPCAppRestoreResponse)
+    case appDiffResponse(AppDiffResponse)
+    case appFileAtVersionResponse(AppFileAtVersionResponse)
+    case appHistoryResponse(AppHistoryResponse)
+    case appRestoreResponse(AppRestoreResponse)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case appDeleteResponse(AppDeleteResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
@@ -2237,31 +2222,31 @@ public enum ServerMessage: Decodable, Sendable {
     case documentListResponse(DocumentListResponseMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
-    case navigateSettings(IPCNavigateSettings)
-    case integrationListResponse(IPCIntegrationListResponse)
-    case integrationConnectResult(IPCIntegrationConnectResult)
-    case oauthConnectResult(IPCOAuthConnectResultResponse)
+    case navigateSettings(NavigateSettings)
+    case integrationListResponse(IntegrationListResponse)
+    case integrationConnectResult(IntegrationConnectResult)
+    case oauthConnectResult(OAuthConnectResultResponse)
     case appFilesChanged(AppFilesChangedMessage)
-    case getSigningIdentity(IPCGetSigningIdentityRequest)
+    case getSigningIdentity(GetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
     case envVarsResponse(EnvVarsResponseMessage)
-    case workItemsListResponse(IPCWorkItemsListResponse)
-    case workItemStatusChanged(IPCWorkItemStatusChanged)
-    case tasksChanged(IPCTasksChanged)
-    case contactsChanged(IPCContactsChanged)
-    case workItemDeleteResponse(IPCWorkItemDeleteResponse)
-    case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
-    case workItemOutputResponse(IPCWorkItemOutputResponse)
-    case workItemUpdateResponse(IPCWorkItemUpdateResponse)
-    case workItemPreflightResponse(IPCWorkItemPreflightResponse)
-    case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
-    case workItemCancelResponse(IPCWorkItemCancelResponse)
-    case taskRunThreadCreated(IPCTaskRunThreadCreated)
-    case scheduleThreadCreated(IPCScheduleThreadCreated)
-    case subagentSpawned(IPCSubagentSpawned)
-    case subagentStatusChanged(IPCSubagentStatusChanged)
+    case workItemsListResponse(WorkItemsListResponse)
+    case workItemStatusChanged(WorkItemStatusChanged)
+    case tasksChanged(TasksChanged)
+    case contactsChanged(ContactsChanged)
+    case workItemDeleteResponse(WorkItemDeleteResponse)
+    case workItemRunTaskResponse(WorkItemRunTaskResponse)
+    case workItemOutputResponse(WorkItemOutputResponse)
+    case workItemUpdateResponse(WorkItemUpdateResponse)
+    case workItemPreflightResponse(WorkItemPreflightResponse)
+    case workItemApprovePermissionsResponse(WorkItemApprovePermissionsResponse)
+    case workItemCancelResponse(WorkItemCancelResponse)
+    case taskRunThreadCreated(TaskRunThreadCreated)
+    case scheduleThreadCreated(ScheduleThreadCreated)
+    case subagentSpawned(SubagentSpawned)
+    case subagentStatusChanged(SubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
-    case subagentDetailResponse(IPCSubagentDetailResponse)
+    case subagentDetailResponse(SubagentDetailResponse)
     case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
@@ -2271,22 +2256,22 @@ public enum ServerMessage: Decodable, Sendable {
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case guardianActionsPendingResponse(GuardianActionsPendingResponseMessage)
     case guardianActionDecisionResponse(GuardianActionDecisionResponseMessage)
-    case recordingPause(IPCRecordingPause)
-    case recordingResume(IPCRecordingResume)
-    case recordingStart(IPCRecordingStart)
-    case recordingStop(IPCRecordingStop)
-    case clientSettingsUpdate(IPCClientSettingsUpdate)
-    case avatarUpdated(IPCAvatarUpdated)
-    case generateAvatarResponse(IPCGenerateAvatarResponse)
-    case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
-    case heartbeatRunsListResponse(IPCHeartbeatRunsListResponse)
-    case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
-    case heartbeatChecklistResponse(IPCHeartbeatChecklistResponse)
-    case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
-    case messageContentResponse(IPCMessageContentResponse)
+    case recordingPause(RecordingPause)
+    case recordingResume(RecordingResume)
+    case recordingStart(RecordingStart)
+    case recordingStop(RecordingStop)
+    case clientSettingsUpdate(ClientSettingsUpdate)
+    case avatarUpdated(AvatarUpdated)
+    case generateAvatarResponse(GenerateAvatarResponse)
+    case heartbeatConfigResponse(HeartbeatConfigResponse)
+    case heartbeatRunsListResponse(HeartbeatRunsListResponse)
+    case heartbeatRunNowResponse(HeartbeatRunNowResponse)
+    case heartbeatChecklistResponse(HeartbeatChecklistResponse)
+    case heartbeatChecklistWriteResponse(HeartbeatChecklistWriteResponse)
+    case messageContentResponse(MessageContentResponse)
     case contactsResponse(ContactsResponseMessage)
     case tokenRotated(TokenRotatedMessage)
-    case identityChanged(IPCIdentityChanged)
+    case identityChanged(IdentityChanged)
     case hostBashRequest(HostBashRequest)
     case pong
     case unknown(String)
@@ -2466,7 +2451,7 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
         case "notification_thread_created":
-            let message = try IPCNotificationThreadCreated(from: decoder)
+            let message = try NotificationThreadCreated(from: decoder)
             self = .notificationThreadCreated(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
@@ -2484,7 +2469,7 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try ToolNamesListResponseMessage(from: decoder)
             self = .toolNamesListResponse(message)
         case "accept_starter_bundle_response":
-            let message = try IPCAcceptStarterBundleResponse(from: decoder)
+            let message = try AcceptStarterBundleResponse(from: decoder)
             self = .acceptStarterBundleResponse(message)
         case "schedules_list_response":
             let message = try SchedulesListResponseMessage(from: decoder)
@@ -2499,16 +2484,16 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try AppPreviewResponseMessage(from: decoder)
             self = .appPreviewResponse(message)
         case "app_diff_response":
-            let message = try IPCAppDiffResponse(from: decoder)
+            let message = try AppDiffResponse(from: decoder)
             self = .appDiffResponse(message)
         case "app_file_at_version_response":
-            let message = try IPCAppFileAtVersionResponse(from: decoder)
+            let message = try AppFileAtVersionResponse(from: decoder)
             self = .appFileAtVersionResponse(message)
         case "app_history_response":
-            let message = try IPCAppHistoryResponse(from: decoder)
+            let message = try AppHistoryResponse(from: decoder)
             self = .appHistoryResponse(message)
         case "app_restore_response":
-            let message = try IPCAppRestoreResponse(from: decoder)
+            let message = try AppRestoreResponse(from: decoder)
             self = .appRestoreResponse(message)
         case "shared_apps_list_response":
             let message = try SharedAppsListResponseMessage(from: decoder)
@@ -2574,10 +2559,10 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
         case "navigate_settings":
-            let message = try IPCNavigateSettings(from: decoder)
+            let message = try NavigateSettings(from: decoder)
             self = .navigateSettings(message)
         case "get_signing_identity":
-            let message = try IPCGetSigningIdentityRequest(from: decoder)
+            let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
         case "daemon_status":
             let message = try DaemonStatusMessage(from: decoder)
@@ -2589,13 +2574,13 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try UnpublishPageResponseMessage(from: decoder)
             self = .unpublishPageResponse(message)
         case "integration_list_response":
-            let message = try IPCIntegrationListResponse(from: decoder)
+            let message = try IntegrationListResponse(from: decoder)
             self = .integrationListResponse(message)
         case "integration_connect_result":
-            let message = try IPCIntegrationConnectResult(from: decoder)
+            let message = try IntegrationConnectResult(from: decoder)
             self = .integrationConnectResult(message)
         case "oauth_connect_result":
-            let message = try IPCOAuthConnectResultResponse(from: decoder)
+            let message = try OAuthConnectResultResponse(from: decoder)
             self = .oauthConnectResult(message)
         case "app_files_changed":
             let message = try AppFilesChangedMessage(from: decoder)
@@ -2607,55 +2592,55 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)
         case "work_items_list_response":
-            let message = try IPCWorkItemsListResponse(from: decoder)
+            let message = try WorkItemsListResponse(from: decoder)
             self = .workItemsListResponse(message)
         case "work_item_status_changed":
-            let message = try IPCWorkItemStatusChanged(from: decoder)
+            let message = try WorkItemStatusChanged(from: decoder)
             self = .workItemStatusChanged(message)
         case "tasks_changed":
-            let message = try IPCTasksChanged(from: decoder)
+            let message = try TasksChanged(from: decoder)
             self = .tasksChanged(message)
         case "contacts_changed":
-            let message = try IPCContactsChanged(from: decoder)
+            let message = try ContactsChanged(from: decoder)
             self = .contactsChanged(message)
         case "work_item_delete_response":
-            let message = try IPCWorkItemDeleteResponse(from: decoder)
+            let message = try WorkItemDeleteResponse(from: decoder)
             self = .workItemDeleteResponse(message)
         case "work_item_run_task_response":
-            let message = try IPCWorkItemRunTaskResponse(from: decoder)
+            let message = try WorkItemRunTaskResponse(from: decoder)
             self = .workItemRunTaskResponse(message)
         case "work_item_output_response":
-            let message = try IPCWorkItemOutputResponse(from: decoder)
+            let message = try WorkItemOutputResponse(from: decoder)
             self = .workItemOutputResponse(message)
         case "work_item_update_response":
-            let message = try IPCWorkItemUpdateResponse(from: decoder)
+            let message = try WorkItemUpdateResponse(from: decoder)
             self = .workItemUpdateResponse(message)
         case "work_item_preflight_response":
-            let message = try IPCWorkItemPreflightResponse(from: decoder)
+            let message = try WorkItemPreflightResponse(from: decoder)
             self = .workItemPreflightResponse(message)
         case "work_item_approve_permissions_response":
-            let message = try IPCWorkItemApprovePermissionsResponse(from: decoder)
+            let message = try WorkItemApprovePermissionsResponse(from: decoder)
             self = .workItemApprovePermissionsResponse(message)
         case "work_item_cancel_response":
-            let message = try IPCWorkItemCancelResponse(from: decoder)
+            let message = try WorkItemCancelResponse(from: decoder)
             self = .workItemCancelResponse(message)
         case "task_run_thread_created":
-            let message = try IPCTaskRunThreadCreated(from: decoder)
+            let message = try TaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
         case "schedule_thread_created":
-            let message = try IPCScheduleThreadCreated(from: decoder)
+            let message = try ScheduleThreadCreated(from: decoder)
             self = .scheduleThreadCreated(message)
         case "subagent_spawned":
-            let message = try IPCSubagentSpawned(from: decoder)
+            let message = try SubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
         case "subagent_status_changed":
-            let message = try IPCSubagentStatusChanged(from: decoder)
+            let message = try SubagentStatusChanged(from: decoder)
             self = .subagentStatusChanged(message)
         case "subagent_event":
             let message = try SubagentEventMessage(from: decoder)
             self = .subagentEvent(message)
         case "subagent_detail_response":
-            let message = try IPCSubagentDetailResponse(from: decoder)
+            let message = try SubagentDetailResponse(from: decoder)
             self = .subagentDetailResponse(message)
         case "workspace_files_list_response":
             let message = try WorkspaceFilesListResponseMessage(from: decoder)
@@ -2685,43 +2670,43 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try GuardianActionDecisionResponseMessage(from: decoder)
             self = .guardianActionDecisionResponse(message)
         case "recording_pause":
-            let message = try IPCRecordingPause(from: decoder)
+            let message = try RecordingPause(from: decoder)
             self = .recordingPause(message)
         case "recording_resume":
-            let message = try IPCRecordingResume(from: decoder)
+            let message = try RecordingResume(from: decoder)
             self = .recordingResume(message)
         case "recording_start":
-            let message = try IPCRecordingStart(from: decoder)
+            let message = try RecordingStart(from: decoder)
             self = .recordingStart(message)
         case "recording_stop":
-            let message = try IPCRecordingStop(from: decoder)
+            let message = try RecordingStop(from: decoder)
             self = .recordingStop(message)
         case "client_settings_update":
-            let message = try IPCClientSettingsUpdate(from: decoder)
+            let message = try ClientSettingsUpdate(from: decoder)
             self = .clientSettingsUpdate(message)
         case "avatar_updated":
-            let message = try IPCAvatarUpdated(from: decoder)
+            let message = try AvatarUpdated(from: decoder)
             self = .avatarUpdated(message)
         case "generate_avatar_response":
-            let message = try IPCGenerateAvatarResponse(from: decoder)
+            let message = try GenerateAvatarResponse(from: decoder)
             self = .generateAvatarResponse(message)
         case "heartbeat_config_response":
-            let message = try IPCHeartbeatConfigResponse(from: decoder)
+            let message = try HeartbeatConfigResponse(from: decoder)
             self = .heartbeatConfigResponse(message)
         case "heartbeat_runs_list_response":
-            let message = try IPCHeartbeatRunsListResponse(from: decoder)
+            let message = try HeartbeatRunsListResponse(from: decoder)
             self = .heartbeatRunsListResponse(message)
         case "heartbeat_run_now_response":
-            let message = try IPCHeartbeatRunNowResponse(from: decoder)
+            let message = try HeartbeatRunNowResponse(from: decoder)
             self = .heartbeatRunNowResponse(message)
         case "heartbeat_checklist_response":
-            let message = try IPCHeartbeatChecklistResponse(from: decoder)
+            let message = try HeartbeatChecklistResponse(from: decoder)
             self = .heartbeatChecklistResponse(message)
         case "heartbeat_checklist_write_response":
-            let message = try IPCHeartbeatChecklistWriteResponse(from: decoder)
+            let message = try HeartbeatChecklistWriteResponse(from: decoder)
             self = .heartbeatChecklistWriteResponse(message)
         case "message_content_response":
-            let message = try IPCMessageContentResponse(from: decoder)
+            let message = try MessageContentResponse(from: decoder)
             self = .messageContentResponse(message)
         case "contacts_response":
             let message = try ContactsResponseMessage(from: decoder)
@@ -2730,7 +2715,7 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try TokenRotatedMessage(from: decoder)
             self = .tokenRotated(message)
         case "identity_changed":
-            let message = try IPCIdentityChanged(from: decoder)
+            let message = try IdentityChanged(from: decoder)
             self = .identityChanged(message)
         case "host_bash_request":
             let message = try HostBashRequest(from: decoder)
@@ -2754,7 +2739,7 @@ public struct TokenRotatedMessage: Decodable, Sendable {
 
 // MARK: - App Files Changed
 
-public typealias AppFilesChangedMessage = IPCAppFilesChanged
+public typealias AppFilesChangedMessage = AppFilesChanged
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)
@@ -2927,34 +2912,28 @@ public struct GuardianActionDecisionMessage: Encodable, Sendable {
 // MARK: - Contacts
 
 /// Client → Server: contacts management request.
-/// Backed by generated `IPCContactsRequest`.
-public typealias ContactsRequestMessage = IPCContactsRequest
+/// Backed by generated `ContactsRequest`.
+public typealias ContactsRequestMessage = ContactsRequest
 
-extension IPCContactsRequest {
+extension ContactsRequest {
     public init(action: String, contactId: String? = nil, channelId: String? = nil, status: String? = nil, policy: String? = nil, reason: String? = nil, role: String? = nil, limit: Int? = nil) {
         self.init(type: "contacts", action: action, contactId: contactId, channelId: channelId, status: status, policy: policy, reason: reason, role: role, limit: limit.map(Double.init))
     }
 }
 
 /// Server → Client: contacts response.
-/// Backed by generated `IPCContactsResponse`.
-public typealias ContactsResponseMessage = IPCContactsResponse
+/// Backed by generated `ContactsResponse`.
+public typealias ContactsResponseMessage = ContactsResponse
 
-/// A single contact payload returned from the daemon.
-/// Backed by generated `IPCContactPayload`.
-public typealias ContactPayload = IPCContactPayload
 
-extension IPCContactPayload: Identifiable {}
+extension ContactPayload: Identifiable {}
 
-/// A single contact channel payload returned from the daemon.
-/// Backed by generated `IPCContactChannelPayload`.
-public typealias ContactChannelPayload = IPCContactChannelPayload
 
-extension IPCContactChannelPayload: Identifiable {}
+extension ContactChannelPayload: Identifiable {}
 
 // MARK: - Work Item Helpers
 
-extension IPCWorkItemsListResponseItem {
+extension WorkItemsListResponseItem {
     /// Returns a copy with a different `priorityTier`, preserving all other fields.
     public func withPriorityTier(_ newTier: Double) -> Self {
         Self(id: id, taskId: taskId, title: title, notes: notes, status: status, priorityTier: newTier, sortIndex: sortIndex, lastRunId: lastRunId, lastRunConversationId: lastRunConversationId, lastRunStatus: lastRunStatus, sourceType: sourceType, sourceId: sourceId, createdAt: createdAt, updatedAt: updatedAt)
