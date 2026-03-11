@@ -63,8 +63,10 @@ function formatToolSchemas(
         "",
       ];
 
+  const toolHeadingLevel = childSkillName ? "####" : "###";
+
   for (const tool of manifest.tools) {
-    lines.push(`### ${tool.name}`);
+    lines.push(`${toolHeadingLevel} ${tool.name}`);
     lines.push(tool.description);
 
     const schema = tool.input_schema;
@@ -207,6 +209,7 @@ export class SkillLoadTool implements Tool {
     // Build immediate children metadata section and load included skill bodies
     let immediateChildrenSection: string;
     const includedBodies: string[] = [];
+    let anyChildHasTools = false;
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
@@ -235,6 +238,7 @@ export class SkillLoadTool implements Tool {
             childLoaded.skill.directoryPath,
           );
           if (childManifest) {
+            anyChildHasTools = true;
             includedBodies.push(
               formatToolSchemas(childManifest, childLoaded.skill.displayName),
             );
@@ -298,6 +302,14 @@ export class SkillLoadTool implements Tool {
         body,
         "",
         ...(toolSchemasSection ? [toolSchemasSection, ""] : []),
+        ...(!toolSchemasSection && anyChildHasTools
+          ? [
+              "## Available Tools",
+              "",
+              "Use `skill_execute` to call these tools.",
+              "",
+            ]
+          : []),
         ...includedBodies.flatMap((b) => [b, ""]),
         immediateChildrenSection,
         "",

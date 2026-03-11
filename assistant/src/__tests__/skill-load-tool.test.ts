@@ -840,8 +840,8 @@ describe("skill_load tool", () => {
     const result = await executeSkillLoad({ skill: "parent-tools" });
     expect(result.isError).toBe(false);
 
-    // The child skill's tool schemas should appear
-    expect(result.content).toContain("### child_action");
+    // The child skill's tool schemas should appear (#### level under ### Tools from …)
+    expect(result.content).toContain("#### child_action");
     expect(result.content).toContain("A child tool action");
     expect(result.content).toContain(
       "- target (string, required): Action target",
