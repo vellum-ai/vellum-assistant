@@ -167,13 +167,13 @@ export async function semanticSearch(
         finalScore: 0,
       });
     } else if (payload.target_type === "media") {
-      // Media points don't store scope_id directly in their Qdrant payload.
-      // Derive scope from the conversation_id when available; treat media
-      // without a conversation association as belonging to the "default" scope.
+      // Use stored memory_scope_id when available; fall back to deriving
+      // scope from conversation_id for legacy media points.
       if (scopeIds) {
-        const mediaScopeId = payload.conversation_id
-          ? getConversationMemoryScopeId(payload.conversation_id)
-          : "default";
+        const mediaScopeId = payload.memory_scope_id
+          ?? (payload.conversation_id
+            ? getConversationMemoryScopeId(payload.conversation_id)
+            : "default");
         if (!scopeIds.includes(mediaScopeId)) continue;
       }
       candidates.push({
