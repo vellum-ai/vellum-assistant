@@ -13,12 +13,11 @@ struct VellumAssistantApp: App {
         // window, producing a "ghost" blank window that appears as a second
         // app instance.
         //
-        // Mitigations (see AppDelegate.applicationDidFinishLaunching):
+        // Mitigations (see AppDelegate):
         //  • Saved frame removed on every launch to prevent restoration.
         //  • NSWindow.allowsAutomaticWindowTabbing = false.
-        //  • Activation-policy cycling eliminated (the primary trigger).
-        //  • AppDelegate dismisses stray Settings windows after policy
-        //    transitions as a final safety net.
+        //  • Policy transitions only happen synchronously on window close.
+        //  • dismissSettingsGhostWindows() runs after each policy transition.
         Settings {
             EmptyView()
         }

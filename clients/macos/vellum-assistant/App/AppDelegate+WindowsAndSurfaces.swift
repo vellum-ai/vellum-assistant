@@ -217,11 +217,10 @@ extension AppDelegate {
 extension AppDelegate {
 
     func setupWindowObserver() {
-        // Observe window close to revert activation policy when the user
-        // *explicitly* closes all windows.  Unlike the previous 200ms async
-        // timer, this fires synchronously and only after the close animation
-        // completes, avoiding the rapid .accessory → .regular cycling that
-        // produced duplicate dock tiles (a well-documented macOS bug).
+        // Revert to .accessory activation policy when the user closes all
+        // windows.  Fires synchronously on NSWindow.willCloseNotification
+        // (after the close animation completes) to avoid rapid .accessory →
+        // .regular cycling, which can produce duplicate dock tiles on macOS.
         windowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { [weak self] notification in
