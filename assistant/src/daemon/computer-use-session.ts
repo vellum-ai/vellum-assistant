@@ -23,6 +23,10 @@ import type {
 import { allComputerUseTools } from "../tools/computer-use/definitions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getTool, registerSkillTools } from "../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../tools/schema-transforms.js";
 import type { Tool, ToolExecutionResult } from "../tools/types.js";
 import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
@@ -581,6 +585,8 @@ export class ComputerUseSession {
       },
     };
 
+    const toolDefsWithReason = injectReasonField(toolDefs, REASON_SKIP_SET);
+
     const cuConfig = getConfig();
     const agentLoop = new AgentLoop(
       compactingProvider,
@@ -590,7 +596,7 @@ export class ComputerUseSession {
         maxInputTokens: cuConfig.contextWindow.maxInputTokens,
         toolChoice: { type: "any" },
       },
-      toolDefs,
+      toolDefsWithReason,
       toolExecutor,
     );
 
