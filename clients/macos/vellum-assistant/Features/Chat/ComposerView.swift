@@ -61,7 +61,7 @@ struct ComposerView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
-    var composerCompactHeight: CGFloat = 34
+    var composerCompactHeight: CGFloat = 38
     var threadId: UUID?
 
     @Environment(\.conversationZoomScale) private var zoomScale
@@ -149,6 +149,7 @@ struct ComposerView: View {
         // visible text coloring.
         if hasSlashHighlight {
             Text(slashHighlightedText(font: font))
+                .lineSpacing(4)
                 .lineLimit(1...)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -162,6 +163,7 @@ struct ComposerView: View {
             + Text(ghostSuffix)
                 .font(font)
                 .foregroundColor(VColor.textSecondary.opacity(0.55)))
+                .lineSpacing(4)
                 .lineLimit(1...)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -180,6 +182,7 @@ struct ComposerView: View {
         .lineLimit(1...)
         .textFieldStyle(.plain)
         .font(font)
+        .lineSpacing(4)
         .foregroundColor(hasSlashHighlight ? .clear : VColor.textPrimary)
         .tint(VColor.accent)
         .focused($composerFocus)
@@ -387,8 +390,8 @@ struct ComposerView: View {
             }
             content()
         }
-        .padding(.top, VSpacing.sm)
-        .padding(.bottom, VSpacing.sm)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, VSpacing.md)
         .padding(.leading, VSpacing.lg)
         .padding(.trailing, VSpacing.lg)
         .background(
