@@ -51,11 +51,13 @@ export class TelegramStreamingDelivery {
         // Flush buffer and send an edit so the message is up-to-date before the tool runs
         if (this.buffer.length > 0 && this.currentMessageId) {
           this.flushEdit();
-        } else if (this.buffer.length > 0) {
+        } else if (this.buffer.length > 0 && !this.textDelivered) {
           // No message sent yet — just move buffer to currentMessageText
           this.currentMessageText += this.buffer;
           this.buffer = "";
         }
+        // When textDelivered is true but currentMessageId is null (no-messageId
+        // response), leave buffer as-is so finish() sends it as a new message.
         break;
       case "message_complete":
         // Don't finalize here — let finish() handle it
@@ -117,6 +119,14 @@ export class TelegramStreamingDelivery {
       this.buffer.length === 0
     ) {
       await this.sendNewMessage(this.currentMessageText, approval);
+      this.finishOk = true;
+      return;
+    }
+
+    // Text was delivered but no messageId was returned, and there are approval
+    // buttons to attach. Send them as a new message so they aren't silently dropped.
+    if (!this.currentMessageId && this.textDelivered && approval) {
+      await this.sendNewMessage("", approval);
       this.finishOk = true;
       return;
     }
