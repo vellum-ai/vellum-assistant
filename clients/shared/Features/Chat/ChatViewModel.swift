@@ -2460,6 +2460,9 @@ public final class ChatViewModel: ObservableObject {
             // Older page fetched on demand — prepend before existing messages
             // and expand the display window so the newly loaded messages are
             // visible. The loading indicator is cleared here.
+            // Flush any buffered partial output before prepending — the prepend
+            // shifts positional indices so stale buffer entries would corrupt.
+            flushPartialOutputBuffer()
             self.messages = chatMessages + self.messages
             // Expand the display window by the number of messages prepended so
             // the user sees them immediately. Use Int.max if no more pages exist.
