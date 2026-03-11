@@ -66,6 +66,7 @@ struct HatchingStepView: View {
                     .scaleEffect(characterAwake ? 1.1 : pulseScale)
                     .opacity(characterAwake ? 1.0 : 0.6)
                     .animation(.spring(duration: 0.6, bounce: 0.3), value: characterAwake)
+                    .accessibilityHidden(true)
             }
         }
         .frame(width: 120, height: 120)

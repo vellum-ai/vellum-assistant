@@ -29,6 +29,7 @@ struct AvatarManagementSheet: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .accessibilityLabel("Back to options")
                 } else {
                     Text("Update Avatar")
@@ -155,6 +156,7 @@ struct AvatarManagementSheet: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .accessibilityLabel(preset.name)
                 }
             }
