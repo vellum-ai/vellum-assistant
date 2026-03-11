@@ -2,7 +2,6 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { storeScanResult } from "./scan-result-store.js";
 import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
 
 export async function run(
@@ -55,24 +54,13 @@ export async function run(
         search_query: s.searchQuery,
       }));
 
-      // Store message IDs server-side to keep them out of LLM context
-      const scanId = storeScanResult(
-        result.senders.map((s) => ({
-          id: s.id,
-          messageIds: s.messageIds,
-          newestMessageId: s.newestMessageId,
-          newestUnsubscribableMessageId: null,
-        })),
-      );
-
       return ok(
         JSON.stringify({
-          scan_id: scanId,
           senders,
           total_scanned: result.totalScanned,
           query_used: result.queryUsed,
           ...(result.truncated ? { truncated: true } : {}),
-          note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use scan_id with the archive tool to archive messages (pass scan_id + sender_ids instead of message_ids).`,
+          note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use messaging_archive_by_sender with the sender's search_query to archive their messages.`,
         }),
       );
     });
