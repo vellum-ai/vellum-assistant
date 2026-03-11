@@ -144,6 +144,11 @@ import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js"
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
 // ── screen-watch ─────────────────────────────────────────────────────────────
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
+// ── settings ─────────────────────────────────────────────────────────────────
+import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
+import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
+import * as setAvatar from "./bundled-skills/settings/tools/set-avatar.js";
+import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config-update.js";
 // ── skill-management ─────────────────────────────────────────────────────────
 import * as skillMgmtDeleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
 import * as skillMgmtScaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
@@ -342,6 +347,12 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["schedule:tools/schedule-list.ts", scheduleList],
   ["schedule:tools/schedule-update.ts", scheduleUpdate],
   ["schedule:tools/schedule-delete.ts", scheduleDelete],
+
+  // settings
+  ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
+  ["settings:tools/set-avatar.ts", setAvatar],
+  ["settings:tools/open-system-settings.ts", openSystemSettings],
+  ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
 
   // skill-management
   ["skill-management:tools/scaffold-managed.ts", skillMgmtScaffoldManaged],
