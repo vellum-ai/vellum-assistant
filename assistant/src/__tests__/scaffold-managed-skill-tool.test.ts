@@ -126,7 +126,7 @@ describe("scaffold_managed_skill tool", () => {
         name: 'Test\ninjected_field: "evil"',
         description: "Desc\rwith\r\ncarriage returns",
         body_markdown: "Body content.",
-        emoji: "extra: true",
+        emoji: "🔥\nextra: true",
       },
       makeContext(),
     );
