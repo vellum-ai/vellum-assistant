@@ -88,7 +88,8 @@ import { resolveOAuthConnection } from "./connection-resolver.js";
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch;
-let mockFetch: ReturnType<typeof mock<typeof fetch>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockFetch: ReturnType<typeof mock<any>>;
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
@@ -120,7 +121,7 @@ beforeEach(() => {
       }),
     ),
   );
-  globalThis.fetch = mockFetch;
+  globalThis.fetch = mockFetch as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -252,7 +253,7 @@ describe("BYOOAuthConnection", () => {
         return Promise.resolve(
           new Response(JSON.stringify({ ok: true }), { status: 200 }),
         );
-      });
+      }) as unknown as typeof fetch;
 
       const result = await conn.request({
         method: "GET",
@@ -272,7 +273,7 @@ describe("BYOOAuthConnection", () => {
 
       globalThis.fetch = mock(() =>
         Promise.resolve(new Response("", { status: 204 })),
-      );
+      ) as unknown as typeof fetch;
 
       const result = await conn.request({
         method: "DELETE",
@@ -289,7 +290,7 @@ describe("BYOOAuthConnection", () => {
 
       globalThis.fetch = mock(() =>
         Promise.resolve(new Response("plain text response", { status: 200 })),
-      );
+      ) as unknown as typeof fetch;
 
       const result = await conn.request({
         method: "GET",
@@ -314,7 +315,7 @@ describe("BYOOAuthConnection", () => {
             },
           }),
         ),
-      );
+      ) as unknown as typeof fetch;
 
       const result = await conn.request({
         method: "GET",
