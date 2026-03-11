@@ -67,6 +67,28 @@ import * as documentUpdate from "./bundled-skills/document/tools/document-update
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
+// ── gmail ──────────────────────────────────────────────────────────────────────
+import * as gmail_gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
+import * as gmail_gmailArchiveByQuery from "./bundled-skills/gmail/tools/gmail-archive-by-query.js";
+import * as gmail_gmailBatchArchive from "./bundled-skills/gmail/tools/gmail-batch-archive.js";
+import * as gmail_gmailBatchLabel from "./bundled-skills/gmail/tools/gmail-batch-label.js";
+import * as gmail_gmailDownloadAttachment from "./bundled-skills/gmail/tools/gmail-download-attachment.js";
+import * as gmail_gmailDraft from "./bundled-skills/gmail/tools/gmail-draft.js";
+import * as gmail_gmailFilters from "./bundled-skills/gmail/tools/gmail-filters.js";
+import * as gmail_gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js";
+import * as gmail_gmailForward from "./bundled-skills/gmail/tools/gmail-forward.js";
+import * as gmail_gmailLabel from "./bundled-skills/gmail/tools/gmail-label.js";
+import * as gmail_gmailListAttachments from "./bundled-skills/gmail/tools/gmail-list-attachments.js";
+import * as gmail_gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-outreach-scan.js";
+import * as gmail_gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
+import * as gmail_gmailSendWithAttachments from "./bundled-skills/gmail/tools/gmail-send-with-attachments.js";
+import * as gmail_gmailSenderDigest from "./bundled-skills/gmail/tools/gmail-sender-digest.js";
+import * as gmailSummarizeThread from "./bundled-skills/gmail/tools/gmail-summarize-thread.js";
+import * as gmail_gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
+import * as gmail_gmailTriage from "./bundled-skills/gmail/tools/gmail-triage.js";
+import * as gmail_gmailUnsubscribe from "./bundled-skills/gmail/tools/gmail-unsubscribe.js";
+import * as gmail_gmailVacation from "./bundled-skills/gmail/tools/gmail-vacation.js";
+import * as gmail_googleContacts from "./bundled-skills/gmail/tools/google-contacts.js";
 // ── google-calendar ────────────────────────────────────────────────────────────
 import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
 import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
@@ -86,26 +108,26 @@ import * as mediaDiagnostics from "./bundled-skills/media-processing/tools/media
 import * as mediaStatus from "./bundled-skills/media-processing/tools/media-status.js";
 import * as queryMediaEvents from "./bundled-skills/media-processing/tools/query-media-events.js";
 // ── messaging ──────────────────────────────────────────────────────────────────
-import * as gmailArchive from "./bundled-skills/messaging/tools/gmail-archive.js";
-import * as gmailArchiveByQuery from "./bundled-skills/messaging/tools/gmail-archive-by-query.js";
-import * as gmailBatchArchive from "./bundled-skills/messaging/tools/gmail-batch-archive.js";
-import * as gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-label.js";
-import * as gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
-import * as gmailDraft from "./bundled-skills/messaging/tools/gmail-draft.js";
-import * as gmailFilters from "./bundled-skills/messaging/tools/gmail-filters.js";
-import * as gmailFollowUp from "./bundled-skills/messaging/tools/gmail-follow-up.js";
-import * as gmailForward from "./bundled-skills/messaging/tools/gmail-forward.js";
-import * as gmailLabel from "./bundled-skills/messaging/tools/gmail-label.js";
-import * as gmailListAttachments from "./bundled-skills/messaging/tools/gmail-list-attachments.js";
-import * as gmailOutreachScan from "./bundled-skills/messaging/tools/gmail-outreach-scan.js";
-import * as gmailSendDraft from "./bundled-skills/messaging/tools/gmail-send-draft.js";
-import * as gmailSendWithAttachments from "./bundled-skills/messaging/tools/gmail-send-with-attachments.js";
-import * as gmailSenderDigest from "./bundled-skills/messaging/tools/gmail-sender-digest.js";
-import * as gmailTrash from "./bundled-skills/messaging/tools/gmail-trash.js";
-import * as gmailTriage from "./bundled-skills/messaging/tools/gmail-triage.js";
-import * as gmailUnsubscribe from "./bundled-skills/messaging/tools/gmail-unsubscribe.js";
-import * as gmailVacation from "./bundled-skills/messaging/tools/gmail-vacation.js";
-import * as googleContacts from "./bundled-skills/messaging/tools/google-contacts.js";
+import * as messaging_gmailArchive from "./bundled-skills/messaging/tools/gmail-archive.js";
+import * as messaging_gmailArchiveByQuery from "./bundled-skills/messaging/tools/gmail-archive-by-query.js";
+import * as messaging_gmailBatchArchive from "./bundled-skills/messaging/tools/gmail-batch-archive.js";
+import * as messaging_gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-label.js";
+import * as messaging_gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
+import * as messaging_gmailDraft from "./bundled-skills/messaging/tools/gmail-draft.js";
+import * as messaging_gmailFilters from "./bundled-skills/messaging/tools/gmail-filters.js";
+import * as messaging_gmailFollowUp from "./bundled-skills/messaging/tools/gmail-follow-up.js";
+import * as messaging_gmailForward from "./bundled-skills/messaging/tools/gmail-forward.js";
+import * as messaging_gmailLabel from "./bundled-skills/messaging/tools/gmail-label.js";
+import * as messaging_gmailListAttachments from "./bundled-skills/messaging/tools/gmail-list-attachments.js";
+import * as messaging_gmailOutreachScan from "./bundled-skills/messaging/tools/gmail-outreach-scan.js";
+import * as messaging_gmailSendDraft from "./bundled-skills/messaging/tools/gmail-send-draft.js";
+import * as messaging_gmailSendWithAttachments from "./bundled-skills/messaging/tools/gmail-send-with-attachments.js";
+import * as messaging_gmailSenderDigest from "./bundled-skills/messaging/tools/gmail-sender-digest.js";
+import * as messaging_gmailTrash from "./bundled-skills/messaging/tools/gmail-trash.js";
+import * as messaging_gmailTriage from "./bundled-skills/messaging/tools/gmail-triage.js";
+import * as messaging_gmailUnsubscribe from "./bundled-skills/messaging/tools/gmail-unsubscribe.js";
+import * as messaging_gmailVacation from "./bundled-skills/messaging/tools/gmail-vacation.js";
+import * as messaging_googleContacts from "./bundled-skills/messaging/tools/google-contacts.js";
 import * as messagingAnalyzeStyle from "./bundled-skills/messaging/tools/messaging-analyze-style.js";
 import * as messagingArchiveBySender from "./bundled-skills/messaging/tools/messaging-archive-by-sender.js";
 import * as messagingAuthTest from "./bundled-skills/messaging/tools/messaging-auth-test.js";
@@ -273,6 +295,32 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["followups:tools/followup-list.ts", followupList],
   ["followups:tools/followup-resolve.ts", followupResolve],
 
+  // gmail
+  ["gmail:tools/gmail-archive.ts", gmail_gmailArchive],
+  ["gmail:tools/gmail-batch-archive.ts", gmail_gmailBatchArchive],
+  ["gmail:tools/gmail-archive-by-query.ts", gmail_gmailArchiveByQuery],
+  ["gmail:tools/gmail-label.ts", gmail_gmailLabel],
+  ["gmail:tools/gmail-batch-label.ts", gmail_gmailBatchLabel],
+  ["gmail:tools/gmail-trash.ts", gmail_gmailTrash],
+  ["gmail:tools/gmail-unsubscribe.ts", gmail_gmailUnsubscribe],
+  ["gmail:tools/gmail-draft.ts", gmail_gmailDraft],
+  ["gmail:tools/gmail-send-draft.ts", gmail_gmailSendDraft],
+  ["gmail:tools/gmail-list-attachments.ts", gmail_gmailListAttachments],
+  ["gmail:tools/gmail-download-attachment.ts", gmail_gmailDownloadAttachment],
+  [
+    "gmail:tools/gmail-send-with-attachments.ts",
+    gmail_gmailSendWithAttachments,
+  ],
+  ["gmail:tools/gmail-forward.ts", gmail_gmailForward],
+  ["gmail:tools/gmail-summarize-thread.ts", gmailSummarizeThread],
+  ["gmail:tools/gmail-follow-up.ts", gmail_gmailFollowUp],
+  ["gmail:tools/gmail-triage.ts", gmail_gmailTriage],
+  ["gmail:tools/gmail-filters.ts", gmail_gmailFilters],
+  ["gmail:tools/gmail-vacation.ts", gmail_gmailVacation],
+  ["gmail:tools/gmail-sender-digest.ts", gmail_gmailSenderDigest],
+  ["gmail:tools/gmail-outreach-scan.ts", gmail_gmailOutreachScan],
+  ["gmail:tools/google-contacts.ts", gmail_googleContacts],
+
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
   ["google-calendar:tools/calendar-get-event.ts", calendarGetEvent],
@@ -311,28 +359,34 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-mark-read.ts", messagingMarkRead],
   ["messaging:tools/messaging-analyze-style.ts", messagingAnalyzeStyle],
   ["messaging:tools/messaging-draft.ts", messagingDraft],
-  ["messaging:tools/gmail-archive.ts", gmailArchive],
-  ["messaging:tools/gmail-batch-archive.ts", gmailBatchArchive],
-  ["messaging:tools/gmail-archive-by-query.ts", gmailArchiveByQuery],
-  ["messaging:tools/gmail-label.ts", gmailLabel],
-  ["messaging:tools/gmail-batch-label.ts", gmailBatchLabel],
-  ["messaging:tools/gmail-trash.ts", gmailTrash],
-  ["messaging:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
-  ["messaging:tools/gmail-draft.ts", gmailDraft],
-  ["messaging:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["messaging:tools/gmail-list-attachments.ts", gmailListAttachments],
-  ["messaging:tools/gmail-download-attachment.ts", gmailDownloadAttachment],
-  ["messaging:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
-  ["messaging:tools/gmail-forward.ts", gmailForward],
-  ["messaging:tools/gmail-follow-up.ts", gmailFollowUp],
-  ["messaging:tools/gmail-triage.ts", gmailTriage],
-  ["messaging:tools/gmail-filters.ts", gmailFilters],
-  ["messaging:tools/gmail-vacation.ts", gmailVacation],
-  ["messaging:tools/gmail-sender-digest.ts", gmailSenderDigest],
+  ["messaging:tools/gmail-archive.ts", messaging_gmailArchive],
+  ["messaging:tools/gmail-batch-archive.ts", messaging_gmailBatchArchive],
+  ["messaging:tools/gmail-archive-by-query.ts", messaging_gmailArchiveByQuery],
+  ["messaging:tools/gmail-label.ts", messaging_gmailLabel],
+  ["messaging:tools/gmail-batch-label.ts", messaging_gmailBatchLabel],
+  ["messaging:tools/gmail-trash.ts", messaging_gmailTrash],
+  ["messaging:tools/gmail-unsubscribe.ts", messaging_gmailUnsubscribe],
+  ["messaging:tools/gmail-draft.ts", messaging_gmailDraft],
+  ["messaging:tools/gmail-send-draft.ts", messaging_gmailSendDraft],
+  ["messaging:tools/gmail-list-attachments.ts", messaging_gmailListAttachments],
+  [
+    "messaging:tools/gmail-download-attachment.ts",
+    messaging_gmailDownloadAttachment,
+  ],
+  [
+    "messaging:tools/gmail-send-with-attachments.ts",
+    messaging_gmailSendWithAttachments,
+  ],
+  ["messaging:tools/gmail-forward.ts", messaging_gmailForward],
+  ["messaging:tools/gmail-follow-up.ts", messaging_gmailFollowUp],
+  ["messaging:tools/gmail-triage.ts", messaging_gmailTriage],
+  ["messaging:tools/gmail-filters.ts", messaging_gmailFilters],
+  ["messaging:tools/gmail-vacation.ts", messaging_gmailVacation],
+  ["messaging:tools/gmail-sender-digest.ts", messaging_gmailSenderDigest],
   ["messaging:tools/messaging-sender-digest.ts", messagingSenderDigest],
   ["messaging:tools/messaging-archive-by-sender.ts", messagingArchiveBySender],
-  ["messaging:tools/gmail-outreach-scan.ts", gmailOutreachScan],
-  ["messaging:tools/google-contacts.ts", googleContacts],
+  ["messaging:tools/gmail-outreach-scan.ts", messaging_gmailOutreachScan],
+  ["messaging:tools/google-contacts.ts", messaging_googleContacts],
   ["messaging:tools/sequence-create.ts", messaging_sequenceCreate],
   ["messaging:tools/sequence-list.ts", messaging_sequenceList],
   ["messaging:tools/sequence-get.ts", messaging_sequenceGet],
