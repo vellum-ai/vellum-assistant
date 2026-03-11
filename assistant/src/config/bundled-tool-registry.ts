@@ -137,7 +137,6 @@ import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── sequences ──────────────────────────────────────────────────────────────────
 import * as sequences_sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
-import * as sequences_sequenceCancel from "./bundled-skills/sequences/tools/sequence-cancel.js";
 import * as sequences_sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
 import * as sequences_sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
 import * as sequences_sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
@@ -145,8 +144,6 @@ import * as sequences_sequenceEnrollmentList from "./bundled-skills/sequences/to
 import * as sequences_sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
 import * as sequences_sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
 import * as sequences_sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
-import * as sequences_sequencePause from "./bundled-skills/sequences/tools/sequence-pause.js";
-import * as sequences_sequenceResume from "./bundled-skills/sequences/tools/sequence-resume.js";
 import * as sequences_sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
 // ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
@@ -356,9 +353,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
     "sequences:tools/sequence-enrollment-list.ts",
     sequences_sequenceEnrollmentList,
   ],
-  ["sequences:tools/sequence-pause.ts", sequences_sequencePause],
-  ["sequences:tools/sequence-resume.ts", sequences_sequenceResume],
-  ["sequences:tools/sequence-cancel.ts", sequences_sequenceCancel],
   ["sequences:tools/sequence-import.ts", sequences_sequenceImport],
   ["sequences:tools/sequence-analytics.ts", sequences_sequenceAnalytics],
 
