@@ -541,11 +541,16 @@ struct MessageListView: View {
             }
             // Floating avatar — pinned to the bottom of the scroll viewport so it
             // doesn't jump during streaming. Sits outside the LazyVStack content.
-            .overlay(alignment: .bottomLeading) {
+            .overlay(alignment: .bottom) {
                 if visibleMessages.contains(where: { $0.role == .assistant }) || isSending {
-                    assistantAvatarFooter
-                        .padding(.leading, VSpacing.xl)
-                        .padding(.bottom, VSpacing.md)
+                    HStack {
+                        assistantAvatarFooter
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.xl)
+                    .padding(.bottom, VSpacing.md)
+                    .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+                    .frame(maxWidth: .infinity)
                 }
             }
             .overlay(alignment: .bottom) {

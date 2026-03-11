@@ -1121,11 +1121,7 @@ struct ConstellationView: View {
             }
 
             // Center avatar on top of everything (full-size for constellation display)
-            Image(nsImage: appearance.fullAvatarImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: centerAvatarSize, height: centerAvatarSize)
-                .clipShape(Circle())
+            VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
                 .background(
                     Circle()
                         .fill(VColor.background.opacity(0.9))
