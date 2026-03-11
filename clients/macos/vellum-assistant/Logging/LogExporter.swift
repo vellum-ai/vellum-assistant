@@ -16,8 +16,7 @@ private let log = Logger(
 /// Log sources included:
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
-/// - `~/.vellum/workspace/data/logs/` — daemon rotating log files (assistant-*.log)
-/// - `~/.vellum/daemon-stderr.log` — daemon stderr capture
+/// - Daemon logs and audit data via `POST /v1/export` gateway HTTP API
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -132,27 +131,11 @@ enum LogExporter {
             }
         }
 
-        // 3. Daemon logs — ~/.vellum/workspace/data/logs/
+        // 3. Daemon logs and audit data via daemon HTTP APIs
         let home = NSHomeDirectory()
-        let daemonLogDir = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/workspace/data/logs", isDirectory: true)
-        copyDirectoryContents(
-            from: daemonLogDir,
-            to: tempDir.appendingPathComponent("daemon-logs", isDirectory: true),
-            fileManager: fileManager
-        )
+        await fetchDaemonExports(into: tempDir)
 
-        // 4. Daemon stderr — ~/.vellum/daemon-stderr.log
-        let stderrLog = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/daemon-stderr.log")
-        if fileManager.fileExists(atPath: stderrLog.path) {
-            try? fileManager.copyItem(
-                at: stderrLog,
-                to: tempDir.appendingPathComponent("daemon-stderr.log")
-            )
-        }
-
-        // 5. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
+        // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
         let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
             ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
         let xdgLogDir = URL(fileURLWithPath: xdgConfigHome)
@@ -163,17 +146,17 @@ enum LogExporter {
             fileManager: fileManager
         )
 
-        // 6. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
+        // 5. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
         writeSanitizedLockfile(
             to: tempDir.appendingPathComponent("vellum.lock.json")
         )
 
-        // 7. UserDefaults snapshot — app-relevant keys for debugging
+        // 6. UserDefaults snapshot — app-relevant keys for debugging
         writeUserDefaultsSnapshot(
             to: tempDir.appendingPathComponent("user-defaults.json")
         )
 
-        // 8. Auth debug info — non-sensitive token expiry and refresh metadata
+        // 7. Auth debug info — non-sensitive token expiry and refresh metadata
         writeAuthDebugInfo(
             to: tempDir.appendingPathComponent("auth-debug.json")
         )
@@ -242,6 +225,69 @@ enum LogExporter {
                 at: item,
                 to: dest.appendingPathComponent(item.lastPathComponent)
             )
+        }
+    }
+
+    // MARK: - Daemon HTTP Helpers
+
+    /// Calls POST /v1/export on the gateway to fetch audit data and daemon
+    /// log files, then writes them into `directory`. Silently skips if the
+    /// gateway is unreachable or returns an error.
+    private nonisolated static func fetchDaemonExports(into directory: URL) async {
+        let baseURL = LockfilePaths.resolveGatewayUrl()
+
+        guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+            log.warning("No actor token available — skipping daemon exports")
+            return
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/export") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["auditLimit": 10000])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Export API failed with status \(status)")
+                return
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.warning("Export API returned unexpected format")
+                return
+            }
+
+            // Write audit rows as a standalone JSON file
+            if let auditRows = json["auditRows"] {
+                if let auditData = try? JSONSerialization.data(
+                    withJSONObject: auditRows,
+                    options: [.prettyPrinted]
+                ) {
+                    try? auditData.write(to: directory.appendingPathComponent("audit-data.json"))
+                }
+            }
+
+            // Write each daemon log file into a daemon-logs/ subdirectory
+            if let logFiles = json["logFiles"] as? [String: String] {
+                let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
+                try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+                for (filename, content) in logFiles {
+                    let sanitized = (filename as NSString).lastPathComponent
+                    try? content.write(
+                        to: logsDir.appendingPathComponent(sanitized),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+            }
+        } catch {
+            log.warning("Export API request failed: \(error.localizedDescription)")
         }
     }
 

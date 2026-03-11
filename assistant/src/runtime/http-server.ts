@@ -134,6 +134,7 @@ import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
+import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { mcpRouteDefinitions } from "./routes/mcp-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
@@ -724,6 +725,7 @@ export class RuntimeHttpServer {
         sendMessageDeps: this.sendMessageDeps,
       }),
       ...diagnosticsRouteDefinitions(),
+      ...logExportRouteDefinitions(),
       ...documentRouteDefinitions(),
       ...workItemRouteDefinitions(
         this.sendMessageDeps
