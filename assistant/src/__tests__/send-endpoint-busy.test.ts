@@ -115,6 +115,7 @@ function makeCompletingSession(): Session {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -169,6 +170,7 @@ function makeHangingSession(): Session {
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -251,6 +253,7 @@ function makePendingApprovalSession(
     ensureActorScopedHistory: async () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
       pending.has(candidateRequestId),

@@ -167,6 +167,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
   return {
     setTrustContext: () => {},
     updateClient: () => {},
+    setHostBashProxy: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
@@ -280,8 +281,7 @@ describe("HTTP POST /v1/messages blocks secret ingress", () => {
   });
 
   test("handleSendMessage rejects messages containing Stripe live API keys", async () => {
-    const secretContent =
-      "My Stripe key is sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+    const secretContent = "My Stripe key is sk_live_4eC39HqLyjWDarjtT1zdp7dc";
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });

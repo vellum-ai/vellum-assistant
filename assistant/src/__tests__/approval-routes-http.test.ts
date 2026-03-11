@@ -116,6 +116,7 @@ function makeIdleSession(opts?: {
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (
@@ -177,6 +178,7 @@ function makeConfirmationEmittingSession(opts?: {
     getMessages: () => [],
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (
