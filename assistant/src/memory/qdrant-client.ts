@@ -114,6 +114,7 @@ export class VellumQdrantClient {
             await this.client.deleteCollection(this.collection);
             // Fall through to collection creation below
           } else {
+            await this.ensurePayloadIndexes();
             this.collectionReady = true;
             return;
           }
@@ -122,6 +123,7 @@ export class VellumQdrantClient {
             { err },
             "Failed to verify collection compatibility, assuming compatible",
           );
+          await this.ensurePayloadIndexes();
           this.collectionReady = true;
           return;
         }
@@ -172,37 +174,7 @@ export class VellumQdrantClient {
       throw err;
     }
 
-    // Create payload indexes for efficient filtering
-    await Promise.all([
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "target_type",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "target_id",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "kind",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "status",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "created_at",
-        field_schema: "integer",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "conversation_id",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "modality",
-        field_schema: "keyword",
-      }),
-    ]);
+    await this.ensurePayloadIndexes();
 
     // Write sentinel point to record the active embedding model
     if (this.embeddingModel) {
@@ -436,6 +408,39 @@ export class VellumQdrantClient {
       msg.includes("doesn't exist") ||
       msg.includes("not found")
     );
+  }
+
+  private async ensurePayloadIndexes(): Promise<void> {
+    await Promise.all([
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "target_type",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "target_id",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "kind",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "status",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "created_at",
+        field_schema: "integer",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "conversation_id",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "modality",
+        field_schema: "keyword",
+      }),
+    ]);
   }
 
   private async readSentinel(): Promise<string | null> {
