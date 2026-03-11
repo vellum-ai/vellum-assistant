@@ -270,7 +270,6 @@ export class Session {
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
-    this.hostBashProxy = new HostBashProxy(sendToClient);
 
     // Register watch/call notifiers (reads ctx properties lazily)
     registerSessionNotifiers(conversationId, this);

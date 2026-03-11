@@ -16,6 +16,7 @@ import {
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   buildModelInfoEvent,
@@ -607,6 +608,18 @@ export async function handleSendMessage(
     sourceInterface === "vellum";
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   session.updateClient(onEvent, !isInteractiveInterface);
+  // Only create the host bash proxy for desktop client interfaces that can
+  // execute commands on the user's machine. Non-desktop sessions (CLI,
+  // channels, headless) fall back to local execution.
+  if (sourceInterface === "macos" || sourceInterface === "ios") {
+    session.setHostBashProxy(
+      new HostBashProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      }),
+    );
+  } else {
+    session.setHostBashProxy(undefined);
+  }
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
