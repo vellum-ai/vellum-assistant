@@ -13,7 +13,7 @@
  *   bun run scripts/generate-bundled-tool-registry.ts
  */
 import type { SkillToolScript } from "../tools/skills/script-contract.js";
-// ── app-builder ──────────────────────────────────────────────────────────────
+// ── app-builder ────────────────────────────────────────────────────────────────
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appFileEdit from "./bundled-skills/app-builder/tools/app-file-edit.js";
@@ -24,22 +24,26 @@ import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generat
 import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appQuery from "./bundled-skills/app-builder/tools/app-query.js";
 import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
+// ── browser ────────────────────────────────────────────────────────────────────
 import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
 import * as browserClose from "./bundled-skills/browser/tools/browser-close.js";
 import * as browserExtract from "./bundled-skills/browser/tools/browser-extract.js";
 import * as browserFillCredential from "./bundled-skills/browser/tools/browser-fill-credential.js";
-// ── browser ──────────────────────────────────────────────────────────────────
+import * as browserHover from "./bundled-skills/browser/tools/browser-hover.js";
 import * as browserNavigate from "./bundled-skills/browser/tools/browser-navigate.js";
 import * as browserPressKey from "./bundled-skills/browser/tools/browser-press-key.js";
 import * as browserScreenshot from "./bundled-skills/browser/tools/browser-screenshot.js";
+import * as browserScroll from "./bundled-skills/browser/tools/browser-scroll.js";
+import * as browserSelectOption from "./bundled-skills/browser/tools/browser-select-option.js";
 import * as browserSnapshot from "./bundled-skills/browser/tools/browser-snapshot.js";
 import * as browserType from "./bundled-skills/browser/tools/browser-type.js";
 import * as browserWaitFor from "./bundled-skills/browser/tools/browser-wait-for.js";
-// ── chatgpt-import ───────────────────────────────────────────────────────────
-import * as chatgptImport_chatgptImport from "./bundled-skills/chatgpt-import/tools/chatgpt-import.js";
-// ── claude-code ──────────────────────────────────────────────────────────────
+import * as browserWaitForDownload from "./bundled-skills/browser/tools/browser-wait-for-download.js";
+// ── chatgpt-import ─────────────────────────────────────────────────────────────
+import * as chatgptImport from "./bundled-skills/chatgpt-import/tools/chatgpt-import.js";
+// ── claude-code ────────────────────────────────────────────────────────────────
 import * as claudeCode from "./bundled-skills/claude-code/tools/claude-code.js";
-// ── computer-use ─────────────────────────────────────────────────────────────
+// ── computer-use ───────────────────────────────────────────────────────────────
 import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-use-click.js";
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
 import * as computerUseDoubleClick from "./bundled-skills/computer-use/tools/computer-use-double-click.js";
@@ -52,36 +56,38 @@ import * as computerUseRunApplescript from "./bundled-skills/computer-use/tools/
 import * as computerUseScroll from "./bundled-skills/computer-use/tools/computer-use-scroll.js";
 import * as computerUseTypeText from "./bundled-skills/computer-use/tools/computer-use-type-text.js";
 import * as computerUseWait from "./bundled-skills/computer-use/tools/computer-use-wait.js";
+// ── contacts ───────────────────────────────────────────────────────────────────
 import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js";
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
-// ── contacts ─────────────────────────────────────────────────────────────────
 import * as contactUpsert from "./bundled-skills/contacts/tools/contact-upsert.js";
-// ── document ─────────────────────────────────────────────────────────────────
+// ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
 import * as documentUpdate from "./bundled-skills/document/tools/document-update.js";
-// ── followups ────────────────────────────────────────────────────────────────
+// ── followups ──────────────────────────────────────────────────────────────────
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
+// ── google-calendar ────────────────────────────────────────────────────────────
 import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
 import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
 import * as calendarGetEvent from "./bundled-skills/google-calendar/tools/calendar-get-event.js";
-// ── google-calendar ──────────────────────────────────────────────────────────
 import * as calendarListEvents from "./bundled-skills/google-calendar/tools/calendar-list-events.js";
 import * as calendarRsvp from "./bundled-skills/google-calendar/tools/calendar-rsvp.js";
-// ── image-studio ─────────────────────────────────────────────────────────────
+// ── image-studio ───────────────────────────────────────────────────────────────
 import * as mediaGenerateImage from "./bundled-skills/image-studio/tools/media-generate-image.js";
-// ── knowledge-graph ──────────────────────────────────────────────────────────
+// ── knowledge-graph ────────────────────────────────────────────────────────────
 import * as graphQuery from "./bundled-skills/knowledge-graph/tools/graph-query.js";
+// ── media-processing ───────────────────────────────────────────────────────────
 import * as analyzeKeyframes from "./bundled-skills/media-processing/tools/analyze-keyframes.js";
 import * as extractKeyframes from "./bundled-skills/media-processing/tools/extract-keyframes.js";
 import * as generateClip from "./bundled-skills/media-processing/tools/generate-clip.js";
-// ── media-processing ─────────────────────────────────────────────────────────
 import * as ingestMedia from "./bundled-skills/media-processing/tools/ingest-media.js";
 import * as mediaDiagnostics from "./bundled-skills/media-processing/tools/media-diagnostics.js";
 import * as mediaStatus from "./bundled-skills/media-processing/tools/media-status.js";
 import * as queryMediaEvents from "./bundled-skills/media-processing/tools/query-media-events.js";
+// ── messaging ──────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/messaging/tools/gmail-archive.js";
+import * as gmailArchiveByQuery from "./bundled-skills/messaging/tools/gmail-archive-by-query.js";
 import * as gmailBatchArchive from "./bundled-skills/messaging/tools/gmail-batch-archive.js";
 import * as gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-label.js";
 import * as gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
@@ -103,7 +109,7 @@ import * as gmailVacation from "./bundled-skills/messaging/tools/gmail-vacation.
 import * as googleContacts from "./bundled-skills/messaging/tools/google-contacts.js";
 import * as messagingAnalyzeActivity from "./bundled-skills/messaging/tools/messaging-analyze-activity.js";
 import * as messagingAnalyzeStyle from "./bundled-skills/messaging/tools/messaging-analyze-style.js";
-// ── messaging ────────────────────────────────────────────────────────────────
+import * as messagingArchiveBySender from "./bundled-skills/messaging/tools/messaging-archive-by-sender.js";
 import * as messagingAuthTest from "./bundled-skills/messaging/tools/messaging-auth-test.js";
 import * as messagingDraft from "./bundled-skills/messaging/tools/messaging-draft.js";
 import * as messagingListConversations from "./bundled-skills/messaging/tools/messaging-list-conversations.js";
@@ -112,6 +118,7 @@ import * as messagingRead from "./bundled-skills/messaging/tools/messaging-read.
 import * as messagingReply from "./bundled-skills/messaging/tools/messaging-reply.js";
 import * as messagingSearch from "./bundled-skills/messaging/tools/messaging-search.js";
 import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.js";
+import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 import * as sequenceAnalytics from "./bundled-skills/messaging/tools/sequence-analytics.js";
 import * as sequenceCancel from "./bundled-skills/messaging/tools/sequence-cancel.js";
 import * as sequenceCreate from "./bundled-skills/messaging/tools/sequence-create.js";
@@ -124,48 +131,50 @@ import * as sequenceList from "./bundled-skills/messaging/tools/sequence-list.js
 import * as sequencePause from "./bundled-skills/messaging/tools/sequence-pause.js";
 import * as sequenceResume from "./bundled-skills/messaging/tools/sequence-resume.js";
 import * as sequenceUpdate from "./bundled-skills/messaging/tools/sequence-update.js";
-// ── notifications ───────────────────────────────────────────────────────────
+// ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
-// ── orchestration ───────────────────────────────────────────────────────────
+// ── orchestration ──────────────────────────────────────────────────────────────
 import * as swarmDelegate from "./bundled-skills/orchestration/tools/swarm-delegate.js";
-// ── phone-calls ─────────────────────────────────────────────────────────────
+// ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
 import * as callStatus from "./bundled-skills/phone-calls/tools/call-status.js";
-// ── playbooks ────────────────────────────────────────────────────────────────
+// ── playbooks ──────────────────────────────────────────────────────────────────
 import * as playbookCreate from "./bundled-skills/playbooks/tools/playbook-create.js";
 import * as playbookDelete from "./bundled-skills/playbooks/tools/playbook-delete.js";
 import * as playbookList from "./bundled-skills/playbooks/tools/playbook-list.js";
 import * as playbookUpdate from "./bundled-skills/playbooks/tools/playbook-update.js";
-// ── schedule ─────────────────────────────────────────────────────────────────
+// ── schedule ───────────────────────────────────────────────────────────────────
 import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create.js";
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
 import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js";
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
-// ── screen-watch ─────────────────────────────────────────────────────────────
+// ── screen-watch ───────────────────────────────────────────────────────────────
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
-// ── settings ─────────────────────────────────────────────────────────────────
+// ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
 import * as setAvatar from "./bundled-skills/settings/tools/set-avatar.js";
 import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config-update.js";
-// ── skill-management ─────────────────────────────────────────────────────────
-import * as skillMgmtDeleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
-import * as skillMgmtScaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
-// ── slack ────────────────────────────────────────────────────────────────────
+// ── skill-management ───────────────────────────────────────────────────────────
+import * as deleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
+import * as scaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
+// ── slack ──────────────────────────────────────────────────────────────────────
 import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
 import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
 import * as slackChannelPermissions from "./bundled-skills/slack/tools/slack-channel-permissions.js";
 import * as slackConfigureChannels from "./bundled-skills/slack/tools/slack-configure-channels.js";
 import * as slackDeleteMessage from "./bundled-skills/slack/tools/slack-delete-message.js";
+import * as slackEditMessage from "./bundled-skills/slack/tools/slack-edit-message.js";
 import * as slackLeaveChannel from "./bundled-skills/slack/tools/slack-leave-channel.js";
 import * as slackScanDigest from "./bundled-skills/slack/tools/slack-scan-digest.js";
+// ── subagent ───────────────────────────────────────────────────────────────────
 import * as subagentAbort from "./bundled-skills/subagent/tools/subagent-abort.js";
 import * as subagentMessage from "./bundled-skills/subagent/tools/subagent-message.js";
 import * as subagentRead from "./bundled-skills/subagent/tools/subagent-read.js";
-// ── subagent ─────────────────────────────────────────────────────────────────
 import * as subagentSpawn from "./bundled-skills/subagent/tools/subagent-spawn.js";
 import * as subagentStatus from "./bundled-skills/subagent/tools/subagent-status.js";
+// ── tasks ──────────────────────────────────────────────────────────────────────
 import * as taskDelete from "./bundled-skills/tasks/tools/task-delete.js";
 import * as taskList from "./bundled-skills/tasks/tools/task-list.js";
 import * as taskListAdd from "./bundled-skills/tasks/tools/task-list-add.js";
@@ -174,11 +183,10 @@ import * as taskListShow from "./bundled-skills/tasks/tools/task-list-show.js";
 import * as taskListUpdate from "./bundled-skills/tasks/tools/task-list-update.js";
 import * as taskQueueRun from "./bundled-skills/tasks/tools/task-queue-run.js";
 import * as taskRun from "./bundled-skills/tasks/tools/task-run.js";
-// ── tasks ────────────────────────────────────────────────────────────────────
 import * as taskSave from "./bundled-skills/tasks/tools/task-save.js";
-// ── transcribe ───────────────────────────────────────────────────────────────
+// ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
-// ── watcher ──────────────────────────────────────────────────────────────────
+// ── watcher ────────────────────────────────────────────────────────────────────
 import * as watcherCreate from "./bundled-skills/watcher/tools/watcher-create.js";
 import * as watcherDelete from "./bundled-skills/watcher/tools/watcher-delete.js";
 import * as watcherDigest from "./bundled-skills/watcher/tools/watcher-digest.js";
@@ -209,12 +217,16 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["browser:tools/browser-click.ts", browserClick],
   ["browser:tools/browser-type.ts", browserType],
   ["browser:tools/browser-press-key.ts", browserPressKey],
+  ["browser:tools/browser-scroll.ts", browserScroll],
+  ["browser:tools/browser-select-option.ts", browserSelectOption],
+  ["browser:tools/browser-hover.ts", browserHover],
   ["browser:tools/browser-wait-for.ts", browserWaitFor],
   ["browser:tools/browser-extract.ts", browserExtract],
+  ["browser:tools/browser-wait-for-download.ts", browserWaitForDownload],
   ["browser:tools/browser-fill-credential.ts", browserFillCredential],
 
   // chatgpt-import
-  ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport_chatgptImport],
+  ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport],
 
   // claude-code
   ["claude-code:tools/claude-code.ts", claudeCode],
@@ -291,6 +303,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-draft.ts", messagingDraft],
   ["messaging:tools/gmail-archive.ts", gmailArchive],
   ["messaging:tools/gmail-batch-archive.ts", gmailBatchArchive],
+  ["messaging:tools/gmail-archive-by-query.ts", gmailArchiveByQuery],
   ["messaging:tools/gmail-label.ts", gmailLabel],
   ["messaging:tools/gmail-batch-label.ts", gmailBatchLabel],
   ["messaging:tools/gmail-trash.ts", gmailTrash],
@@ -307,6 +320,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/gmail-filters.ts", gmailFilters],
   ["messaging:tools/gmail-vacation.ts", gmailVacation],
   ["messaging:tools/gmail-sender-digest.ts", gmailSenderDigest],
+  ["messaging:tools/messaging-sender-digest.ts", messagingSenderDigest],
+  ["messaging:tools/messaging-archive-by-sender.ts", messagingArchiveBySender],
   ["messaging:tools/gmail-outreach-scan.ts", gmailOutreachScan],
   ["messaging:tools/google-contacts.ts", googleContacts],
   ["messaging:tools/sequence-create.ts", sequenceCreate],
@@ -339,14 +354,14 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["playbooks:tools/playbook-update.ts", playbookUpdate],
   ["playbooks:tools/playbook-delete.ts", playbookDelete],
 
-  // screen-watch
-  ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
-
   // schedule
   ["schedule:tools/schedule-create.ts", scheduleCreate],
   ["schedule:tools/schedule-list.ts", scheduleList],
   ["schedule:tools/schedule-update.ts", scheduleUpdate],
   ["schedule:tools/schedule-delete.ts", scheduleDelete],
+
+  // screen-watch
+  ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
 
   // settings
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
@@ -355,8 +370,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
 
   // skill-management
-  ["skill-management:tools/scaffold-managed.ts", skillMgmtScaffoldManaged],
-  ["skill-management:tools/delete-managed.ts", skillMgmtDeleteManaged],
+  ["skill-management:tools/scaffold-managed.ts", scaffoldManaged],
+  ["skill-management:tools/delete-managed.ts", deleteManaged],
 
   // slack
   ["slack:tools/slack-scan-digest.ts", slackScanDigest],
@@ -364,6 +379,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["slack:tools/slack-configure-channels.ts", slackConfigureChannels],
   ["slack:tools/slack-add-reaction.ts", slackAddReaction],
   ["slack:tools/slack-delete-message.ts", slackDeleteMessage],
+  ["slack:tools/slack-edit-message.ts", slackEditMessage],
   ["slack:tools/slack-leave-channel.ts", slackLeaveChannel],
   ["slack:tools/slack-channel-permissions.ts", slackChannelPermissions],
 
