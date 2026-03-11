@@ -203,7 +203,7 @@ function classifyCore(
       return {
         code: "PROVIDER_API",
         userMessage: "The AI provider rejected the request.",
-        retryable: false,
+        retryable: true,
       };
     }
   }

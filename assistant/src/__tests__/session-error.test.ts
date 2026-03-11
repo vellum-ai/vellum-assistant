@@ -201,7 +201,7 @@ describe("classifySessionError", () => {
       );
       const result = classifySessionError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
-      expect(result.retryable).toBe(false);
+      expect(result.retryable).toBe(true);
     });
   });
 
@@ -314,18 +314,18 @@ describe("classifySessionError", () => {
       expect(result.retryable).toBe(true);
     });
 
-    it("classifies ProviderError with 401 as PROVIDER_API (not retryable)", () => {
+    it("classifies ProviderError with 401 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Unauthorized", "anthropic", 401);
       const result = classifySessionError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
-      expect(result.retryable).toBe(false);
+      expect(result.retryable).toBe(true);
     });
 
-    it("classifies ProviderError with 400 as PROVIDER_API (not retryable)", () => {
+    it("classifies ProviderError with 400 as PROVIDER_API (retryable)", () => {
       const err = new ProviderError("Bad request", "anthropic", 400);
       const result = classifySessionError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
-      expect(result.retryable).toBe(false);
+      expect(result.retryable).toBe(true);
     });
 
     it("ProviderError without statusCode falls back to regex", () => {
