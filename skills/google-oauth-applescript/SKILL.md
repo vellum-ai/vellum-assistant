@@ -128,13 +128,13 @@ The Google Cloud Console uses a "Google Auth Platform" layout. The consent scree
 
 ### Google Auth Platform Sidebar Reference
 
-| Sidebar Item | What It Contains | URL Path |
-|---|---|---|
-| **Overview** | Status summary, "Get Started" button if not configured | `/auth/overview` |
-| **Branding** | App name, user support email, developer contact, logo, links | `/auth/branding` |
-| **Audience** | User type (Internal/External), publishing status, test users | `/auth/audience` |
-| **Data Access** | Scopes ("Add or Remove Scopes") | `/auth/scopes` |
-| **Clients** | OAuth client credentials | `/auth/clients` |
+| Sidebar Item    | What It Contains                                             | URL Path         |
+| --------------- | ------------------------------------------------------------ | ---------------- |
+| **Overview**    | Status summary, "Get Started" button if not configured       | `/auth/overview` |
+| **Branding**    | App name, user support email, developer contact, logo, links | `/auth/branding` |
+| **Audience**    | User type (Internal/External), publishing status, test users | `/auth/audience` |
+| **Data Access** | Scopes ("Add or Remove Scopes")                              | `/auth/scopes`   |
+| **Clients**     | OAuth client credentials                                     | `/auth/clients`  |
 
 ### Step 4a: Initial setup (if not already configured)
 
@@ -194,6 +194,7 @@ Tell the user:
 > After adding them, click **Add to Table** (or **Update**), then click **Save**.
 >
 > When done, you should see them listed on the page:
+>
 > - **Non-sensitive scopes:** `userinfo.email`
 > - **Sensitive scopes:** `calendar.readonly`, `calendar.events`, `gmail.send`
 > - **Restricted scopes (Gmail):** `gmail.modify`, `gmail.readonly`
@@ -354,6 +355,7 @@ Tell the user:
 > Open: `https://console.cloud.google.com/auth/overview?project=PROJECT_ID`
 >
 > If you see **Get Started**, click it and set:
+>
 > - App name: **Vellum Assistant**
 > - User support email: **your email**
 > - User type: **External**
@@ -363,6 +365,7 @@ Tell the user:
 > Then go to **Audience** in the left sidebar and add **your email** as a test user.
 >
 > Then go to **Data Access** in the left sidebar and add these scopes:
+>
 > - `https://www.googleapis.com/auth/gmail.readonly`
 > - `https://www.googleapis.com/auth/gmail.modify`
 > - `https://www.googleapis.com/auth/gmail.send`
@@ -462,17 +465,17 @@ After authorization:
 
 ## Error Handling
 
-| Scenario | Action |
-|---|---|
-| User not signed in to Google | Tell them to sign in, wait, continue |
-| Project already exists | Reuse it |
-| API already enabled | Skip (page shows "Manage") |
-| Project quota limit reached | Offer: request increase, delete unused, or reuse existing |
-| Org policy / billing blockers | Explain plainly, wait for user |
-| "This app isn't verified" warning | Normal for testing. Click Advanced > Continue |
-| Auth URL returned instead of auto-completing | Send URL to user to open manually |
-| Consent screen already configured | Verify key settings via Branding/Audience/Data Access, move on |
-| Chrome not installed or osascript fails | Fall back to Path B (give URLs manually) |
+| Scenario                                     | Action                                                         |
+| -------------------------------------------- | -------------------------------------------------------------- |
+| User not signed in to Google                 | Tell them to sign in, wait, continue                           |
+| Project already exists                       | Reuse it                                                       |
+| API already enabled                          | Skip (page shows "Manage")                                     |
+| Project quota limit reached                  | Offer: request increase, delete unused, or reuse existing      |
+| Org policy / billing blockers                | Explain plainly, wait for user                                 |
+| "This app isn't verified" warning            | Normal for testing. Click Advanced > Continue                  |
+| Auth URL returned instead of auto-completing | Send URL to user to open manually                              |
+| Consent screen already configured            | Verify key settings via Branding/Audience/Data Access, move on |
+| Chrome not installed or osascript fails      | Fall back to Path B (give URLs manually)                       |
 
 ## Guardrails
 
