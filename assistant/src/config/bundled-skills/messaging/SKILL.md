@@ -265,10 +265,6 @@ Medium and high risk tools require a confidence score between 0 and 1:
 - **0.5-0.6**: Reasonable inference but some ambiguity
 - **Below 0.5**: Ask the user to confirm before proceeding
 
-## Activity Analysis
-
-Use `messaging_analyze_activity` to classify channels or conversations by activity level (high, medium, low, dead). Useful for decluttering — suggest leaving dead channels or archiving old emails.
-
 ## Email Decluttering
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
