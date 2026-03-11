@@ -379,14 +379,17 @@ export class Session {
   updateClient(
     sendToClient: (msg: ServerMessage) => void,
     hasNoClient = false,
+    opts?: { skipProxySenderUpdate?: boolean },
   ): void {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
-    this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
-    this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
+    if (!opts?.skipProxySenderUpdate) {
+      this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
+    }
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
