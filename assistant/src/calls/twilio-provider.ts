@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -280,7 +281,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
    * middleware) can check availability independently.
    */
   static getAuthToken(): string | null {
-    return getSecureKey("credential:twilio:auth_token") || null;
+    return getSecureKey(credentialKey("twilio", "auth_token")) || null;
   }
 
   /**

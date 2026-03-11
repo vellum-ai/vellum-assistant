@@ -1,4 +1,5 @@
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 
 interface IntegrationProbe {
@@ -13,13 +14,13 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
     name: "Gmail",
     category: "email",
     isConnected: () =>
-      !!getSecureKey("credential:integration:gmail:access_token"),
+      !!getSecureKey(credentialKey("integration:gmail", "access_token")),
   },
   {
     name: "Slack",
     category: "messaging",
     isConnected: () =>
-      !!getSecureKey("credential:integration:slack:access_token"),
+      !!getSecureKey(credentialKey("integration:slack", "access_token")),
   },
   {
     name: "Twilio",
@@ -30,8 +31,8 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
     name: "Telegram",
     category: "messaging",
     isConnected: () =>
-      !!getSecureKey("credential:telegram:bot_token") &&
-      !!getSecureKey("credential:telegram:webhook_secret"),
+      !!getSecureKey(credentialKey("telegram", "bot_token")) &&
+      !!getSecureKey(credentialKey("telegram", "webhook_secret")),
   },
 ];
 

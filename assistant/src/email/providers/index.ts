@@ -5,6 +5,7 @@
  */
 
 import { getNestedValue, loadRawConfig } from "../../config/loader.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { ConfigError } from "../../util/errors.js";
 import type { EmailProvider } from "../provider.js";
@@ -13,7 +14,7 @@ export const SUPPORTED_PROVIDERS = ["agentmail"] as const;
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
 const PROVIDER_KEY_MAP: Record<SupportedProvider, string[]> = {
-  agentmail: ["agentmail", "credential:agentmail:api_key"],
+  agentmail: ["agentmail", credentialKey("agentmail", "api_key")],
 };
 
 /**
