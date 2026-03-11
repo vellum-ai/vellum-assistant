@@ -188,6 +188,9 @@ build_binaries() {
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
+    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}"
     # Copy WASM assets (not bundled by bun --compile)
@@ -356,6 +359,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     local_daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
+    fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        local_daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"

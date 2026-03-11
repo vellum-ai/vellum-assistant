@@ -701,6 +701,7 @@ jobs:
       - name: Build binaries
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
 
       - name: Build release .app
@@ -1011,6 +1012,8 @@ jobs:
           if [ -n "$DISPLAY_VERSION" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
             DAEMON_FLAGS+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
           fi
+          DAEMON_FLAGS+=(--define "process.env.COMMIT_SHA='${{ github.sha }}'")
+
 
           # Daemon
           (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)

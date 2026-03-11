@@ -2863,13 +2863,15 @@ public struct NotificationThreadCreated: Codable, Sendable {
 public struct OAuthConnectResultResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
+    public let service: String?
     public let grantedScopes: [String]?
     public let accountInfo: String?
     public let error: String?
 
-    public init(type: String, success: Bool, grantedScopes: [String]? = nil, accountInfo: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, service: String? = nil, grantedScopes: [String]? = nil, accountInfo: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
+        self.service = service
         self.grantedScopes = grantedScopes
         self.accountInfo = accountInfo
         self.error = error

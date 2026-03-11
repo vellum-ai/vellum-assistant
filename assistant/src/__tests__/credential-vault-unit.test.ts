@@ -109,7 +109,7 @@ describe("CredentialBroker transient credentials", () => {
     const result = broker.consume(auth.token.tokenId);
     expect(result.success).toBe(true);
     expect(result.value).toBe("one-time-secret");
-    expect(result.storageKey).toBe("credential:svc:key");
+    expect(result.storageKey).toBe(credentialKey("svc", "key"));
 
     // Second authorize + consume should NOT have the transient value
     const auth2 = broker.authorize({
@@ -149,7 +149,7 @@ describe("CredentialBroker transient credentials", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey("credential:github:token", "stored-value");
+    setSecureKey(credentialKey("github", "token"), "stored-value");
     broker.injectTransient("github", "token", "transient-value");
 
     // First fill uses transient
@@ -894,7 +894,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
         },
       ],
     });
-    setSecureKey("credential:multi:api_key", "multi-secret");
+    setSecureKey(credentialKey("multi", "api_key"), "multi-secret");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,

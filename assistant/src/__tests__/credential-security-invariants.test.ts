@@ -416,7 +416,10 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
         allowedTools: tc.allowedTools,
         allowedDomains: tc.allowedDomains,
       });
-      setSecureKey(`credential:${tc.credentialId}:token`, "test-secret-value");
+      setSecureKey(
+        credentialKey(tc.credentialId, "token"),
+        "test-secret-value",
+      );
 
       const result = await broker.browserFill({
         service: tc.credentialId,
@@ -441,7 +444,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey("credential:github:token", "ghp_secret123");
+    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",

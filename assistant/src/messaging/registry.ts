@@ -4,6 +4,7 @@
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import type { MessagingProvider } from "./provider.js";
 
@@ -53,7 +54,7 @@ export function getConnectedProviders(): MessagingProvider[] {
   return Array.from(providers.values()).filter((p) => {
     if (p.isConnected) return p.isConnected();
     const token = getSecureKey(
-      `credential:${p.credentialService}:access_token`,
+      credentialKey(p.credentialService, "access_token"),
     );
     return token !== undefined;
   });

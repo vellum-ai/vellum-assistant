@@ -10,7 +10,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { buildAssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-import { credentialKey } from "../../security/credential-key.js";
+import { credentialKey, migrateKeys } from "../../security/credential-key.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
@@ -242,6 +242,7 @@ class CredentialStoreTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    migrateKeys();
     const action = input.action as string;
 
     switch (action) {
