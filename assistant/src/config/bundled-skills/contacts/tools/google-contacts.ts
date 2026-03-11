@@ -9,7 +9,14 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok } from "./shared.js";
+
+function ok(text: string): ToolExecutionResult {
+  return { content: text, isError: false };
+}
+
+function err(text: string): ToolExecutionResult {
+  return { content: text, isError: true };
+}
 
 function formatContact(person: Person): Record<string, unknown> {
   const name = person.names?.[0];
