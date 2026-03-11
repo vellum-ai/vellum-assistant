@@ -14,10 +14,6 @@ import {
   memoryUpdateTool,
 } from "./memory/register.js";
 import type { LazyToolDescriptor } from "./registry.js";
-import { setAvatarTool } from "./system/avatar-generator.js";
-import { navigateSettingsTabTool } from "./system/navigate-settings.js";
-import { openSystemSettingsTool } from "./system/open-system-settings.js";
-import { voiceConfigUpdateTool } from "./system/voice-config.js";
 import type { Tool } from "./types.js";
 
 // ── Eager side-effect modules ───────────────────────────────────────
@@ -79,10 +75,6 @@ export const explicitTools: Tool[] = [
   memoryDeleteTool,
   memoryRecallTool,
   credentialStoreTool,
-  voiceConfigUpdateTool,
-  setAvatarTool,
-  openSystemSettingsTool,
-  navigateSettingsTabTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
