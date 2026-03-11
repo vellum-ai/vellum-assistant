@@ -517,7 +517,78 @@ extension AppDelegate {
     }
 
     @objc public func sendLogsToSentry() {
-        LogExporter.sendLogsToSentry()
+        // If the window is already showing, just bring it forward.
+        if let existing = logReportWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let dismiss: () -> Void = { [weak self] in
+            self?.dismissLogReportWindow()
+        }
+
+        let view = LogReportFormView(
+            onSend: { [weak self] formData in
+                self?.dismissLogReportWindow()
+                LogExporter.sendLogsToSentry(formData: formData)
+            },
+            onCancel: dismiss
+        )
+
+        let hostingController = NSHostingController(rootView: view)
+        hostingController.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.title = "Send Logs"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor(VColor.background)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        logReportWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleLogReportWindowWillClose()
+            }
+        }
+
+        NSApp.activateAsDockAppIfNeeded()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        logReportWindow = window
+    }
+
+    private func dismissLogReportWindow() {
+        if let observer = logReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            logReportWindowObserver = nil
+        }
+        let closingWindow = logReportWindow
+        logReportWindow?.close()
+        logReportWindow = nil
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
+    }
+
+    private func handleLogReportWindowWillClose() {
+        if let observer = logReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            logReportWindowObserver = nil
+        }
+        let closingWindow = logReportWindow
+        logReportWindow = nil
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 
     func refreshSkillsCache() {

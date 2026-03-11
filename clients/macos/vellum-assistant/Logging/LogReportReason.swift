@@ -2,7 +2,7 @@ import Foundation
 import VellumAssistantShared
 
 /// Pre-defined categories a user can pick when sending a log report.
-enum LogReportReason: String, CaseIterable, Identifiable {
+enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
     case bugReport
     case performanceIssue
     case connectionIssue
@@ -37,7 +37,7 @@ enum LogReportReason: String, CaseIterable, Identifiable {
 }
 
 /// Aggregated form data collected from the log report sheet.
-struct LogReportFormData {
+struct LogReportFormData: Sendable {
     var reason: LogReportReason
     var message: String
     var email: String
