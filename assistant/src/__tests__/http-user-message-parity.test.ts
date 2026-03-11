@@ -168,6 +168,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
     isProcessing: () => false,
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
