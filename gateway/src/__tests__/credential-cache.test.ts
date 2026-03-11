@@ -1,4 +1,5 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { credentialKey } from "../credential-key.js";
 
 // ---------------------------------------------------------------------------
 // Mock readCredential so tests don't touch the real credential store
@@ -38,8 +39,8 @@ beforeEach(() => {
 describe("CredentialCache", () => {
   test("returns the value from readCredential", async () => {
     const cache = new CredentialCache();
-    const result = await cache.get("credential:test:key");
-    expect(result).toBe("value-for-credential:test:key");
+    const result = await cache.get(credentialKey("test", "key"));
+    expect(result).toBe("value-for-credential/test/key");
     expect(callCount).toBe(1);
   });
 
