@@ -345,27 +345,6 @@ extension AppDelegate {
             }
         }
 
-        // Restart DaemonClient connection when the health monitor relaunches
-        // the daemon process so we don't wait for the backoff timer to expire.
-        assistantCli.onDaemonRestarted = { [weak self] in
-            guard let self else { return }
-            Task {
-                // Don't reset an in-progress connection attempt
-                guard !self.daemonClient.isConnected, !self.daemonClient.isConnecting else { return }
-                do {
-                    try await self.daemonClient.connect()
-                } catch {
-                    log.error("Failed to reconnect to daemon after restart: \(error)")
-                }
-                if self.daemonClient.isConnected {
-                    self.setupAmbientAgent()
-                    self.refreshAppsCache()
-                    self.refreshSkillsCache()
-                    self.checkAndApplyPrivacyFlag()
-                }
-            }
-        }
-
         Task {
             if !isCurrentAssistantRemote {
                 // If the hatching step already started the gateway (e.g. `vellum-cli hatch --remote local`),
@@ -389,7 +368,6 @@ extension AppDelegate {
 
                 if lockfileExists && gatewayHealthy {
                     log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
-                    assistantCli.startMonitoring()
                 } else {
                     // On first launch post-onboarding, use daemonOnly: false so the CLI
                     // creates a lockfile entry. On subsequent launches, daemonOnly: true
@@ -411,7 +389,6 @@ extension AppDelegate {
                     if needsLockfileEntry {
                         _ = self.loadAssistantFromLockfile()
                     }
-                    assistantCli.startMonitoring()
                 }
             }
             // Skip connect if the bootstrap retry coordinator already connected

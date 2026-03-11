@@ -49,10 +49,12 @@ export async function execute(
   const processName = (input.process_name as string) ?? "Vellum";
   const waitSeconds = (input.wait_seconds as number) ?? 10;
 
-  // Resolve ${ENV_VAR} patterns in the message from process.env so the
-  // agent can include environment variable values (e.g. ${TWILIO_ACCOUNT_SID})
+  // Resolve ${ENV_VAR} patterns for allowlisted environment variables so
+  // the agent can include sensitive values (e.g. ${TWILIO_ACCOUNT_SID})
   // without needing a separate type_env_var step.
+  const ENV_VAR_ALLOWLIST = new Set(["TWILIO_ACCOUNT_SID"]);
   const message = rawMessage.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
+    if (!ENV_VAR_ALLOWLIST.has(name)) return `\${${name}}`;
     return process.env[name] ?? `\${${name}}`;
   });
 

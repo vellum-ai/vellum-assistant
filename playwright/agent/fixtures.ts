@@ -106,6 +106,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 
   return {
     teardown: async () => {
+      collectAppLogs();
       retireAssistant();
       quitApp(appDisplayName);
       collectHatchLogs();
@@ -523,40 +524,17 @@ function skipAssistantOnboarding(): void {
     unlinkSync(bootstrapPath);
   }
 
-  // Pre-populate identity files so the assistant has a known identity.
-  const identityContent = [
-    "# IDENTITY.md",
-    "",
-    "## Details",
-    "",
-    "- **Name:** Vellum",
-    "- **Nature:** AI assistant",
-    "- **Personality:** Helpful, direct, and resourceful",
-    "- **Emoji:** 🤖",
-    "- **Style tendency:** Concise and action-oriented",
-    "- **Role:** Personal assistant",
-    `- **Home:** Local (~/.vellum/workspace)`,
-    "",
-  ].join("\n");
-
-  const userContent = [
-    "# USER.md",
-    "",
-    "## Details",
-    "",
-    "- **Name:** Test User",
-    "- **Preferred address:** casual",
-    "",
-  ].join("\n");
+  // Copy pre-built identity files so the assistant has a known identity.
+  const markdownDir = path.resolve(__dirname, "markdown");
 
   const identityPath = path.join(workspaceDir, "IDENTITY.md");
   if (!existsSync(identityPath)) {
-    writeFileSync(identityPath, identityContent, "utf-8");
+    copyFileSync(path.join(markdownDir, "IDENTITY.md"), identityPath);
   }
 
   const userPath = path.join(workspaceDir, "USER.md");
   if (!existsSync(userPath)) {
-    writeFileSync(userPath, userContent, "utf-8");
+    copyFileSync(path.join(markdownDir, "USER.md"), userPath);
   }
 }
 
@@ -589,8 +567,10 @@ function ensureApiKeyInDefaults(): void {
       `defaults read ${domain} vellum_provider_anthropic`,
       { encoding: "utf-8", timeout: 5_000 },
     ).trim();
-  } catch {
-    // Best-effort — tests may still pass if the daemon has the key via env
+  } catch (err) {
+    console.error(
+      `[fixture] Failed to write/verify API key in defaults: ${err instanceof Error ? err.message : err}`,
+    );
   }
 }
 
@@ -612,7 +592,28 @@ function collectHatchLogs(): void {
   }
 }
 
+/**
+ * Collects the app's os_log output and writes it to the test artifact
+ * directory so it is uploaded alongside screenshots and traces.
+ */
+function collectAppLogs(): void {
+  try {
+    const logs = execSync(
+      `log show --predicate 'subsystem == "com.vellum.vellum-assistant"' --last 5m --style compact 2>/dev/null | tail -100`,
+      { encoding: "utf-8", timeout: 10_000 },
+    ).trim();
 
+    const destDir = path.join(process.cwd(), "test-results", "agent-logs");
+    mkdirSync(destDir, { recursive: true });
+    writeFileSync(
+      path.join(destDir, "app-os-log.log"),
+      logs || "(no os_log entries found)",
+      "utf-8",
+    );
+  } catch {
+    // Best-effort — log collection should never fail the test
+  }
+}
 
 function retireAssistant(): void {
   if (!hasAssistantInLockfile()) return;
