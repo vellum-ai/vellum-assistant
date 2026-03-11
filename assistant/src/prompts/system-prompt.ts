@@ -109,7 +109,11 @@ export function isOnboardingComplete(): boolean {
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
-export function buildSystemPrompt(): string {
+export interface BuildSystemPromptOptions {
+  hasNoClient?: boolean;
+}
+
+export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   const userPath = getWorkspacePromptPath("USER.md");
@@ -156,13 +160,14 @@ export function buildSystemPrompt(): string {
     );
   }
   if (getIsContainerized()) parts.push(buildContainerizedSection());
-  parts.push(buildConfigSection());
+  const hasNoClient = options?.hasNoClient ?? false;
+  parts.push(buildConfigSection(hasNoClient));
   parts.push(buildCliReferenceSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
   const config = getConfig();
-  parts.push(buildToolPermissionSection());
+  if (!hasNoClient) parts.push(buildToolPermissionSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
   if (
     isAssistantFeatureFlagEnabled(
@@ -181,9 +186,9 @@ export function buildSystemPrompt(): string {
   if (!isOnboardingComplete()) {
     parts.push(buildStarterTaskPlaybookSection());
   }
-  parts.push(buildSystemPermissionSection());
+  if (!hasNoClient) parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
-  parts.push(buildAccessPreferenceSection());
+  parts.push(buildAccessPreferenceSection(hasNoClient));
   parts.push(buildIntegrationSection());
   parts.push(buildMemoryPersistenceSection());
   parts.push(buildMemoryRecallSection());
@@ -572,7 +577,23 @@ export function buildSwarmGuidanceSection(): string {
   ].join("\n");
 }
 
-function buildAccessPreferenceSection(): string {
+function buildAccessPreferenceSection(hasNoClient: boolean): string {
+  if (hasNoClient) {
+    return [
+      "## External Service Access Preference",
+      "",
+      "When interacting with external services (GitHub, Slack, Linear, Jira, cloud providers, etc.),",
+      "follow this priority order:",
+      "",
+      "1. **Sandbox first (`bash`)** — Always try to do things in your own sandbox environment first.",
+      "   If a tool (git, curl, jq, etc.) is not installed, install it yourself using `bash`",
+      "   (e.g. `apt-get install -y git`). The sandbox is your own machine — you have full control.",
+      "2. **web_fetch** — For public endpoints or simple API calls that don't need auth.",
+      "3. **Browser automation as last resort** — Only when the task genuinely requires a browser",
+      "   (e.g., no API exists, visual interaction needed, or OAuth consent screen).",
+    ].join("\n");
+  }
+
   return [
     "## External Service Access Preference",
     "",
@@ -760,7 +781,7 @@ function buildPostToolResponseSection(): string {
   ].join("\n");
 }
 
-function buildConfigSection(): string {
+function buildConfigSection(hasNoClient: boolean): string {
   // Always use `file_edit` (not `host_file_edit`) for workspace files — file_edit
   // handles sandbox path mapping internally, and host_file_edit is permission-gated
   // which would trigger approval prompts for routine workspace updates.
@@ -769,10 +790,14 @@ function buildConfigSection(): string {
   const config = getConfig();
   const configPreamble = `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
 
+  const fileToolGuidance = hasNoClient
+    ? `${configPreamble} **Always use \`file_read\` and \`file_edit\` for these files** — they are inside your sandbox working directory:`
+    : `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`;
+
   return [
     "## Configuration",
     `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
-    `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`,
+    fileToolGuidance,
     "",
     "- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.",
     "- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.",
@@ -807,7 +832,13 @@ function buildConfigSection(): string {
     "- They rename you or change your role",
     "- Your avatar appearance changes (update the `## Avatar` section with a description of the new look)",
     "",
-    "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
+    ...(hasNoClient
+      ? [
+          "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`).",
+        ]
+      : [
+          "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
+        ]),
     "",
     "When updating, read the file first, then make a targeted edit. Include all useful information, but don't bloat the files over time",
   ].join("\n");

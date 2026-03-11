@@ -324,7 +324,7 @@ export class Session {
       const resolved = {
         systemPrompt: hasSystemPromptOverride
           ? systemPrompt
-          : buildSystemPrompt(),
+          : buildSystemPrompt({ hasNoClient: this.hasNoClient }),
         maxTokens: configuredMaxTokens,
       };
       return resolved;
