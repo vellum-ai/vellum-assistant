@@ -46,7 +46,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
-import type { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBashProxy } from "./host-bash-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -270,6 +270,7 @@ export class Session {
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
+    this.hostBashProxy = new HostBashProxy(sendToClient);
 
     // Register watch/call notifiers (reads ctx properties lazily)
     registerSessionNotifiers(conversationId, this);
@@ -373,6 +374,7 @@ export class Session {
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
+    this.hostBashProxy?.updateSender(sendToClient);
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
@@ -415,6 +417,7 @@ export class Session {
 
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
+    this.hostBashProxy?.dispose();
     disposeSession(this);
   }
 

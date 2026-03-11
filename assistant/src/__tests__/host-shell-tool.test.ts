@@ -69,7 +69,7 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 }));
 
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
-import type { ToolContext } from "../tools/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 const testDirs: string[] = [];
 
@@ -685,5 +685,151 @@ describe("host_bash — spawn error handling", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("<command_completed />");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HostBashProxy delegation
+// ---------------------------------------------------------------------------
+
+describe("host_bash — proxy delegation", () => {
+  function makeMockProxy(result: ToolExecutionResult) {
+    const calls: Array<{
+      input: { command: string; working_dir?: string; timeout_seconds?: number };
+      sessionId: string;
+    }> = [];
+
+    return {
+      proxy: {
+        isAvailable: () => true,
+        request: async (
+          input: { command: string; working_dir?: string; timeout_seconds?: number },
+          sessionId: string,
+          _signal?: AbortSignal,
+        ) => {
+          calls.push({ input, sessionId });
+          return result;
+        },
+        updateSender: () => {},
+        dispose: () => {},
+        resolve: () => {},
+        hasPendingRequest: () => false,
+      },
+      calls,
+    };
+  }
+
+  test("delegates to proxy when hostBashProxy is available", async () => {
+    const proxyResult: ToolExecutionResult = {
+      content: "proxied output",
+      isError: false,
+    };
+    const { proxy, calls } = makeMockProxy(proxyResult);
+
+    const ctx: ToolContext = {
+      ...makeContext(),
+      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
+    };
+
+    spawnCalls.length = 0;
+    const result = await hostShellTool.execute(
+      { command: "echo hello", working_dir: "/tmp", timeout_seconds: 30 },
+      ctx,
+    );
+
+    expect(result).toBe(proxyResult);
+    expect(calls.length).toBe(1);
+    expect(calls[0].input.command).toBe("echo hello");
+    expect(calls[0].input.working_dir).toBe("/tmp");
+    expect(calls[0].input.timeout_seconds).toBe(30);
+    expect(calls[0].sessionId).toBe("test-session");
+    // Should NOT have spawned a local process
+    expect(spawnCalls.length).toBe(0);
+  });
+
+  test("still validates input before proxying (null bytes in command)", async () => {
+    const proxyResult: ToolExecutionResult = { content: "proxied", isError: false };
+    const { proxy, calls } = makeMockProxy(proxyResult);
+
+    const ctx: ToolContext = {
+      ...makeContext(),
+      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
+    };
+
+    const result = await hostShellTool.execute(
+      { command: "echo \0evil" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("null bytes");
+    // Proxy should NOT have been called
+    expect(calls.length).toBe(0);
+  });
+
+  test("still validates input before proxying (relative working_dir)", async () => {
+    const proxyResult: ToolExecutionResult = { content: "proxied", isError: false };
+    const { proxy, calls } = makeMockProxy(proxyResult);
+
+    const ctx: ToolContext = {
+      ...makeContext(),
+      hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
+    };
+
+    const result = await hostShellTool.execute(
+      { command: "echo test", working_dir: "relative/path" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("working_dir must be absolute");
+    expect(calls.length).toBe(0);
+  });
+
+  test("falls back to local execution when proxy is not available", async () => {
+    const unavailableProxy = {
+      isAvailable: () => false,
+      request: async () => {
+        throw new Error("should not be called");
+      },
+      updateSender: () => {},
+      dispose: () => {},
+      resolve: () => {},
+      hasPendingRequest: () => false,
+    };
+
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-proxy-fallback-"));
+    testDirs.push(dir);
+
+    const ctx: ToolContext = {
+      ...makeContext(),
+      hostBashProxy: unavailableProxy as unknown as ToolContext["hostBashProxy"],
+    };
+
+    spawnCalls.length = 0;
+    const result = await hostShellTool.execute(
+      { command: "echo local-fallback", working_dir: dir },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe("local-fallback");
+    // Should have spawned locally
+    expect(spawnCalls.length).toBe(1);
+  });
+
+  test("falls back to local execution when no proxy is set", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-no-proxy-"));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+    const result = await hostShellTool.execute(
+      { command: "echo no-proxy", working_dir: dir },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe("no-proxy");
+    expect(spawnCalls.length).toBe(1);
   });
 });
