@@ -333,6 +333,10 @@ export function loadConfig(): AssistantConfig {
     }
 
     // Environment variables override everything
+    if (process.env.SANDBOX_ENABLED === "false") {
+      config.sandbox.enabled = false;
+    }
+
     if (process.env.ANTHROPIC_API_KEY) {
       config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
     }
