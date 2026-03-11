@@ -59,6 +59,7 @@ extension AppDelegate {
         }
 
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         assistant.writeToWorkspaceConfig()
         return assistant
     }
