@@ -99,7 +99,7 @@ const MIN_FEED_ROWS = 3;
 // Feed item height estimation
 const TOOL_CALL_CHROME_LINES = 2; // header (┌) + footer (└)
 const MESSAGE_SPACING = 1;
-const HELP_DISPLAY_HEIGHT = 6;
+const HELP_DISPLAY_HEIGHT = 8;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
@@ -1513,18 +1513,26 @@ function ChatApp({
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
           let fullText = "";
+          let sseError = "";
           const reader = res.body?.getReader();
           const decoder = new TextDecoder();
           if (reader) {
+            let buffer = "";
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              const chunk = decoder.decode(value, { stream: true });
-              for (const line of chunk.split("\n")) {
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
                 if (line.startsWith("data: ")) {
                   try {
                     const data = JSON.parse(line.slice(6));
-                    if (data.text) fullText += data.text;
+                    if (data.error) {
+                      sseError = data.error;
+                    } else if (data.text) {
+                      fullText += data.text;
+                    }
                   } catch {
                     /* skip malformed */
                   }
@@ -1532,7 +1540,11 @@ function ChatApp({
               }
             }
           }
-          h.addStatus(fullText || "No response");
+          if (sseError) {
+            h.showError(`/btw: ${sseError}`);
+          } else {
+            h.addStatus(fullText || "No response");
+          }
         } catch (err) {
           h.showError(
             `/btw failed: ${err instanceof Error ? err.message : err}`,
