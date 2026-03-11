@@ -411,8 +411,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // OAuth / integrations
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
-  { endpoint: "integrations/twitter/auth/start", scopes: ["settings.write"] },
-  { endpoint: "integrations/twitter/auth/status", scopes: ["settings.read"] },
 
   // Workspace files
   { endpoint: "workspace-files", scopes: ["settings.read"] },
