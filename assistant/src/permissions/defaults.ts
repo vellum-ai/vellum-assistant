@@ -21,8 +21,6 @@ const HOST_FILE_TOOLS = [
 ] as const;
 const COMPUTER_USE_TOOLS = [
   "computer_use_click",
-  "computer_use_double_click",
-  "computer_use_right_click",
   "computer_use_type_text",
   "computer_use_key",
   "computer_use_scroll",

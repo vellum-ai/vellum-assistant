@@ -315,6 +315,16 @@ export function pauseEnrollment(id: string): void {
     .run();
 }
 
+/** Resume a paused enrollment — re-activates it so the scheduler picks it up. */
+export function resumeEnrollment(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(sequenceEnrollments)
+    .set({ status: "active", nextStepAt: now, updatedAt: now })
+    .where(eq(sequenceEnrollments.id, id))
+    .run();
+}
+
 // ── Query Helpers ───────────────────────────────────────────────────
 
 export function findActiveEnrollmentsByEmail(

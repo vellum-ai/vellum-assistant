@@ -111,15 +111,24 @@
     },
     {
       "name": "sequence_update",
-      "description": "Update a sequence's name, description, status, steps, or exit-on-reply setting.",
+      "description": "Update a sequence or manage an enrollment's lifecycle. For sequences: change name, description, status (active/paused/archived), steps, or exit-on-reply. For enrollments: pause, resume, or cancel via enrollment_id + enrollment_action.",
       "category": "sequences",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "description": "Sequence ID to update"
+            "description": "Sequence ID to update (required for sequence-level changes)"
+          },
+          "enrollment_id": {
+            "type": "string",
+            "description": "Enrollment ID for enrollment-level lifecycle actions"
+          },
+          "enrollment_action": {
+            "type": "string",
+            "enum": ["pause", "resume", "cancel"],
+            "description": "Action to perform on the enrollment (required when enrollment_id is provided)"
           },
           "name": {
             "type": "string",
@@ -132,7 +141,7 @@
           "status": {
             "type": "string",
             "enum": ["active", "paused", "archived"],
-            "description": "New status"
+            "description": "New status (use this to pause/resume a sequence)"
           },
           "exit_on_reply": {
             "type": "boolean",
@@ -172,8 +181,7 @@
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
-        },
-        "required": ["id"]
+        }
       },
       "executor": "tools/sequence-update.ts",
       "execution_target": "host"
@@ -271,75 +279,6 @@
         }
       },
       "executor": "tools/sequence-enrollment-list.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "sequence_pause",
-      "description": "Pause a sequence (stops processing all enrollments) or cancel a specific enrollment.",
-      "category": "sequences",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "sequence_id": {
-            "type": "string",
-            "description": "Sequence ID to pause"
-          },
-          "enrollment_id": {
-            "type": "string",
-            "description": "Specific enrollment ID to cancel (alternative to pausing whole sequence)"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        }
-      },
-      "executor": "tools/sequence-pause.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "sequence_resume",
-      "description": "Resume a paused sequence. Active enrollments will be processed on the next scheduler tick.",
-      "category": "sequences",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "sequence_id": {
-            "type": "string",
-            "description": "Sequence ID to resume"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["sequence_id"]
-      },
-      "executor": "tools/sequence-resume.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "sequence_cancel",
-      "description": "Cancel a specific enrollment, removing the contact from the sequence.",
-      "category": "sequences",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "enrollment_id": {
-            "type": "string",
-            "description": "Enrollment ID to cancel"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["enrollment_id"]
-      },
-      "executor": "tools/sequence-cancel.ts",
       "execution_target": "host"
     },
     {

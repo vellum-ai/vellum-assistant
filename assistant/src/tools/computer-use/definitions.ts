@@ -27,67 +27,57 @@ const reasonProperty = {
     "Brief non-technical explanation of why this tool is being called",
 };
 
-function makeClickTool(name: string, verb: string): Tool {
-  return {
-    name,
-    description: `${verb} on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.`,
-    category: "computer-use",
-    defaultRiskLevel: RiskLevel.Low,
-    executionMode: "proxy",
+// ---------------------------------------------------------------------------
+// click (unified — click_type selects single / double / right)
+// ---------------------------------------------------------------------------
 
-    getDefinition(): ToolDefinition {
-      return {
-        name: this.name,
-        description: this.description,
-        input_schema: {
-          type: "object",
-          properties: {
-            element_id: {
-              type: "integer",
-              description:
-                "The [ID] number of the element from the accessibility tree (preferred)",
-            },
-            x: {
-              type: "integer",
-              description:
-                "X coordinate on screen (fallback when no element_id)",
-            },
-            y: {
-              type: "integer",
-              description:
-                "Y coordinate on screen (fallback when no element_id)",
-            },
-            reasoning: {
-              type: "string",
-              description: `Explanation of what you see and why you are ${verb.toLowerCase()}ing here`,
-            },
-            reason: reasonProperty,
+export const computerUseClickTool: Tool = {
+  name: "computer_use_click",
+  description:
+    "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback. Supports single click, double-click, and right-click via the click_type parameter.",
+  category: "computer-use",
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: "proxy",
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: "object",
+        properties: {
+          click_type: {
+            type: "string",
+            enum: ["single", "double", "right"],
+            description: 'Type of click to perform (default: "single")',
           },
-          required: ["reasoning"],
+          element_id: {
+            type: "integer",
+            description:
+              "The [ID] number of the element from the accessibility tree (preferred)",
+          },
+          x: {
+            type: "integer",
+            description: "X coordinate on screen (fallback when no element_id)",
+          },
+          y: {
+            type: "integer",
+            description: "Y coordinate on screen (fallback when no element_id)",
+          },
+          reasoning: {
+            type: "string",
+            description:
+              "Explanation of what you see and why you are clicking here",
+          },
+          reason: reasonProperty,
         },
-      };
-    },
+        required: ["reasoning"],
+      },
+    };
+  },
 
-    execute: proxyExecute,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Click variants
-// ---------------------------------------------------------------------------
-
-export const computerUseClickTool = makeClickTool(
-  "computer_use_click",
-  "Click",
-);
-export const computerUseDoubleClickTool = makeClickTool(
-  "computer_use_double_click",
-  "Double-click",
-);
-export const computerUseRightClickTool = makeClickTool(
-  "computer_use_right_click",
-  "Right-click",
-);
+  execute: proxyExecute,
+};
 
 // ---------------------------------------------------------------------------
 // type_text
@@ -474,8 +464,6 @@ export const computerUseRespondTool: Tool = {
 
 export const allComputerUseTools: Tool[] = [
   computerUseClickTool,
-  computerUseDoubleClickTool,
-  computerUseRightClickTool,
   computerUseTypeTextTool,
   computerUseKeyTool,
   computerUseScrollTool,
