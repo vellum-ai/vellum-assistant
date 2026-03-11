@@ -33,6 +33,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Switching to a real thread discards any draft
                 draftViewModel = nil
 
+                // Switch the daemon's conversation key to this thread's key BEFORE
+                // loading history or sending the session switch request, so SSE events
+                // and history fetches target the correct conversation.
+                daemonClient.switchConversationKey("vellum:\(activeThreadId.uuidString)")
+
                 let activeViewModel = getOrCreateViewModel(for: activeThreadId)
                 activeViewModel?.ensureMessageLoopStarted()
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
@@ -204,6 +209,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         self.isRestoringThreads = !isFirstLaunch
         // Enter draft mode so the window shows an empty chat without a sidebar entry
         enterDraftMode()
+        // Register callback to learn the daemon's real session ID and update the
+        // ChatViewModel/ThreadModel so belongsToSession() passes.
+        daemonClient.onSessionIdLearned = { [weak self] temporaryId, realId in
+            self?.handleSessionIdLearned(temporaryId: temporaryId, realId: realId)
+        }
         sessionRestorer.delegate = self
         sessionRestorer.startObserving(skipInitialFetch: isFirstLaunch)
     }
@@ -339,6 +349,27 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         activeThreadId = thread.id
         updateLastInteracted(threadId: thread.id)
         log.info("Promoted draft to thread \(thread.id)")
+    }
+
+    /// Called when the daemon's real session ID is learned from the first SSE event.
+    /// Updates the ChatViewModel and ThreadModel so events are routed correctly.
+    private func handleSessionIdLearned(temporaryId: String, realId: String) {
+        // Find the ChatViewModel that has the temporary session ID
+        for (threadId, viewModel) in chatViewModels {
+            if viewModel.sessionId == temporaryId {
+                log.info("Updating sessionId for thread \(threadId): \(temporaryId) → \(realId)")
+                viewModel.sessionId = realId
+                if let threadIndex = threads.firstIndex(where: { $0.id == threadId }) {
+                    threads[threadIndex].sessionId = realId
+                }
+                return
+            }
+        }
+        // Also check the draft view model
+        if draftViewModel?.sessionId == temporaryId {
+            log.info("Updating draft sessionId: \(temporaryId) → \(realId)")
+            draftViewModel?.sessionId = realId
+        }
     }
 
     func createPrivateThread() {

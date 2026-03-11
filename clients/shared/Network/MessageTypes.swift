@@ -2099,9 +2099,11 @@ public struct SubagentDetailRequestMessage: Encodable, Sendable {
 public struct SubagentAbortMessage: Encodable, Sendable {
     public let type: String = "subagent_abort"
     public let subagentId: String
+    public let sessionId: String?
 
-    public init(subagentId: String) {
+    public init(subagentId: String, sessionId: String? = nil) {
         self.subagentId = subagentId
+        self.sessionId = sessionId
     }
 }
 

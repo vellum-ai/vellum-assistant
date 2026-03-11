@@ -98,6 +98,8 @@ public protocol DaemonClientProtocol {
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
+    func switchConversationKey(_ newKey: String)
+    var onSessionIdLearned: ((String, String) -> Void)? { get set }
 }
 
 extension DaemonClientProtocol {
@@ -115,6 +117,9 @@ extension DaemonClientProtocol {
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { $0.finish() }
     }
+
+    /// Default no-op for clients that don't support per-thread conversation keys.
+    public func switchConversationKey(_ newKey: String) {}
 }
 
 // MARK: - Usage Response Models
@@ -619,6 +624,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// HTTP transport for communicating with the assistant.
     public var httpTransport: HTTPTransport?
+
+    /// Delegate conversation key switching to the HTTP transport.
+    public func switchConversationKey(_ newKey: String) {
+        httpTransport?.switchConversationKey(newKey)
+    }
+
+    /// Callback invoked when the daemon's real session ID is learned.
+    /// Stored on DaemonClient (not HTTPTransport) so it survives transport
+    /// creation/recreation during connect(). Forwarded to httpTransport when set.
+    public var onSessionIdLearned: ((String, String) -> Void)? {
+        didSet {
+            httpTransport?.onSessionIdLearned = onSessionIdLearned
+        }
+    }
 
     public private(set) var config: DaemonConfig
 
@@ -1348,8 +1367,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Subagent Management
 
     /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId))
+    public func sendSubagentAbort(subagentId: String, sessionId: String? = nil) throws {
+        try send(SubagentAbortMessage(subagentId: subagentId, sessionId: sessionId))
     }
 
     /// Request subagent detail events (lazy-loaded when the user opens the detail panel).

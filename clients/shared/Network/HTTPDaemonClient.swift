@@ -104,7 +104,7 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let conversationKey: String
+    private(set) var conversationKey: String
     private let sourceChannel: String
     let transportMetadata: TransportMetadata
 
@@ -172,14 +172,10 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
-    /// The local session ID used by the client (set from the synthetic session_info).
-    /// Used to remap the daemon's internal conversation ID to the client's session ID
-    /// so that ChatViewModel's belongsToSession() filter passes.
-    var activeLocalSessionId: String?
-
-    /// The daemon's internal conversation ID, learned from the first SSE event.
-    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
-    var remoteSessionId: String?
+    /// The local session ID set from the synthetic session_info, used to detect
+    /// when the daemon's real conversation ID differs from what the client expects.
+    /// Cleared after the first SSE event fires `onSessionIdLearned`.
+    var pendingLocalSessionId: String?
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
@@ -1343,6 +1339,25 @@ public final class HTTPTransport {
         setSSEConnected(false)
     }
 
+    /// Switch to a new conversation key and restart the SSE stream so events
+    /// are received for the new conversation.
+    func switchConversationKey(_ newKey: String) {
+        guard newKey != conversationKey else { return }
+        log.info("Switching conversationKey from \(self.conversationKey, privacy: .public) to \(newKey, privacy: .public)")
+        conversationKey = newKey
+        pendingLocalSessionId = nil
+        // Restart SSE to subscribe to the new conversation key's event stream
+        if sseTask != nil {
+            stopSSE()
+            startSSE()
+        }
+    }
+
+    /// Callback invoked when the daemon's real session ID is learned from the
+    /// first SSE event. Parameters: (temporaryId, realId). Called BEFORE the
+    /// event is dispatched so ChatViewModel.sessionId can be updated.
+    var onSessionIdLearned: ((String, String) -> Void)?
+
     private func startSSEStream() {
         sseTask?.cancel()
 
@@ -1422,46 +1437,20 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
-        // Remap the daemon's internal session/conversation ID to the client's
-        // local session ID so that ChatViewModel.belongsToSession() passes.
-        // The daemon assigns its own UUID via getOrCreateConversation(), which
-        // differs from the correlationId the client uses as sessionId.
-        var jsonString = data
-        if let localId = activeLocalSessionId {
-            if remoteSessionId == nil {
-                // Learn the daemon's session ID from the first event envelope.
-                if let eventData = data.data(using: .utf8),
-                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
-                   let eventSessionId = envelope.sessionId,
-                   eventSessionId != localId {
-                    remoteSessionId = eventSessionId
-                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
-                }
-            }
-            if let remoteId = remoteSessionId {
-                // Replace only the sessionId JSON value — not arbitrary occurrences
-                // of the UUID elsewhere in the payload. Handle both compact
-                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\":\"\(remoteId)\"",
-                    with: "\"sessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\": \"\(remoteId)\"",
-                    with: "\"sessionId\": \"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\":\"\(remoteId)\"",
-                    with: "\"parentSessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\": \"\(remoteId)\"",
-                    with: "\"parentSessionId\": \"\(localId)\""
-                )
-            }
+        // When the first SSE event arrives with a sessionId that differs from the
+        // client's pending local ID, notify via callback so the ChatViewModel's
+        // sessionId can be updated before the event is dispatched.
+        if let localId = pendingLocalSessionId,
+           let eventData = data.data(using: .utf8),
+           let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
+           let eventSessionId = envelope.sessionId,
+           eventSessionId != localId {
+            log.info("Learned real sessionId \(eventSessionId, privacy: .public) for pending \(localId, privacy: .public)")
+            onSessionIdLearned?(localId, eventSessionId)
+            pendingLocalSessionId = nil  // Only fire once per session creation
         }
 
-        guard let jsonData = jsonString.data(using: .utf8) else { return }
+        guard let jsonData = data.data(using: .utf8) else { return }
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)

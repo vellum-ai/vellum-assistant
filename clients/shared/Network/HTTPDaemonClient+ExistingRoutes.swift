@@ -30,8 +30,7 @@ extension HTTPTransport {
                 // acts as the session. Emit a synthetic session_info so ChatViewModel
                 // records the session ID.
                 let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-                self.activeLocalSessionId = sessionId
-                self.remoteSessionId = nil  // Reset — will be learned from the first SSE event
+                self.pendingLocalSessionId = sessionId
                 let info = ServerMessage.sessionInfo(
                     SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
                 )

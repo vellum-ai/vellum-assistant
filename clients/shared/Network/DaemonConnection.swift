@@ -64,6 +64,8 @@ extension DaemonClient {
         }
 
         self.httpTransport = transport
+        // Forward stored callbacks to the new transport instance
+        transport.onSessionIdLearned = self.onSessionIdLearned
 
         do {
             try await transport.connect()
