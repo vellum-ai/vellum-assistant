@@ -66,7 +66,7 @@ extension ChatBubble {
 
     /// Maps raw daemon status text to a friendlier label for the inline indicator.
     static func friendlyProcessingLabel(_ statusText: String?) -> String {
-        guard let text = statusText else { return "Thinking" }
+        guard let text = statusText else { return "Wrapping up" }
         let lower = text.lowercased()
         if lower.contains("skill") { return "Applying capabilities" }
         if lower.contains("processing") { return "Processing results" }

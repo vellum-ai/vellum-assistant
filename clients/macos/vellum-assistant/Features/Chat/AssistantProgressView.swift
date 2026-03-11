@@ -135,7 +135,17 @@ struct AssistantProgressView: View {
             let activeBuildingStatus = toolCalls.last(where: { !$0.isComplete })?.buildingStatus
             return ChatBubble.friendlyRunningLabel(rawName, buildingStatus: activeBuildingStatus)
         case .toolsCompleteThinking:
-            return "Thinking"
+            if let lastTool = toolCalls.last {
+                if let reason = lastTool.reasonDescription, !reason.isEmpty {
+                    return reason
+                }
+                return ChatBubble.friendlyRunningLabel(
+                    lastTool.toolName,
+                    inputSummary: lastTool.inputSummary,
+                    buildingStatus: lastTool.buildingStatus
+                )
+            }
+            return "Working"
         case .processing:
             return ChatBubble.friendlyProcessingLabel(processingStatusText)
         case .complete:
