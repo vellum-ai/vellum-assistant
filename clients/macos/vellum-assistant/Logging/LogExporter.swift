@@ -105,9 +105,19 @@ enum LogExporter {
             }
         }
 
-        // 3. Daemon logs and audit data via daemon HTTP APIs
+        // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
-        await fetchDaemonExports(into: tempDir)
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let isManagedAssistant: Bool = {
+            guard let id = connectedId else { return false }
+            return LockfileAssistant.loadByName(id)?.isManaged == true
+        }()
+
+        if isManagedAssistant {
+            await fetchPlatformLogs(into: tempDir)
+        } else {
+            await fetchDaemonExports(into: tempDir)
+        }
 
         // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
         let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
@@ -267,6 +277,98 @@ enum LogExporter {
             }
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Platform Log Helpers
+
+    /// Fetches logs from the platform API for managed assistants, downloads
+    /// the tar.gz response, extracts it into `directory/platform-logs/`.
+    /// Silently skips on any failure (non-fatal, mirrors `fetchDaemonExports`).
+    private nonisolated static func fetchPlatformLogs(into directory: URL) async {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
+            return
+        }
+
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            return
+        }
+
+        guard LockfileAssistant.loadByName(assistantId)?.isManaged == true else {
+            return
+        }
+
+        guard let token = SessionTokenManager.getToken() else {
+            log.warning("No session token available — skipping platform log export")
+            return
+        }
+
+        let baseURL = AuthService.shared.baseURL
+
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
+            log.warning("Failed to construct platform log export URL")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Platform log export API failed with status \(status)")
+                return
+            }
+
+            let fileManager = FileManager.default
+            let tarPath = fileManager.temporaryDirectory
+                .appendingPathComponent("platform-logs-\(UUID().uuidString).tar.gz")
+            try data.write(to: tarPath)
+
+            defer {
+                try? fileManager.removeItem(at: tarPath)
+            }
+
+            let extractDir = directory.appendingPathComponent("platform-logs", isDirectory: true)
+            try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+                process.arguments = [
+                    "xzf",
+                    tarPath.path,
+                    "-C", extractDir.path,
+                ]
+
+                let pipe = Pipe()
+                process.standardError = pipe
+
+                process.terminationHandler = { proc in
+                    if proc.terminationStatus == 0 {
+                        continuation.resume()
+                    } else {
+                        let stderr = String(
+                            data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8
+                        ) ?? ""
+                        continuation.resume(throwing: ExportError.tarFailed(stderr))
+                    }
+                }
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        } catch {
+            log.warning("Platform log export request failed: \(error.localizedDescription)")
         }
     }
 
