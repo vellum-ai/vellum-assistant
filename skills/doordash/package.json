@@ -1,7 +1,0 @@
-{
-  "name": "@vellum-skills/doordash",
-  "private": true,
-  "dependencies": {
-    "commander": "^13.1.0"
-  }
-}

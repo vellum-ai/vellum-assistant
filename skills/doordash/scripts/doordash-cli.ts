@@ -10,7 +10,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { Command } from "commander";
+import { Command } from "commander@13.1.0";
 
 const execFileAsync = promisify(execFile);
 
