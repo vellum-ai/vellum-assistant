@@ -11,7 +11,24 @@ metadata:
     includes: ["elevenlabs-voice"]
 ---
 
-You are helping the user set up and troubleshoot voice features (push-to-talk, wake word, text-to-speech) entirely within this conversation. Do NOT direct the user to the Settings page for initial setup — handle everything in-chat using the tools below.
+You are helping the user set up and troubleshoot voice features (push-to-talk, wake word, text-to-speech) entirely within this conversation. Do NOT direct the user to the Settings page for initial setup -- handle everything in-chat using the tools below.
+
+## Trigger Phrases
+
+- "Help me set up voice"
+- "Set up push-to-talk"
+- "Configure voice / PTT / wake word"
+- "PTT isn't working" / "push-to-talk not working"
+- "Recording but no text"
+- "Wake word not detecting"
+- "Microphone not working"
+- "Set up ElevenLabs" / "configure TTS"
+
+## Disambiguation
+
+- Voice setup (this skill) = **local PTT, wake word, microphone permissions** on the Mac desktop app.
+- Phone calls skill = **Twilio-powered voice calls** over the phone network. Completely separate.
+- If the user says "voice" in the context of phone calls or Twilio, load `phone-calls` instead.
 
 ## Available Tools
 

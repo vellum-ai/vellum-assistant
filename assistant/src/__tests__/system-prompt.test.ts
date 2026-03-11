@@ -251,16 +251,17 @@ describe("buildSystemPrompt", () => {
   test("includes phone calls routing section", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Routing: Phone Calls");
-    expect(result).toContain('skill: "phone-calls"');
+    expect(result).toContain("phone-calls");
   });
 
-  test("buildPhoneCallsRoutingSection returns section with expected content", () => {
+  test("buildPhoneCallsRoutingSection returns compact dispatch hint", () => {
     const section = buildPhoneCallsRoutingSection();
     expect(section).toContain("## Routing: Phone Calls");
-    expect(section).toContain("Trigger phrases");
-    expect(section).toContain("Exclusivity rules");
     expect(section).toContain("phone-calls");
-    expect(section).toContain("Do NOT improvise Twilio setup instructions");
+    expect(section).toContain("Do NOT improvise Twilio setup");
+    // Detailed trigger phrases and exclusivity rules now live in the skill
+    expect(section).not.toContain("### Trigger phrases");
+    expect(section).not.toContain("### Exclusivity rules");
   });
 
   test("includes compact persistence section", () => {
