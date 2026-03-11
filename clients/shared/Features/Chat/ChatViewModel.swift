@@ -2066,6 +2066,46 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Retry sending a specific failed message. Moves it to the end of the
+    /// conversation and resends it so it appears as the most recent message.
+    public func retryFailedMessage(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        let message = messages[idx]
+        guard message.role == .user, message.status == .sendFailed else { return }
+
+        // Remove the failed message from its current position
+        messages.remove(at: idx)
+
+        // Re-append it at the end with .sent status
+        var retryMessage = ChatMessage(
+            role: .user,
+            text: message.text,
+            status: .sent,
+            skillInvocation: message.skillInvocation,
+            attachments: message.attachments
+        )
+        retryMessage.isHidden = message.isHidden
+        messages.append(retryMessage)
+
+        // Convert ChatAttachments back to UserMessageAttachments for the send call
+        let userAttachments: [UserMessageAttachment]? = message.attachments.isEmpty ? nil : message.attachments.compactMap { att in
+            guard !att.data.isEmpty else { return nil }
+            return UserMessageAttachment(
+                id: att.id,
+                filename: att.filename,
+                mimeType: att.mimeType,
+                data: att.data,
+                extractedText: nil,
+                sizeBytes: nil,
+                thumbnailData: nil,
+                filePath: att.filePath
+            )
+        }
+
+        // Resend via the normal path
+        sendUserMessage(message.text, attachments: userAttachments)
+    }
+
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
         // DaemonClient.send silently returns when connection is nil (it does

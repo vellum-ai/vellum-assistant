@@ -18,6 +18,8 @@ public enum ChatMessageStatus: Equatable {
     case processing
     /// Message is buffered in the local offline queue pending daemon reconnect.
     case pendingOffline
+    /// HTTP send failed — the message was never delivered to the daemon.
+    case sendFailed
 }
 
 /// Tracks the state of an inline tool confirmation request.

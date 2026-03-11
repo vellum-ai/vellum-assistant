@@ -1410,13 +1410,18 @@ public struct SessionErrorMessage: Decodable, Sendable {
     public let userMessage: String
     public let retryable: Bool
     public let debugDetails: String?
+    /// Non-nil when the error is a client-side HTTP send failure.
+    /// Contains the message content that failed to send, used to mark
+    /// the specific user message as `.sendFailed` in the chat.
+    public let failedMessageContent: String?
 
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil) {
+    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, failedMessageContent: String? = nil) {
         self.sessionId = sessionId
         self.code = code
         self.userMessage = userMessage
         self.retryable = retryable
         self.debugDetails = debugDetails
+        self.failedMessageContent = failedMessageContent
     }
 }
 
