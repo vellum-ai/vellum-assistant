@@ -107,19 +107,19 @@ describe("buildManagedBaseUrl", () => {
 
   test("builds correct URL for managed providers", () => {
     expect(buildManagedBaseUrl("openai")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/openai",
+      "https://platform.example.com/v1/runtime-proxy/vertex",
     );
     expect(buildManagedBaseUrl("anthropic")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/anthropic",
+      "https://platform.example.com/v1/runtime-proxy/vertex",
     );
     expect(buildManagedBaseUrl("gemini")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/gemini",
+      "https://platform.example.com/v1/runtime-proxy/vertex",
     );
     expect(buildManagedBaseUrl("fireworks")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/fireworks",
+      "https://platform.example.com/v1/runtime-proxy/vertex",
     );
     expect(buildManagedBaseUrl("openrouter")).toBe(
-      "https://platform.example.com/v1/runtime-proxy/openrouter",
+      "https://platform.example.com/v1/runtime-proxy/vertex",
     );
   });
 

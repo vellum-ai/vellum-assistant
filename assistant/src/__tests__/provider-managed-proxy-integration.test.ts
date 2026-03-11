@@ -311,10 +311,11 @@ describe("managed proxy integration — constants integrity", () => {
     }
   });
 
-  test("managed proxy paths are unique across providers", () => {
-    const paths = Object.values(MANAGED_PROVIDER_META)
-      .filter((m) => m.managed && m.proxyPath)
-      .map((m) => m.proxyPath);
-    expect(new Set(paths).size).toBe(paths.length);
+  test("all managed providers route through the vertex proxy path", () => {
+    for (const meta of Object.values(MANAGED_PROVIDER_META)) {
+      if (meta.managed && meta.proxyPath) {
+        expect(meta.proxyPath).toBe("/v1/runtime-proxy/vertex");
+      }
+    }
   });
 });
