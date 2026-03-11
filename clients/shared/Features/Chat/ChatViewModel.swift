@@ -2102,8 +2102,12 @@ public final class ChatViewModel: ObservableObject {
             )
         }
 
-        // Resend via the normal path
-        sendUserMessage(message.text, attachments: userAttachments)
+        // Resend — bootstrap a new session if needed (mirrors retryLastMessage)
+        if sessionId == nil {
+            bootstrapSession(userMessage: message.text, attachments: userAttachments)
+        } else {
+            sendUserMessage(message.text, attachments: userAttachments)
+        }
     }
 
     /// Respond to a tool confirmation request displayed inline in the chat.
