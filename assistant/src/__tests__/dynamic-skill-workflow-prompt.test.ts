@@ -71,7 +71,7 @@ mock.module("../config/loader.js", () => ({
 
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
-describe("Dynamic Skill Authoring Workflow prompt section", () => {
+describe("Skill Authoring fallback in system prompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -82,36 +82,26 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     }
   });
 
-  test("buildSystemPrompt includes dynamic skill workflow section", () => {
+  test("buildSystemPrompt includes compact skill authoring fallback", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    expect(result).toContain("## Dynamic Skill Authoring Workflow");
+    expect(result).toContain("## Skill Authoring");
+    expect(result).toContain("skill-authoring");
   });
 
-  test("workflow section mentions scaffold and delete tools and bun run workflow", () => {
+  test("fallback does NOT include the full dynamic workflow details", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    expect(result).toContain("bun run /tmp/vellum-eval/snippet.ts");
-    expect(result).toContain("scaffold_managed_skill");
-    expect(result).toContain("delete_managed_skill");
+    // The old section embedded bun run, scaffold_managed_skill, and retry limits
+    expect(result).not.toContain("bun run /tmp/vellum-eval/snippet.ts");
+    expect(result).not.toContain("3 attempts");
+    expect(result).not.toContain("## Dynamic Skill Authoring Workflow");
   });
 
-  test("workflow section includes user confirmation warning", () => {
+  test("fallback still mentions user confirmation requirement", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    expect(result).toContain("explicit user confirmation");
-  });
-
-  test("workflow section includes retry limit guidance", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("3 attempts");
-  });
-
-  test("workflow section includes session eviction note", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("recreated session");
+    expect(result).toContain("user confirmation");
   });
 
   test("prompt still includes available skills catalog when skills exist", () => {
@@ -127,7 +117,7 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Available Skills");
     expect(result).toContain('id="test-skill"');
-    expect(result).toContain("## Dynamic Skill Authoring Workflow");
+    expect(result).toContain("skill_load");
   });
 
   test("prompt is additive with IDENTITY/SOUL/USER files", () => {
@@ -139,13 +129,7 @@ describe("Dynamic Skill Authoring Workflow prompt section", () => {
     expect(result).toContain("Identity here");
     expect(result).toContain("Soul here");
     expect(result).toContain("User here");
-    expect(result).toContain("## Dynamic Skill Authoring Workflow");
-  });
-
-  test("workflow section includes skill_load instruction", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    const result = buildSystemPrompt();
-    expect(result).toContain("skill_load");
+    expect(result).toContain("## Skill Authoring");
   });
 
   test("system prompt includes browser skill prerequisite guidance", () => {
