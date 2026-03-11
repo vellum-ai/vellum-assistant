@@ -2,7 +2,10 @@
 name: schedule
 description: Recurring and one-shot scheduling — cron, RRULE, or single fire-at time
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📅","vellum":{"display-name":"Schedule"}}
+metadata:
+  emoji: "📅"
+  vellum:
+    display-name: "Schedule"
 ---
 
 Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Both recurring and one-shot schedules support two modes: **execute** (run a message through the assistant) and **notify** (send a notification to the user).

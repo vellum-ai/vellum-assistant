@@ -2,7 +2,12 @@
 name: contacts
 description: Manage contacts, communication channels, access control, and invite links
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"👥","vellum":{"display-name":"Contacts","user-invocable":true,"feature-flag":"contacts"}}
+metadata:
+  emoji: "👥"
+  vellum:
+    display-name: "Contacts"
+    user-invocable: true
+    feature-flag: "contacts"
 ---
 
 Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, phone), and creating/managing invite links that grant access.
