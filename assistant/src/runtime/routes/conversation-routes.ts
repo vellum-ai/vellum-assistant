@@ -17,6 +17,7 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   buildModelInfoEvent,
@@ -633,8 +634,15 @@ export async function handleSendMessage(
       });
       session.setHostBashProxy(proxy);
     }
+    if (!session.isProcessing() || !session.hostFileProxy) {
+      const fileProxy = new HostFileProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostFileProxy(fileProxy);
+    }
   } else {
     session.setHostBashProxy(undefined);
+    session.setHostFileProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
