@@ -121,7 +121,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Compose a message. For Gmail, creates a draft for review; for other platforms, sends directly. High-risk action. Include a confidence score (0-1).",
+      "description": "Send a message or create a draft. On Gmail, creates a draft for review. Supports file attachments on Gmail via attachment_paths. High-risk action. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -146,6 +146,17 @@
           "in_reply_to": {
             "type": "string",
             "description": "Message-ID header for replies (Gmail only)"
+          },
+          "attachment_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Absolute file paths of attachments to include (Gmail only)"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID to continue an existing thread (Gmail only)"
           },
           "confidence": {
             "type": "number",
@@ -650,55 +661,6 @@
         "required": ["message_id", "attachment_id", "filename"]
       },
       "executor": "tools/gmail-download-attachment.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "gmail_send_with_attachments",
-      "description": "Create a Gmail draft with file attachments for review. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "high",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "to": {
-            "type": "string",
-            "description": "Recipient email address"
-          },
-          "subject": {
-            "type": "string",
-            "description": "Email subject line"
-          },
-          "body": {
-            "type": "string",
-            "description": "Email body (plain text)"
-          },
-          "attachment_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Absolute file paths of attachments to include"
-          },
-          "in_reply_to": {
-            "type": "string",
-            "description": "Message-ID header for replies"
-          },
-          "thread_id": {
-            "type": "string",
-            "description": "Thread ID to continue an existing thread"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["to", "subject", "body", "attachment_paths", "confidence"]
-      },
-      "executor": "tools/gmail-send-with-attachments.ts",
       "execution_target": "host"
     },
     {

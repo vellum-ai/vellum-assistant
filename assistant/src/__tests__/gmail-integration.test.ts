@@ -31,7 +31,6 @@ describe("Messaging tool contract", () => {
     "gmail_unsubscribe",
     "gmail_list_attachments",
     "gmail_download_attachment",
-    "gmail_send_with_attachments",
     "gmail_forward",
     "gmail_follow_up",
     "gmail_triage",
