@@ -348,8 +348,11 @@ function parseFrontmatter(
 
   const { fields, body } = result;
 
-  const name = fields.name?.trim();
-  const description = fields.description?.trim();
+  const name = typeof fields.name === "string" ? fields.name.trim() : undefined;
+  const description =
+    typeof fields.description === "string"
+      ? fields.description.trim()
+      : undefined;
   if (!name || !description) {
     log.warn(
       { skillFilePath },
@@ -358,25 +361,31 @@ function parseFrontmatter(
     return null;
   }
 
-  // Parse metadata as single-line JSON string, validate with Zod schema
+  // metadata is already a parsed object from YAML — validate with Zod schema
   let metadata: VellumMetadata | undefined;
   let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
   let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
 
-  const metadataRaw = fields.metadata?.trim();
-  if (metadataRaw) {
-    try {
-      const json = JSON.parse(metadataRaw);
-      const result = SkillMetadataSchema.safeParse(json);
-      if (result.success) {
-        parsedMeta = result.data;
+  const metadataRaw = fields.metadata;
+  if (metadataRaw != null) {
+    if (typeof metadataRaw === "string") {
+      // metadata is a string — this means someone wrote inline JSON or a
+      // bare string value. YAML metadata must be a nested object.
+      log.warn(
+        { skillFilePath },
+        "Metadata must be a YAML object, not a string; ignoring metadata field",
+      );
+    } else if (typeof metadataRaw === "object") {
+      const zodResult = SkillMetadataSchema.safeParse(metadataRaw);
+      if (zodResult.success) {
+        parsedMeta = zodResult.data;
         vellum = parsedMeta.vellum;
         if (parsedMeta.vellum) {
           metadata = parsedMeta.vellum as VellumMetadata;
         }
         // Inject top-level emoji into metadata when metadata.vellum doesn't
         // carry its own emoji. The Agent Skills spec places emoji at the
-        // top level of the metadata JSON, so bundled skills that follow
+        // top level of the metadata object, so bundled skills that follow
         // this convention would otherwise lose their emoji value.
         if (parsedMeta.emoji) {
           if (metadata && !metadata.emoji) {
@@ -386,27 +395,30 @@ function parseFrontmatter(
           }
         }
       } else {
-        // Zod validation failed — fall back to raw JSON so we don't lose
-        // all metadata because of a single bad field value.  We coerce
+        // Zod validation failed — fall back to raw parsed object so we don't
+        // lose all metadata because of a single bad field value.  We coerce
         // critical array fields so downstream code that iterates them
         // (e.g. `.join()`, `for...of`, `.some()`) won't crash.
         log.warn(
-          { err: result.error, skillFilePath },
-          "Metadata failed schema validation; falling back to raw JSON",
+          { err: zodResult.error, skillFilePath },
+          "Metadata failed schema validation; falling back to raw object",
         );
-        parsedMeta = json;
-        vellum = json?.vellum;
-        if (json?.vellum && typeof json.vellum === "object") {
-          const raw = json.vellum as Record<string, unknown>;
+        const raw = metadataRaw as Record<string, unknown>;
+        parsedMeta = raw as z.infer<typeof SkillMetadataSchema>;
+        vellum = raw?.vellum as z.infer<typeof VellumMetadataSchema>;
+        if (raw?.vellum && typeof raw.vellum === "object") {
+          const vellumRaw = raw.vellum as Record<string, unknown>;
 
           // Coerce `os` to string[] — a bare string is wrapped in an array.
-          if (raw.os !== undefined) {
-            raw.os = Array.isArray(raw.os) ? raw.os : [raw.os];
+          if (vellumRaw.os !== undefined) {
+            vellumRaw.os = Array.isArray(vellumRaw.os)
+              ? vellumRaw.os
+              : [vellumRaw.os];
           }
 
           // Coerce `requires` sub-fields to arrays.
-          if (raw.requires && typeof raw.requires === "object") {
-            const req = raw.requires as Record<string, unknown>;
+          if (vellumRaw.requires && typeof vellumRaw.requires === "object") {
+            const req = vellumRaw.requires as Record<string, unknown>;
             for (const key of ["bins", "anyBins", "env", "config"] as const) {
               if (req[key] !== undefined && !Array.isArray(req[key])) {
                 req[key] = typeof req[key] === "string" ? [req[key]] : [];
@@ -414,14 +426,9 @@ function parseFrontmatter(
             }
           }
 
-          metadata = raw as unknown as VellumMetadata;
+          metadata = vellumRaw as unknown as VellumMetadata;
         }
       }
-    } catch (err) {
-      log.warn(
-        { err, skillFilePath },
-        "Failed to parse metadata JSON in frontmatter",
-      );
     }
   }
 
