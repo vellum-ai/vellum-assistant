@@ -46,6 +46,7 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
     sandbox: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
@@ -112,6 +113,8 @@ function makeIdleSession(opts?: {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    getMessages: () => [],
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
@@ -171,6 +174,8 @@ function makeConfirmationEmittingSession(opts?: {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    getMessages: () => [],
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,

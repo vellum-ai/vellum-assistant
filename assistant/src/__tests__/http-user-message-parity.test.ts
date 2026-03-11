@@ -130,6 +130,9 @@ mock.module("../config/loader.js", () => ({
       customPatterns: [],
       entropyThreshold: 3.5,
     },
+    model: "test",
+    provider: "test",
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
@@ -169,6 +172,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     isProcessing: () => false,
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
