@@ -238,16 +238,23 @@ extension AppDelegate {
                 // this notification), keep the dock icon visible.
                 if self.mainWindow != nil { return }
 
-                // Check whether any real app window remains visible.
-                let hasVisibleWindows = NSApp.windows.contains { win in
-                    win.isVisible
-                    && win !== closedWindow
-                    && win !== self.statusItem?.button?.window
-                }
-                if !hasVisibleWindows {
-                    NSApp.setActivationPolicy(.accessory)
-                }
+                self.revertActivationPolicyIfNoWindows(excluding: closedWindow)
             }
+        }
+    }
+
+    /// Revert to `.accessory` activation policy if no real app windows remain
+    /// visible.  Called from the global window-close observer and from
+    /// individual window dismiss handlers (e.g. crash report) that may run
+    /// before `setupWindowObserver()` is installed.
+    func revertActivationPolicyIfNoWindows(excluding closedWindow: NSWindow? = nil) {
+        let hasVisibleWindows = NSApp.windows.contains { win in
+            win.isVisible
+            && win !== closedWindow
+            && win !== self.statusItem?.button?.window
+        }
+        if !hasVisibleWindows {
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 
