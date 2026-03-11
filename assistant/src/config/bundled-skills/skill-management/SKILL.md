@@ -2,8 +2,8 @@
 name: skill-management
 description: Create and delete custom managed skills
 metadata:
+  emoji: "\U0001F9E9"
   vellum:
-    emoji: "\U0001F9E9"
     display-name: "Skill Management"
     user-invocable: true
 ---
