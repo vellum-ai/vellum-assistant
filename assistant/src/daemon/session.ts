@@ -580,10 +580,6 @@ export class Session {
     this.hostBashProxy?.resolve(requestId, response);
   }
 
-  hasPendingHostBash(requestId: string): boolean {
-    return this.hostBashProxy?.hasPendingRequest(requestId) ?? false;
-  }
-
   setHostBashProxy(proxy: HostBashProxy | undefined): void {
     this.hostBashProxy = proxy;
   }
