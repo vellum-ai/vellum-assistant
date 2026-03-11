@@ -60,6 +60,9 @@ struct SettingsPanel: View {
     @State private var selectedTab: SettingsTab = .general
     @State private var isContactsEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
+    @State private var showingDevUnlock: Bool = false
+    @State private var devUnlockText: String = ""
+    @State private var devUnlockMonitor: Any?
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
 
@@ -182,6 +185,56 @@ struct SettingsPanel: View {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
+        }
+        .onAppear {
+            devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.modifierFlags.contains(.command),
+                   event.charactersIgnoringModifiers == "d" {
+                    showingDevUnlock = true
+                    devUnlockText = ""
+                    return nil
+                }
+                return event
+            }
+        }
+        .onDisappear {
+            if let monitor = devUnlockMonitor {
+                NSEvent.removeMonitor(monitor)
+                devUnlockMonitor = nil
+            }
+        }
+        .popover(isPresented: $showingDevUnlock) {
+            VStack(spacing: VSpacing.md) {
+                Text("Enter passcode")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.textSecondary)
+                SecureField("", text: $devUnlockText)
+                    .vInputStyle()
+                    .font(VFont.mono)
+                    .frame(width: 160)
+                    .onSubmit {
+                        if devUnlockText.lowercased() == "dev" {
+                            isDeveloperEnabled = true
+                            showingDevUnlock = false
+                            // Persist the flag so it survives relaunch
+                            Task {
+                                do {
+                                    if let daemonClient {
+                                        try await daemonClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                                    } else {
+                                        try WorkspaceConfigIO.merge([
+                                            "assistantFeatureFlagValues": [Self.developerFeatureFlagKey: true]
+                                        ])
+                                    }
+                                } catch {
+                                    // Flag is already set in memory; persistence failure is non-fatal
+                                }
+                            }
+                        }
+                        devUnlockText = ""
+                    }
+            }
+            .padding(VSpacing.lg)
         }
     }
 
