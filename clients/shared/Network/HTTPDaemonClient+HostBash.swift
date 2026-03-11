@@ -68,12 +68,21 @@ extension HTTPTransport {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
-            // Use a sendable box for the timeout flag shared between the timer
-            // and the termination handler.
+            // Sendable boxes for values shared across GCD closures
+            // (AGENTS.md pitfalls: use lock-protected boxes instead of
+            // mutable vars captured in DispatchGroup callbacks).
             final class TimedOutBox: @unchecked Sendable {
                 private let lock = NSLock()
                 private var _value = false
                 var value: Bool {
+                    get { lock.withLock { _value } }
+                    set { lock.withLock { _value = newValue } }
+                }
+            }
+            final class PipeDataBox: @unchecked Sendable {
+                private let lock = NSLock()
+                private var _value = Data()
+                var value: Data {
                     get { lock.withLock { _value } }
                     set { lock.withLock { _value = newValue } }
                 }
@@ -117,19 +126,19 @@ extension HTTPTransport {
             // If we read sequentially and the process fills one pipe's buffer
             // (~64 KB), the process blocks on that write, the other pipe never
             // reaches EOF, and this thread hangs forever.
-            var stdoutData = Data()
-            var stderrData = Data()
+            let stdoutBox = PipeDataBox()
+            let stderrBox = PipeDataBox()
             let pipeGroup = DispatchGroup()
 
             pipeGroup.enter()
             DispatchQueue.global().async {
-                stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
                 pipeGroup.leave()
             }
 
             pipeGroup.enter()
             DispatchQueue.global().async {
-                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                 pipeGroup.leave()
             }
 
@@ -137,8 +146,8 @@ extension HTTPTransport {
             pipeGroup.wait()
             timerSource.cancel()
 
-            let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-            let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+            let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
+            let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
             let exitCode = Int(process.terminationStatus)
             let timedOut = timedOutBox.value
 
