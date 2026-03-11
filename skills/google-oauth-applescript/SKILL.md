@@ -219,14 +219,14 @@ Copy the required scopes to the clipboard, then open the Data Access page:
 ```
 host_bash:
   command: |
-    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email" | pbcopy && open "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
+    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy && open "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
 ```
 
 > Now I've opened the **Data Access** page and copied the required scopes to your clipboard. Click **Add or Remove Scopes**, find the **"Manually add scopes"** text box at the bottom, **paste** (Cmd+V), then click **Add to Table** (or **Update**), and **Save**.
 >
 > When done, you should see them listed on the page:
 >
-> - **Non-sensitive scopes:** `userinfo.email`
+> - **Non-sensitive scopes:** `userinfo.email`, `contacts.readonly`
 > - **Sensitive scopes:** `calendar.readonly`, `calendar.events`, `gmail.send`
 > - **Restricted scopes (Gmail):** `gmail.modify`, `gmail.readonly`
 
@@ -401,7 +401,7 @@ Tell the user:
 >
 > - Click **Add or Remove Scopes**
 > - Find the **"Manually add scopes"** text box and paste these (comma-separated):
->   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email`
+>   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
 > - Click **Add to Table**, then **Save**
 >
 > Let me know when all three parts are done.
