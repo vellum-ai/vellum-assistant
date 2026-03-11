@@ -373,13 +373,7 @@ async function handleConfirmationPrompt(
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(
-      baseUrl,
-      assistantId,
-      requestId,
-      "allow",
-      bearerToken,
-    );
+    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken);
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -408,13 +402,7 @@ async function handleConfirmationPrompt(
     return;
   }
 
-  await submitDecision(
-    baseUrl,
-    assistantId,
-    requestId,
-    "deny",
-    bearerToken,
-  );
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -451,13 +439,7 @@ async function handlePatternSelection(
     return;
   }
 
-  await submitDecision(
-    baseUrl,
-    assistantId,
-    requestId,
-    "deny",
-    bearerToken,
-  );
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -505,13 +487,7 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(
-    baseUrl,
-    assistantId,
-    requestId,
-    "deny",
-    bearerToken,
-  );
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -1270,6 +1246,7 @@ function ChatApp({
 
   const showSpinner = useCallback((text: string) => {
     setSpinnerText(text);
+    setInputFocused(false);
   }, []);
 
   const hideSpinner = useCallback(() => {
@@ -1792,8 +1769,21 @@ function ChatApp({
 
       if (busyRef.current) {
         // /btw is already handled above this block
+        if (!trimmed.startsWith("/")) {
+          const userMsg: RuntimeMessage = {
+            id: "local-user-" + Date.now(),
+            role: "user",
+            content: trimmed,
+            timestamp: new Date().toISOString(),
+          };
+          h.addMessage(userMsg);
+        }
         const isConnected = await ensureConnected();
-        if (!isConnected) return;
+        if (!isConnected) {
+          h.showError("Cannot send — not connected to the assistant.");
+          setInputFocused(true);
+          return;
+        }
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(
@@ -1809,6 +1799,7 @@ function ChatApp({
           );
           clearTimeout(timeoutId);
           if (sendResult.accepted) {
+            chatLogRef.current.push({ role: "user", content: trimmed });
             h.addStatus(
               "Message queued — will be processed after current response",
               "gray",
@@ -1821,6 +1812,7 @@ function ChatApp({
             `Failed to queue message: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+        setInputFocused(true);
         return;
       }
 
@@ -1876,6 +1868,7 @@ function ChatApp({
         }
 
         h.showSpinner("Working...");
+        setInputFocused(true);
 
         while (true) {
           await new Promise((resolve) =>
