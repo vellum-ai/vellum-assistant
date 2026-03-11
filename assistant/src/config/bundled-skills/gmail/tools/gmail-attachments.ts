@@ -58,7 +58,7 @@ export async function run(
   if (action === "list") {
     try {
       const provider = getMessagingProvider("gmail");
-      return withValidToken(provider.credentialService, async (token) => {
+      return await withValidToken(provider.credentialService, async (token) => {
         const message = await getMessage(token, messageId, "full");
         const attachments = collectAttachments(message.payload?.parts);
 
@@ -82,7 +82,7 @@ export async function run(
 
     try {
       const provider = getMessagingProvider("gmail");
-      return withValidToken(provider.credentialService, async (token) => {
+      return await withValidToken(provider.credentialService, async (token) => {
         const attachment = await getAttachment(token, messageId, attachmentId);
 
         // Gmail returns base64url; convert to standard base64 then to Buffer
