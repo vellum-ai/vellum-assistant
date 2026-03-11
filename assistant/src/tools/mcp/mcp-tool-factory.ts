@@ -2,6 +2,7 @@ import type { McpServerConfig } from "../../config/schemas/mcp.js";
 import type { McpServerManager } from "../../mcp/manager.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { schemaDefinesProperty } from "../schema-transforms.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const riskMap: Record<string, RiskLevel> = {
@@ -36,6 +37,10 @@ export function createMcpTool(
 ): Tool {
   const namespacedName = mcpToolName(serverId, metadata.name);
   const riskLevel = riskMap[serverConfig.defaultRiskLevel] ?? RiskLevel.High;
+  const serverDefinesReason = schemaDefinesProperty(
+    metadata.inputSchema,
+    "reason",
+  );
 
   return {
     name: namespacedName,
@@ -59,7 +64,19 @@ export function createMcpTool(
       _context: ToolContext,
     ): Promise<ToolExecutionResult> {
       try {
-        const result = await manager.callTool(serverId, metadata.name, input);
+        // Strip injected reason before sending to MCP server
+        const { reason: _reason, ...mcpInput } = input as Record<
+          string,
+          unknown
+        > & {
+          reason?: unknown;
+        };
+        const forwardInput = serverDefinesReason ? input : mcpInput;
+        const result = await manager.callTool(
+          serverId,
+          metadata.name,
+          forwardInput,
+        );
         return {
           content: result.content,
           isError: result.isError,
