@@ -487,15 +487,16 @@ public final class MainWindow {
     private func installResizeGrip(_ window: NSWindow) {
         guard let contentView = window.contentView else { return }
         let gripSize: CGFloat = 14
-        let grip = ResizeGripView(frame: NSRect(
-            x: contentView.bounds.maxX - gripSize,
-            y: 0,
-            width: gripSize,
-            height: gripSize
-        ))
-        grip.autoresizingMask = [.minXMargin, .maxYMargin]
+        let grip = ResizeGripView(frame: .zero)
+        grip.translatesAutoresizingMaskIntoConstraints = false
         grip.wantsLayer = true
         contentView.addSubview(grip)
+        NSLayoutConstraint.activate([
+            grip.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            grip.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            grip.widthAnchor.constraint(equalToConstant: gripSize),
+            grip.heightAnchor.constraint(equalToConstant: gripSize),
+        ])
     }
 
     /// Hide the window without destroying it (can be restored with `show()`).
