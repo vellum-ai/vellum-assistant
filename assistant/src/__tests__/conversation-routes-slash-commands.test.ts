@@ -201,6 +201,8 @@ function makeSession() {
     assistantId: "self",
     trustContext: undefined,
     hasPendingConfirmation: () => false,
+    setHostBashProxy: () => {},
+    setHostFileProxy: () => {},
     usageStats: {
       inputTokens: 1000,
       outputTokens: 500,

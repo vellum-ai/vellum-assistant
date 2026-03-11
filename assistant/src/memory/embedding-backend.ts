@@ -397,10 +397,13 @@ export async function embedWithBackend(
   const { provider: primaryProvider, model: primaryModel } = selection.backend;
 
   // ── Build fallback backends list (needed for embed fallback) ──
+  // In auto mode, build a fallback chain from all configured backends
+  // (excluding the primary). This lets multimodal inputs fall through
+  // to Gemini even when the primary is local or openai.
   const fallbacks: EmbeddingBackend[] =
     config.memory.embeddings.provider === "auto" &&
-    selection.backend.provider === "local"
-      ? selectFallbackBackends(config, "local")
+    selection.backend.provider !== "gemini"
+      ? selectFallbackBackends(config, selection.backend.provider)
       : [];
 
   // ── Compute provider-specific vector cache extras ───────────────
@@ -581,18 +584,27 @@ function selectFallbackBackends(
 }
 
 /**
- * Returns true when the currently resolved embedding backend supports
- * multimodal inputs (images, audio, video). Today only Gemini does.
+ * Returns true when the embedding pipeline can handle multimodal inputs
+ * (images, audio, video). Today only Gemini supports multimodal.
  *
- * This replaces the earlier heuristic that checked `auto + gemini key`,
- * which was wrong because `auto` mode may resolve to a text-only backend
- * (local, OpenAI) even when a Gemini key exists.
+ * In auto mode, the primary backend is usually local or OpenAI, but
+ * embedWithBackend builds a fallback chain that includes Gemini when
+ * available. We check both the primary and fallback backends so that
+ * multimodal jobs are still enqueued when Gemini is reachable via fallback.
  */
 export function selectedBackendSupportsMultimodal(
   config: AssistantConfig,
 ): boolean {
   const { backend } = selectEmbeddingBackend(config);
-  return backend?.provider === "gemini";
+  if (!backend) return false;
+  if (backend.provider === "gemini") return true;
+
+  // In auto mode, check if Gemini is available as a fallback backend.
+  if (config.memory.embeddings.provider === "auto") {
+    const fallbacks = selectFallbackBackends(config, backend.provider);
+    return fallbacks.some((fb) => fb.provider === "gemini");
+  }
+  return false;
 }
 
 function isOllamaConfigured(config: AssistantConfig): boolean {

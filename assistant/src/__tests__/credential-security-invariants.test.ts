@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,11 +63,13 @@ mock.module("../tools/registry.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { credentialKey } from "../security/credential-key.js";
 import { redactSensitiveFields } from "../security/redaction.js";
-import { setSecureKey } from "../security/secure-keys.js";
+import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
+  getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 
@@ -199,6 +201,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
+      "security/credential-key.ts", // credential key builder + migration
       "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
       "tools/credentials/broker.ts", // brokered credential access
@@ -221,7 +224,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "schedule/integration-status.ts", // integration status checks for scheduled reports
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
-      "media/managed-avatar-client.ts", // managed avatar API key lookup for platform authentication
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
       "runtime/routes/integrations/slack/share.ts", // Slack share routes credential lookup
@@ -230,8 +232,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
       "daemon/ride-shotgun-handler.ts", // learn session cookie persistence
       "daemon/session-messaging.ts", // credential storage during session messaging
-      "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
-      "twitter/platform-proxy-client.ts", // managed Twitter proxy auth token lookup
+      "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -247,7 +248,11 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
         const s = statSync(full);
         if (s.isDirectory()) {
           collectTsFiles(full, files);
-        } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+        } else if (
+          entry.endsWith(".ts") &&
+          !entry.endsWith(".d.ts") &&
+          !entry.endsWith(".test.ts")
+        ) {
           files.push(full);
         }
       }
@@ -415,7 +420,10 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
         allowedTools: tc.allowedTools,
         allowedDomains: tc.allowedDomains,
       });
-      setSecureKey(`credential:${tc.credentialId}:token`, "test-secret-value");
+      setSecureKey(
+        credentialKey(tc.credentialId, "token"),
+        "test-secret-value",
+      );
 
       const result = await broker.browserFill({
         service: tc.credentialId,
@@ -440,7 +448,7 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
       allowedTools: ["browser_fill_credential"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey("credential:github:token", "ghp_secret123");
+    setSecureKey(credentialKey("github", "token"), "ghp_secret123");
 
     const result = await broker.browserFill({
       service: "github",
@@ -469,6 +477,94 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
     expect(!result.authorized && result.reason).toContain(
       "No tools are currently allowed",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant 6 — oauth2ClientSecret never in plaintext metadata
+// ---------------------------------------------------------------------------
+
+describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, "metadata.json"));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  test("upsertCredentialMetadata does not accept oauth2ClientSecret", () => {
+    const record = upsertCredentialMetadata(
+      "integration:gmail",
+      "access_token",
+      {
+        oauth2TokenUrl: "https://oauth2.googleapis.com/token",
+        oauth2ClientId: "test-client-id",
+      },
+    );
+    expect("oauth2ClientSecret" in record).toBe(false);
+  });
+
+  test("client secret is read from secure store, not metadata", () => {
+    setSecureKey(
+      credentialKey("integration:gmail", "client_secret"),
+      "my-secret",
+    );
+    upsertCredentialMetadata("integration:gmail", "access_token", {
+      oauth2TokenUrl: "https://oauth2.googleapis.com/token",
+      oauth2ClientId: "test-client-id",
+    });
+
+    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    expect(meta).toBeDefined();
+    expect("oauth2ClientSecret" in meta!).toBe(false);
+
+    // Secret is in secure store
+    expect(
+      getSecureKey(credentialKey("integration:gmail", "client_secret")),
+    ).toBe("my-secret");
+  });
+
+  test("v2 metadata with oauth2ClientSecret is stripped on migration", () => {
+    const v2Data = {
+      version: 2,
+      credentials: [
+        {
+          credentialId: "cred-v2-secret",
+          service: "integration:gmail",
+          field: "access_token",
+          allowedTools: [],
+          allowedDomains: [],
+          oauth2TokenUrl: "https://oauth2.googleapis.com/token",
+          oauth2ClientId: "test-client-id",
+          oauth2ClientSecret: "plaintext-secret-should-be-stripped",
+          createdAt: 1700000000000,
+          updatedAt: 1700000000000,
+        },
+      ],
+    };
+    writeFileSync(
+      join(TEST_DIR, "metadata.json"),
+      JSON.stringify(v2Data, null, 2),
+      "utf-8",
+    );
+
+    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    expect(meta).toBeDefined();
+    expect("oauth2ClientSecret" in meta!).toBe(false);
+
+    // Verify on-disk file no longer contains the secret
+    const raw = JSON.parse(
+      readFileSync(join(TEST_DIR, "metadata.json"), "utf-8"),
+    );
+    expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
+    expect(raw.version).toBe(4);
   });
 });
 

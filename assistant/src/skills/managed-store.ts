@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { stringify as stringifyYaml } from "yaml";
+
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 
@@ -67,7 +69,10 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   lines.push(`description: "${esc(input.description)}"`);
 
   // Build metadata object matching the format parseFrontmatter expects:
-  // metadata: {"vellum":{"emoji":"...","user-invocable":false,...}}
+  // metadata:
+  //   vellum:
+  //     emoji: "..."
+  //     user-invocable: false
   const vellum: Record<string, unknown> = {};
   if (input.emoji) {
     vellum.emoji = input.emoji;
@@ -84,7 +89,11 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
 
   if (Object.keys(vellum).length > 0) {
     const metadata = { vellum };
-    lines.push(`metadata: ${JSON.stringify(metadata)}`);
+    const yamlBlock = stringifyYaml(metadata, { indent: 2 });
+    lines.push("metadata:");
+    for (const yamlLine of yamlBlock.trimEnd().split("\n")) {
+      lines.push(`  ${yamlLine}`);
+    }
   }
 
   lines.push("---");

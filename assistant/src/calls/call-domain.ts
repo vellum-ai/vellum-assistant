@@ -21,6 +21,7 @@ import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
@@ -135,7 +136,7 @@ export type CallerIdentityResult =
  * For `assistant_number`: uses the Twilio phone number from
  *   `getTwilioConfig()`. No eligibility check is performed — this is a fast path.
  * For `user_number`: uses `config.calls.callerIdentity.userNumber` or the
- *   secure key `credential:twilio:user_phone_number`, then validates that the
+ *   secure key `credential/twilio/user_phone_number`, then validates that the
  *   number is usable as an outbound caller ID via the Twilio API.
  */
 export async function resolveCallerIdentity(
@@ -197,7 +198,9 @@ export async function resolveCallerIdentity(
     userNumber = getTwilioUserPhoneNumber()!;
     numberSource = "env_var";
   } else {
-    const secureKeyValue = getSecureKey("credential:twilio:user_phone_number");
+    const secureKeyValue = getSecureKey(
+      credentialKey("twilio", "user_phone_number"),
+    );
     if (secureKeyValue) {
       userNumber = secureKeyValue;
       numberSource = "secure_key";
@@ -212,7 +215,7 @@ export async function resolveCallerIdentity(
     return {
       ok: false,
       error:
-        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential:twilio:user_phone_number via the credential_store tool.",
+        "user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential/twilio/user_phone_number via the credential_store tool.",
     };
   }
 
@@ -223,7 +226,7 @@ export async function resolveCallerIdentity(
     );
     return {
       ok: false,
-      error: `User phone number "${userNumber}" is not in E.164 format (must start with + followed by digits, e.g. +14155551234). Check calls.callerIdentity.userNumber in config or credential:twilio:user_phone_number.`,
+      error: `User phone number "${userNumber}" is not in E.164 format (must start with + followed by digits, e.g. +14155551234). Check calls.callerIdentity.userNumber in config or credential/twilio/user_phone_number.`,
     };
   }
 

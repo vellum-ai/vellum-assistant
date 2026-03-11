@@ -3,6 +3,7 @@ import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.j
 import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
@@ -62,7 +63,7 @@ export function createWhatsAppWebhookHandler(
       // Resolve the verify token from cache
       const verifyToken = caches?.credentials
         ? await caches.credentials.get(
-            "credential:whatsapp:webhook_verify_token",
+            credentialKey("whatsapp", "webhook_verify_token"),
           )
         : undefined;
 
@@ -112,7 +113,7 @@ export function createWhatsAppWebhookHandler(
 
     // Resolve app secret from cache
     const appSecret = caches?.credentials
-      ? await caches.credentials.get("credential:whatsapp:app_secret")
+      ? await caches.credentials.get(credentialKey("whatsapp", "app_secret"))
       : undefined;
 
     // If the initial cache read returned undefined but a credential cache is available,
@@ -121,7 +122,7 @@ export function createWhatsAppWebhookHandler(
     let effectiveAppSecret = appSecret;
     if (!effectiveAppSecret && caches?.credentials) {
       effectiveAppSecret = await caches.credentials.get(
-        "credential:whatsapp:app_secret",
+        credentialKey("whatsapp", "app_secret"),
         { force: true },
       );
       if (effectiveAppSecret) {
@@ -151,7 +152,7 @@ export function createWhatsAppWebhookHandler(
     // force-refresh the app secret and retry once.
     if (!signatureValid && caches?.credentials) {
       const freshAppSecret = await caches.credentials.get(
-        "credential:whatsapp:app_secret",
+        credentialKey("whatsapp", "app_secret"),
         { force: true },
       );
       if (freshAppSecret) {

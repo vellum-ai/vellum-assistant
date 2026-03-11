@@ -95,7 +95,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         )
 
         try transport.send(
-            IPCConversationUnreadSignal(
+            ConversationUnreadSignal(
                 conversationId: "conv-123",
                 sourceChannel: "vellum",
                 signalType: "macos_conversation_opened",
@@ -155,7 +155,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
 
         do {
             try await transport.sendConversationUnread(
-                IPCConversationUnreadSignal(
+                ConversationUnreadSignal(
                     conversationId: "conv-123",
                     sourceChannel: "vellum",
                     signalType: "macos_conversation_opened",
@@ -202,7 +202,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         )
 
         try transport.send(
-            IPCConversationUnreadSignal(
+            ConversationUnreadSignal(
                 conversationId: "conv-456",
                 sourceChannel: "vellum",
                 signalType: "macos_conversation_opened",
@@ -255,7 +255,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         )
 
         try transport.send(
-            IPCConversationUnreadSignal(
+            ConversationUnreadSignal(
                 conversationId: "conv-789",
                 sourceChannel: "vellum",
                 signalType: "macos_conversation_opened",
@@ -306,7 +306,7 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         )
 
         try transport.send(
-            IPCConversationSeenSignal(
+            ConversationSeenSignal(
                 conversationId: "conv-321",
                 sourceChannel: "vellum",
                 signalType: "macos_conversation_seen",

@@ -118,6 +118,10 @@ export interface ProcessSessionContext {
   setTurnChannelContext(ctx: TurnChannelContext): void;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
+  /** Mark host proxies as unavailable so tool execution uses local fallback. */
+  clearProxyAvailability(): void;
+  /** Restore host proxy availability based on whether a real client is connected. */
+  restoreProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -263,6 +267,23 @@ export async function drainQueue(
   );
   if (queuedInterfaceCtx) {
     session.setTurnInterfaceContext(queuedInterfaceCtx);
+  }
+
+  // Non-interactive queued messages (channel requests) must not execute tools
+  // via the desktop host proxy. Clear proxy availability so isAvailable()
+  // returns false and tool execution falls back to local.
+  if (next.isInteractive === false) {
+    session.clearProxyAvailability();
+  } else {
+    // Restore proxy availability only for desktop-originating turns (macos/ios)
+    // in case a prior non-interactive drain disabled it. Non-desktop interactive
+    // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
+    const interfaceCtx =
+      queuedInterfaceCtx ?? session.getTurnInterfaceContext();
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    if (sourceInterface === "macos" || sourceInterface === "ios") {
+      session.restoreProxyAvailability();
+    }
   }
 
   // Resolve slash commands for queued messages

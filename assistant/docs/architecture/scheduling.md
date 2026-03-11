@@ -45,7 +45,7 @@ The database column is named `cron_expression` and the Drizzle table is `cronJob
 
 ## Reminder Routing — Trigger-Time Multi-Channel Delivery
 
-Reminders support optional routing metadata that controls how the notification pipeline fans out delivery across channels when a reminder fires. This allows a single reminder to reach the user on multiple channels (desktop, Telegram, SMS) without requiring duplicate reminders.
+Reminders support optional routing metadata that controls how the notification pipeline fans out delivery across channels when a reminder fires. This allows a single reminder to reach the user on multiple channels (desktop, Telegram) without requiring duplicate reminders.
 
 ### Routing Metadata Model
 
@@ -69,7 +69,7 @@ sequenceDiagram
     participant Engine as Decision Engine<br/>(LLM)
     participant Enforce as enforceRoutingIntent
     participant Broadcaster as Broadcaster
-    participant Adapters as Channel Adapters<br/>(Vellum, Telegram, SMS)
+    participant Adapters as Channel Adapters<br/>(Vellum, Telegram)
 
     Scheduler->>Store: claimDueReminders(now)
     Store-->>Scheduler: ReminderRow[] (with routingIntent, routingHints)
@@ -106,7 +106,6 @@ Channel availability is resolved when the signal is emitted (not when the remind
 
 - **Vellum** — always connected (local HTTP)
 - **Telegram** — connected when an active guardian binding exists
-- **SMS** — connected when an active guardian binding exists
 
 If a channel becomes unavailable between reminder creation and fire time, it is silently excluded from delivery. The routing intent enforcement operates only on channels that are connected at fire time.
 

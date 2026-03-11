@@ -7,6 +7,10 @@ import {
 } from "../../oauth/provider-profiles.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { buildAssistantEvent } from "../../runtime/assistant-event.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import { credentialKey, migrateKeys } from "../../security/credential-key.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
@@ -33,10 +37,10 @@ import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 const log = getLogger("credential-vault");
 
 /**
- * Look up a stored OAuth field (e.g. client_id or client_secret) for a service.
- * Checks both the canonical and alias service names.
+ * Look up a stored OAuth secret (e.g. client_secret) for a service from the
+ * secure store. Checks both the canonical and alias service names.
  */
-function findStoredOAuthField(
+function findStoredOAuthSecret(
   service: string,
   field: string,
 ): string | undefined {
@@ -47,8 +51,25 @@ function findStoredOAuthField(
     if (alias === service) servicesToCheck.push(canonical);
   }
   for (const svc of servicesToCheck) {
-    const value = getSecureKey(`credential:${svc}:${field}`);
+    const value = getSecureKey(credentialKey(svc, field));
     if (value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Look up the stored OAuth client_id for a service from credential metadata.
+ * Checks both the canonical and alias service names.
+ */
+function findStoredOAuthClientId(service: string): string | undefined {
+  const servicesToCheck = [service];
+  for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
+    if (canonical === service) servicesToCheck.push(alias);
+    if (alias === service) servicesToCheck.push(canonical);
+  }
+  for (const svc of servicesToCheck) {
+    const meta = getCredentialMetadata(svc, "access_token");
+    if (meta?.oauth2ClientId) return meta.oauth2ClientId;
   }
   return undefined;
 }
@@ -206,11 +227,6 @@ class CredentialStoreTool implements Tool {
             description:
               "Templates describing how to inject this credential into proxied requests (for store and prompt actions)",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["action"],
       },
@@ -221,6 +237,7 @@ class CredentialStoreTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    migrateKeys();
     const action = input.action as string;
 
     switch (action) {
@@ -359,7 +376,7 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        const key = `credential:${service}:${field}`;
+        const key = credentialKey(service, field);
         const ok = await setSecureKeyAsync(key, value);
         if (!ok) {
           return {
@@ -422,7 +439,7 @@ class CredentialStoreTool implements Tool {
         const entries = allMetadata
           .filter((m) => {
             if (secureKeySet)
-              return secureKeySet.has(`credential:${m.service}:${m.field}`);
+              return secureKeySet.has(credentialKey(m.service, m.field));
             return true;
           })
           .map((m) => {
@@ -472,7 +489,7 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        const key = `credential:${service}:${field}`;
+        const key = credentialKey(service, field);
         const result = await deleteSecureKeyAsync(key);
         if (result === "error") {
           return {
@@ -712,7 +729,7 @@ class CredentialStoreTool implements Tool {
         }
 
         // Default: persist to keychain
-        const key = `credential:${service}:${field}`;
+        const key = credentialKey(service, field);
         const ok = await setSecureKeyAsync(key, result.value);
         if (!ok) {
           return {
@@ -757,13 +774,13 @@ class CredentialStoreTool implements Tool {
         // Fill missing params from provider profile
         const profile = getProviderProfile(service);
 
-        // Look up client_id/client_secret from stored credentials if not provided
+        // Look up client_id from metadata and client_secret from secure store
         const clientId =
           (input.client_id as string | undefined) ??
-          findStoredOAuthField(service, "client_id");
+          findStoredOAuthClientId(service);
         const clientSecret =
           (input.client_secret as string | undefined) ??
-          findStoredOAuthField(service, "client_secret");
+          findStoredOAuthSecret(service, "client_secret");
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;
@@ -867,6 +884,44 @@ class CredentialStoreTool implements Tool {
           userinfoUrl:
             (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
           tokenEndpointAuthMethod,
+          onDeferredComplete: (deferredResult) => {
+            // Emit oauth_connect_result to all connected SSE clients so the
+            // UI can update immediately when the deferred browser flow completes.
+            assistantEventHub
+              .publish(
+                buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                  type: "oauth_connect_result",
+                  success: deferredResult.success,
+                  service: deferredResult.service,
+                  accountInfo: deferredResult.accountInfo,
+                  error: deferredResult.error,
+                }),
+              )
+              .catch((err) => {
+                log.warn(
+                  { err, service: deferredResult.service },
+                  "Failed to publish oauth_connect_result event",
+                );
+              });
+
+            if (deferredResult.success) {
+              log.info(
+                {
+                  service: deferredResult.service,
+                  accountInfo: deferredResult.accountInfo,
+                },
+                "Deferred OAuth connect completed successfully",
+              );
+            } else {
+              log.warn(
+                {
+                  service: deferredResult.service,
+                  err: deferredResult.error,
+                },
+                "Deferred OAuth connect failed",
+              );
+            }
+          },
         });
 
         if (!result.success) {

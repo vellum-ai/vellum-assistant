@@ -25,7 +25,7 @@ extension HTTPTransport {
             }
 
             // --- Voice Config ---
-            if let msg = message as? IPCVoiceConfigUpdateRequest {
+            if let msg = message as? VoiceConfigUpdateRequest {
                 Task { await self.sendEncodablePost(.settingsVoice, body: msg, method: "PUT", label: "voice_config_update") }
                 return true
             }
@@ -69,7 +69,7 @@ extension HTTPTransport {
             }
 
             // --- Dictation ---
-            if let msg = message as? IPCDictationRequest {
+            if let msg = message as? DictationRequest {
                 Task { await self.sendEncodablePost(.dictation, body: msg, label: "dictation_request") }
                 return true
             }
@@ -91,29 +91,19 @@ extension HTTPTransport {
             }
 
             // --- OAuth ---
-            if let msg = message as? IPCOAuthConnectStartRequest {
+            if let msg = message as? OAuthConnectStartRequest {
                 Task { await self.sendEncodablePost(.integrationsOAuthStart, body: msg, label: "oauth_connect_start") }
                 return true
             }
 
-            // --- Twitter Auth ---
-            if message is TwitterAuthStartMessage {
-                Task { await self.sendGenericPost(.integrationsTwitterAuthStart, label: "twitter_auth_start") }
-                return true
-            }
-            if message is TwitterAuthStatusRequestMessage {
-                Task { await self.sendGenericPost(.integrationsTwitterAuthStatus, method: "GET", label: "twitter_auth_status") }
-                return true
-            }
-
             // --- Suggestion ---
-            if let msg = message as? IPCSuggestionRequest {
+            if let msg = message as? SuggestionRequest {
                 Task { await self.sendEncodablePost(.suggestion, body: msg, label: "suggestion_request") }
                 return true
             }
 
             // --- Heartbeat ---
-            if let msg = message as? IPCHeartbeatConfig {
+            if let msg = message as? HeartbeatConfig {
                 if msg.action == "get" {
                     Task { await self.sendGenericPost(.heartbeatConfig, method: "GET", label: "heartbeat_config_get") }
                 } else {
@@ -121,19 +111,19 @@ extension HTTPTransport {
                 }
                 return true
             }
-            if let msg = message as? IPCHeartbeatRunsList {
+            if let msg = message as? HeartbeatRunsList {
                 Task { await self.sendEncodablePost(.heartbeatRuns, body: msg, method: "GET", label: "heartbeat_runs_list") }
                 return true
             }
-            if message is IPCHeartbeatRunNow {
+            if message is HeartbeatRunNow {
                 Task { await self.sendGenericPost(.heartbeatRunNow, label: "heartbeat_run_now") }
                 return true
             }
-            if message is IPCHeartbeatChecklistRead {
+            if message is HeartbeatChecklistRead {
                 Task { await self.sendGenericPost(.heartbeatChecklist, method: "GET", label: "heartbeat_checklist_read") }
                 return true
             }
-            if let msg = message as? IPCHeartbeatChecklistWrite {
+            if let msg = message as? HeartbeatChecklistWrite {
                 Task { await self.sendEncodablePost(.heartbeatChecklistWrite, body: msg, method: "PUT", label: "heartbeat_checklist_write") }
                 return true
             }
@@ -175,15 +165,6 @@ extension HTTPTransport {
                 Task { await self.sendEncodablePost(.channelVerificationSessions, body: msg, label: "channel_verification_session") }
                 return true
             }
-            if let msg = message as? TwitterIntegrationConfigRequestMessage {
-                if msg.action == "get" {
-                    Task { await self.fetchTwitterAuthStatus() }
-                } else {
-                    Task { await self.sendEncodablePost(.integrationsTwitterAuthStart, body: msg, label: "twitter_integration_config") }
-                }
-                return true
-            }
-
             // --- Publishing ---
             if let msg = message as? PublishPageRequestMessage {
                 Task { await self.sendEncodablePost(.publishPage, body: msg, label: "publish_page") }
@@ -232,43 +213,6 @@ extension HTTPTransport {
             }
 
             return false
-        }
-    }
-
-    // MARK: - Twitter Auth Status
-
-    /// Fetch Twitter auth status via GET and route the response through the message router.
-    func fetchTwitterAuthStatus() async {
-        guard let url = buildURL(for: .integrationsTwitterAuthStatus) else {
-            log.error("Failed to build URL for twitter_auth_status")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                log.error("twitter_auth_status failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-                return
-            }
-
-            // Wrap the HTTP response with the envelope fields the router expects.
-            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                log.error("twitter_auth_status: unexpected response shape")
-                return
-            }
-            json["type"] = "twitter_integration_config_response"
-            json["success"] = true
-
-            let wrappedData = try JSONSerialization.data(withJSONObject: json)
-            let message = try JSONDecoder().decode(TwitterIntegrationConfigResponseMessage.self, from: wrappedData)
-            self.onMessage?(.twitterIntegrationConfigResponse(message))
-        } catch {
-            log.error("twitter_auth_status error: \(error.localizedDescription)")
         }
     }
 

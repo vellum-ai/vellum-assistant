@@ -46,7 +46,8 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
-import type { HostBashProxy } from "./host-bash-proxy.js";
+import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -89,6 +90,7 @@ import type {
   ChannelCapabilities,
   TrustContext,
 } from "./session-runtime-assembly.js";
+import { messagesContainAttachments } from "./session-runtime-assembly.js";
 import type { SkillProjectionCache } from "./session-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -154,10 +156,12 @@ export class Session {
   /** @internal */ currentRequestId?: string;
   /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
+  /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -355,7 +359,15 @@ export class Session {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
-    return loadFromDbImpl(this);
+    await loadFromDbImpl(this);
+    // Scan loaded history for attachment content blocks so that asset
+    // tools are available when resuming a conversation that already had
+    // attachments. One-way: once true it stays true for the session.
+    // Also picks up the hasAttachments flag set by loadFromDbImpl which
+    // scans compacted (sliced-off) messages that aren't in this.messages.
+    if (!this.hasAttachments && messagesContainAttachments(this.messages)) {
+      this.hasAttachments = true;
+    }
   }
 
   async ensureActorScopedHistory(): Promise<void> {
@@ -367,17 +379,36 @@ export class Session {
   updateClient(
     sendToClient: (msg: ServerMessage) => void,
     hasNoClient = false,
+    opts?: { skipProxySenderUpdate?: boolean },
   ): void {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
+    if (!opts?.skipProxySenderUpdate) {
+      this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
+    }
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
   getCurrentSender(): (msg: ServerMessage) => void {
     return this.sendToClient;
+  }
+
+  /** Mark host proxies as unavailable so tool execution uses local fallback. */
+  clearProxyAvailability(): void {
+    this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostFileProxy?.updateSender(this.sendToClient, false);
+  }
+
+  /** Restore host proxy availability based on whether a real client is connected. */
+  restoreProxyAvailability(): void {
+    if (!this.hasNoClient) {
+      this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostFileProxy?.updateSender(this.sendToClient, true);
+    }
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
@@ -415,6 +446,8 @@ export class Session {
 
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
+    this.hostBashProxy?.dispose();
+    this.hostFileProxy?.dispose();
     disposeSession(this);
   }
 
@@ -578,12 +611,25 @@ export class Session {
     this.hostBashProxy?.resolve(requestId, response);
   }
 
-  hasPendingHostBash(requestId: string): boolean {
-    return this.hostBashProxy?.hasPendingRequest(requestId) ?? false;
+  setHostBashProxy(proxy: HostBashProxy | undefined): void {
+    if (this.hostBashProxy && this.hostBashProxy !== proxy) {
+      this.hostBashProxy.dispose();
+    }
+    this.hostBashProxy = proxy;
   }
 
-  setHostBashProxy(proxy: HostBashProxy | undefined): void {
-    this.hostBashProxy = proxy;
+  resolveHostFile(
+    requestId: string,
+    response: { content: string; isError: boolean },
+  ): void {
+    this.hostFileProxy?.resolve(requestId, response);
+  }
+
+  setHostFileProxy(proxy: HostFileProxy | undefined): void {
+    if (this.hostFileProxy && this.hostFileProxy !== proxy) {
+      this.hostFileProxy.dispose();
+    }
+    this.hostFileProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
@@ -678,6 +724,11 @@ export class Session {
   ): Promise<string> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
+    }
+    // One-way flag: once an attachment arrives, asset tools stay available
+    // for the remainder of the session.
+    if (!this.hasAttachments && attachments.length > 0) {
+      this.hasAttachments = true;
     }
     return persistUserMessageImpl(
       this,

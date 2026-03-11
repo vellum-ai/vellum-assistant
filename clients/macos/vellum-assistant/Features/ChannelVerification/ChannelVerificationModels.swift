@@ -23,7 +23,7 @@ struct ChannelVerificationState {
 
     /// The most user-friendly display name for the verified identity.
     /// For telegram/slack: prefers @username, falls back to display name, then raw identity.
-    /// For sms/voice: prefers display name, falls back to identity.
+    /// For voice: prefers display name, falls back to identity.
     var primaryIdentity: String? {
         if channel == "telegram" || channel == "slack" {
             if let username = username?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -34,7 +34,7 @@ struct ChannelVerificationState {
                !displayName.isEmpty {
                 return displayName
             }
-        } else if channel == "sms" || channel == "phone" {
+        } else if channel == "phone" {
             if let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !displayName.isEmpty {
                 return displayName
@@ -84,24 +84,6 @@ extension SettingsStore {
                 outboundSendCount: telegramOutboundSendCount,
                 outboundCode: telegramOutboundCode,
                 bootstrapUrl: telegramBootstrapUrl
-            )
-        case "sms":
-            return ChannelVerificationState(
-                channel: channel,
-                identity: smsVerificationIdentity,
-                username: smsVerificationUsername,
-                displayName: smsVerificationDisplayName,
-                verified: smsVerificationVerified,
-                inProgress: smsVerificationInProgress,
-                instruction: smsVerificationInstruction,
-                error: smsVerificationError,
-                alreadyBound: smsVerificationAlreadyBound,
-                outboundSessionId: smsOutboundSessionId,
-                outboundExpiresAt: smsOutboundExpiresAt,
-                outboundNextResendAt: smsOutboundNextResendAt,
-                outboundSendCount: smsOutboundSendCount,
-                outboundCode: smsOutboundCode,
-                bootstrapUrl: nil
             )
         case "phone":
             return ChannelVerificationState(
@@ -203,8 +185,7 @@ func verificationInstructionSubtext(channel: String, botUsername: String?, phone
         let number = phoneNumber ?? "your assistant"
         return "Call \(number) and say the six-digit code below within the next 10 minutes"
     } else {
-        let number = phoneNumber ?? "your assistant"
-        return "Text \(number) with the below code within the next 10 minutes"
+        return "Send the below code within the next 10 minutes"
     }
 }
 
@@ -212,7 +193,7 @@ func verificationInstructionSubtext(channel: String, botUsername: String?, phone
 func verificationDestinationPlaceholder(for channel: String) -> String {
     switch channel {
     case "telegram": return "@username or chat ID"
-    case "sms", "phone": return "+1234567890"
+    case "phone": return "+1234567890"
     case "slack": return "Slack user ID"
     default: return "Destination"
     }

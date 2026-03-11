@@ -31,7 +31,7 @@ interface DockerRoot {
  * Dockerfiles live under `meta/`, but when installed as an npm package they
  * are at the package root.
  */
-function findDockerRoot(): DockerRoot {
+function findDockerRoot(developmentMode: boolean = false): DockerRoot {
   // Source tree: cli/src/lib/ -> repo root (Dockerfiles in meta/)
   const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
   if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile"))) {
@@ -53,6 +53,21 @@ function findDockerRoot(): DockerRoot {
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
+  }
+
+  // In development mode, walk up from the executable path to find the repo
+  // root. This handles the macOS app bundle case where the binary lives inside
+  // the repo at e.g. clients/macos/dist/Vellum.app/Contents/MacOS/.
+  if (developmentMode) {
+    let execDir = dirname(process.execPath);
+    while (true) {
+      if (existsSync(join(execDir, "meta", "Dockerfile.development"))) {
+        return { root: execDir, dockerfileDir: "meta" };
+      }
+      const parent = dirname(execDir);
+      if (parent === execDir) break;
+      execDir = parent;
+    }
   }
 
   // macOS app bundle: Contents/MacOS/vellum-cli -> Contents/Resources/Dockerfile
@@ -168,7 +183,7 @@ export async function hatchDocker(
   let repoRoot: string;
   let dockerfileDir: string;
   try {
-    ({ root: repoRoot, dockerfileDir } = findDockerRoot());
+    ({ root: repoRoot, dockerfileDir } = findDockerRoot(watch));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const logFd = openLogFile("hatch.log");

@@ -8,7 +8,6 @@ import { executeSwarm } from "../../swarm/orchestrator.js";
 import { generatePlan } from "../../swarm/router-planner.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("swarm-delegate");
@@ -44,11 +43,6 @@ export const swarmDelegateTool: Tool = {
             type: "number",
             description:
               "Maximum concurrent workers (1-6, default from config)",
-          },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
         required: ["objective"],
@@ -204,8 +198,6 @@ export const swarmDelegateTool: Tool = {
     }
   },
 };
-
-registerTool(swarmDelegateTool);
 
 /** Clear all active sessions — only for testing. */
 export function _resetSwarmActive(): void {

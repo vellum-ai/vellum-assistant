@@ -317,7 +317,7 @@ extension ChatViewModel {
     }
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    func mapMessageAttachments(_ attachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
+    func mapMessageAttachments(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
         attachments.compactMap { attachment in
             let id = attachment.id ?? UUID().uuidString
             let base64 = attachment.data
@@ -365,7 +365,7 @@ extension ChatViewModel {
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
-    func ingestAssistantAttachments(_ attachments: [IPCUserMessageAttachment]?) {
+    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?) {
         guard let attachments, !attachments.isEmpty else { return }
         let chatAttachments = mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
@@ -591,6 +591,13 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            // Backfill the daemon's persisted message ID so diagnostics exports
+            // can anchor to it without requiring a history reload.
+            if let messageId = complete.messageId,
+               let msgId = currentAssistantMessageId,
+               let idx = messages.firstIndex(where: { $0.id == msgId }) {
+                messages[idx].daemonMessageId = messageId
+            }
             // Strip heavy binary data from old messages to cap memory growth.
             trimOldMessagesIfNeeded()
             let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
@@ -952,6 +959,11 @@ extension ChatViewModel {
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
+                // Backfill the daemon's persisted message ID so diagnostics exports
+                // can anchor to it without requiring a history reload.
+                if let messageId = handoff.messageId {
+                    messages[index].daemonMessageId = messageId
+                }
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
@@ -1048,7 +1060,7 @@ extension ChatViewModel {
                     // Reconstruct attachments from the blocked user message's ChatAttachments
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
                         secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
@@ -1591,6 +1603,30 @@ extension ChatViewModel {
             // Empty sessionId is treated as a broadcast (e.g. transport-level 401)
             guard sessionId != nil, msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
+
+            // Per-message send failure: mark the specific user message instead
+            // of showing a session-level error banner.
+            if let failedContent = msg.failedMessageContent {
+                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == failedContent && $0.status != .sendFailed }) {
+                    messages[idx].status = .sendFailed
+                }
+                // Only reset sending state if no other messages are in-flight.
+                // Check for genuinely in-flight statuses (.processing, .queued)
+                // — NOT .sent, which is the default/terminal status for all
+                // previously delivered messages.
+                let hasActiveSend = isSending && messages.contains(where: { msg in
+                    guard msg.role == .user else { return false }
+                    if msg.status == .processing { return true }
+                    if case .queued = msg.status { return true }
+                    return false
+                })
+                if !hasActiveSend {
+                    isThinking = false
+                    isSending = false
+                }
+                return
+            }
+
             isWorkspaceRefinementInFlight = false
             refinementFlushTask?.cancel()
             refinementFlushTask = nil

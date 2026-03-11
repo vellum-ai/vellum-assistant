@@ -314,7 +314,7 @@ extension AppDelegate {
         errorCode: String?
     ) {
         guard let deliveryId else { return }
-        let result = IPCNotificationIntentResult(
+        let result = NotificationIntentResult(
             type: "notification_intent_result",
             deliveryId: deliveryId,
             success: success,
@@ -418,7 +418,7 @@ extension AppDelegate {
         source: String,
         evidenceText: String? = nil
     ) {
-        let signal = IPCConversationSeenSignal(
+        let signal = ConversationSeenSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: signalType,

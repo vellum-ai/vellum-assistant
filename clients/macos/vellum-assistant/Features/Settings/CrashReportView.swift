@@ -112,12 +112,12 @@ struct CrashReportView: View {
 
             // Attach the full crash log file and any companion files (e.g. spindump
             // .tar.gz archives) so they are available in Sentry for download.
-            var attachments: [Attachment] = [
-                Attachment(path: urlCopy.path, filename: urlCopy.lastPathComponent),
+            var attachments: [Sentry.Attachment] = [
+                Sentry.Attachment(path: urlCopy.path, filename: urlCopy.lastPathComponent),
             ]
             for companion in companions {
                 attachments.append(
-                    Attachment(path: companion.path, filename: companion.lastPathComponent)
+                    Sentry.Attachment(path: companion.path, filename: companion.lastPathComponent)
                 )
             }
 
@@ -202,7 +202,7 @@ extension AppDelegate {
             }
         }
 
-        NSApp.setActivationPolicy(.regular)
+        NSApp.activateAsDockAppIfNeeded()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -214,9 +214,12 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             crashReportWindowObserver = nil
         }
+        let closingWindow = crashReportWindow
         crashReportWindow?.close()
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        // The window may still report isVisible briefly after close(),
+        // so exclude it from the visible-window check.
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 
     private func handleCrashReportWindowWillClose() {
@@ -224,8 +227,12 @@ extension AppDelegate {
             NotificationCenter.default.removeObserver(observer)
             crashReportWindowObserver = nil
         }
+        // Capture the window before clearing the reference — it is still
+        // isVisible during willCloseNotification, so we must exclude it
+        // from the visible-window check.
+        let closingWindow = crashReportWindow
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 }
 

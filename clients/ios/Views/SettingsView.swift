@@ -38,7 +38,7 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        DaemonConnectionSection()
+                        DaemonConnectionSection(authManager: authManager)
                     } label: {
                         Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
                     }
@@ -136,7 +136,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationDestination(isPresented: $navigateToConnect) {
-                DaemonConnectionSection()
+                DaemonConnectionSection(authManager: authManager)
             }
             .task(id: "\(clientProvider.clientGeneration)-\(clientProvider.isConnected)") {
                 guard clientProvider.isConnected else {

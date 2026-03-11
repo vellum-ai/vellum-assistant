@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { skillFlagKey } from "../../config/skill-state.js";
-import type { SkillSummary } from "../../config/skills.js";
+import type { SkillSummary, SkillToolManifest } from "../../config/skills.js";
 import { loadSkillBySelector, loadSkillCatalog } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -9,12 +12,94 @@ import {
   indexCatalogById,
   validateIncludes,
 } from "../../skills/include-graph.js";
+import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("skill-load");
+
+/**
+ * Attempt to load and parse TOOLS.json from a skill directory.
+ * Returns undefined if the file doesn't exist or fails to parse.
+ */
+function loadToolManifest(
+  directoryPath: string,
+): SkillToolManifest | undefined {
+  const manifestPath = join(directoryPath, "TOOLS.json");
+  if (!existsSync(manifestPath)) {
+    return undefined;
+  }
+  try {
+    return parseToolManifestFile(manifestPath);
+  } catch (err) {
+    log.warn(
+      { err, manifestPath },
+      "Failed to parse TOOLS.json for tool schema output",
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Format a skill tool manifest into a human-readable "Available Tools" section
+ * that instructs the LLM to use `skill_execute` to invoke the tools.
+ *
+ * When `childSkillName` is provided, a lighter sub-heading is used instead of
+ * the full `## Available Tools` header + preamble, avoiding duplicate headers
+ * when parent and child skills both have TOOLS.json.
+ */
+function formatToolSchemas(
+  manifest: SkillToolManifest,
+  childSkillName?: string,
+): string {
+  const lines: string[] = childSkillName
+    ? [`### Tools from ${childSkillName}`, ""]
+    : [
+        "## Available Tools",
+        "",
+        "Use `skill_execute` to call these tools.",
+        "",
+      ];
+
+  const toolHeadingLevel = childSkillName ? "####" : "###";
+
+  for (const tool of manifest.tools) {
+    lines.push(`${toolHeadingLevel} ${tool.name}`);
+    lines.push(tool.description);
+
+    const schema = tool.input_schema;
+    const properties = schema.properties as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    if (properties && Object.keys(properties).length > 0) {
+      const requiredSet = new Set<string>(
+        Array.isArray(schema.required) ? (schema.required as string[]) : [],
+      );
+
+      lines.push("Parameters:");
+      for (const [paramName, paramDef] of Object.entries(properties)) {
+        const paramType =
+          typeof paramDef.type === "string" ? paramDef.type : "any";
+        const requiredLabel = requiredSet.has(paramName)
+          ? "required"
+          : "optional";
+        const descPart =
+          typeof paramDef.description === "string"
+            ? `: ${paramDef.description}`
+            : "";
+        lines.push(
+          `- ${paramName} (${paramType}, ${requiredLabel})${descPart}`,
+        );
+      }
+    }
+
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
 
 export class SkillLoadTool implements Tool {
   name = "skill_load";
@@ -33,11 +118,6 @@ export class SkillLoadTool implements Tool {
           skill: {
             type: "string",
             description: "The skill id or skill name to load.",
-          },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are loading and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
           },
         },
         required: ["skill"],
@@ -115,9 +195,16 @@ export class SkillLoadTool implements Tool {
 
     const body = skill.body.length > 0 ? skill.body : "(No body content)";
 
+    // Load tool schemas for the main skill
+    const mainManifest = loadToolManifest(skill.directoryPath);
+    const toolSchemasSection = mainManifest
+      ? formatToolSchemas(mainManifest)
+      : undefined;
+
     // Build immediate children metadata section and load included skill bodies
     let immediateChildrenSection: string;
     const includedBodies: string[] = [];
+    let anyChildHasTools = false;
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
@@ -140,6 +227,17 @@ export class SkillLoadTool implements Tool {
           includedBodies.push(
             `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childLoaded.skill.body}`,
           );
+
+          // Load tool schemas for the included skill (lighter sub-heading)
+          const childManifest = loadToolManifest(
+            childLoaded.skill.directoryPath,
+          );
+          if (childManifest) {
+            anyChildHasTools = true;
+            includedBodies.push(
+              formatToolSchemas(childManifest, childLoaded.skill.displayName),
+            );
+          }
         }
       }
       immediateChildrenSection = `Included Skills (immediate):\n${childLines.join(
@@ -198,6 +296,15 @@ export class SkillLoadTool implements Tool {
         "",
         body,
         "",
+        ...(toolSchemasSection ? [toolSchemasSection, ""] : []),
+        ...(!toolSchemasSection && anyChildHasTools
+          ? [
+              "## Available Tools",
+              "",
+              "Use `skill_execute` to call these tools.",
+              "",
+            ]
+          : []),
         ...includedBodies.flatMap((b) => [b, ""]),
         immediateChildrenSection,
         "",
@@ -209,4 +316,5 @@ export class SkillLoadTool implements Tool {
   }
 }
 
-registerTool(new SkillLoadTool());
+export const skillLoadTool = new SkillLoadTool();
+registerTool(skillLoadTool);

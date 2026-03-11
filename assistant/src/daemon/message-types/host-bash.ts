@@ -13,19 +13,6 @@ export interface HostBashRequest {
   timeout_seconds?: number;
 }
 
-// === Client → Server ===
-
-export interface HostBashResponse {
-  type: "host_bash_response";
-  requestId: string;
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-  timedOut: boolean;
-}
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _HostBashClientMessages = HostBashResponse;
 
 export type _HostBashServerMessages = HostBashRequest;

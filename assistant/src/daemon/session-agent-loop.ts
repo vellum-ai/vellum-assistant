@@ -139,6 +139,7 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   app_create: "Create App",
   app_update: "Update App",
   skill_load: "Load Skill",
+  skill_execute: "Run Skill Tool",
   app_file_edit: "Edit App File",
   app_file_write: "Write App File",
 };
@@ -1352,12 +1353,7 @@ export async function runAgentLoopImpl(
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
-        ctx.emitActivityState(
-          "idle",
-          "generation_cancelled",
-          "global",
-          reqId,
-        );
+        ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
         ctx.traceEmitter.emit(
           "generation_cancelled",
           "Generation cancelled by user",
@@ -1388,6 +1384,9 @@ export async function runAgentLoopImpl(
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
             : {}),
+          ...(state.lastAssistantMessageId
+            ? { messageId: state.lastAssistantMessageId }
+            : {}),
         });
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);
@@ -1404,6 +1403,9 @@ export async function runAgentLoopImpl(
           sessionId: ctx.conversationId,
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
+            : {}),
+          ...(state.lastAssistantMessageId
+            ? { messageId: state.lastAssistantMessageId }
             : {}),
         });
       }

@@ -15,6 +15,7 @@ import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
+import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKey } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
@@ -42,7 +43,7 @@ function getBearerToken(): string {
 
 /** Read the Telegram bot token from the credential vault. */
 function getBotToken(): string | undefined {
-  return getSecureKey("credential:telegram:bot_token");
+  return getSecureKey(credentialKey("telegram", "bot_token"));
 }
 
 export const telegramBotMessagingProvider: MessagingProvider = {
@@ -53,8 +54,8 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   /**
    * Custom connectivity check. The standard registry check looks for
-   * credential:telegram:access_token, but the Telegram bot token is
-   * stored as credential:telegram:bot_token. This method lets the
+   * credential/telegram/access_token, but the Telegram bot token is
+   * stored as credential/telegram/bot_token. This method lets the
    * registry detect that Telegram credentials exist.
    *
    * Both bot_token and webhook_secret are required — the gateway's
@@ -64,7 +65,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   isConnected(): boolean {
     return (
       getBotToken() !== undefined &&
-      !!getSecureKey("credential:telegram:webhook_secret")
+      !!getSecureKey(credentialKey("telegram", "webhook_secret"))
     );
   },
 

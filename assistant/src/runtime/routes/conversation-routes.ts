@@ -16,6 +16,8 @@ import {
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   buildModelInfoEvent,
@@ -361,9 +363,10 @@ export function handleListMessages(
  * Build an `onEvent` callback that publishes every outbound event to the
  * assistant event hub, maintaining ordered delivery through a serial chain.
  *
- * Also registers pending interactions when confirmation_request or
- * secret_request events flow through, so standalone approval endpoints
- * can look up the session by requestId.
+ * Also registers pending interactions when confirmation_request,
+ * secret_request, host_bash_request, or host_file_request events flow
+ * through, so standalone approval/result endpoints can look up the session
+ * by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
@@ -433,6 +436,18 @@ function makeHubPublisher(
         session,
         conversationId,
         kind: "secret",
+      });
+    } else if (msg.type === "host_bash_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
+      });
+    } else if (msg.type === "host_file_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_file",
       });
     }
 
@@ -605,8 +620,41 @@ export async function handleSendMessage(
     sourceInterface === "ios" ||
     sourceInterface === "cli" ||
     sourceInterface === "vellum";
+  // Only create the host bash proxy for desktop client interfaces that can
+  // execute commands on the user's machine. Non-desktop sessions (CLI,
+  // channels, headless) fall back to local execution.
+  // Set the proxy BEFORE updateClient so updateClient's call to
+  // hostBashProxy.updateSender targets the correct (new) proxy.
+  if (sourceInterface === "macos" || sourceInterface === "ios") {
+    // Reuse the existing proxy if the session is actively processing a
+    // host bash request to avoid orphaning in-flight requests.
+    if (!session.isProcessing() || !session.hostBashProxy) {
+      const proxy = new HostBashProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostBashProxy(proxy);
+    }
+    if (!session.isProcessing() || !session.hostFileProxy) {
+      const fileProxy = new HostFileProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostFileProxy(fileProxy);
+    }
+  } else if (!session.isProcessing()) {
+    session.setHostBashProxy(undefined);
+    session.setHostFileProxy(undefined);
+  }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
-  session.updateClient(onEvent, !isInteractiveInterface);
+  // Called after setHostBashProxy so updateSender targets the current proxy.
+  // When proxies are preserved during an active turn (non-desktop request while
+  // processing), skip updating proxy senders to avoid degrading them.
+  const preservingProxies =
+    session.isProcessing() &&
+    sourceInterface !== "macos" &&
+    sourceInterface !== "ios";
+  session.updateClient(onEvent, !isInteractiveInterface, {
+    skipProxySenderUpdate: preservingProxies,
+  });
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)

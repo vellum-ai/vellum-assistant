@@ -1,6 +1,36 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { credentialKey } from "../security/credential-key.js";
+
+// ---------------------------------------------------------------------------
+// Mock @google/genai to capture constructor arguments for Gemini base URL
+// assertions. Must be before importing the registry.
+// ---------------------------------------------------------------------------
+let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
+
+mock.module("@google/genai", () => ({
+  GoogleGenAI: class MockGoogleGenAI {
+    constructor(opts: Record<string, unknown>) {
+      lastGeminiConstructorOpts = opts;
+    }
+    models = {
+      generateContentStream: async () => ({
+        [Symbol.asyncIterator]: async function* () {
+          /* no chunks */
+        },
+      }),
+    };
+  },
+  ApiError: class FakeApiError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.name = "ApiError";
+    }
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Mock the underlying dependencies that the real context module relies on.
@@ -16,7 +46,7 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => {
-    if (key === "credential:vellum:assistant_api_key") {
+    if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
     return null;
@@ -72,6 +102,7 @@ function userKeysFor(...names: string[]): Record<string, string> {
 
 beforeEach(() => {
   disableManagedProxy();
+  lastGeminiConstructorOpts = null;
 });
 
 describe("managed proxy integration — credential precedence", () => {
@@ -171,6 +202,25 @@ describe("managed proxy integration — credential precedence", () => {
       const baseURL: string = anthropicClient.baseURL;
       expect(baseURL).toContain("/v1/runtime-proxy/vertex");
       expect(baseURL).not.toContain("/v1/runtime-proxy/anthropic");
+    });
+
+    test("managed gemini uses vertex proxy path instead of gemini proxy path", () => {
+      enableManagedProxy();
+      initializeProviders({
+        apiKeys: {},
+        provider: "anthropic",
+        model: "test-model",
+      });
+
+      // The GoogleGenAI constructor was captured by the mock — verify it
+      // received httpOptions.baseUrl pointing at the vertex proxy path.
+      expect(lastGeminiConstructorOpts).toBeDefined();
+      const httpOptions = lastGeminiConstructorOpts!.httpOptions as
+        | { baseUrl?: string }
+        | undefined;
+      expect(httpOptions).toBeDefined();
+      expect(httpOptions!.baseUrl).toContain("/v1/runtime-proxy/vertex");
+      expect(httpOptions!.baseUrl).not.toContain("/v1/runtime-proxy/gemini");
     });
   });
 
@@ -285,10 +335,11 @@ describe("managed proxy integration — constants integrity", () => {
     }
   });
 
-  test("managed proxy paths are unique across providers", () => {
-    const paths = Object.values(MANAGED_PROVIDER_META)
-      .filter((m) => m.managed && m.proxyPath)
-      .map((m) => m.proxyPath);
-    expect(new Set(paths).size).toBe(paths.length);
+  test("all managed providers route through the vertex proxy path", () => {
+    for (const meta of Object.values(MANAGED_PROVIDER_META)) {
+      if (meta.managed && meta.proxyPath) {
+        expect(meta.proxyPath).toBe("/v1/runtime-proxy/vertex");
+      }
+    }
   });
 });

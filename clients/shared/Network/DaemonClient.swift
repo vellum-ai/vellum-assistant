@@ -88,7 +88,7 @@ public protocol DaemonClientProtocol {
     var isConnected: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
-    func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws
+    func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws
     func connect() async throws
     func disconnect()
     func startSSE()
@@ -97,10 +97,11 @@ public protocol DaemonClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
+    func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
 extension DaemonClientProtocol {
-    public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
+    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
         try send(signal)
     }
 
@@ -109,6 +110,11 @@ extension DaemonClientProtocol {
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
     public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
     public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
+
+    /// Default no-op implementation for clients that don't support btw side-chain.
+    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
 }
 
 // MARK: - Usage Response Models
@@ -346,6 +352,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `host_bash_request` message for proxy command execution.
     public var onHostBashRequest: ((HostBashRequest) -> Void)?
 
+    /// Called when the daemon sends a `host_file_request` message for proxy file operations.
+    public var onHostFileRequest: ((HostFileRequest) -> Void)?
+
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
     public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
@@ -356,7 +365,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
     /// Called when a notification delivery creates a new vellum conversation thread.
-    public var onNotificationThreadCreated: ((IPCNotificationThreadCreated) -> Void)?
+    public var onNotificationThreadCreated: ((NotificationThreadCreated) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
@@ -404,13 +413,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
 
     /// Called when the daemon sends an `app_history_response` message.
-    public var onAppHistoryResponse: ((IPCAppHistoryResponse) -> Void)?
+    public var onAppHistoryResponse: ((AppHistoryResponse) -> Void)?
 
     /// Called when the daemon sends an `app_diff_response` message.
-    public var onAppDiffResponse: ((IPCAppDiffResponse) -> Void)?
+    public var onAppDiffResponse: ((AppDiffResponse) -> Void)?
 
     /// Called when the daemon sends an `app_restore_response` message.
-    public var onAppRestoreResponse: ((IPCAppRestoreResponse) -> Void)?
+    public var onAppRestoreResponse: ((AppRestoreResponse) -> Void)?
 
     /// Called when the daemon sends a `bundle_app_response` message.
     public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
@@ -425,10 +434,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onSessionTitleUpdated: ((SessionTitleUpdatedMessage) -> Void)?
 
     /// Called when the daemon sends a `history_response` message.
-    public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
+    public var onHistoryResponse: ((HistoryResponse) -> Void)?
 
     /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
-    public var onMessageContentResponse: ((IPCMessageContentResponse) -> Void)?
+    public var onMessageContentResponse: ((MessageContentResponse) -> Void)?
 
     /// Called when the daemon sends a `share_app_cloud_response` message.
     public var onShareAppCloudResponse: ((ShareAppCloudResponseMessage) -> Void)?
@@ -452,28 +461,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `heartbeat_config_response` message.
-    public var onHeartbeatConfigResponse: ((IPCHeartbeatConfigResponse) -> Void)?
+    public var onHeartbeatConfigResponse: ((HeartbeatConfigResponse) -> Void)?
 
     /// Called when the daemon sends a `heartbeat_runs_list_response` message.
-    public var onHeartbeatRunsListResponse: ((IPCHeartbeatRunsListResponse) -> Void)?
+    public var onHeartbeatRunsListResponse: ((HeartbeatRunsListResponse) -> Void)?
 
     /// Called when the daemon sends a `heartbeat_run_now_response` message.
-    public var onHeartbeatRunNowResponse: ((IPCHeartbeatRunNowResponse) -> Void)?
+    public var onHeartbeatRunNowResponse: ((HeartbeatRunNowResponse) -> Void)?
 
     /// Called when the daemon sends a `heartbeat_checklist_response` message.
-    public var onHeartbeatChecklistResponse: ((IPCHeartbeatChecklistResponse) -> Void)?
+    public var onHeartbeatChecklistResponse: ((HeartbeatChecklistResponse) -> Void)?
 
     /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
-    public var onHeartbeatChecklistWriteResponse: ((IPCHeartbeatChecklistWriteResponse) -> Void)?
-
-    /// Called when the daemon sends a `twitter_integration_config_response` message.
-    public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `twitter_auth_result` message.
-    public var onTwitterAuthResult: ((TwitterAuthResultMessage) -> Void)?
-
-    /// Called when the daemon sends a `twitter_auth_status_response` message.
-    public var onTwitterAuthStatusResponse: ((TwitterAuthStatusResponseMessage) -> Void)?
+    public var onHeartbeatChecklistWriteResponse: ((HeartbeatChecklistWriteResponse) -> Void)?
 
     /// Called when the daemon sends a `model_info` message.
     public var onModelInfo: ((ModelInfoMessage) -> Void)?
@@ -488,7 +488,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
     /// Called when the daemon sends a `navigate_settings` message.
-    public var onNavigateSettings: ((IPCNavigateSettings) -> Void)?
+    public var onNavigateSettings: ((NavigateSettings) -> Void)?
 
     /// Called when the daemon sends a `ui_layout_config` message.
     public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
@@ -500,43 +500,43 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onEnvVarsResponse: ((EnvVarsResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `work_items_list_response` message.
-    public var onWorkItemsListResponse: ((IPCWorkItemsListResponse) -> Void)?
+    public var onWorkItemsListResponse: ((WorkItemsListResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_status_changed` broadcast.
-    public var onWorkItemStatusChanged: ((IPCWorkItemStatusChanged) -> Void)?
+    public var onWorkItemStatusChanged: ((WorkItemStatusChanged) -> Void)?
 
     /// Called when the daemon sends a `tasks_changed` broadcast.
-    public var onTasksChanged: ((IPCTasksChanged) -> Void)?
+    public var onTasksChanged: ((TasksChanged) -> Void)?
 
     /// Called when the daemon sends a `work_item_delete_response` message.
-    public var onWorkItemDeleteResponse: ((IPCWorkItemDeleteResponse) -> Void)?
+    public var onWorkItemDeleteResponse: ((WorkItemDeleteResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_run_task_response` message.
-    public var onWorkItemRunTaskResponse: ((IPCWorkItemRunTaskResponse) -> Void)?
+    public var onWorkItemRunTaskResponse: ((WorkItemRunTaskResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_output_response` message.
-    public var onWorkItemOutputResponse: ((IPCWorkItemOutputResponse) -> Void)?
+    public var onWorkItemOutputResponse: ((WorkItemOutputResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_update_response` message.
-    public var onWorkItemUpdateResponse: ((IPCWorkItemUpdateResponse) -> Void)?
+    public var onWorkItemUpdateResponse: ((WorkItemUpdateResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_preflight_response` message.
-    public var onWorkItemPreflightResponse: ((IPCWorkItemPreflightResponse) -> Void)?
+    public var onWorkItemPreflightResponse: ((WorkItemPreflightResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_approve_permissions_response` message.
-    public var onWorkItemApprovePermissionsResponse: ((IPCWorkItemApprovePermissionsResponse) -> Void)?
+    public var onWorkItemApprovePermissionsResponse: ((WorkItemApprovePermissionsResponse) -> Void)?
 
     /// Called when the daemon sends a `work_item_cancel_response` message.
-    public var onWorkItemCancelResponse: ((IPCWorkItemCancelResponse) -> Void)?
+    public var onWorkItemCancelResponse: ((WorkItemCancelResponse) -> Void)?
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
-    public var onTaskRunThreadCreated: ((IPCTaskRunThreadCreated) -> Void)?
+    public var onTaskRunThreadCreated: ((TaskRunThreadCreated) -> Void)?
 
     /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
-    public var onScheduleThreadCreated: ((IPCScheduleThreadCreated) -> Void)?
+    public var onScheduleThreadCreated: ((ScheduleThreadCreated) -> Void)?
 
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
@@ -548,43 +548,43 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onApprovedDeviceRemoveResponse: ((ApprovedDeviceRemoveResponseMessage) -> Void)?
 
     /// Called when a subagent is spawned.
-    public var onSubagentSpawned: ((IPCSubagentSpawned) -> Void)?
+    public var onSubagentSpawned: ((SubagentSpawned) -> Void)?
 
     /// Called when a subagent's status changes (running, completed, failed, aborted).
-    public var onSubagentStatusChanged: ((IPCSubagentStatusChanged) -> Void)?
+    public var onSubagentStatusChanged: ((SubagentStatusChanged) -> Void)?
 
     /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
-    public var onSubagentDetailResponse: ((IPCSubagentDetailResponse) -> Void)?
+    public var onSubagentDetailResponse: ((SubagentDetailResponse) -> Void)?
 
     /// Called when the daemon sends a `recording_pause` message.
-    public var onRecordingPause: ((IPCRecordingPause) -> Void)?
+    public var onRecordingPause: ((RecordingPause) -> Void)?
 
     /// Called when the daemon sends a `recording_resume` message.
-    public var onRecordingResume: ((IPCRecordingResume) -> Void)?
+    public var onRecordingResume: ((RecordingResume) -> Void)?
 
     /// Called when the daemon sends a `recording_start` message.
-    public var onRecordingStart: ((IPCRecordingStart) -> Void)?
+    public var onRecordingStart: ((RecordingStart) -> Void)?
 
     /// Called when the daemon sends a `recording_stop` message.
-    public var onRecordingStop: ((IPCRecordingStop) -> Void)?
+    public var onRecordingStop: ((RecordingStop) -> Void)?
 
     /// Called when the daemon sends a `client_settings_update` message.
-    public var onClientSettingsUpdate: ((IPCClientSettingsUpdate) -> Void)?
+    public var onClientSettingsUpdate: ((ClientSettingsUpdate) -> Void)?
 
     /// Called when the daemon broadcasts an `identity_changed` event (IDENTITY.md changed on disk).
-    public var onIdentityChanged: ((IPCIdentityChanged) -> Void)?
+    public var onIdentityChanged: ((IdentityChanged) -> Void)?
 
     /// Called when the daemon sends an `avatar_updated` message after regenerating the avatar.
-    public var onAvatarUpdated: ((IPCAvatarUpdated) -> Void)?
+    public var onAvatarUpdated: ((AvatarUpdated) -> Void)?
 
     /// Called when the daemon sends a `generate_avatar_response` message.
-    public var onGenerateAvatarResponse: ((IPCGenerateAvatarResponse) -> Void)?
+    public var onGenerateAvatarResponse: ((GenerateAvatarResponse) -> Void)?
 
     /// Called when the daemon sends a `contacts_response` message.
     public var onContactsResponse: ((ContactsResponseMessage) -> Void)?
 
     /// Called when the daemon broadcasts a `contacts_changed` event (contact table mutated).
-    public var onContactsChanged: ((IPCContactsChanged) -> Void)?
+    public var onContactsChanged: ((ContactsChanged) -> Void)?
 
     // MARK: - Broadcast Subscribers
 
@@ -690,7 +690,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         public var errorDescription: String? {
             switch self {
             case .notConnected:
-                return "Cannot send: not connected to daemon"
+                return "Cannot send: not connected to assistant"
             }
         }
     }
@@ -750,7 +750,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
-    public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
+    public func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws {
         if let override = sendOverride {
             try override(signal)
             return
@@ -861,6 +861,90 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
         return await executeLocalRequest(path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
+    }
+
+    // MARK: - BTW Side-Chain
+
+    /// Send a /btw side-chain question and stream the response text.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
+        if let httpTransport {
+            return httpTransport.sendBtwMessage(content: content, conversationKey: conversationKey)
+        }
+
+        // Local daemon path — stream SSE from the daemon's /v1/btw endpoint.
+        return AsyncThrowingStream { continuation in
+            let task = Task { @MainActor [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                guard var request = self.buildLocalRequest(
+                    target: .daemon,
+                    path: "v1/btw",
+                    method: "POST",
+                    timeout: 120
+                ) else {
+                    continuation.finish(throwing: URLError(.badURL))
+                    return
+                }
+
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                let body: [String: String] = [
+                    "conversationKey": conversationKey,
+                    "content": content,
+                ]
+
+                do {
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        throw URLError(.badServerResponse, userInfo: [
+                            NSLocalizedDescriptionKey: "HTTP \(statusCode)"
+                        ])
+                    }
+
+                    var currentEventType: String?
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+
+                        if line.hasPrefix("event: ") {
+                            currentEventType = String(line.dropFirst(7))
+                        } else if line.hasPrefix("data: ") {
+                            let jsonString = String(line.dropFirst(6))
+                            if let data = jsonString.data(using: .utf8),
+                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                if currentEventType == "btw_error" {
+                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
+                                    throw URLError(.badServerResponse, userInfo: [
+                                        NSLocalizedDescriptionKey: errorMessage
+                                    ])
+                                }
+                                if let text = parsed["text"] as? String {
+                                    continuation.yield(text)
+                                }
+                                if currentEventType == "btw_complete" {
+                                    break
+                                }
+                            }
+                            currentEventType = nil
+                        } else if line.isEmpty {
+                            currentEventType = nil
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
     }
 
     // MARK: - Workspace API
@@ -1218,47 +1302,47 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Request the list of work items from the daemon, optionally filtered by status.
     public func sendWorkItemsList(status: String? = nil) throws {
-        try send(IPCWorkItemsListRequest(type: "work_items_list", status: status))
+        try send(WorkItemsListRequest(type: "work_items_list", status: status))
     }
 
     /// Mark a work item as complete (reviewed).
     public func sendWorkItemComplete(id: String) throws {
-        try send(IPCWorkItemCompleteRequest(type: "work_item_complete", id: id))
+        try send(WorkItemCompleteRequest(type: "work_item_complete", id: id))
     }
 
     /// Delete a work item.
     public func sendWorkItemDelete(id: String) throws {
-        try send(IPCWorkItemDeleteRequest(type: "work_item_delete", id: id))
+        try send(WorkItemDeleteRequest(type: "work_item_delete", id: id))
     }
 
     /// Run the task associated with a work item via daemon-side execution.
     public func sendWorkItemRunTask(id: String) throws {
-        try send(IPCWorkItemRunTaskRequest(type: "work_item_run_task", id: id))
+        try send(WorkItemRunTaskRequest(type: "work_item_run_task", id: id))
     }
 
     /// Request the latest output for a work item.
     public func sendWorkItemOutput(id: String) throws {
-        try send(IPCWorkItemOutputRequest(type: "work_item_output", id: id))
+        try send(WorkItemOutputRequest(type: "work_item_output", id: id))
     }
 
     /// Update fields on an existing work item.
     public func sendWorkItemUpdate(id: String, title: String? = nil, notes: String? = nil, status: String? = nil, priorityTier: Double? = nil, sortIndex: Int? = nil) throws {
-        try send(IPCWorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
+        try send(WorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
     }
 
     /// Request a permission preflight check for a work item's required tools.
     public func sendWorkItemPreflight(id: String) throws {
-        try send(IPCWorkItemPreflightRequest(type: "work_item_preflight", id: id))
+        try send(WorkItemPreflightRequest(type: "work_item_preflight", id: id))
     }
 
     /// Approve specific permissions for a work item before running.
     public func sendWorkItemApprovePermissions(id: String, approvedTools: [String]) throws {
-        try send(IPCWorkItemApprovePermissionsRequest(type: "work_item_approve_permissions", id: id, approvedTools: approvedTools))
+        try send(WorkItemApprovePermissionsRequest(type: "work_item_approve_permissions", id: id, approvedTools: approvedTools))
     }
 
     /// Cancel a running work item.
     public func sendWorkItemCancel(id: String) throws {
-        try send(IPCWorkItemCancelRequest(type: "work_item_cancel", id: id))
+        try send(WorkItemCancelRequest(type: "work_item_cancel", id: id))
     }
 
     // MARK: - Subagent Management
@@ -1366,7 +1450,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request full (untruncated) content for a specific message.
     /// Used to rehydrate messages that were loaded with truncated text/tool results.
     public func sendMessageContentRequest(sessionId: String, messageId: String) throws {
-        try send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: messageId))
+        try send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: messageId))
     }
 
     // MARK: - Apps
@@ -1393,17 +1477,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Request version history for an app.
     public func sendAppHistory(appId: String, limit: Int? = nil) throws {
-        try send(IPCAppHistoryRequest(type: "app_history_request", appId: appId, limit: limit.map { Double($0) }))
+        try send(AppHistoryRequest(type: "app_history_request", appId: appId, limit: limit.map { Double($0) }))
     }
 
     /// Request a diff between two versions of an app.
     public func sendAppDiff(appId: String, fromCommit: String, toCommit: String? = nil) throws {
-        try send(IPCAppDiffRequest(type: "app_diff_request", appId: appId, fromCommit: fromCommit, toCommit: toCommit))
+        try send(AppDiffRequest(type: "app_diff_request", appId: appId, fromCommit: fromCommit, toCommit: toCommit))
     }
 
     /// Restore an app to a previous version.
     public func sendAppRestore(appId: String, commitHash: String) throws {
-        try send(IPCAppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
+        try send(AppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
     }
 
     /// Request bundling an app for sharing.
@@ -1475,7 +1559,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Get, set, or clear Telegram bot token configuration.
-    public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) throws {
+    public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [TelegramConfigRequestCommand]? = nil) throws {
         try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
     }
 
@@ -1772,32 +1856,32 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Get the current heartbeat configuration.
     public func sendHeartbeatConfigGet() throws {
-        try send(IPCHeartbeatConfig(type: "heartbeat_config", action: "get"))
+        try send(HeartbeatConfig(type: "heartbeat_config", action: "get"))
     }
 
     /// Set heartbeat configuration fields.
     public func sendHeartbeatConfigSet(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) throws {
-        try send(IPCHeartbeatConfig(type: "heartbeat_config", action: "set", enabled: enabled, intervalMs: intervalMs, activeHoursStart: activeHoursStart, activeHoursEnd: activeHoursEnd))
+        try send(HeartbeatConfig(type: "heartbeat_config", action: "set", enabled: enabled, intervalMs: intervalMs, activeHoursStart: activeHoursStart, activeHoursEnd: activeHoursEnd))
     }
 
     /// Request the list of recent heartbeat runs.
     public func sendHeartbeatRunsList(limit: Int? = nil) throws {
-        try send(IPCHeartbeatRunsList(type: "heartbeat_runs_list", limit: limit.map { Double($0) }))
+        try send(HeartbeatRunsList(type: "heartbeat_runs_list", limit: limit.map { Double($0) }))
     }
 
     /// Trigger an immediate heartbeat run.
     public func sendHeartbeatRunNow() throws {
-        try send(IPCHeartbeatRunNow(type: "heartbeat_run_now"))
+        try send(HeartbeatRunNow(type: "heartbeat_run_now"))
     }
 
     /// Read the heartbeat checklist (HEARTBEAT.md).
     public func sendHeartbeatChecklistRead() throws {
-        try send(IPCHeartbeatChecklistRead(type: "heartbeat_checklist_read"))
+        try send(HeartbeatChecklistRead(type: "heartbeat_checklist_read"))
     }
 
     /// Write the heartbeat checklist (HEARTBEAT.md).
     public func sendHeartbeatChecklistWrite(content: String) throws {
-        try send(IPCHeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
+        try send(HeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
     }
 
     // MARK: - Pairing
@@ -2015,6 +2099,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Rich channel readiness information returned by `fetchChannelReadiness()`.
     public struct ChannelReadinessInfo {
         public let ready: Bool
+        public let setupStatus: String?
         public let channelHandle: String?
         public let checks: [ReadinessCheck]
 
@@ -2047,6 +2132,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             struct Snapshot: Decodable {
                 let channel: String
                 let ready: Bool
+                let setupStatus: String?
                 let channelHandle: String?
                 let localChecks: [CheckResult]?
                 let remoteChecks: [CheckResult]?
@@ -2064,6 +2150,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 .map { ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = ChannelReadinessInfo(
                 ready: snapshot.ready,
+                setupStatus: snapshot.setupStatus,
                 channelHandle: snapshot.channelHandle,
                 checks: checks
             )

@@ -863,11 +863,6 @@ class WebFetchTool implements Tool {
             description:
               "If true, allows requests to localhost/private-network hosts. Disabled by default for SSRF safety.",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are fetching and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["url"],
       },
@@ -882,4 +877,5 @@ class WebFetchTool implements Tool {
   }
 }
 
-registerTool(new WebFetchTool());
+export const webFetchTool = new WebFetchTool();
+registerTool(webFetchTool);

@@ -514,7 +514,7 @@ public extension Surface {
 
     /// Create a Surface from a history response surface.
     /// Used when populating messages from history.
-    static func from(_ historySurface: IPCHistoryResponseSurface, sessionId: String?) -> Surface? {
+    static func from(_ historySurface: HistoryResponseSurface, sessionId: String?) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: historySurface.surfaceType) else {
             return nil
         }

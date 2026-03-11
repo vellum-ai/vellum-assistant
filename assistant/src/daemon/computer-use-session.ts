@@ -22,7 +22,11 @@ import type {
 } from "../providers/types.js";
 import { allComputerUseTools } from "../tools/computer-use/definitions.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { registerSkillTools } from "../tools/registry.js";
+import { getTool, registerSkillTools } from "../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../tools/schema-transforms.js";
 import type { Tool, ToolExecutionResult } from "../tools/types.js";
 import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
@@ -287,7 +291,7 @@ export class ComputerUseSession {
         cache: this.skillProjectionCache,
       });
 
-      if (projection.toolDefinitions.length === 0) {
+      if (projection.allowedToolNames.size === 0) {
         log.warn(
           { preactivatedSkillIds: this.preactivatedSkillIds },
           "Skill projection produced no tool definitions, falling back to legacy CU tools",
@@ -295,7 +299,14 @@ export class ComputerUseSession {
         return null;
       }
 
-      return projection.toolDefinitions;
+      // Tool definitions are no longer returned from projectSkillTools
+      // (dispatched via skill_execute). Build definitions from the registry.
+      const defs: ToolDefinition[] = [];
+      for (const name of projection.allowedToolNames) {
+        const tool = getTool(name);
+        if (tool) defs.push(tool.getDefinition());
+      }
+      return defs;
     } catch (err) {
       log.warn(
         { err },
@@ -574,6 +585,8 @@ export class ComputerUseSession {
       },
     };
 
+    const toolDefsWithReason = injectReasonField(toolDefs, REASON_SKIP_SET);
+
     const cuConfig = getConfig();
     const agentLoop = new AgentLoop(
       compactingProvider,
@@ -583,7 +596,7 @@ export class ComputerUseSession {
         maxInputTokens: cuConfig.contextWindow.maxInputTokens,
         toolChoice: { type: "any" },
       },
-      toolDefs,
+      toolDefsWithReason,
       toolExecutor,
     );
 

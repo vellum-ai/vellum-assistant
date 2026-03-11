@@ -775,12 +775,10 @@ describe("Trust Store", () => {
         "browser_wait_for",
         "browser_wait_for_download",
         "computer_use_click",
-        "computer_use_double_click",
         "computer_use_drag",
         "computer_use_key",
         "computer_use_open_app",
         "computer_use_request_control",
-        "computer_use_right_click",
         "computer_use_run_applescript",
         "computer_use_scroll",
         "computer_use_type_text",
@@ -795,10 +793,10 @@ describe("Trust Store", () => {
         "host_file_write",
         "memory_recall",
         "scaffold_managed_skill",
+        "skill_execute",
         "skill_load",
         "ui_dismiss",
         "ui_update",
-        "view_image",
       ]);
     });
 

@@ -35,20 +35,15 @@ class HostFileEditTool implements Tool {
             description:
               "Replace all occurrences instead of requiring a unique match (default: false)",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of why this file is being edited, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
-        required: ["path", "old_string", "new_string", "reason"],
+        required: ["path", "old_string", "new_string"],
       },
     };
   }
 
   async execute(
     input: Record<string, unknown>,
-    _context: ToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -86,6 +81,22 @@ class HostFileEditTool implements Tool {
     }
 
     const replaceAll = input.replace_all === true;
+
+    // Proxy to connected client for execution on the user's machine
+    // when a capable client is available (managed/cloud-hosted mode).
+    if (context.hostFileProxy?.isAvailable()) {
+      return context.hostFileProxy.request(
+        {
+          operation: "edit",
+          path: rawPath,
+          old_string: oldString as string,
+          new_string: newString as string,
+          replace_all: replaceAll,
+        },
+        context.sessionId,
+        context.signal,
+      );
+    }
 
     const ops = new FileSystemOps(hostPolicy);
 

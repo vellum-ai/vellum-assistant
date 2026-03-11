@@ -263,7 +263,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
          |
          | (conversation engine classifies intent)
          v
- call_back / message_back / decline
+ call_back / decline
          |                        |
          v                        v
  [dispatching]              [declined] (terminal)
@@ -347,8 +347,8 @@ Both tokens are stored in the secure key store (macOS Keychain with encrypted fi
 
 | Secure key                           | Content                                                                    |
 | ------------------------------------ | -------------------------------------------------------------------------- |
-| `credential:slack_channel:bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
-| `credential:slack_channel:app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
+| `credential/slack_channel/bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
+| `credential/slack_channel/app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
 
 Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
 
@@ -641,7 +641,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**          | `handleInstallSkill()` in `daemon/handlers/skills.ts`    | When a client requests skill installation, the handler checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                        |
+| **6. Skill install gate**          | `handleSkillsInstall()` in `daemon/handlers/skills.ts`   | When a client requests skill installation, the handler checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                        |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -657,7 +657,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                                                               |
 | `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                                                                           |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses; `handleInstallSkill()` — enforcement point 6                                                     |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses; `handleSkillsInstall()` — enforcement point 6                                                    |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
 | `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
 
@@ -669,7 +669,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -797,14 +797,17 @@ The daemon emits two distinct error message types via SSE:
 
 ### Session Error Codes
 
-| Code                        | Meaning                                                             | Retryable |
-| --------------------------- | ------------------------------------------------------------------- | --------- |
-| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes       |
-| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                    | Yes       |
-| `PROVIDER_API`              | Provider returned a server error (5xx)                              | Yes       |
-| `SESSION_ABORTED`           | Non-user abort interrupted the request                              | Yes       |
-| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                        | No        |
-| `REGENERATE_FAILED`         | Failed to regenerate a previous response                            | Yes       |
+| Code                        | Meaning                                                                 | Retryable |
+| --------------------------- | ----------------------------------------------------------------------- | --------- |
+| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
+| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
+| `PROVIDER_API`              | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
+| `PROVIDER_BILLING`          | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
+| `CONTEXT_TOO_LARGE`         | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
+| `SESSION_ABORTED`           | Non-user abort interrupted the request                                  | Yes       |
+| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                            | No        |
+| `REGENERATE_FAILED`         | Failed to regenerate a previous response                                | Yes       |
+| `UNKNOWN`                   | Unrecognized error that does not match any specific category            | No        |
 
 ### Error Classification
 
@@ -812,7 +815,7 @@ The daemon classifies errors via `classifySessionError()` in `session-error.ts`.
 
 Classification uses a two-tier strategy:
 
-1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (not retryable).
+1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `413` maps to `CONTEXT_TOO_LARGE` (not retryable), `401` maps to `PROVIDER_BILLING` (not retryable, invalid/expired key), `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (retryable) unless a message pattern matches a more specific non-retryable category (context-too-large, billing/auth).
 2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle regeneration contexts.
 
 Debug details are capped at 4,000 characters to prevent oversized payloads.

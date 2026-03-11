@@ -79,7 +79,6 @@ const HOST_TOOLS = new Set([
 /** Safe local-only tools that are always workspace-scoped. */
 const ALWAYS_SCOPED_TOOLS = new Set([
   "skill_load",
-  "view_image",
   "memory_recall",
   "ui_update",
   "ui_dismiss",

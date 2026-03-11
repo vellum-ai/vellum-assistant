@@ -74,7 +74,7 @@ final class OnboardingWindow {
         }
 
         // Make the app a regular app so the window gets focus
-        NSApp.setActivationPolicy(.regular)
+        NSApp.activateAsDockAppIfNeeded()
 
         // When the user closes the window via the title bar close button,
         // only proceed if onboarding actually completed. Closing before
@@ -104,6 +104,11 @@ final class OnboardingWindow {
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = window
+    }
+
+    func bringToFront() {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func close() {

@@ -2,7 +2,12 @@
 name: contacts
 description: Manage contacts, communication channels, access control, and invite links
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"👥","vellum":{"display-name":"Contacts","user-invocable":true,"feature-flag":"contacts"}}
+metadata:
+  emoji: "👥"
+  vellum:
+    display-name: "Contacts"
+    user-invocable: true
+    feature-flag: "contacts"
 ---
 
 Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, phone), and creating/managing invite links that grant access.
@@ -413,6 +418,10 @@ assistant contacts invites revoke <invite_id> --json
 ```
 
 Replace `<invite_id>` with the invite's `id` from the list response. The same revoke command is used for both Telegram and voice invites.
+
+## Google Contacts
+
+Use `google_contacts` to list or search the user's Google Contacts by name or email. Returns name, email, phone, and organization. Requires the `contacts.readonly` OAuth scope — users may need to re-authorize Gmail to grant this additional permission.
 
 ## Contact Fields
 

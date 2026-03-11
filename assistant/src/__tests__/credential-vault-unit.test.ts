@@ -48,6 +48,7 @@ mock.module("../tools/registry.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
@@ -108,7 +109,7 @@ describe("CredentialBroker transient credentials", () => {
     const result = broker.consume(auth.token.tokenId);
     expect(result.success).toBe(true);
     expect(result.value).toBe("one-time-secret");
-    expect(result.storageKey).toBe("credential:svc:key");
+    expect(result.storageKey).toBe(credentialKey("svc", "key"));
 
     // Second authorize + consume should NOT have the transient value
     const auth2 = broker.authorize({
@@ -148,7 +149,7 @@ describe("CredentialBroker transient credentials", () => {
     upsertCredentialMetadata("github", "token", {
       allowedTools: ["browser_fill_credential"],
     });
-    setSecureKey("credential:github:token", "stored-value");
+    setSecureKey(credentialKey("github", "token"), "stored-value");
     broker.injectTransient("github", "token", "transient-value");
 
     // First fill uses transient
@@ -411,7 +412,7 @@ describe("credential_store tool — prompt action", () => {
     expect(result.content).not.toContain("prompt-secret-val");
 
     // Verify stored
-    expect(getSecureKey("credential:test-prompt:api_key")).toBe(
+    expect(getSecureKey(credentialKey("test-prompt", "api_key"))).toBe(
       "prompt-secret-val",
     );
   });
@@ -595,16 +596,18 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("client_id is required");
   });
 
-  test("uses stored client_id from secure storage", async () => {
-    // Store both client_id and client_secret for the service — the
-    // requiresClientSecret guardrail will short-circuit if client_secret
-    // is missing, so we need both to validate that stored client_id
-    // is resolved correctly.
+  test("uses stored client_id from metadata", async () => {
+    // Store client_id in metadata (the canonical source) and client_secret
+    // in the secure store — the requiresClientSecret guardrail will
+    // short-circuit if client_secret is missing, so we need both to
+    // validate that stored client_id is resolved correctly.
+    upsertCredentialMetadata("integration:gmail", "access_token", {
+      oauth2ClientId: "stored-client-id-123",
+    });
     setSecureKey(
-      "credential:integration:gmail:client_id",
-      "stored-client-id-123",
+      credentialKey("integration:gmail", "client_secret"),
+      "test-secret",
     );
-    setSecureKey("credential:integration:gmail:client_secret", "test-secret");
 
     const result = await credentialStoreTool.execute(
       {
@@ -624,12 +627,11 @@ describe("credential_store tool — oauth2_connect error paths", () => {
   });
 
   test("rejects when client_secret is missing for service that requires it", async () => {
-    // Store only client_id — client_secret is intentionally absent to
-    // validate the requiresClientSecret guardrail.
-    setSecureKey(
-      "credential:integration:gmail:client_id",
-      "stored-client-id-456",
-    );
+    // Store only client_id in metadata — client_secret is intentionally
+    // absent to validate the requiresClientSecret guardrail.
+    upsertCredentialMetadata("integration:gmail", "access_token", {
+      oauth2ClientId: "stored-client-id-456",
+    });
 
     const result = await credentialStoreTool.execute(
       {
@@ -786,7 +788,7 @@ describe("credential_store tool — store validation edge cases", () => {
     );
 
     // Verify stored
-    expect(getSecureKey("credential:del-test:key")).toBe("secret");
+    expect(getSecureKey(credentialKey("del-test", "key"))).toBe("secret");
     const { getCredentialMetadata } =
       await import("../tools/credentials/metadata-store.js");
     expect(getCredentialMetadata("del-test", "key")).toBeDefined();
@@ -803,7 +805,7 @@ describe("credential_store tool — store validation edge cases", () => {
     expect(result.isError).toBe(false);
 
     // Both should be gone
-    expect(getSecureKey("credential:del-test:key")).toBeUndefined();
+    expect(getSecureKey(credentialKey("del-test", "key"))).toBeUndefined();
     expect(getCredentialMetadata("del-test", "key")).toBeUndefined();
   });
 });
@@ -892,7 +894,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
         },
       ],
     });
-    setSecureKey("credential:multi:api_key", "multi-secret");
+    setSecureKey(credentialKey("multi", "api_key"), "multi-secret");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,

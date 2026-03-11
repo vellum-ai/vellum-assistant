@@ -19,7 +19,8 @@ struct ChatBubble: View {
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
     var resolveHttpPort: (() -> Int?) = { nil }
-    var showAvatar: Bool = true
+    /// Called when the user taps "Retry" on a failed message.
+    var onRetryFailedMessage: ((UUID) -> Void)?
     var isLatestAssistantMessage: Bool = false
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -27,7 +28,6 @@ struct ChatBubble: View {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
-    @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
     /// Stores async-parsed segments for large messages (>2000 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
@@ -80,7 +80,7 @@ struct ChatBubble: View {
 
     @ViewBuilder
     private var bubbleBorderOverlay: some View {
-        if message.isError {
+        if message.isError || (isUser && message.status == .sendFailed) {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
         }
@@ -158,9 +158,6 @@ struct ChatBubble: View {
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
 
-            // Content group with absolutely-positioned avatar so text alignment
-            // stays consistent whether or not the avatar is visible.
-            // Assistant messages reserve left space (28pt avatar + 8pt gap) for the overlay avatar.
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                     if !isUser && hasInterleavedContent {
                         interleavedContent
@@ -193,6 +190,11 @@ struct ChatBubble: View {
                         }
                     }
 
+                    // Per-message send failure indicator with inline retry button
+                    if isUser && message.status == .sendFailed {
+                        sendFailedIndicator
+                    }
+
                     // Single unified status area at the bottom of the message:
                     // - In-progress: shows "Running a terminal command ..."
                     // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
@@ -216,21 +218,6 @@ struct ChatBubble: View {
                 // Uses compositingGroup instead of drawingGroup to preserve text selection.
                 // Skipped during streaming to avoid re-compositing on every token delta.
                 .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
-                .overlay(alignment: .topLeading) {
-                    if !isUser && showAvatar {
-                        Image(nsImage: appearance.chatAvatarImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 28, height: 28)
-                            .clipShape(Circle())
-                            .overlay(
-                                Circle()
-                                    .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
-                            )
-                            .offset(x: -(28 + VSpacing.sm), y: 0)
-                    }
-                }
-                .padding(.leading, isUser ? 0 : 28 + VSpacing.sm)
 
             if !isUser { Spacer(minLength: 0) }
         }
@@ -247,6 +234,27 @@ struct ChatBubble: View {
             let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
             guard !Task.isCancelled else { return }
             mediaEmbedIntents = resolved
+        }
+    }
+
+    // MARK: - Send Failed Indicator
+
+    private var sendFailedIndicator: some View {
+        HStack(spacing: VSpacing.xs) {
+            VIconView(.triangleAlert, size: 12)
+                .foregroundColor(VColor.error)
+            Text("Failed to send")
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+            Button {
+                onRetryFailedMessage?(message.id)
+            } label: {
+                Text("Retry")
+                    .font(VFont.caption.weight(.medium))
+                    .foregroundColor(VColor.accent)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 

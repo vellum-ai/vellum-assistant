@@ -1,5 +1,4 @@
 import AppKit
-import AuthenticationServices
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -81,46 +80,6 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
 
-    // MARK: - Twitter Integration State
-
-    @Published var twitterMode: String = "local_byo"
-    @Published var twitterManagedAvailable: Bool = false
-    @Published var twitterManagedPrerequisites: IPCManagedPrerequisites?
-    @Published var twitterLocalClientConfigured: Bool = false
-    @Published var twitterConnected: Bool = false
-    @Published var twitterAccountInfo: String?
-    @Published var twitterAuthInProgress: Bool = false
-    @Published var twitterAuthErrorCode: String?
-    @Published var twitterAuthError: String?
-
-    // Managed Twitter connection state (populated via PlatformTwitterOAuthService)
-    @Published var managedTwitterConnected: Bool = false
-    @Published var managedTwitterAccountInfo: String?
-    @Published var managedTwitterConnectInProgress: Bool = false
-    @Published var managedTwitterError: String?
-
-    /// Whether all managed Twitter prerequisites are met.
-    var isManagedTwitterEligible: Bool {
-        twitterManagedAvailable
-    }
-
-    /// Human-readable reason why managed Twitter is not available, or nil if eligible.
-    var managedTwitterBlockReason: String? {
-        guard let prereqs = twitterManagedPrerequisites else {
-            return "Managed Twitter status is unavailable."
-        }
-        if !prereqs.integrationModeManaged {
-            return "Switch to Managed mode to use platform-managed Twitter."
-        }
-        if !prereqs.assistantApiKeyPresent {
-            return "Assistant API key is not configured. Set up your API key in settings."
-        }
-        if !prereqs.platformAssistantIdResolvable {
-            return "Platform connection is not configured. Set up your platform URL."
-        }
-        return nil
-    }
-
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
@@ -130,7 +89,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramSaveInProgress: Bool = false
     @Published var telegramError: String?
 
-    // MARK: - Twilio SMS Integration State
+    // MARK: - Twilio Integration State
 
     @Published var twilioHasCredentials: Bool = false
     @Published var twilioPhoneNumber: String?
@@ -151,17 +110,6 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramVerificationError: String?
     @Published var telegramVerificationAlreadyBound: Bool = false
 
-    // MARK: - Channel Verification State (SMS)
-
-    @Published var smsVerificationIdentity: String?
-    @Published var smsVerificationUsername: String?
-    @Published var smsVerificationDisplayName: String?
-    @Published var smsVerificationVerified: Bool = false
-    @Published var smsVerificationInProgress: Bool = false
-    @Published var smsVerificationInstruction: String?
-    @Published var smsVerificationError: String?
-    @Published var smsVerificationAlreadyBound: Bool = false
-
     // MARK: - Channel Verification State (Voice)
 
     @Published var voiceVerificationIdentity: String?
@@ -181,14 +129,6 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramOutboundSendCount: Int = 0
     @Published var telegramBootstrapUrl: String?
     @Published var telegramOutboundCode: String?
-
-    // MARK: - Outbound Verification Session State (SMS)
-
-    @Published var smsOutboundSessionId: String?
-    @Published var smsOutboundExpiresAt: Date?
-    @Published var smsOutboundNextResendAt: Date?
-    @Published var smsOutboundSendCount: Int = 0
-    @Published var smsOutboundCode: String?
 
     // MARK: - Outbound Verification Session State (Voice)
 
@@ -251,6 +191,12 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Email Integration State
 
     @Published var assistantEmail: String?
+
+    // MARK: - Channel Setup Status
+
+    /// Per-channel setup status populated from the readiness API.
+    /// Values: "not_configured", "incomplete", "ready".
+    @Published var channelSetupStatus: [String: String] = [:]
 
     // MARK: - Platform Config State
 
@@ -507,19 +453,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up Twitter integration config response
-        daemonClient?.onTwitterIntegrationConfigResponse = { [weak self] response in
-            guard let self else { return }
-            if response.success {
-                self.twitterMode = response.mode ?? "local_byo"
-                self.twitterManagedAvailable = response.managedAvailable
-                self.twitterManagedPrerequisites = response.managedPrerequisites
-                self.twitterLocalClientConfigured = response.localClientConfigured
-                self.twitterConnected = response.connected
-                self.twitterAccountInfo = response.accountInfo
-            }
-        }
-
         // Wire up ingress config response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
             guard let self else { return }
@@ -580,22 +513,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up Twitter auth result response
-        daemonClient?.onTwitterAuthResult = { [weak self] response in
-            guard let self else { return }
-            self.twitterAuthInProgress = false
-            if response.success {
-                self.twitterConnected = true
-                self.twitterAccountInfo = response.accountInfo
-                self.twitterAuthErrorCode = nil
-                self.twitterAuthError = nil
-            } else {
-                self.twitterAuthErrorCode = response.errorCode
-                self.twitterAuthError = response.error
-            }
-            self.refreshTwitterStatus()
-        }
-
         // Wire up Telegram config response
         daemonClient?.onTelegramConfigResponse = { [weak self] response in
             guard let self else { return }
@@ -606,6 +523,7 @@ public final class SettingsStore: ObservableObject {
                 self.telegramConnected = response.connected
                 self.telegramHasWebhookSecret = response.hasWebhookSecret
                 self.telegramError = nil
+                self.fetchChannelSetupStatus()
             } else {
                 self.telegramError = response.error
             }
@@ -642,28 +560,6 @@ public final class SettingsStore: ObservableObject {
                     let isAlreadyBound = response.error == "already_bound"
                     self.telegramVerificationAlreadyBound = isAlreadyBound
                     self.telegramVerificationError = isAlreadyBound
-                        ? "A guardian is already bound. Revoke it first or replace it."
-                        : response.error
-                }
-            case "sms":
-                self.smsVerificationInProgress = false
-                if response.success {
-                    self.smsVerificationIdentity = response.guardianExternalUserId
-                    self.smsVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.smsVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
-                    let isVerified = response.bound ?? false
-                    self.smsVerificationVerified = isVerified
-                    if isVerified {
-                        self.smsVerificationInstruction = nil
-                    } else if let instruction = response.instruction {
-                        self.smsVerificationInstruction = instruction
-                    }
-                    self.smsVerificationError = nil
-                    self.smsVerificationAlreadyBound = false
-                } else {
-                    let isAlreadyBound = response.error == "already_bound"
-                    self.smsVerificationAlreadyBound = isAlreadyBound
-                    self.smsVerificationError = isAlreadyBound
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
@@ -748,9 +644,6 @@ public final class SettingsStore: ObservableObject {
             log.error("Failed to send model get request: \(error)")
         }
 
-        // Refresh Twitter integration status on init
-        refreshTwitterStatus()
-
         // Refresh Telegram integration status on init
         refreshTelegramStatus()
 
@@ -759,7 +652,6 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh channel verification status on init
         refreshChannelVerificationStatus(channel: "telegram")
-        refreshChannelVerificationStatus(channel: "sms")
         refreshChannelVerificationStatus(channel: "phone")
         refreshChannelVerificationStatus(channel: "slack")
 
@@ -930,249 +822,6 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.sendVercelApiConfig(action: "get")
         } catch {
             log.error("Failed to send Vercel API config get: \(error)")
-        }
-    }
-
-    // MARK: - Twitter Integration Actions
-
-    func refreshTwitterStatus() {
-        do {
-            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "get"))
-        } catch {
-            log.error("Failed to send Twitter integration config get: \(error)")
-        }
-    }
-
-    func setTwitterMode(_ mode: String) {
-        do {
-            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "set_mode", mode: mode))
-        } catch {
-            log.error("Failed to send Twitter set_mode: \(error)")
-        }
-    }
-
-    func saveTwitterLocalClient(clientId: String, clientSecret: String?) {
-        let trimmedId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedSecret = clientSecret?.trimmingCharacters(in: .whitespacesAndNewlines)
-        do {
-            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(
-                action: "set_local_client",
-                clientId: trimmedId,
-                clientSecret: trimmedSecret
-            ))
-        } catch {
-            log.error("Failed to send Twitter set_local_client: \(error)")
-        }
-    }
-
-    func clearTwitterLocalClient() {
-        twitterAuthInProgress = false
-        do {
-            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
-        } catch {
-            log.error("Failed to send Twitter clear_local_client: \(error)")
-        }
-    }
-
-    func connectTwitter() {
-        twitterAuthInProgress = true
-        twitterAuthErrorCode = nil
-        twitterAuthError = nil
-        do {
-            guard let daemonClient else {
-                twitterAuthInProgress = false
-                return
-            }
-            try daemonClient.send(TwitterAuthStartMessage())
-        } catch {
-            twitterAuthInProgress = false
-        }
-    }
-
-    func disconnectTwitter() {
-        twitterAuthInProgress = false
-        do {
-            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
-        } catch {
-            log.error("Failed to send Twitter disconnect: \(error)")
-        }
-    }
-
-    // MARK: - Managed Twitter Actions
-
-    /// Resolves the platform assistant ID and organization ID for managed Twitter calls.
-    /// Returns nil if the required context is unavailable.
-    private func resolveManagedTwitterContext() async -> (platformAssistantId: String, organizationId: String, baseURL: String)? {
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-            ?? LockfileAssistant.loadLatest()
-        guard let assistant else { return nil }
-
-        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
-              !orgId.isEmpty else { return nil }
-
-        // Resolve the current user ID from the auth session so self-hosted local
-        // assistants can look up their persisted platform assistant ID.
-        let userId: String? = try? await AuthService.shared.getSession().data?.user?.id
-
-        let platformId = PlatformAssistantIdResolver.resolve(
-            lockfileAssistantId: assistant.assistantId,
-            isManaged: assistant.isManaged,
-            organizationId: orgId,
-            userId: userId,
-            credentialStorage: KeychainCredentialStorage()
-        )
-        guard let platformId else { return nil }
-
-        // Always use the platform base URL for managed Twitter OAuth API calls.
-        // The assistant's runtimeUrl points to the local daemon endpoint for
-        // self-hosted assistants, which is not the platform API.
-        let baseURL = AuthService.shared.baseURL
-        return (platformAssistantId: platformId, organizationId: orgId, baseURL: baseURL)
-    }
-
-    /// Fetches managed Twitter connection status from the platform.
-    func refreshManagedTwitterStatus() {
-        Task { @MainActor in
-            guard let ctx = await resolveManagedTwitterContext() else {
-                managedTwitterConnected = false
-                managedTwitterAccountInfo = nil
-                return
-            }
-
-            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
-            do {
-                let connections = try await service.listConnections(
-                    platformAssistantId: ctx.platformAssistantId,
-                    organizationId: ctx.organizationId
-                )
-                if let connection = connections.first(where: { $0.provider == "twitter" && $0.connected }) {
-                    managedTwitterConnected = true
-                    managedTwitterAccountInfo = connection.accountLabel
-                } else {
-                    managedTwitterConnected = false
-                    managedTwitterAccountInfo = nil
-                }
-                managedTwitterError = nil
-            } catch {
-                log.error("Failed to fetch managed Twitter status: \(error)")
-                managedTwitterError = error.localizedDescription
-            }
-        }
-    }
-
-    /// Holds the active web auth session to prevent deallocation.
-    private var twitterWebAuthSession: ASWebAuthenticationSession?
-
-    /// Starts the managed Twitter OAuth connect flow using ASWebAuthenticationSession.
-    /// The platform redirects back to vellum-assistant://oauth/twitter/callback after
-    /// authorization, which ASWebAuthenticationSession intercepts and returns to the app.
-    func connectManagedTwitter() {
-        managedTwitterConnectInProgress = true
-        managedTwitterError = nil
-        Task { @MainActor in
-            defer { managedTwitterConnectInProgress = false }
-
-            guard let ctx = await resolveManagedTwitterContext() else {
-                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
-                return
-            }
-
-            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
-            do {
-                let response = try await service.startTwitterConnect(
-                    platformAssistantId: ctx.platformAssistantId,
-                    organizationId: ctx.organizationId
-                )
-                guard let authURL = URL(string: response.connectUrl) else {
-                    managedTwitterError = "Invalid authorization URL received."
-                    return
-                }
-
-                let callbackURL = try await performManagedTwitterWebAuth(url: authURL)
-
-                // Parse oauth_status from the callback URL
-                let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
-                let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
-
-                if oauthStatus == "connected" {
-                    log.info("Managed Twitter OAuth completed successfully")
-                    refreshManagedTwitterStatus()
-                } else {
-                    let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
-                    managedTwitterError = "Twitter connection failed\(errorCode.map { ": \($0)" } ?? "")."
-                }
-            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
-                log.info("User cancelled managed Twitter OAuth")
-                // No error — user intentionally dismissed
-            } catch {
-                log.error("Failed to start managed Twitter connect: \(error)")
-                managedTwitterError = error.localizedDescription
-            }
-        }
-    }
-
-    /// Presents an ASWebAuthenticationSession for managed Twitter OAuth and waits for the callback.
-    private func performManagedTwitterWebAuth(url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: PlatformTwitterOAuthService.callbackURLScheme
-            ) { [weak self] callbackURL, error in
-                self?.twitterWebAuthSession = nil
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let callbackURL {
-                    continuation.resume(returning: callbackURL)
-                } else {
-                    continuation.resume(throwing: NSError(
-                        domain: "ManagedTwitterOAuth",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "No callback URL received."]
-                    ))
-                }
-            }
-            session.prefersEphemeralWebBrowserSession = false
-            session.presentationContextProvider = WebAuthPresentationContext.shared
-            self.twitterWebAuthSession = session
-            if !session.start() {
-                self.twitterWebAuthSession = nil
-                continuation.resume(throwing: NSError(
-                    domain: "ManagedTwitterOAuth",
-                    code: -2,
-                    userInfo: [NSLocalizedDescriptionKey: "Failed to start the authentication session."]
-                ))
-            }
-        }
-    }
-
-    /// Disconnects the managed Twitter connection via the platform API.
-    func disconnectManagedTwitter() {
-        managedTwitterConnectInProgress = true
-        managedTwitterError = nil
-        Task { @MainActor in
-            defer { managedTwitterConnectInProgress = false }
-
-            guard let ctx = await resolveManagedTwitterContext() else {
-                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
-                return
-            }
-
-            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
-            do {
-                _ = try await service.disconnectTwitter(
-                    platformAssistantId: ctx.platformAssistantId,
-                    organizationId: ctx.organizationId
-                )
-                managedTwitterConnected = false
-                managedTwitterAccountInfo = nil
-                managedTwitterError = nil
-                // Refresh to confirm
-                refreshManagedTwitterStatus()
-            } catch {
-                log.error("Failed to disconnect managed Twitter: \(error)")
-                managedTwitterError = error.localizedDescription
-            }
         }
     }
 
@@ -1473,6 +1122,7 @@ public final class SettingsStore: ObservableObject {
                         self.slackChannelHasBotToken = true
                         self.slackChannelHasAppToken = true
                     }
+                    self.fetchChannelSetupStatus()
                 } else {
                     let errorMsg: String
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1505,6 +1155,7 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelBotUsername = nil
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
+                    self.fetchChannelSetupStatus()
                 }
             } catch {
                 log.error("Failed to clear Slack channel config: \(error)")
@@ -1512,7 +1163,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Twilio SMS Actions (HTTP)
+    // MARK: - Twilio Actions (HTTP)
 
     /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
     /// Uses httpTransport for remote connections, otherwise defaults to local gateway.
@@ -1612,11 +1263,10 @@ public final class SettingsStore: ObservableObject {
                   let friendlyName = dict["friendlyName"] as? String,
                   let caps = dict["capabilities"] as? [String: Any] else { return nil }
             let voice = caps["voice"] as? Bool ?? false
-            let sms = caps["sms"] as? Bool ?? false
             return TwilioNumberInfo(
                 phoneNumber: phoneNumber,
                 friendlyName: friendlyName,
-                capabilities: TwilioNumberCapabilities(voice: voice, sms: sms)
+                capabilities: TwilioNumberCapabilities(voice: voice)
             )
         }
     }
@@ -1648,6 +1298,7 @@ public final class SettingsStore: ObservableObject {
                 body: ["accountSid": trimmedSid, "authToken": trimmedToken]
             )
             twilioSaveInProgress = false
+            self.fetchChannelSetupStatus()
         }
     }
 
@@ -1661,6 +1312,7 @@ public final class SettingsStore: ObservableObject {
                 path: "/v1/integrations/twilio/credentials"
             )
             twilioSaveInProgress = false
+            self.fetchChannelSetupStatus()
         }
     }
 
@@ -1738,11 +1390,6 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationError = nil
             telegramVerificationAlreadyBound = false
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInProgress = true
-            smsVerificationError = nil
-            smsVerificationAlreadyBound = false
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInProgress = true
             voiceVerificationError = nil
@@ -1763,9 +1410,6 @@ public final class SettingsStore: ObservableObject {
                 case "telegram":
                     telegramVerificationInProgress = false
                     telegramVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "sms":
-                    smsVerificationInProgress = false
-                    smsVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "phone":
                     voiceVerificationInProgress = false
                     voiceVerificationError = "Daemon is not connected. Reconnect and try again."
@@ -1791,9 +1435,6 @@ public final class SettingsStore: ObservableObject {
             case "telegram":
                 telegramVerificationInProgress = false
                 telegramVerificationError = "Failed to start verification. Try again."
-            case "sms":
-                smsVerificationInProgress = false
-                smsVerificationError = "Failed to start verification. Try again."
             case "phone":
                 voiceVerificationInProgress = false
                 voiceVerificationError = "Failed to start verification. Try again."
@@ -1813,9 +1454,6 @@ public final class SettingsStore: ObservableObject {
         case "telegram":
             telegramVerificationInProgress = false
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInProgress = false
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInProgress = false
             voiceVerificationInstruction = nil
@@ -1841,8 +1479,6 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInstruction = nil
         case "slack":
@@ -2033,10 +1669,6 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationInProgress = true
             telegramVerificationError = nil
             telegramVerificationAlreadyBound = false
-        case "sms":
-            smsVerificationInProgress = true
-            smsVerificationError = nil
-            smsVerificationAlreadyBound = false
         case "phone":
             voiceVerificationInProgress = true
             voiceVerificationError = nil
@@ -2054,9 +1686,6 @@ public final class SettingsStore: ObservableObject {
                 case "telegram":
                     telegramVerificationInProgress = false
                     telegramVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "sms":
-                    smsVerificationInProgress = false
-                    smsVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "phone":
                     voiceVerificationInProgress = false
                     voiceVerificationError = "Daemon is not connected. Reconnect and try again."
@@ -2079,9 +1708,6 @@ public final class SettingsStore: ObservableObject {
             case "telegram":
                 telegramVerificationInProgress = false
                 telegramVerificationError = "Failed to start verification. Try again."
-            case "sms":
-                smsVerificationInProgress = false
-                smsVerificationError = "Failed to start verification. Try again."
             case "phone":
                 voiceVerificationInProgress = false
                 voiceVerificationError = "Failed to start verification. Try again."
@@ -2111,8 +1737,6 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramVerificationInProgress = false
-        case "sms":
-            smsVerificationInProgress = false
         case "phone":
             voiceVerificationInProgress = false
         case "slack":
@@ -2139,12 +1763,6 @@ public final class SettingsStore: ObservableObject {
             telegramOutboundSendCount = 0
             telegramBootstrapUrl = nil
             telegramOutboundCode = nil
-        case "sms":
-            smsOutboundSessionId = nil
-            smsOutboundExpiresAt = nil
-            smsOutboundNextResendAt = nil
-            smsOutboundSendCount = 0
-            smsOutboundCode = nil
         case "phone":
             voiceOutboundSessionId = nil
             voiceOutboundExpiresAt = nil
@@ -2200,17 +1818,6 @@ public final class SettingsStore: ObservableObject {
                 // Bootstrap complete — clear the URL so resend becomes available
                 telegramBootstrapUrl = nil
             }
-        case "sms":
-            if sessionId != smsOutboundSessionId {
-                smsOutboundNextResendAt = nil
-                smsOutboundSendCount = 0
-                smsOutboundCode = nil
-            }
-            smsOutboundSessionId = sessionId
-            if let expiresAt { smsOutboundExpiresAt = expiresAt }
-            if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
-            if let sendCount { smsOutboundSendCount = sendCount }
-            if let secret { smsOutboundCode = secret }
         case "phone":
             if sessionId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
@@ -2248,7 +1855,6 @@ public final class SettingsStore: ObservableObject {
         // Disambiguate when exactly one channel has verification in progress
         let inProgressChannels = [
             ("telegram", telegramVerificationInProgress),
-            ("sms", smsVerificationInProgress),
             ("phone", voiceVerificationInProgress),
             ("slack", slackVerificationInProgress),
         ].filter(\.1)
@@ -2269,8 +1875,6 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInstruction = nil
         case "slack":
@@ -2293,12 +1897,6 @@ public final class SettingsStore: ObservableObject {
                 if self.telegramVerificationError == nil {
                     self.telegramVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
-            case "sms":
-                self.smsVerificationInProgress = false
-                self.smsVerificationInstruction = nil
-                if self.smsVerificationError == nil {
-                    self.smsVerificationError = "Timed out waiting for verification instructions. Try again."
-                }
             case "phone":
                 self.voiceVerificationInProgress = false
                 self.voiceVerificationInstruction = nil
@@ -2320,7 +1918,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func startVerificationStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" || channel == "phone" || channel == "slack" else { return }
+        guard channel == "telegram" || channel == "phone" || channel == "slack" else { return }
         stopVerificationStatusPolling(for: channel)
         verificationStatusPollingDeadlines[channel] = Date().addingTimeInterval(verificationStatusPollWindow)
         scheduleVerificationStatusPoll(for: channel, delay: verificationStatusPollInterval)
@@ -2356,6 +1954,22 @@ public final class SettingsStore: ObservableObject {
         Task {
             let status = await daemonClient.fetchIntegrationsStatus(gatewayBaseURL: gatewayURL)
             self.assistantEmail = status?.email.address
+        }
+    }
+
+    // MARK: - Channel Setup Status
+
+    func fetchChannelSetupStatus() {
+        Task {
+            do {
+                guard let daemonClient else { return }
+                let readiness = try await daemonClient.fetchChannelReadiness()
+                for (channel, info) in readiness {
+                    self.channelSetupStatus[channel] = info.setupStatus ?? "not_configured"
+                }
+            } catch {
+                log.error("Failed to fetch channel setup status: \(error)")
+            }
         }
     }
 

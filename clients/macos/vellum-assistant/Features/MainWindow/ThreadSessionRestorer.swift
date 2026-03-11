@@ -32,7 +32,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     /// owner to preserve optimistic local seen/unread state until the daemon
     /// catches up or returns a newer reply.
     func mergeAssistantAttention(
-        from session: IPCSessionListResponseSession,
+        from session: SessionListResponseSession,
         intoThreadAt index: Int
     )
 }
@@ -273,7 +273,7 @@ final class ThreadSessionRestorer {
         delegate.restoreLastActiveThread()
     }
 
-    func handleHistoryResponse(_ response: HistoryResponseMessage) {
+    func handleHistoryResponse(_ response: HistoryResponse) {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
 
@@ -306,7 +306,7 @@ final class ThreadSessionRestorer {
         delegate.threads[index].title = response.title
     }
 
-    func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+    func handleMessageContentResponse(_ response: MessageContentResponse) {
         guard let delegate else { return }
         // Route the full content back to the ChatViewModel that owns this message.
         // We check all threads with existing VMs for a matching daemonMessageId.
@@ -319,7 +319,7 @@ final class ThreadSessionRestorer {
         }
     }
 
-    func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {
+    func handleSubagentDetailResponse(_ response: SubagentDetailResponse) {
         guard let delegate else { return }
         // Only check threads that already have a VM — subagent events are only
         // relevant to active conversations, so we must not trigger lazy VM

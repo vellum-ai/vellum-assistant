@@ -1,0 +1,12 @@
+---
+name: settings
+description: Manage assistant voice, avatar, and system settings
+compatibility: "Designed for Vellum personal assistants"
+metadata:
+  emoji: "\u2699\uFE0F"
+  vellum:
+    display-name: "Settings"
+    user-invocable: true
+---
+
+Tools for managing assistant settings: voice configuration (TTS voice, PTT activation key, wake word), avatar generation, system settings navigation, and in-app settings tab navigation.

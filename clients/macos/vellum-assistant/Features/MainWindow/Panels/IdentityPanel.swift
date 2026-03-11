@@ -53,11 +53,7 @@ struct IdentityPanel: View {
                             Spacer()
 
                             // Large centered avatar
-                            Image(nsImage: appearance.fullAvatarImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: avatarSize, height: avatarSize)
-                                .clipShape(Circle())
+                            VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
                                 .frame(maxWidth: .infinity, alignment: .center)
 
                             // Update Avatar button

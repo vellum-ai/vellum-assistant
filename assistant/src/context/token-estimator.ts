@@ -7,6 +7,7 @@ const TOOL_BLOCK_OVERHEAD_TOKENS = 16;
 const IMAGE_BLOCK_TOKENS = 1024;
 const IMAGE_BLOCK_OVERHEAD_TOKENS = 16;
 const FILE_BLOCK_OVERHEAD_TOKENS = 48;
+const WEB_SEARCH_RESULT_TOKENS = 800;
 const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
 const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
@@ -84,6 +85,16 @@ export function estimateContentBlockTokens(
       return TEXT_BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.thinking);
     case "redacted_thinking":
       return TEXT_BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.data);
+    case "server_tool_use":
+      return (
+        TOOL_BLOCK_OVERHEAD_TOKENS +
+        estimateTextTokens(block.name) +
+        estimateTextTokens(stableJson(block.input))
+      );
+    case "web_search_tool_result":
+      return (
+        WEB_SEARCH_RESULT_TOKENS + estimateTextTokens(stableJson(block.content))
+      );
     default:
       return OTHER_BLOCK_TOKENS;
   }

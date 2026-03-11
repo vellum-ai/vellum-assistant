@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { credentialKey } from "../security/credential-key.js";
+
 // ---------------------------------------------------------------------------
 // Mock the underlying dependencies of managed-proxy/context.js rather than
 // the context module itself. This avoids global mock bleed: other test files
@@ -19,7 +21,7 @@ const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
   ...actualSecureKeys,
   getSecureKey: (key: string) => {
-    if (key === "credential:vellum:assistant_api_key") {
+    if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey || null;
     }
     return null;

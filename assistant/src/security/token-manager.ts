@@ -11,6 +11,7 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
+import { credentialKey, migrateKeys } from "./credential-key.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
 import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
 
@@ -106,9 +107,32 @@ function recordRefreshFailure(service: string): void {
   }
 }
 
+// ── Per-service refresh deduplication ─────────────────────────────────
+// When multiple concurrent `withValidToken` calls detect an expired or
+// 401-rejected token for the same service, only one actual refresh
+// attempt is made. Other callers join the in-flight promise.
+
+const inflightRefreshes = new Map<string, Promise<string>>();
+
+function deduplicatedRefresh(service: string): Promise<string> {
+  const existing = inflightRefreshes.get(service);
+  if (existing) return existing;
+
+  const promise = doRefresh(service).finally(() => {
+    inflightRefreshes.delete(service);
+  });
+  inflightRefreshes.set(service, promise);
+  return promise;
+}
+
 /** @internal Test-only: reset all circuit breaker state */
 export function _resetRefreshBreakers(): void {
   refreshBreakers.clear();
+}
+
+/** @internal Test-only: reset in-flight refresh deduplication state */
+export function _resetInflightRefreshes(): void {
+  inflightRefreshes.clear();
 }
 
 /** @internal Test-only: get breaker state for a service */
@@ -148,7 +172,7 @@ function isTokenExpired(service: string): boolean {
  * Throws `TokenExpiredError` if refresh is not possible.
  */
 async function doRefresh(service: string): Promise<string> {
-  const refreshToken = getSecureKey(`credential:${service}:refresh_token`);
+  const refreshToken = getSecureKey(credentialKey(service, "refresh_token"));
   if (!refreshToken) {
     throw new TokenExpiredError(
       service,
@@ -175,7 +199,7 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  const clientSecret = meta?.oauth2ClientSecret as string | undefined;
+  const clientSecret = getSecureKey(credentialKey(service, "client_secret"));
   const authMethod = meta?.oauth2TokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
     | undefined;
@@ -219,7 +243,7 @@ async function doRefresh(service: string): Promise<string> {
 
   if (
     !(await setSecureKeyAsync(
-      `credential:${service}:access_token`,
+      credentialKey(service, "access_token"),
       result.accessToken,
     ))
   ) {
@@ -232,7 +256,7 @@ async function doRefresh(service: string): Promise<string> {
   if (result.refreshToken) {
     if (
       !(await setSecureKeyAsync(
-        `credential:${service}:refresh_token`,
+        credentialKey(service, "refresh_token"),
         result.refreshToken,
       ))
     ) {
@@ -265,12 +289,17 @@ async function doRefresh(service: string): Promise<string> {
  * 1. Retrieves the stored access token (throws if none exists).
  * 2. If the token is expired or near-expiry, refreshes it before calling the callback.
  * 3. If the callback throws with a 401 status, attempts one refresh-and-retry cycle.
+ *
+ * @deprecated Use `resolveOAuthConnection(service).request()` instead.
+ * Retained only for BYO connection internals.
  */
 export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
 ): Promise<T> {
-  let token = getSecureKey(`credential:${service}:access_token`);
+  migrateKeys();
+
+  let token = getSecureKey(credentialKey(service, "access_token"));
   if (!token) {
     throw new TokenExpiredError(
       service,
@@ -280,14 +309,14 @@ export async function withValidToken<T>(
 
   // Proactively refresh if expired or about to expire.
   if (isTokenExpired(service)) {
-    token = await doRefresh(service);
+    token = await deduplicatedRefresh(service);
   }
 
   try {
     return await callback(token);
   } catch (err: unknown) {
     if (is401Error(err)) {
-      token = await doRefresh(service);
+      token = await deduplicatedRefresh(service);
       return callback(token);
     }
     throw err;

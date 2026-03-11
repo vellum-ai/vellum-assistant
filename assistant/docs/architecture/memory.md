@@ -242,7 +242,7 @@ Two trust gates enforce trust-class-based access control over the memory pipelin
 
 - **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict resolution. This ensures untrusted actors cannot surface or exploit previously extracted memory.
 
-Trust policy is **cross-channel and trust-class-based**: decisions use `trustContext.trustClass`, not the channel string. Desktop sessions default to `trustClass: 'guardian'`. External channels (Telegram, SMS, WhatsApp, phone) provide explicit trust context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
+Trust policy is **cross-channel and trust-class-based**: decisions use `trustContext.trustClass`, not the channel string. Desktop sessions default to `trustClass: 'guardian'`. External channels (Telegram, WhatsApp, phone) provide explicit trust context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
 
 ---
 

@@ -25,13 +25,10 @@ struct SettingsPrivacyTab: View {
     // MARK: - Diagnostics Section
 
     private var diagnosticsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack {
-                Text("Diagnostics")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                if isLoading {
+        SettingsCard(title: "Diagnostics") {
+            if isLoading {
+                HStack {
+                    Spacer()
                     ProgressView()
                         .controlSize(.small)
                         .progressViewStyle(.circular)
@@ -72,8 +69,7 @@ struct SettingsPrivacyTab: View {
                 .disabled(isLoading || isUpdating || daemonClient == nil)
             }
 
-            Divider()
-                .foregroundColor(VColor.divider)
+            SettingsDivider()
 
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -94,10 +90,6 @@ struct SettingsPrivacyTab: View {
                 .disabled(!collectUsageData || isLoading || isUpdating)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Data Loading

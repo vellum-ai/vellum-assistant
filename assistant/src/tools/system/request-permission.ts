@@ -110,4 +110,5 @@ class RequestSystemPermissionTool implements Tool {
   }
 }
 
-registerTool(new RequestSystemPermissionTool());
+export const requestSystemPermissionTool = new RequestSystemPermissionTool();
+registerTool(requestSystemPermissionTool);

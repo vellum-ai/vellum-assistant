@@ -3,6 +3,7 @@ import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -49,7 +50,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 /** Mock credential cache that provides a test bot token. */
 const testCreds: CredentialCache = {
   get: async (key: string) => {
-    if (key === "credential:telegram:bot_token") return "test-bot-token";
+    if (key === credentialKey("telegram", "bot_token")) return "test-bot-token";
     return undefined;
   },
   invalidate: () => {},

@@ -52,6 +52,18 @@ export interface OAuthConnectOptions {
   /** Tools allowed to use the resulting credential. */
   allowedTools?: string[];
 
+  /**
+   * Called when the deferred (non-interactive) flow completes — either
+   * successfully after tokens are stored, or on failure. Lets callers
+   * surface the outcome via SSE events, logs, etc.
+   */
+  onDeferredComplete?: (result: {
+    success: boolean;
+    service: string;
+    accountInfo?: string;
+    error?: string;
+  }) => void;
+
   // Optional overrides — when provided, these take precedence over the
   // provider profile. This lets callers connect custom / unknown providers.
   authUrl?: string;
@@ -214,11 +226,21 @@ export async function orchestrateOAuthConnect(
               },
               "Deferred OAuth2 flow completed — tokens stored",
             );
+            options.onDeferredComplete?.({
+              success: true,
+              service: resolvedService,
+              accountInfo: stored.accountInfo ?? accountInfo,
+            });
           } catch (err) {
             log.error(
               { err, service: resolvedService },
               "Failed to store tokens from deferred OAuth2 flow",
             );
+            options.onDeferredComplete?.({
+              success: false,
+              service: resolvedService,
+              error: err instanceof Error ? err.message : "Unknown error",
+            });
           }
         })
         .catch((err) => {
@@ -226,6 +248,11 @@ export async function orchestrateOAuthConnect(
             { err, service: resolvedService },
             "Deferred OAuth2 flow failed",
           );
+          options.onDeferredComplete?.({
+            success: false,
+            service: resolvedService,
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
         });
 
       return {

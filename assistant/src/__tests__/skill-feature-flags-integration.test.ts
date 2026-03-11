@@ -1,7 +1,7 @@
 /**
  * Integration test: end-to-end frontmatter parsing → feature flag resolution.
  *
- * Creates a SKILL.md with a `"feature-flag"` field in its metadata JSON,
+ * Creates a SKILL.md with a `feature-flag` field in its YAML metadata,
  * parses it via the real frontmatter parser, and verifies that `skillFlagKey()`
  * returns the correct key and `resolveSkillStates()` correctly gates the skill.
  */
@@ -17,11 +17,13 @@ import { parseFrontmatterFields } from "../skills/frontmatter.js";
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** A SKILL.md with `"feature-flag": "contacts"` declared in its vellum metadata. */
+/** A SKILL.md with `feature-flag: contacts` declared in its vellum metadata. */
 const SKILL_MD_WITH_FLAG = `---
 name: "Contacts"
 description: "View and manage contacts"
-metadata: {"vellum": {"feature-flag": "contacts"}}
+metadata:
+  vellum:
+    feature-flag: contacts
 ---
 
 Instructions for the contacts skill.
@@ -31,7 +33,8 @@ Instructions for the contacts skill.
 const SKILL_MD_WITHOUT_FLAG = `---
 name: "Plain Skill"
 description: "A skill with no feature flag"
-metadata: {"vellum": {}}
+metadata:
+  vellum: {}
 ---
 
 Instructions for the plain skill.
@@ -75,25 +78,23 @@ function buildSkillSummary(
   const parsed = parseFrontmatterFields(skillMd);
   if (!parsed) return null;
 
-  const metadataRaw = parsed.fields.metadata?.trim();
   let featureFlag: string | undefined;
-  if (metadataRaw) {
-    try {
-      const json = JSON.parse(metadataRaw);
-      featureFlag =
-        typeof json?.vellum?.["feature-flag"] === "string"
-          ? json.vellum["feature-flag"]
-          : undefined;
-    } catch {
-      // ignore parse errors
-    }
+  const metadataObj = parsed.fields.metadata;
+  if (metadataObj != null && typeof metadataObj === "object") {
+    const vellum = (metadataObj as Record<string, unknown>).vellum as
+      | Record<string, unknown>
+      | undefined;
+    featureFlag =
+      typeof vellum?.["feature-flag"] === "string"
+        ? vellum["feature-flag"]
+        : undefined;
   }
 
   return {
     id,
-    name: parsed.fields.name ?? id,
-    displayName: parsed.fields.name ?? id,
-    description: parsed.fields.description ?? "",
+    name: (parsed.fields.name as string) ?? id,
+    displayName: (parsed.fields.name as string) ?? id,
+    description: (parsed.fields.description as string) ?? "",
     directoryPath: `/fake/skills/${id}`,
     skillFilePath: `/fake/skills/${id}/SKILL.md`,
     bundled: source === "bundled",
@@ -109,15 +110,15 @@ function buildSkillSummary(
 // ---------------------------------------------------------------------------
 
 describe("frontmatter feature-flag integration", () => {
-  test("parses feature-flag from frontmatter metadata JSON", () => {
+  test("parses feature-flag from frontmatter YAML metadata", () => {
     const parsed = parseFrontmatterFields(SKILL_MD_WITH_FLAG);
     expect(parsed).not.toBeNull();
 
-    const metadataRaw = parsed!.fields.metadata?.trim();
-    expect(metadataRaw).toBeTruthy();
+    const metadataObj = parsed!.fields.metadata as Record<string, unknown>;
+    expect(metadataObj).toBeTruthy();
 
-    const json = JSON.parse(metadataRaw!);
-    expect(json.vellum["feature-flag"]).toBe("contacts");
+    const vellum = metadataObj.vellum as Record<string, unknown>;
+    expect(vellum["feature-flag"]).toBe("contacts");
   });
 
   test("skillFlagKey returns correct key for parsed skill", () => {
@@ -179,8 +180,9 @@ describe("frontmatter feature-flag integration", () => {
     // Step 1: Parse SKILL.md with feature-flag in metadata
     const parsed = parseFrontmatterFields(SKILL_MD_WITH_FLAG);
     expect(parsed).not.toBeNull();
-    const json = JSON.parse(parsed!.fields.metadata!);
-    const flagId = json.vellum["feature-flag"];
+    const metadataObj = parsed!.fields.metadata as Record<string, unknown>;
+    const vellum = metadataObj.vellum as Record<string, unknown>;
+    const flagId = vellum["feature-flag"];
     expect(flagId).toBe("contacts");
 
     // Step 2: Build SkillSummary (as the catalog loader would)

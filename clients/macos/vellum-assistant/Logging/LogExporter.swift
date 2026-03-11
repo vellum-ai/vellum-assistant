@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import os
 @preconcurrency import Sentry
-import UniformTypeIdentifiers
 import VellumAssistantShared
 
 private let log = Logger(
@@ -16,40 +15,14 @@ private let log = Logger(
 /// Log sources included:
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
-/// - `~/.vellum/workspace/data/logs/` — daemon rotating log files (assistant-*.log)
-/// - `~/.vellum/daemon-stderr.log` — daemon stderr capture
+/// - Daemon logs and audit data via `POST /v1/export` gateway HTTP API
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
+/// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 @MainActor
 enum LogExporter {
-
-    /// Presents an NSSavePanel and writes the tar.gz archive to the chosen location.
-    static func exportLogs() {
-        let panel = NSSavePanel()
-        panel.title = "Export Assistant Logs"
-        panel.nameFieldStringValue = defaultArchiveName()
-        panel.allowedContentTypes = [.gzip]
-        panel.canCreateDirectories = true
-
-        guard panel.runModal() == .OK, let destURL = panel.url else { return }
-
-        Task {
-            do {
-                try await buildArchive(destination: destURL)
-                log.info("Logs exported to \(destURL.path)")
-                NSWorkspace.shared.activateFileViewerSelecting([destURL])
-            } catch {
-                log.error("Log export failed: \(error.localizedDescription)")
-                let alert = NSAlert()
-                alert.messageText = "Export Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.runModal()
-            }
-        }
-    }
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
     static func sendLogsToSentry() {
@@ -132,27 +105,22 @@ enum LogExporter {
             }
         }
 
-        // 3. Daemon logs — ~/.vellum/workspace/data/logs/
+        // 3. Assistant logs — platform API for managed, local gateway for self-hosted
         let home = NSHomeDirectory()
-        let daemonLogDir = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/workspace/data/logs", isDirectory: true)
-        copyDirectoryContents(
-            from: daemonLogDir,
-            to: tempDir.appendingPathComponent("daemon-logs", isDirectory: true),
-            fileManager: fileManager
-        )
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let isManagedAssistant: Bool = {
+            guard let id = connectedId else { return false }
+            return LockfileAssistant.loadByName(id)?.isManaged == true
+        }()
 
-        // 4. Daemon stderr — ~/.vellum/daemon-stderr.log
-        let stderrLog = URL(fileURLWithPath: home)
-            .appendingPathComponent(".vellum/daemon-stderr.log")
-        if fileManager.fileExists(atPath: stderrLog.path) {
-            try? fileManager.copyItem(
-                at: stderrLog,
-                to: tempDir.appendingPathComponent("daemon-stderr.log")
-            )
+        if isManagedAssistant, let assistantId = connectedId,
+           let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
+        } else {
+            await fetchDaemonExports(into: tempDir)
         }
 
-        // 5. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
+        // 4. XDG CLI logs — ~/.config/vellum/logs/ (hatch.log, retire.log, etc.)
         let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
             ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
         let xdgLogDir = URL(fileURLWithPath: xdgConfigHome)
@@ -163,19 +131,24 @@ enum LogExporter {
             fileManager: fileManager
         )
 
-        // 6. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
+        // 5. Lockfile — ~/.vellum.lock.json (sanitized to strip credentials)
         writeSanitizedLockfile(
             to: tempDir.appendingPathComponent("vellum.lock.json")
         )
 
-        // 7. UserDefaults snapshot — app-relevant keys for debugging
+        // 6. UserDefaults snapshot — app-relevant keys for debugging
         writeUserDefaultsSnapshot(
             to: tempDir.appendingPathComponent("user-defaults.json")
         )
 
-        // 8. Auth debug info — non-sensitive token expiry and refresh metadata
+        // 7. Auth debug info — non-sensitive token expiry and refresh metadata
         writeAuthDebugInfo(
             to: tempDir.appendingPathComponent("auth-debug.json")
+        )
+
+        // 8. Port diagnostics — which processes are listening on assistant ports
+        PortDiagnostics.write(
+            to: tempDir.appendingPathComponent("port-diagnostics.json")
         )
 
         // Verify we have at least one file to export
@@ -242,6 +215,153 @@ enum LogExporter {
                 at: item,
                 to: dest.appendingPathComponent(item.lastPathComponent)
             )
+        }
+    }
+
+    // MARK: - Daemon HTTP Helpers
+
+    /// Calls POST /v1/export on the gateway to fetch audit data and daemon
+    /// log files, then writes them into `directory`. Silently skips if the
+    /// gateway is unreachable or returns an error.
+    private nonisolated static func fetchDaemonExports(into directory: URL) async {
+        let baseURL = LockfilePaths.resolveGatewayUrl()
+
+        guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
+            log.warning("No actor token available — skipping daemon exports")
+            return
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/export") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["auditLimit": 10000])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Export API failed with status \(status)")
+                return
+            }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.warning("Export API returned unexpected format")
+                return
+            }
+
+            // Write audit rows as a standalone JSON file
+            if let auditRows = json["auditRows"] {
+                if let auditData = try? JSONSerialization.data(
+                    withJSONObject: auditRows,
+                    options: [.prettyPrinted]
+                ) {
+                    try? auditData.write(to: directory.appendingPathComponent("audit-data.json"))
+                }
+            }
+
+            // Write each daemon log file into a daemon-logs/ subdirectory
+            if let logFiles = json["logFiles"] as? [String: String] {
+                let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
+                try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+                for (filename, content) in logFiles {
+                    let sanitized = (filename as NSString).lastPathComponent
+                    try? content.write(
+                        to: logsDir.appendingPathComponent(sanitized),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+            }
+        } catch {
+            log.warning("Export API request failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Platform Log Helpers
+
+    /// Fetches logs from the platform API for managed assistants, downloads
+    /// the tar.gz response, extracts it into `directory/platform-logs/`.
+    /// Silently skips on any failure (non-fatal, mirrors `fetchDaemonExports`).
+    private nonisolated static func fetchPlatformLogs(
+        into directory: URL,
+        assistantId: String,
+        organizationId: String
+    ) async {
+        guard let token = SessionTokenManager.getToken() else {
+            log.warning("No session token available — skipping platform log export")
+            return
+        }
+
+        let baseURL = await MainActor.run { AuthService.shared.baseURL }
+
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
+            log.warning("Failed to construct platform log export URL")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        request.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.warning("Platform log export API failed with status \(status)")
+                return
+            }
+
+            let fileManager = FileManager.default
+            let tarPath = fileManager.temporaryDirectory
+                .appendingPathComponent("platform-logs-\(UUID().uuidString).tar.gz")
+            try data.write(to: tarPath)
+
+            defer {
+                try? fileManager.removeItem(at: tarPath)
+            }
+
+            let extractDir = directory.appendingPathComponent("platform-logs", isDirectory: true)
+            try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+                process.arguments = [
+                    "xzf",
+                    tarPath.path,
+                    "-C", extractDir.path,
+                ]
+
+                let pipe = Pipe()
+                process.standardError = pipe
+
+                process.terminationHandler = { proc in
+                    if proc.terminationStatus == 0 {
+                        continuation.resume()
+                    } else {
+                        let stderr = String(
+                            data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8
+                        ) ?? ""
+                        continuation.resume(throwing: ExportError.tarFailed(stderr))
+                    }
+                }
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        } catch {
+            log.warning("Platform log export request failed: \(error.localizedDescription)")
         }
     }
 

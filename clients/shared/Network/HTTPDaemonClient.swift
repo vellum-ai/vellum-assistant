@@ -30,10 +30,10 @@ struct ConversationsListResponse: Decodable {
         let threadType: String?
         let source: String?
         let scheduleJobId: String?
-        let channelBinding: IPCChannelBinding?
+        let channelBinding: ChannelBinding?
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
-        let assistantAttention: IPCAssistantAttention?
+        let assistantAttention: AssistantAttention?
         let displayOrder: Double?
         let isPinned: Bool?
     }
@@ -380,8 +380,6 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsTwitterAuthStart
-        case integrationsTwitterAuthStatus
         case integrationsSlackConfig
         case integrationsVercelConfig
         case integrationsTelegramConfig
@@ -418,6 +416,12 @@ public final class HTTPTransport {
 
         // Host Bash Proxy
         case hostBashResult
+
+        // Host File Proxy
+        case hostFileResult
+
+        // BTW side-chain
+        case btw
 
         // Misc
         case channelVerificationSessions
@@ -770,10 +774,6 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("/v1/integrations/oauth/start", nil)
-        case .integrationsTwitterAuthStart:
-            return ("/v1/integrations/twitter/auth/start", nil)
-        case .integrationsTwitterAuthStatus:
-            return ("/v1/integrations/twitter/auth/status", nil)
         case .integrationsSlackConfig:
             return ("/v1/integrations/slack/config", nil)
         case .integrationsVercelConfig:
@@ -820,6 +820,12 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case .hostBashResult:
             return ("/v1/host-bash-result", nil)
+        // Host File Proxy
+        case .hostFileResult:
+            return ("/v1/host-file-result", nil)
+        // BTW side-chain
+        case .btw:
+            return ("/v1/btw", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
@@ -1154,10 +1160,6 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("\(prefix)/integrations/oauth/start/", nil)
-        case .integrationsTwitterAuthStart:
-            return ("\(prefix)/integrations/twitter/auth/start/", nil)
-        case .integrationsTwitterAuthStatus:
-            return ("\(prefix)/integrations/twitter/auth/status/", nil)
         case .integrationsSlackConfig:
             return ("\(prefix)/integrations/slack/config/", nil)
         case .integrationsVercelConfig:
@@ -1204,6 +1206,12 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case .hostBashResult:
             return ("\(prefix)/host-bash-result/", nil)
+        // Host File Proxy
+        case .hostFileResult:
+            return ("\(prefix)/host-file-result/", nil)
+        // BTW side-chain
+        case .btw:
+            return ("\(prefix)/btw/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
@@ -1508,7 +1516,7 @@ public final class HTTPTransport {
     }
 
     /// Upload a single attachment and return its server-assigned ID.
-    private func uploadAttachment(_ attachment: IPCAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
+    private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
         guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
 
         var request = URLRequest(url: url)
@@ -1554,7 +1562,7 @@ public final class HTTPTransport {
         }
     }
 
-    func sendMessage(content: String?, sessionId: String, attachments: [IPCAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+    func sendMessage(content: String?, sessionId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
 
@@ -1573,7 +1581,8 @@ public final class HTTPTransport {
                         sessionId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
-                        retryable: true
+                        retryable: true,
+                        failedMessageContent: content
                     )))
                     return
                 }
@@ -1621,7 +1630,8 @@ public final class HTTPTransport {
                         sessionId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to send message — authentication error. Please try again.",
-                        retryable: true
+                        retryable: true,
+                        failedMessageContent: content
                     )))
                 }
             } else {
@@ -1631,7 +1641,8 @@ public final class HTTPTransport {
                     sessionId: sessionId,
                     code: .providerApi,
                     userMessage: "Failed to send message (HTTP \(http.statusCode))",
-                    retryable: true
+                    retryable: true,
+                    failedMessageContent: content
                 )))
             }
         } catch {
@@ -1640,8 +1651,121 @@ public final class HTTPTransport {
                 sessionId: sessionId,
                 code: .providerApi,
                 userMessage: error.localizedDescription,
-                retryable: true
+                retryable: true,
+                failedMessageContent: content
             )))
+        }
+    }
+
+    /// Send a /btw side-chain question and stream the response text.
+    /// Returns an AsyncThrowingStream that yields text deltas from SSE `btw_text_delta` events.
+    /// Throws on `btw_error` events and handles 401 authentication retry.
+    func sendBtwMessage(content: String, conversationKey: String, isRetry: Bool = false) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            let task = Task { @MainActor [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                guard let url = self.buildURL(for: .btw) else {
+                    continuation.finish(throwing: URLError(.badURL))
+                    return
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                request.timeoutInterval = 120
+                self.applyAuth(&request)
+
+                let body: [String: Any] = [
+                    "conversationKey": conversationKey,
+                    "content": content,
+                ]
+
+                do {
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse else {
+                        throw URLError(.badServerResponse)
+                    }
+
+                    if http.statusCode == 401 && !isRetry {
+                        // Collect response body for auth refresh
+                        var bodyChunks: [UInt8] = []
+                        for try await byte in bytes {
+                            bodyChunks.append(byte)
+                        }
+                        let responseData = Data(bodyChunks)
+                        let refreshResult = await self.handleAuthenticationFailureAsync(responseData: responseData)
+                        switch refreshResult {
+                        case .success:
+                            // Retry with refreshed auth — pipe the retry stream into this continuation
+                            let retryStream = self.sendBtwMessage(content: content, conversationKey: conversationKey, isRetry: true)
+                            do {
+                                for try await text in retryStream {
+                                    if Task.isCancelled { break }
+                                    continuation.yield(text)
+                                }
+                                continuation.finish()
+                            } catch {
+                                continuation.finish(throwing: error)
+                            }
+                            return
+                        case .terminalFailure:
+                            continuation.finish()
+                            return
+                        case .transientFailure:
+                            throw URLError(.userAuthenticationRequired, userInfo: [
+                                NSLocalizedDescriptionKey: "Authentication failed — please try again."
+                            ])
+                        }
+                    }
+
+                    guard http.statusCode == 200 else {
+                        throw URLError(.badServerResponse, userInfo: [
+                            NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"
+                        ])
+                    }
+
+                    var currentEventType: String?
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+
+                        if line.hasPrefix("event: ") {
+                            currentEventType = String(line.dropFirst(7))
+                        } else if line.hasPrefix("data: ") {
+                            let jsonString = String(line.dropFirst(6))
+                            if let data = jsonString.data(using: .utf8),
+                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                if currentEventType == "btw_error" {
+                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
+                                    throw URLError(.badServerResponse, userInfo: [
+                                        NSLocalizedDescriptionKey: errorMessage
+                                    ])
+                                }
+                                if let text = parsed["text"] as? String {
+                                    continuation.yield(text)
+                                }
+                                if currentEventType == "btw_complete" {
+                                    break
+                                }
+                            }
+                            currentEventType = nil
+                        } else if line.isEmpty {
+                            currentEventType = nil
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -1857,7 +1981,7 @@ public final class HTTPTransport {
         return jsonCompatible
     }
 
-    func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
+    func sendConversationSeen(_ signal: ConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
         var request = URLRequest(url: url)
@@ -1901,7 +2025,7 @@ public final class HTTPTransport {
         }
     }
 
-    func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async throws {
+    func sendConversationUnread(_ signal: ConversationUnreadSignal, isRetry: Bool = false) async throws {
         guard let url = buildURL(for: .conversationsUnread) else {
             throw HTTPTransportError.invalidURL
         }
@@ -2208,6 +2332,7 @@ public final class HTTPTransport {
         struct ChannelReadinessSnapshot: Decodable {
             let channel: String
             let ready: Bool
+            let setupStatus: String?
             let channelHandle: String?
             let localChecks: [CheckResult]?
             let remoteChecks: [CheckResult]?
@@ -2371,6 +2496,7 @@ public final class HTTPTransport {
                 .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
             result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
                 ready: snapshot.ready,
+                setupStatus: snapshot.setupStatus,
                 channelHandle: snapshot.channelHandle,
                 checks: checks
             )
@@ -2525,7 +2651,7 @@ public final class HTTPTransport {
             }
 
             do {
-                let decoded = try decoder.decode(IPCTrustRulesListResponse.self, from: data)
+                let decoded = try decoder.decode(TrustRulesListResponse.self, from: data)
                 onMessage?(.trustRulesListResponse(decoded))
             } catch {
                 log.error("HTTPTransport: failed to decode trust rules response: \(error)")
@@ -2639,7 +2765,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
+                    SessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
@@ -2675,33 +2801,54 @@ public final class HTTPTransport {
             }
 
             // The runtime's /v1/messages endpoint returns messages with `content`
-            // (string) and `timestamp` (ISO 8601 string), but IPCHistoryResponseMessage
+            // (string) and `timestamp` (ISO 8601 string), but HistoryResponseMessage
             // expects `text` and `timestamp` as a Double (ms since epoch). Transform
             // the response to match the expected message format.
+            //
+            // The HTTP API also omits the `data` field from attachments when content
+            // was not requested (returning only metadata like `sizeBytes`), but
+            // UserMessageAttachment.data is non-optional. We backfill missing fields
+            // to avoid decode failures.
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let messages = json["messages"] as? [[String: Any]] {
 
                     let isoFormatter = ISO8601DateFormatter()
                     isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let fallbackFormatter = ISO8601DateFormatter()
 
-                    let transformed: [[String: Any]] = messages.map { msg in
+                    let transformed: [[String: Any]] = messages.compactMap { msg in
                         var m = msg
-                        // Rename `content` → `text`
-                        if let content = m.removeValue(forKey: "content") {
+                        // Rename `content` → `text`, defaulting to empty string if absent/null.
+                        let content = m.removeValue(forKey: "content")
+                        if let content, !(content is NSNull) {
                             m["text"] = content
+                        } else {
+                            m["text"] = ""
                         }
                         // Convert ISO 8601 timestamp string → Double (ms since epoch)
                         if let tsString = m["timestamp"] as? String {
                             if let date = isoFormatter.date(from: tsString) {
                                 m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                            } else if let date = fallbackFormatter.date(from: tsString) {
+                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
                             } else {
-                                // Fallback: try without fractional seconds
-                                let fallback = ISO8601DateFormatter()
-                                if let date = fallback.date(from: tsString) {
-                                    m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                                log.warning("Unparseable timestamp in history message, using epoch: \(tsString, privacy: .public)")
+                                m["timestamp"] = 0.0
+                            }
+                        } else if m["timestamp"] == nil || m["timestamp"] is NSNull {
+                            m["timestamp"] = 0.0
+                        }
+                        // Normalize attachments: the HTTP API omits `data` for large
+                        // attachments (returns sizeBytes instead), but
+                        // UserMessageAttachment.data is non-optional String.
+                        if var attachments = m["attachments"] as? [[String: Any]] {
+                            for i in attachments.indices {
+                                if attachments[i]["data"] == nil || attachments[i]["data"] is NSNull {
+                                    attachments[i]["data"] = ""
                                 }
                             }
+                            m["attachments"] = attachments
                         }
                         return m
                     }
@@ -2718,7 +2865,7 @@ public final class HTTPTransport {
                     onMessage?(historyResponse)
                 }
             } catch {
-                log.error("Failed to deserialize history response: \(error)")
+                log.error("Failed to deserialize history response for session \(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
@@ -3319,9 +3466,21 @@ public final class HTTPTransport {
                 }
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
+                onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: sessionId,
+                    code: .regenerateFailed,
+                    userMessage: "Unable to regenerate response. Try sending your message again.",
+                    retryable: true
+                )))
             }
         } catch {
             log.error("Regenerate error: \(error.localizedDescription)")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: sessionId,
+                code: .regenerateFailed,
+                userMessage: "Unable to regenerate response. Try sending your message again.",
+                retryable: true
+            )))
         }
     }
 
@@ -3434,7 +3593,7 @@ public final class HTTPTransport {
 
             if http.statusCode == 200 {
                 let patched = injectType("conversation_search_response", into: data)
-                let decoded = try decoder.decode(IPCConversationSearchResponse.self, from: patched)
+                let decoded = try decoder.decode(ConversationSearchResponse.self, from: patched)
                 onMessage?(.conversationSearchResponse(decoded))
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -3462,7 +3621,7 @@ public final class HTTPTransport {
 
             if http.statusCode == 200 {
                 let patched = injectType("message_content_response", into: data)
-                let decoded = try decoder.decode(IPCMessageContentResponse.self, from: patched)
+                let decoded = try decoder.decode(MessageContentResponse.self, from: patched)
                 onMessage?(.messageContentResponse(decoded))
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)

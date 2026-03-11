@@ -24,27 +24,27 @@ export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   openai: {
     name: "openai",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/openai",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   anthropic: {
     name: "anthropic",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/anthropic",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   gemini: {
     name: "gemini",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/gemini",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   fireworks: {
     name: "fireworks",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/fireworks",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   openrouter: {
     name: "openrouter",
     managed: true,
-    proxyPath: "/v1/runtime-proxy/openrouter",
+    proxyPath: "/v1/runtime-proxy/vertex",
   },
   vertex: {
     name: "vertex",

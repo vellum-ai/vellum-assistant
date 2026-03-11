@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { credentialKey, migrateKeys } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
@@ -46,7 +47,7 @@ export class CredentialBroker {
    * browserFill or consume call for this service/field pair, then discarded.
    */
   injectTransient(service: string, field: string, value: string): void {
-    const key = `credential:${service}:${field}`;
+    const key = credentialKey(service, field);
     this.transientValues.set(key, { value });
     log.info(
       { service, field },
@@ -59,6 +60,7 @@ export class CredentialBroker {
    * Returns a single-use token on success, or a denial reason on failure.
    */
   authorize(request: AuthorizeRequest): AuthorizeResult {
+    migrateKeys();
     const metadata = getCredentialMetadata(request.service, request.field);
     if (!metadata) {
       return {
@@ -123,7 +125,7 @@ export class CredentialBroker {
     }
 
     token.consumed = true;
-    const storageKey = `credential:${token.service}:${token.field}`;
+    const storageKey = credentialKey(token.service, token.field);
     // Check for transient value first (one-time send) — consume and return the value
     // directly since transient values are never persisted to secure storage.
     const transient = this.transientValues.get(storageKey);
@@ -211,7 +213,7 @@ export class CredentialBroker {
       }
     }
 
-    const storageKey = `credential:${request.service}:${request.field}`;
+    const storageKey = credentialKey(request.service, request.field);
     // Check transient values first (one-time send), then fall back to keychain.
     // Deletion is deferred until after a successful fill so the value survives
     // transient failures (e.g. stale element, page navigation, Playwright timeout).
@@ -299,7 +301,7 @@ export class CredentialBroker {
       };
     }
 
-    const storageKey = `credential:${request.service}:${request.field}`;
+    const storageKey = credentialKey(request.service, request.field);
     const transient = this.transientValues.get(storageKey);
     const value = transient?.value ?? getSecureKey(storageKey);
     if (!value) {

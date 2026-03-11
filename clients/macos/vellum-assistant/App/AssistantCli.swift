@@ -4,6 +4,24 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
 
+/// Thread-safe accumulator for collecting stderr output from a child process.
+private final class StderrAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+
+    func append(_ line: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        lines.append(line)
+    }
+
+    var content: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// Thread-safe one-shot flag for ensuring a continuation is resumed exactly once.
 private final class OnceFlag: @unchecked Sendable {
     private let lock = NSLock()
@@ -66,42 +84,6 @@ final class AssistantCli {
         vellumDir.appendingPathComponent("gateway.pid")
     }
 
-    // MARK: - Health Monitor State
-
-    /// Called after the daemon is restarted by the health monitor so the
-    /// app layer can trigger an immediate reconnect.
-    var onDaemonRestarted: (() -> Void)?
-
-    private var healthCheckTask: Task<Void, Never>?
-
-    /// Set to `true` during an intentional stop to prevent the health monitor
-    /// from restarting the daemon.
-    private var isStopping = false
-
-    /// Guards against multiple concurrent `restartDaemon()` calls — repeated
-    /// socket-not-found notifications can each spawn a Task that races to hatch.
-    private var isRestarting = false
-
-    private var consecutiveCrashes = 0
-    private var lastLaunchTime: Date?
-
-    /// If the daemon exits within this many seconds of being launched it
-    /// counts as a crash for backoff purposes.
-    private static let crashThreshold: TimeInterval = 10.0
-
-    /// Enter cooldown mode after this many consecutive rapid crashes.
-    private static let maxConsecutiveCrashes = 5
-
-    /// How often the health monitor checks whether the daemon is alive.
-    private static let healthCheckIntervalNanos: UInt64 = 5_000_000_000 // 5 s
-
-    /// Maximum backoff delay between restart attempts.
-    private static let maxBackoffSeconds: Double = 30.0
-
-    /// After exhausting rapid-restart attempts, wait this long before
-    /// resetting the crash counter and trying again.
-    private static let cooldownSeconds: Double = 60.0
-
     // MARK: - Public API
 
     /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
@@ -139,7 +121,6 @@ final class AssistantCli {
             throw CLIError.executionFailed(stderr)
         }
 
-        lastLaunchTime = Date()
         log.info("CLI hatch completed successfully")
     }
 
@@ -158,9 +139,6 @@ final class AssistantCli {
     /// CLI stdout/stderr are streamed to `os.Logger` so progress is visible
     /// in Console.app.
     func retire(name: String) async throws {
-        isStopping = true
-        stopMonitoring()
-
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping retire (dev mode)")
             throw CLIError.binaryNotFound
@@ -264,9 +242,6 @@ final class AssistantCli {
     /// Non-destructive stop: kills the daemon process via the CLI without
     /// deleting ~/.vellum or deregistering the assistant.
     func stop() {
-        isStopping = true
-        stopMonitoring()
-
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping stop (dev mode)")
             // Still try to clean up via PID file in dev mode
@@ -308,46 +283,6 @@ final class AssistantCli {
         }
     }
 
-    /// Start a periodic health check that restarts the daemon if it dies.
-    /// No-op in dev mode (no bundled CLI binary) or when the assistant
-    /// is not registered in the lock file.
-    func startMonitoring() {
-        guard cliBinaryURL != nil else { return }
-
-        // Don't start monitoring if the assistant isn't in the lock file
-        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        if let assistantId, !isAssistantInLockFile(assistantId: assistantId) {
-            log.info("Assistant '\(assistantId, privacy: .private)' not in lock file — skipping monitor start")
-            return
-        }
-
-        isStopping = false
-        consecutiveCrashes = 0
-        stopMonitoring()
-
-        healthCheckTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: Self.healthCheckIntervalNanos)
-                guard let self, !Task.isCancelled, !self.isStopping else { return }
-
-                if !self.isDaemonAlive() {
-                    log.warning("Daemon process not running — attempting restart")
-                    await self.restartDaemon()
-                } else if !self.isGatewayAlive() {
-                    log.warning("Gateway process not running (daemon alive) — attempting restart")
-                    await self.restartDaemon(daemonOnly: false, restart: true)
-                }
-            }
-        }
-
-    }
-
-    /// Stop the health monitor.
-    func stopMonitoring() {
-        healthCheckTask?.cancel()
-        healthCheckTask = nil
-        isRestarting = false
-    }
 
     /// Wake a specific assistant's daemon via the CLI.
     func wake(name: String) async throws {
@@ -484,6 +419,9 @@ final class AssistantCli {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        // Accumulate stderr so the error message includes the actual failure reason.
+        let stderrAccumulator = StderrAccumulator()
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else {
@@ -502,6 +440,7 @@ final class AssistantCli {
             }
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                stderrAccumulator.append(trimmed)
                 onOutput(trimmed)
             }
         }
@@ -528,8 +467,12 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI remote hatch failed with exit code \(status)")
-            throw CLIError.executionFailed("Hatch process exited with code \(status)")
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Hatch process exited with code \(status)"
+                : stderr
+            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
+            throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI remote hatch completed successfully")
@@ -570,6 +513,8 @@ final class AssistantCli {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        let stderrAccumulator = StderrAccumulator()
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
@@ -581,7 +526,10 @@ final class AssistantCli {
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { onOutput(trimmed) }
+            if !trimmed.isEmpty {
+                stderrAccumulator.append(trimmed)
+                onOutput(trimmed)
+            }
         }
 
         // proc.run() is called INSIDE the continuation to avoid a race
@@ -603,106 +551,18 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI pair failed with exit code \(status)")
-            throw CLIError.executionFailed("Pair process exited with code \(status)")
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Pair process exited with code \(status)"
+                : stderr
+            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
+            throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI pair completed successfully")
     }
 
     // MARK: - Private Helpers
-
-    /// Returns `true` if the given assistant ID is present in the lockfile.
-    private func isAssistantInLockFile(assistantId: String) -> Bool {
-        guard let json = LockfilePaths.read(),
-              let assistants = json["assistants"] as? [[String: Any]] else {
-            return false
-        }
-        return assistants.contains { ($0["assistantId"] as? String) == assistantId }
-    }
-
-    /// Returns `true` if the gateway process is alive based on the PID file.
-    /// Returns `true` when the PID file doesn't exist — the gateway may not
-    /// have been started yet (e.g. dev mode) and absence != crash.
-    private func isGatewayAlive() -> Bool {
-        guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else {
-            return true
-        }
-        let pidData: Data
-        do {
-            pidData = try Data(contentsOf: gatewayPidFileURL)
-        } catch {
-            return true
-        }
-        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = pid_t(pidString) else {
-            return true
-        }
-        return kill(pid, 0) == 0
-    }
-
-    /// Returns `true` if the daemon process is alive based on the PID file.
-    private func isDaemonAlive() -> Bool {
-        let pidData: Data
-        do {
-            pidData = try Data(contentsOf: pidFileURL)
-        } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .private): \(error)")
-            return false
-        }
-        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = pid_t(pidString) else {
-            return false
-        }
-        return kill(pid, 0) == 0
-    }
-
-    private func restartDaemon(daemonOnly: Bool = true, restart: Bool = false) async {
-        guard cliBinaryURL != nil else { return }
-        guard !isRestarting else { return }
-        isRestarting = true
-        defer { isRestarting = false }
-
-        // Only restart if the assistant is still registered in the lock file
-        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        guard let assistantId, isAssistantInLockFile(assistantId: assistantId) else {
-            log.info("Assistant not found in lock file — skipping restart and stopping monitor")
-            stopMonitoring()
-            return
-        }
-
-        // Track consecutive rapid crashes for backoff
-        if let lastLaunch = lastLaunchTime,
-           Date().timeIntervalSince(lastLaunch) < Self.crashThreshold {
-            consecutiveCrashes += 1
-        } else {
-            consecutiveCrashes = 0
-        }
-
-        // After too many rapid crashes, enter cooldown instead of giving up
-        if consecutiveCrashes >= Self.maxConsecutiveCrashes {
-            log.warning("Daemon crashed \(Self.maxConsecutiveCrashes) times in quick succession — entering \(Self.cooldownSeconds)s cooldown")
-            try? await Task.sleep(nanoseconds: UInt64(Self.cooldownSeconds * 1_000_000_000))
-            guard !isStopping, !Task.isCancelled else { return }
-            consecutiveCrashes = 0
-        }
-
-        // Exponential backoff: 1 s, 2 s, 4 s, ...
-        if consecutiveCrashes > 0 {
-            let backoff = min(pow(2.0, Double(consecutiveCrashes - 1)), Self.maxBackoffSeconds)
-            log.info("Backoff \(backoff)s before restart attempt (consecutive crash #\(self.consecutiveCrashes))")
-            try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-            guard !isStopping, !Task.isCancelled else { return }
-        }
-
-        do {
-            try await hatch(name: assistantId, daemonOnly: daemonOnly, restart: restart)
-            log.info("Daemon restarted successfully via CLI")
-            onDaemonRestarted?()
-        } catch {
-            log.error("Failed to restart daemon: \(error.localizedDescription)")
-        }
-    }
 
     /// Kill the gateway directly via PID file — fallback when CLI binary is unavailable.
     private func killGatewayViaPIDFile() {

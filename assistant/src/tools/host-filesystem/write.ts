@@ -27,20 +27,15 @@ class HostFileWriteTool implements Tool {
             type: "string",
             description: "The content to write to the file",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of why this file is being written, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
-        required: ["path", "content", "reason"],
+        required: ["path", "content"],
       },
     };
   }
 
   async execute(
     input: Record<string, unknown>,
-    _context: ToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -56,6 +51,20 @@ class HostFileWriteTool implements Tool {
         content: "Error: content is required and must be a string",
         isError: true,
       };
+    }
+
+    // Proxy to connected client for execution on the user's machine
+    // when a capable client is available (managed/cloud-hosted mode).
+    if (context.hostFileProxy?.isAvailable()) {
+      return context.hostFileProxy.request(
+        {
+          operation: "write",
+          path: rawPath,
+          content: fileContent,
+        },
+        context.sessionId,
+        context.signal,
+      );
     }
 
     const ops = new FileSystemOps(hostPolicy);

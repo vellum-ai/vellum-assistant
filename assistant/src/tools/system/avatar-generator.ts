@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { routedGenerateAvatar } from "../../media/avatar-router.js";
-import { ManagedAvatarError } from "../../media/avatar-types.js";
+import { generateAvatar } from "../../media/avatar-router.js";
 import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -41,11 +40,6 @@ export const setAvatarTool: Tool = {
               "A text description of the desired avatar appearance, " +
               'e.g. "a friendly purple cat with green eyes wearing a tiny hat".',
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["description"],
       },
@@ -75,7 +69,7 @@ export const setAvatarTool: Tool = {
         "Circular or rounded composition filling the canvas. " +
         "Subtle background color (not white or transparent).";
 
-      const result = await routedGenerateAvatar(prompt);
+      const result = await generateAvatar(prompt);
       if (!result.imageBase64) {
         return {
           content: "Error: No image data returned. Please try again.",
@@ -92,14 +86,7 @@ export const setAvatarTool: Tool = {
       writeFileSync(tmpPath, pngBuffer);
       renameSync(tmpPath, avatarPath);
 
-      log.info(
-        {
-          avatarPath,
-          pathUsed: result.pathUsed,
-          correlationId: result.correlationId,
-        },
-        "Avatar saved successfully",
-      );
+      log.info({ avatarPath }, "Avatar saved successfully");
 
       // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
 
@@ -108,40 +95,6 @@ export const setAvatarTool: Tool = {
         isError: false,
       };
     } catch (error) {
-      if (error instanceof ManagedAvatarError) {
-        if (error.statusCode === 429) {
-          log.warn(
-            { correlationId: error.correlationId },
-            "Avatar generation rate limited",
-          );
-          return {
-            content:
-              "Avatar generation is rate limited. Please wait and try again.",
-            isError: true,
-          };
-        }
-        if (error.statusCode === 503) {
-          log.warn(
-            { correlationId: error.correlationId },
-            "Avatar generation service unavailable",
-          );
-          return {
-            content: "Avatar generation service is temporarily unavailable.",
-            isError: true,
-          };
-        }
-        const detail =
-          error.message || "Avatar generation failed. Please try again.";
-        log.error(
-          { error: detail, correlationId: error.correlationId },
-          "Managed avatar generation failed",
-        );
-        return {
-          content: `Avatar generation failed: ${detail}`,
-          isError: true,
-        };
-      }
-
       const message = mapGeminiError(error);
       log.error({ error: message }, "Avatar generation failed");
       return {

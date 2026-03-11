@@ -178,7 +178,7 @@ private enum SegmentGroup {
     case selectableRun([MarkdownSegment])
     case heading(level: Int, text: String)
     case codeBlock(language: String?, code: String)
-    case list(items: [ListItem], ordered: Bool)
+    case list(items: [MarkdownListItem], ordered: Bool)
     case table(headers: [String], rows: [[String]])
     case image(alt: String, url: String)
     case horizontalRule

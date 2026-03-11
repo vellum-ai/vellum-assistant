@@ -138,7 +138,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
 
-        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertFalse(seenSignals.isEmpty, "Seen signal should be emitted on new message arrival and stream completion")
         XCTAssertEqual(seenSignals.last?.conversationId, "session-realtime")
     }
@@ -251,7 +251,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         threadManager.selectThread(id: firstId)
         XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
 
-        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertFalse(seenSignals.isEmpty, "selectThread should emit a seen signal to the daemon")
         XCTAssertEqual(seenSignals.last?.conversationId, "session-first")
     }
@@ -275,7 +275,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
                        "markConversationSeen should clear the unseen flag")
         XCTAssertEqual(threadManager.unseenVisibleConversationCount, 0)
 
-        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertFalse(seenSignals.isEmpty, "markConversationSeen should emit a seen signal to the daemon")
         XCTAssertEqual(seenSignals.last?.conversationId, "session-mark-seen")
     }
@@ -299,7 +299,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage,
                       "markConversationUnread should set the unseen flag")
 
-        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertEqual(unreadSignals.count, 1, "markConversationUnread should emit a single unread signal")
         XCTAssertEqual(unreadSignals.last?.conversationId, "session-mark-unread")
     }
@@ -319,7 +319,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         threadManager.markConversationUnread(threadId: threadId)
 
-        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertTrue(unreadSignals.isEmpty, "Already-unread threads should not emit duplicate unread signals")
         XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage)
     }
@@ -351,7 +351,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage,
                       "Live assistant replies should allow unread even before hydration backfills timestamps")
 
-        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertEqual(unreadSignals.count, 1)
         XCTAssertEqual(unreadSignals.last?.conversationId, "session-live-unread")
     }
@@ -401,7 +401,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         // Fail only unread signals so markConversationUnread triggers rollback,
         // while allowing seen signals from commitPendingSeenSignals to succeed.
         daemonClient.sendOverride = { [weak self] message in
-            if message is IPCConversationUnreadSignal {
+            if message is ConversationUnreadSignal {
                 throw NSError(domain: "ThreadManagerUnseenStateTests", code: 1, userInfo: [
                     NSLocalizedDescriptionKey: "offline"
                 ])
@@ -418,7 +418,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         // so committing should emit a seen signal for the session.
         threadManager.commitPendingSeenSignals()
 
-        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertEqual(seenSignals.map(\.conversationId), ["session-requeue"])
     }
 
@@ -437,7 +437,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         threadManager.markConversationUnread(threadId: threadId)
 
-        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertTrue(unreadSignals.isEmpty, "Threads without assistant replies should not emit unread signals")
         XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
     }
@@ -549,10 +549,10 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         threadManager.commitPendingSeenSignals()
         waitForPropagation()
 
-        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        let unreadSignals = sentMessages.compactMap { $0 as? ConversationUnreadSignal }
         XCTAssertEqual(unreadSignals.map(\.conversationId), ["session-first"])
 
-        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertEqual(seenSignals.map(\.conversationId), ["session-second"])
 
         XCTAssertTrue(threadManager.threads.contains(where: {
@@ -579,7 +579,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "chunk1", sessionId: "session-streaming")))
         waitForPropagation()
 
-        let signalsAfterFirstDelta = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let signalsAfterFirstDelta = sentMessages.compactMap { $0 as? ConversationSeenSignal }
             .filter { $0.conversationId == "session-streaming" }
         let countAfterFirst = signalsAfterFirstDelta.count
 
@@ -589,7 +589,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " chunk4", sessionId: "session-streaming")))
         waitForPropagation()
 
-        let signalsAfterMoreDeltas = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let signalsAfterMoreDeltas = sentMessages.compactMap { $0 as? ConversationSeenSignal }
             .filter { $0.conversationId == "session-streaming" }
         XCTAssertEqual(signalsAfterMoreDeltas.count, countAfterFirst,
                        "Mid-stream text deltas should not emit additional seen signals (was O(n), should be O(1))")
@@ -598,7 +598,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         vm.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "session-streaming")))
         waitForPropagation()
 
-        let signalsAfterComplete = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let signalsAfterComplete = sentMessages.compactMap { $0 as? ConversationSeenSignal }
             .filter { $0.conversationId == "session-streaming" }
         XCTAssertEqual(signalsAfterComplete.count, countAfterFirst + 1,
                        "Stream completion should emit exactly one additional seen signal")
@@ -623,7 +623,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
 
-        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        let seenSignals = sentMessages.compactMap { $0 as? ConversationSeenSignal }
         XCTAssertEqual(seenSignals.last?.conversationId, "session-active")
     }
 

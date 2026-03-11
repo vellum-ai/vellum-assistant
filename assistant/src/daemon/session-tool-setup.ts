@@ -31,9 +31,14 @@ import {
   getAllToolDefinitions,
   getMcpToolDefinitions,
 } from "../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../tools/schema-transforms.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
+  ToolContext,
   ToolExecutionResult,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
@@ -100,6 +105,10 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   trustContext?: TrustContext;
   /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
+  /** Optional proxy for delegating host_bash execution to a connected client. */
+  hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
+  hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -153,7 +162,9 @@ export function createToolExecutor(
       markDoordashStepInProgress(ctx, input);
     }
 
-    const result = await executor.execute(name, input, {
+    // Build the context object shared by both the skill_execute interception
+    // path and the regular executor path.
+    const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
       sessionId: ctx.conversationId,
       conversationId: ctx.conversationId,
@@ -178,6 +189,8 @@ export function createToolExecutor(
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
+      hostBashProxy: ctx.hostBashProxy,
+      hostFileProxy: ctx.hostFileProxy,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
@@ -318,7 +331,50 @@ export function createToolExecutor(
             : ("deny" as const),
         };
       },
-    });
+    };
+
+    // Intercept skill_execute: extract the real tool name and input, then
+    // route through the full executor pipeline so the underlying tool's
+    // risk level, permission checks, hooks, and lifecycle events all fire
+    // with the real tool name.
+    if (name === "skill_execute") {
+      const toolName = typeof input.tool === "string" ? input.tool : "";
+      const rawToolInput =
+        input.input != null && typeof input.input === "object"
+          ? (input.input as Record<string, unknown>)
+          : {};
+
+      // Clone to avoid mutating shared input objects
+      const toolInput = { ...rawToolInput };
+
+      // Propagate outer reason when inner input lacks a valid one
+      if (
+        typeof input.reason === "string" &&
+        input.reason &&
+        (typeof toolInput.reason !== "string" || toolInput.reason.length === 0)
+      ) {
+        toolInput.reason = input.reason;
+      }
+
+      if (!toolName) {
+        return {
+          content:
+            'Error: skill_execute requires a "tool" parameter with the tool name',
+          isError: true,
+        };
+      }
+
+      const result = await executor.execute(toolName, toolInput, toolContext);
+
+      runPostExecutionSideEffects(toolName, toolInput, result, {
+        ctx,
+        broadcastToAllClients,
+      });
+
+      return result;
+    }
+
+    const result = await executor.execute(name, input, toolContext);
 
     runPostExecutionSideEffects(name, input, result, {
       ctx,
@@ -489,6 +545,63 @@ export interface SkillProjectionContext {
   allowedToolNames?: Set<string>;
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
+  /** Channel capabilities — read lazily per turn for conditional tool filtering. */
+  readonly channelCapabilities?: {
+    channel: string;
+    supportsDynamicUi: boolean;
+  };
+  /** True when no client is connected (HTTP-only). */
+  readonly hasNoClient?: boolean;
+  /** True when the conversation has user-uploaded attachments. */
+  hasAttachments?: boolean;
+}
+
+// ── Conditional tool sets ────────────────────────────────────────────
+
+const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
+const HOST_TOOL_NAMES = new Set([
+  "host_file_read",
+  "host_file_write",
+  "host_file_edit",
+  "host_bash",
+]);
+const ASSET_TOOL_NAMES = new Set(["asset_search", "asset_materialize"]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set([
+  "app_open",
+  "computer_use_request_control",
+]);
+const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
+
+/**
+ * Determine whether a tool should be included in the LLM tool definitions
+ * for the current turn based on session context. Tools not active for the
+ * current context are omitted from the definitions sent to the provider,
+ * reducing noise and preventing the model from attempting calls that would
+ * fail.
+ */
+export function isToolActiveForContext(
+  name: string,
+  ctx: SkillProjectionContext,
+): boolean {
+  if (UI_SURFACE_TOOL_NAMES.has(name)) {
+    return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
+  }
+  if (HOST_TOOL_NAMES.has(name)) {
+    // Host tools require a connected client — without one, there is no human
+    // to approve execution and the guardian auto-approve path would allow
+    // unchecked host command execution on the daemon host.
+    return !ctx.hasNoClient;
+  }
+  if (ASSET_TOOL_NAMES.has(name)) {
+    return ctx.hasAttachments ?? false;
+  }
+  if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
+    return !ctx.hasNoClient;
+  }
+  if (PLATFORM_TOOL_NAMES.has(name)) {
+    return process.platform === "darwin" && !ctx.hasNoClient;
+  }
+  return true;
 }
 
 /**
@@ -532,17 +645,25 @@ export function createResolveToolsCallback(
       return [];
     }
 
+    // Filter core tools based on current session context so that tools
+    // irrelevant to this turn (e.g. UI tools when no client is connected)
+    // are omitted from the definitions sent to the provider.
+    const filteredCoreDefs = coreToolDefs.filter((d) =>
+      isToolActiveForContext(d.name, ctx),
+    );
+
     // Re-read MCP tool definitions from the registry each turn so sessions
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
+        coreCount: filteredCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...coreToolDefs, ...currentMcpDefs];
+    const allBaseDefs = [...filteredCoreDefs, ...currentMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -558,6 +679,6 @@ export function createResolveToolsCallback(
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return [...allBaseDefs, ...projection.toolDefinitions];
+    return injectReasonField(allBaseDefs, REASON_SKIP_SET);
   };
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -44,15 +45,16 @@ import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { mintCredentialPair } from "../runtime/auth/credential-service.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
-  mintCliEdgeToken,
   mintPairingBearerToken,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { migrateKeys } from "../security/credential-key.js";
 import { watchSessions } from "../tools/watch/watch-state.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -135,6 +137,11 @@ export async function runDaemon(): Promise<void> {
 
     ensureDataDir();
 
+    // Migrate legacy colon-delimited credential keys to the new
+    // slash-delimited format. Must run after ensureDataDir() so the
+    // secure key store is available, and before any credential reads.
+    migrateKeys();
+
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
     // protected directory.
@@ -175,11 +182,26 @@ export async function runDaemon(): Promise<void> {
     }
 
     if (guardianPrincipalId) {
+      const cliDeviceId = "daemon-cli";
+      const hashedDeviceId = createHash("sha256")
+        .update(cliDeviceId)
+        .digest("hex");
+      const credentials = mintCredentialPair({
+        platform: "cli",
+        deviceId: cliDeviceId,
+        guardianPrincipalId,
+        hashedDeviceId,
+      });
+
+      // DEPRECATED: The http-token file is deprecated. Readers will be
+      // migrated to use the credential store instead. This write is kept
+      // for backward compatibility until all consumers are updated.
       const httpTokenPath = join(getRootDir(), "http-token");
-      const bearerToken = mintCliEdgeToken(guardianPrincipalId);
-      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+      writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);
-      log.info("Daemon startup: CLI edge token written");
+      log.info(
+        "Daemon startup: CLI edge token written to credential store and http-token",
+      );
     } else {
       log.warn("No guardian principal available — CLI edge token not written");
     }

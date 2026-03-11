@@ -180,6 +180,8 @@ export interface MessageComplete {
   type: "message_complete";
   sessionId?: string;
   attachments?: UserMessageAttachment[];
+  /** Database ID of the persisted assistant message, if any. */
+  messageId?: string;
 }
 
 export interface ErrorMessage {

@@ -169,6 +169,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: () => false,
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -242,6 +244,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: () => false,
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -311,6 +315,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: (requestId: string) =>
         requestId === "tool-approval-live",
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -384,6 +390,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "tool-req-code-1",
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -453,6 +461,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "pending-reject-1",
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -516,6 +526,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "pending-1",
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {

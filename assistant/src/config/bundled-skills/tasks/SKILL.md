@@ -2,7 +2,10 @@
 name: tasks
 description: Two-layer task system with reusable templates and a prioritized work queue
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"✅","vellum":{"display-name":"Tasks"}}
+metadata:
+  emoji: "✅"
+  vellum:
+    display-name: "Tasks"
 ---
 
 Two-layer task system: **task templates** (reusable definitions with input placeholders) and **work items** (instances in the Task Queue with priority tiers and status tracking).

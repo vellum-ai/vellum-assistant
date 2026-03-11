@@ -34,7 +34,8 @@ import * as externalConversationStore from "../../memory/external-conversation-s
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
-import type { HostBashResponse } from "../message-types/host-bash.js";
+import { HostBashProxy } from "../host-bash-proxy.js";
+import { HostFileProxy } from "../host-file-proxy.js";
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -152,6 +153,18 @@ export function makeEventSender(params: {
         conversationId,
         kind: "secret",
       });
+    } else if (event.type === "host_bash_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
+      });
+    } else if (event.type === "host_file_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_file",
+      });
     }
 
     ctx.send(event);
@@ -176,10 +189,7 @@ export function handleConfirmationResponse(
         undefined,
         { source: "button" },
       );
-      syncCanonicalStatusFromConfirmationDecision(
-        msg.requestId,
-        msg.decision,
-      );
+      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
@@ -194,10 +204,7 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
-      syncCanonicalStatusFromConfirmationDecision(
-        msg.requestId,
-        msg.decision,
-      );
+      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
@@ -241,29 +248,6 @@ export function handleSecretResponse(
   log.warn(
     { requestId: msg.requestId },
     "No session found with pending secret prompt for requestId",
-  );
-}
-
-export function handleHostBashResponse(
-  msg: HostBashResponse,
-  ctx: HandlerContext,
-): void {
-  for (const [sessionId, session] of ctx.sessions) {
-    if (session.hasPendingHostBash(msg.requestId)) {
-      ctx.touchSession(sessionId);
-      session.resolveHostBash(msg.requestId, {
-        stdout: msg.stdout,
-        stderr: msg.stderr,
-        exitCode: msg.exitCode,
-        timedOut: msg.timedOut,
-      });
-      pendingInteractions.resolve(msg.requestId);
-      return;
-    }
-  }
-  log.warn(
-    { requestId: msg.requestId },
-    "No session found with pending host bash request for requestId",
   );
 }
 
@@ -425,7 +409,6 @@ export async function handleSessionCreate(
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });
-    session.updateClient(sendEvent, false);
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
@@ -436,6 +419,20 @@ export async function handleSessionCreate(
       userMessageInterface: transportInterface,
       assistantMessageInterface: transportInterface,
     });
+    // Only create the host bash proxy for desktop client interfaces that can
+    // execute commands on the user's machine. Set before updateClient so
+    // updateClient's call to hostBashProxy.updateSender targets the new proxy.
+    if (transportInterface === "macos" || transportInterface === "ios") {
+      const proxy = new HostBashProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostBashProxy(proxy);
+      const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostFileProxy(fileProxy);
+    }
+    session.updateClient(sendEvent, false);
     session
       .processMessage(msg.initialMessage, [], sendEvent, requestId)
       .catch((err) => {
@@ -780,4 +777,3 @@ export function handleReorderThreads(
     })),
   );
 }
-

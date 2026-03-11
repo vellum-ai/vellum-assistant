@@ -188,6 +188,9 @@ build_binaries() {
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
+    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}"
     # Copy WASM assets (not bundled by bun --compile)
@@ -356,6 +359,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     local_daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
+    fi
+    if [ -n "${COMMIT_SHA:-}" ]; then
+        local_daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
@@ -555,6 +561,11 @@ for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
         fi
     fi
 done
+
+# Default VELLUM_ASSISTANT_PLATFORM_URL for `run` builds (local dev against dev platform)
+if [ "$CMD" = "run" ] && [ -z "${VELLUM_ASSISTANT_PLATFORM_URL:-}" ]; then
+    export VELLUM_ASSISTANT_PLATFORM_URL="https://dev-assistant.vellum.ai"
+fi
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 LSE_ENVIRONMENT_PLIST=""
@@ -947,12 +958,22 @@ if [ "$CMD" = "run" ]; then
     # bundle ID and show it in System Settings > Privacy & Security.
     open "$APP_DIR"
 
+    # Stream unified logs from the app in the background so errors are
+    # visible in the same terminal. Only start once (skip nested rebuilds).
+    if [ -z "${VELLUM_NO_WATCH:-}" ]; then
+        LOG_STREAM_PID=""
+        echo ""
+        echo "Streaming app logs (subsystem: $BUNDLE_ID)..."
+        log stream --predicate "subsystem == \"$BUNDLE_ID\"" --level debug &
+        LOG_STREAM_PID=$!
+    fi
+
     # Watch for file changes and auto-rebuild+relaunch (skip in nested invocations)
     if [ -z "${VELLUM_NO_WATCH:-}" ]; then
         WATCH_MARKER=$(mktemp)
         WATCH_MANIFEST=$(mktemp)
         touch "$WATCH_MARKER"
-        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"' EXIT
+        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"; [ -n "${LOG_STREAM_PID:-}" ] && kill "$LOG_STREAM_PID" 2>/dev/null || true' EXIT
 
         WATCH_DIRS=("$SCRIPT_DIR/vellum-assistant" "$SCRIPT_DIR/vellum-assistant-app")
         WATCH_FILES=("$SCRIPT_DIR/../Package.swift")

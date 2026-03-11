@@ -169,6 +169,10 @@ export interface ToolContext {
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
   toolUseId?: string;
+  /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
+  hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
+  hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
 }
 
 export interface DiffInfo {

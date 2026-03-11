@@ -17,7 +17,7 @@ extension HTTPTransport {
             } else if let msg = message as? SubagentAbortMessage {
                 Task { await self.handleSubagentAbort(subagentId: msg.subagentId) }
                 return true
-            } else if let msg = message as? IPCSubagentMessageRequest {
+            } else if let msg = message as? SubagentMessageRequest {
                 Task { await self.handleSubagentMessage(subagentId: msg.subagentId, content: msg.content) }
                 return true
             }
@@ -55,7 +55,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCSubagentDetailResponse.self, from: data)
+            let decoded = try decoder.decode(SubagentDetailResponse.self, from: data)
             onMessage?(.subagentDetailResponse(decoded))
         } catch {
             log.error("Fetch subagent detail error: \(error.localizedDescription)")

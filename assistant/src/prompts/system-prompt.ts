@@ -349,7 +349,7 @@ function buildInChatConfigurationSection(): string {
     "",
     "### Avatar Customisation",
     "",
-    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image and updates all connected clients automatically. If managed avatar generation is configured, no local API key is needed.',
+    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image and updates all connected clients automatically.',
     "",
     "**After generating a new avatar**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
     "```",
@@ -402,9 +402,9 @@ export function buildPhoneCallsRoutingSection(): string {
     "### Trigger phrases",
     '- "Set up phone calling" / "enable calls"',
     '- "Make a call to..." / "call [number/business]"',
-    '- "Configure Twilio" (in context of voice calls)',
+    '- "Configure Twilio" (for voice calls)',
     '- "Can you make phone calls?"',
-    '- "Set up my phone number" (for calling)',
+    '- "Set up my phone number"',
     "",
     "### What it does",
     "The skill handles the full phone calling lifecycle:",
@@ -568,7 +568,7 @@ export function buildSwarmGuidanceSection(): string {
   return [
     "## Parallel Task Orchestration",
     "",
-    'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+    'When a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"), load the `orchestration` skill using `skill_load` first, then use `swarm_delegate` to decompose and run them in parallel. For single-focus tasks, work directly — do not decompose them into a swarm.',
   ].join("\n");
 }
 
@@ -635,10 +635,14 @@ function buildIntegrationSection(): string {
   const raw = loadRawConfig();
   const lines = ["## Connected Services", ""];
   for (const cred of oauthCreds) {
-    const acctInfo = getNestedValue(
+    const acctInfo = (getNestedValue(
       raw,
-      `integrations.accountInfo.${cred.service}`,
-    ) as string | undefined;
+      `integrations.${cred.service}.accountInfo`,
+    ) ??
+      // Fallback: legacy config path used before the namespace migration
+      getNestedValue(raw, `integrations.accountInfo.${cred.service}`)) as
+      | string
+      | undefined;
     const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
     lines.push(`- **${cred.service}**: ${state}`);
   }
@@ -652,7 +656,7 @@ function buildMemoryPersistenceSection(): string {
     "",
     "Your memory does not survive session restarts. If you want to remember something, **save it**.",
     "",
-    "- Use `memory_save` for facts, preferences, learnings, and anything worth recalling later.",
+    '- Use `memory_manage` with `op: "save"` for facts, preferences, learnings, and anything worth recalling later.',
     "- Update workspace files (USER.md, SOUL.md) for profile and personality changes.",
     '- When someone says "remember this," save it immediately — don\'t rely on keeping it in context.',
     "- When you make a mistake, save the lesson so future-you doesn't repeat it.",
@@ -697,7 +701,7 @@ function buildLearningMemorySection(): string {
     "",
     "When you make a mistake, hit a dead end, or discover something non-obvious, save it to memory so you don't repeat it.",
     "",
-    'Use `memory_save` with `kind: "learning"` for:',
+    'Use `memory_manage` with `op: "save", kind: "learning"` for:',
     "- **Mistakes and corrections** — wrong assumptions, failed approaches, gotchas you ran into",
     "- **Discoveries** — undocumented behaviors, surprising API quirks, things that weren't obvious",
     "- **Working solutions** — the approach that actually worked after trial and error",
@@ -706,8 +710,8 @@ function buildLearningMemorySection(): string {
     "The statement should capture both what happened and the takeaway. Write it as advice to your future self.",
     "",
     "Examples:",
-    '- `memory_save({ kind: "learning", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
-    '- `memory_save({ kind: "learning", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
+    '- `memory_manage({ op: "save", kind: "learning", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
+    '- `memory_manage({ op: "save", kind: "learning", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
     "",
     "Don't overthink it. If you catch yourself thinking \"I'll remember that for next time,\" save it.",
   ].join("\n");
@@ -751,6 +755,8 @@ function buildPostToolResponseSection(): string {
     "  → Call document_create",
     "",
     "For permission-gated tools, send one short context sentence immediately before the tool call so the user can make an informed allow/deny decision.",
+    "",
+    '**Reason field:** For every tool call, include a `reason` parameter — a brief, non-technical explanation of what you are doing and why. This is shown to the user as a live status update. Use simple language a non-technical person would understand (e.g. "Checking your project settings" not "file_read config.ts").',
   ].join("\n");
 }
 
@@ -922,14 +928,6 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
-  if (activeSkillIds.has("twitter")) {
-    lines.push(
-      "",
-      "### X (Twitter) Skill",
-      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
-    );
-  }
-
   if (activeSkillIds.has("messaging")) {
     lines.push(
       "",
@@ -995,7 +993,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
 
   return [
     "## Available Skills",
-    "The following skills are available. Before executing one, call the `skill_load` tool with its `id` to load the full instructions.",
+    "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
     "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),

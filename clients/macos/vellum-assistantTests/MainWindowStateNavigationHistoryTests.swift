@@ -26,8 +26,8 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
 
     func testRepeatedShowAppsPanelNoDuplicates() {
         let state = MainWindowState(hasAPIKey: false)
-        state.showAppsPanel()
-        state.showAppsPanel()
+        state.showPanel(.apps)
+        state.showPanel(.apps)
 
         // Second call is from == to, so only 1 entry in back stack
         XCTAssertEqual(state.navigationHistory.backStack.count, 1)

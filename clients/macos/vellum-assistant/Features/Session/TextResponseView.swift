@@ -221,11 +221,7 @@ struct TextResponseView: View {
     // MARK: - Assistant Avatar
 
     private var assistantAvatar: some View {
-        Image(nsImage: appearance.chatAvatarImage)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 24, height: 24)
-            .clipShape(Circle())
+        VAvatarImage(image: appearance.chatAvatarImage, size: 24)
     }
 
     // MARK: - Markdown
@@ -307,11 +303,7 @@ struct ConversationBubble: View {
     }
 
     private var assistantAvatar: some View {
-        Image(nsImage: appearance.chatAvatarImage)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 24, height: 24)
-            .clipShape(Circle())
+        VAvatarImage(image: appearance.chatAvatarImage, size: 24)
     }
 }
 

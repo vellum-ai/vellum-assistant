@@ -320,11 +320,6 @@ extension AppDelegate {
         menu.addItem(galleryItem)
         #endif
 
-        let exportLogsItem = NSMenuItem(title: "Export Logs...", action: #selector(exportAssistantLogs), keyEquivalent: "")
-        exportLogsItem.target = self
-        exportLogsItem.image = VIcon.fileArchive.nsImage
-        menu.addItem(exportLogsItem)
-
         let sendLogsItem = NSMenuItem(title: "Send Logs to Vellum", action: #selector(sendLogsToSentry), keyEquivalent: "")
         sendLogsItem.target = self
         sendLogsItem.image = VIcon.upload.nsImage
@@ -519,10 +514,6 @@ extension AppDelegate {
                 }
             }
         }
-    }
-
-    @objc public func exportAssistantLogs() {
-        LogExporter.exportLogs()
     }
 
     @objc public func sendLogsToSentry() {

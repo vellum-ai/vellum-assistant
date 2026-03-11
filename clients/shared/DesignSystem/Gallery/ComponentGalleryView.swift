@@ -1,7 +1,7 @@
 #if DEBUG
 import SwiftUI
 
-enum GalleryCategory: String, CaseIterable, Identifiable {
+enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
     case appIcons = "App Icons"
     case buttons = "Buttons"
     case chat = "Chat"
@@ -34,12 +34,12 @@ enum GalleryCategory: String, CaseIterable, Identifiable {
 }
 
 struct ComponentGalleryView: View {
-    @State private var selectedCategory: GalleryCategory? = .buttons
+    @State private var selectedCategory: ComponentGalleryCategory? = .buttons
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedCategory) {
-                ForEach(GalleryCategory.allCases) { category in
+                ForEach(ComponentGalleryCategory.allCases) { category in
                     Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
                         .tag(category)
                 }

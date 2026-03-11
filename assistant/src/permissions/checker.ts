@@ -48,7 +48,11 @@ function riskCacheKey(
   workingDir?: string,
   manifestOverride?: ManifestOverride,
 ): string {
-  const inputJson = JSON.stringify(input);
+  // Strip `reason` before computing the cache key — it is cosmetic and varies
+  // per invocation even for identical tool operations, causing unnecessary
+  // cache misses.
+  const { reason: _reason, ...cacheableInput } = input;
+  const inputJson = JSON.stringify(cacheableInput);
   const hash = createHash("sha256")
     .update(inputJson)
     .update("\0")
@@ -139,6 +143,7 @@ const LOW_RISK_PROGRAMS = new Set([
   "tree",
   "du",
   "df",
+  "assistant",
 ]);
 
 // High-risk shell programs / patterns
@@ -539,6 +544,17 @@ async function classifyRiskUncached(
   // credentials and the user should approve the target host/origin.
   if (toolName === "network_request") return RiskLevel.Medium;
   if (toolName === "skill_load") return RiskLevel.Low;
+
+  // Skill mutation tools are always High risk — they write or delete persistent
+  // skill source code. These tools moved from core tool registry to bundled
+  // skills, but their security classification must remain High regardless of
+  // whether they appear in the tool registry.
+  if (
+    toolName === "scaffold_managed_skill" ||
+    toolName === "delete_managed_skill"
+  ) {
+    return RiskLevel.High;
+  }
 
   // Escalate host file mutations targeting skill source paths to High risk.
   // The host variants fall through to the tool registry (Medium) by default,

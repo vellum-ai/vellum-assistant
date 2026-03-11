@@ -18,6 +18,8 @@ public enum ChatMessageStatus: Equatable {
     case processing
     /// Message is buffered in the local offline queue pending daemon reconnect.
     case pendingOffline
+    /// HTTP send failed — the message was never delivered to the daemon.
+    case sendFailed
 }
 
 /// Tracks the state of an inline tool confirmation request.
@@ -34,9 +36,9 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
-    public let diff: IPCConfirmationRequestDiff?
-    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
-    public let scopeOptions: [IPCConfirmationRequestScopeOption]
+    public let diff: ConfirmationRequestDiff?
+    public let allowlistOptions: [ConfirmationRequestAllowlistOption]
+    public let scopeOptions: [ConfirmationRequestScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -517,88 +519,15 @@ public struct ToolConfirmationData: Equatable {
 
     /// Short question asking the user to approve the action.
     public var humanDescription: String {
-        let reason = (input["reason"]?.value as? String) ?? ""
-        // Lowercase the first letter so reason flows naturally mid-sentence (e.g. "to determine..." not "To determine...")
-        let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
-
-        switch toolName {
-        case "request_system_permission":
-            if reason.isEmpty {
-                return "I need \(permissionFriendlyName) access to continue."
-            }
-            return reason
-        case "bash", "host_bash":
-            if !r.isEmpty { return "Allow running a command on your computer \(r)?" }
-            return "Allow running a command on your computer?"
-        case "file_write", "host_file_write":
-            if !r.isEmpty { return "Allow writing a file \(r)?" }
-            let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Allow writing a file?" }
-            return "Allow writing to \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "file_edit", "host_file_edit":
-            if !r.isEmpty { return "Allow editing a file \(r)?" }
-            let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Allow editing a file?" }
-            return "Allow editing \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "file_read", "host_file_read":
-            if !r.isEmpty { return "Allow reading a file \(r)?" }
-            let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Allow reading a file?" }
-            return "Allow reading \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "web_fetch":
-            if !r.isEmpty { return "Allow fetching a URL \(r)?" }
-            let url = (input["url"]?.value as? String) ?? ""
-            if let host = URL(string: url)?.host {
-                return "Allow fetching data from \(host)?"
-            }
-            return "Allow fetching a URL?"
-        case "browser_navigate":
-            if !r.isEmpty { return "Allow opening a page \(r)?" }
-            let url = (input["url"]?.value as? String) ?? ""
-            if let host = URL(string: url)?.host {
-                return "Allow opening \(host)?"
-            }
-            return "Allow opening a page?"
-        case "credential_store":
-            let action = (input["action"]?.value as? String) ?? ""
-            let service = (input["service"]?.value as? String) ?? ""
-            switch action {
-            case "oauth2_connect":
-                return service.isEmpty
-                    ? "Allow connecting an account?"
-                    : "Allow connecting your \(service.capitalized) account?"
-            case "store":
-                return service.isEmpty
-                    ? "Allow saving a credential securely?"
-                    : "Allow saving a \(service) credential securely?"
-            case "delete":
-                return service.isEmpty
-                    ? "Allow removing a stored credential?"
-                    : "Allow removing a \(service) credential?"
-            case "prompt":
-                return service.isEmpty
-                    ? "Allow asking for a credential?"
-                    : "Allow asking for a \(service) credential?"
-            default:
-                return "Allow accessing secure storage?"
-            }
-        case "schedule_create":
-            let name = (input["name"]?.value as? String) ?? ""
-            return name.isEmpty
-                ? "Allow creating a schedule?"
-                : "Allow creating schedule \"\(name)\"?"
-        case "schedule_update":
-            return "Allow updating a schedule?"
-        case "schedule_delete":
-            return "Allow deleting a schedule?"
-        default:
-            let tc = toolCategory.lowercased()
-            if !r.isEmpty { return "Allow using \(tc) \(r)?" }
-            return "Allow using \(tc)?"
-        }
+        confirmationHumanDescription(
+            toolName: toolName,
+            input: input,
+            toolCategory: toolCategory,
+            permissionFriendlyName: permissionFriendlyName
+        )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: IPCConfirmationRequestDiff? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption] = [], scopeOptions: [IPCConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -620,17 +549,17 @@ public struct ToolConfirmationData: Equatable {
         input: [String: AnyCodable],
         riskLevel: String,
         executionTarget: String?,
-        promptPayload: IPCToolPermissionSimulateResponsePromptPayload
+        promptPayload: ToolPermissionSimulateResponsePromptPayload
     ) -> ToolConfirmationData {
         let allowlistOptions = promptPayload.allowlistOptions.map { opt in
-            IPCConfirmationRequestAllowlistOption(
+            ConfirmationRequestAllowlistOption(
                 label: opt.label,
                 description: opt.description,
                 pattern: opt.pattern
             )
         }
         let scopeOptions = promptPayload.scopeOptions.map { opt in
-            IPCConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
+            ConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
         }
         return ToolConfirmationData(
             requestId: "simulation",
@@ -642,6 +571,145 @@ public struct ToolConfirmationData: Equatable {
             executionTarget: executionTarget,
             persistentDecisionsAllowed: promptPayload.persistentDecisionsAllowed
         )
+    }
+}
+
+/// Shared helper that builds a human-friendly confirmation description from tool
+/// metadata. Used by both the inline `ToolConfirmationBubble` (via
+/// `ToolConfirmationData.humanDescription`) and system notifications (via
+/// `ToolConfirmationNotificationService`).
+public func confirmationHumanDescription(
+    toolName: String,
+    input: [String: AnyCodable],
+    toolCategory: String? = nil,
+    permissionFriendlyName: String? = nil
+) -> String {
+    // Use reason, falling back to description/message for tools that provide
+    // context via other fields (e.g. context_overflow_compression uses description)
+    let rawReason = (input["reason"]?.value as? String) ?? ""
+    let reason: String = rawReason.isEmpty
+        ? (input["description"]?.value as? String)
+            ?? (input["message"]?.value as? String)
+            ?? ""
+        : rawReason
+    let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
+
+    // Derive permissionFriendlyName from input when not provided
+    let perm: String = permissionFriendlyName ?? {
+        guard let type = input["permission_type"]?.value as? String else { return "Permission" }
+        switch type {
+        case "full_disk_access": return "Full Disk Access"
+        case "accessibility": return "Accessibility"
+        case "screen_recording": return "Screen Recording"
+        case "calendar": return "Calendar"
+        case "contacts": return "Contacts"
+        case "photos": return "Photos"
+        case "location": return "Location Services"
+        case "microphone": return "Microphone"
+        case "camera": return "Camera"
+        default: return type.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }()
+
+    // Derive toolCategory from toolName when not provided
+    let tc: String = toolCategory ?? {
+        switch toolName {
+        case "bash", "host_bash":                    return "Run Command"
+        case "file_write", "host_file_write":        return "Write File"
+        case "file_edit", "host_file_edit":           return "Edit File"
+        case "file_read", "host_file_read":           return "Read File"
+        case "web_fetch":                             return "Fetch URL"
+        case "web_search":                            return "Web Search"
+        case "credential_store":                      return "Secure Storage"
+        case _ where toolName.hasPrefix("browser_"):  return "Browser"
+        case _ where toolName.hasPrefix("schedule_"): return "Scheduling"
+        case _ where toolName.hasPrefix("watcher_"):  return "Watcher"
+        case _ where toolName.hasPrefix("memory_"):   return "Memory"
+        case "skill_load":                            return "Skill"
+        case "evaluate_typescript_code":              return "Code Sandbox"
+        case "document_create", "document_update":    return "Document"
+        default:
+            return toolName
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }()
+
+    switch toolName {
+    case "request_system_permission":
+        if reason.isEmpty {
+            return "I need \(perm) access to continue."
+        }
+        return reason
+    case "bash", "host_bash":
+        if !r.isEmpty { return "Allow running a command on your computer \(r)?" }
+        return "Allow running a command on your computer?"
+    case "file_write", "host_file_write":
+        if !r.isEmpty { return "Allow writing a file \(r)?" }
+        let path = (input["path"]?.value as? String) ?? ""
+        if path.isEmpty { return "Allow writing a file?" }
+        return "Allow writing to \(URL(fileURLWithPath: path).lastPathComponent)?"
+    case "file_edit", "host_file_edit":
+        if !r.isEmpty { return "Allow editing a file \(r)?" }
+        let path = (input["path"]?.value as? String) ?? ""
+        if path.isEmpty { return "Allow editing a file?" }
+        return "Allow editing \(URL(fileURLWithPath: path).lastPathComponent)?"
+    case "file_read", "host_file_read":
+        if !r.isEmpty { return "Allow reading a file \(r)?" }
+        let path = (input["path"]?.value as? String) ?? ""
+        if path.isEmpty { return "Allow reading a file?" }
+        return "Allow reading \(URL(fileURLWithPath: path).lastPathComponent)?"
+    case "web_fetch":
+        if !r.isEmpty { return "Allow fetching a URL \(r)?" }
+        let url = (input["url"]?.value as? String) ?? ""
+        if let host = URL(string: url)?.host {
+            return "Allow fetching data from \(host)?"
+        }
+        return "Allow fetching a URL?"
+    case "browser_navigate":
+        if !r.isEmpty { return "Allow opening a page \(r)?" }
+        let url = (input["url"]?.value as? String) ?? ""
+        if let host = URL(string: url)?.host {
+            return "Allow opening \(host)?"
+        }
+        return "Allow opening a page?"
+    case "credential_store":
+        let action = (input["action"]?.value as? String) ?? ""
+        let service = (input["service"]?.value as? String) ?? ""
+        switch action {
+        case "oauth2_connect":
+            return service.isEmpty
+                ? "Allow connecting an account?"
+                : "Allow connecting your \(service.capitalized) account?"
+        case "store":
+            return service.isEmpty
+                ? "Allow saving a credential securely?"
+                : "Allow saving a \(service) credential securely?"
+        case "delete":
+            return service.isEmpty
+                ? "Allow removing a stored credential?"
+                : "Allow removing a \(service) credential?"
+        case "prompt":
+            return service.isEmpty
+                ? "Allow asking for a credential?"
+                : "Allow asking for a \(service) credential?"
+        default:
+            return "Allow accessing secure storage?"
+        }
+    case "schedule_create":
+        let name = (input["name"]?.value as? String) ?? ""
+        return name.isEmpty
+            ? "Allow creating a schedule?"
+            : "Allow creating schedule \"\(name)\"?"
+    case "schedule_update":
+        return "Allow updating a schedule?"
+    case "schedule_delete":
+        return "Allow deleting a schedule?"
+    default:
+        if !r.isEmpty { return "Allow using \(tc.lowercased()) \(r)?" }
+        return "Allow using \(tc.lowercased())?"
     }
 }
 
@@ -904,8 +972,13 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Requested system access"
         case "web_search":
             return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
-        case "memory_save", "memory_update":
-            return "Saved a memory"
+        case "memory_manage":
+            let op = inputRawDict?["op"]?.value as? String ?? "save"
+            switch op {
+            case "update": return "Updated a memory"
+            case "delete": return "Deleted a memory"
+            default: return "Saved a memory"
+            }
         case "memory_recall":
             return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
         case "task_run":

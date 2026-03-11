@@ -1,18 +1,9 @@
 import ApplicationServices
 import AppKit
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "DictationContext")
-
-/// Context captured at Fn-hold activation time, describing the user's current app state.
-/// This is the Swift-side struct — it will be mapped to message types in M3.
-struct DictationContext {
-    let bundleIdentifier: String
-    let appName: String
-    let windowTitle: String
-    let selectedText: String?
-    let cursorInTextField: Bool
-}
 
 /// Captures the user's current context (frontmost app, window, selection, text field status)
 /// at voice dictation activation time using Accessibility APIs.

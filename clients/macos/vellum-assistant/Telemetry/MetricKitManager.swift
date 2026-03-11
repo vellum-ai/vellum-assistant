@@ -62,8 +62,12 @@ import os
         sentrySerialQueue.async {
             let wasDisabled = !SentrySDK.isEnabled
             if wasDisabled {
+                let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+                let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
                 SentrySDK.start { options in
                     options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+                    options.releaseName = "vellum-macos@\(version)"
+                    options.dist = build
                     options.sendDefaultPii = false
                     // Disable crash capture and session tracking so the temporary
                     // restart only sends the explicit event, not incidental crashes.
@@ -132,8 +136,12 @@ import os
             let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
             guard collectUsageData else { return }
             let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
             SentrySDK.start { options in
                 options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+                options.releaseName = "vellum-macos@\(version)"
+                options.dist = build
                 options.debug = false
                 options.tracesSampleRate = 0.1
                 options.configureProfiling = { profilingOptions in

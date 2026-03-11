@@ -314,21 +314,35 @@ export async function enforceIngressAcl(
               );
             }
 
+            // DM the requester so they have a private channel to reply with
+            // the verification code. Sending to the Slack user ID (not
+            // conversationExternalId) auto-opens a DM conversation.
             if (replyCallbackUrl) {
+              const senderUserId = (canonicalSenderId ?? rawSenderId)!;
+              // Strip threadTs from the callback URL — it belongs to the
+              // originating channel thread and would cause errors in the DM.
+              let dmCallbackUrl = replyCallbackUrl;
+              try {
+                const url = new URL(replyCallbackUrl);
+                url.searchParams.delete("threadTs");
+                dmCallbackUrl = url.toString();
+              } catch {
+                // Malformed URL — use as-is
+              }
               try {
                 await deliverChannelReply(
-                  replyCallbackUrl,
+                  dmCallbackUrl,
                   {
-                    chatId: conversationExternalId,
-                    text: "I've notified the owner. They'll share a verification code with you if they approve access.",
+                    chatId: senderUserId,
+                    text: "I've notified the owner. They'll share a verification code with you if they approve access. You can reply with the code here.",
                     assistantId,
                   },
                   mintBearerToken(),
                 );
               } catch (err) {
                 log.error(
-                  { err, conversationExternalId },
-                  "Failed to deliver Slack verification prompt reply",
+                  { err, senderUserId },
+                  "Failed to deliver Slack verification DM to requester",
                 );
               }
             }
@@ -371,14 +385,20 @@ export async function enforceIngressAcl(
           const replyText = guardianNotified
             ? "Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."
             : "Sorry, you haven't been approved to message this assistant.";
+          const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: conversationExternalId,
+            text: replyText,
+            assistantId,
+          };
+          // On Slack, send as ephemeral so only the requester sees the rejection
+          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+            replyPayload.ephemeral = true;
+            replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+          }
           try {
             await deliverChannelReply(
               replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: replyText,
-                assistantId,
-              },
+              replyPayload,
               mintBearerToken(),
             );
           } catch (err) {
@@ -543,21 +563,31 @@ export async function enforceIngressAcl(
                 );
               }
 
+              // DM the requester (same as non-member path)
               if (replyCallbackUrl) {
+                const senderUserId = (canonicalSenderId ?? rawSenderId)!;
+                let dmCallbackUrl = replyCallbackUrl;
+                try {
+                  const url = new URL(replyCallbackUrl);
+                  url.searchParams.delete("threadTs");
+                  dmCallbackUrl = url.toString();
+                } catch {
+                  // Malformed URL — use as-is
+                }
                 try {
                   await deliverChannelReply(
-                    replyCallbackUrl,
+                    dmCallbackUrl,
                     {
-                      chatId: conversationExternalId,
-                      text: "I've notified the owner. They'll share a verification code with you if they approve access.",
+                      chatId: senderUserId,
+                      text: "I've notified the owner. They'll share a verification code with you if they approve access. You can reply with the code here.",
                       assistantId,
                     },
                     mintBearerToken(),
                   );
                 } catch (err) {
                   log.error(
-                    { err, conversationExternalId },
-                    "Failed to deliver Slack verification prompt reply (inactive member)",
+                    { err, senderUserId },
+                    "Failed to deliver Slack verification DM to requester (inactive member)",
                   );
                 }
               }
@@ -605,14 +635,25 @@ export async function enforceIngressAcl(
             const replyText = guardianNotified
               ? "Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."
               : "Sorry, you haven't been approved to message this assistant.";
+            const inactiveReplyPayload: Parameters<
+              typeof deliverChannelReply
+            >[1] = {
+              chatId: conversationExternalId,
+              text: replyText,
+              assistantId,
+            };
+            // On Slack, send as ephemeral so only the requester sees the rejection
+            if (
+              sourceChannel === "slack" &&
+              (canonicalSenderId ?? rawSenderId)
+            ) {
+              inactiveReplyPayload.ephemeral = true;
+              inactiveReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+            }
             try {
               await deliverChannelReply(
                 replyCallbackUrl,
-                {
-                  chatId: conversationExternalId,
-                  text: replyText,
-                  assistantId,
-                },
+                inactiveReplyPayload,
                 mintBearerToken(),
               );
             } catch (err) {
@@ -640,14 +681,19 @@ export async function enforceIngressAcl(
           "Ingress ACL: member policy deny",
         );
         if (replyCallbackUrl) {
+          const denyPayload: Parameters<typeof deliverChannelReply>[1] = {
+            chatId: conversationExternalId,
+            text: "Sorry, you haven't been approved to message this assistant.",
+            assistantId,
+          };
+          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
+            denyPayload.ephemeral = true;
+            denyPayload.user = (canonicalSenderId ?? rawSenderId)!;
+          }
           try {
             await deliverChannelReply(
               replyCallbackUrl,
-              {
-                chatId: conversationExternalId,
-                text: "Sorry, you haven't been approved to message this assistant.",
-                assistantId,
-              },
+              denyPayload,
               mintBearerToken(),
             );
           } catch (err) {

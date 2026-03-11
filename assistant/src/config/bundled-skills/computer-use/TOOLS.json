@@ -3,12 +3,17 @@
   "tools": [
     {
       "name": "computer_use_click",
-      "description": "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
+      "description": "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback. Supports single click, double-click, and right-click via the click_type parameter.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
         "type": "object",
         "properties": {
+          "click_type": {
+            "type": "string",
+            "enum": ["single", "double", "right"],
+            "description": "Type of click to perform (default: \"single\")"
+          },
           "element_id": {
             "type": "integer",
             "description": "The [ID] number of the element from the accessibility tree (preferred)"
@@ -33,74 +38,6 @@
         "required": ["reasoning"]
       },
       "executor": "tools/computer-use-click.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "computer_use_double_click",
-      "description": "Double-click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
-      "category": "computer-use",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "element_id": {
-            "type": "integer",
-            "description": "The [ID] number of the element from the accessibility tree (preferred)"
-          },
-          "x": {
-            "type": "integer",
-            "description": "X coordinate on screen (fallback when no element_id)"
-          },
-          "y": {
-            "type": "integer",
-            "description": "Y coordinate on screen (fallback when no element_id)"
-          },
-          "reasoning": {
-            "type": "string",
-            "description": "Explanation of what you see and why you are double-clicking here"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["reasoning"]
-      },
-      "executor": "tools/computer-use-double-click.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "computer_use_right_click",
-      "description": "Right-click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
-      "category": "computer-use",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "element_id": {
-            "type": "integer",
-            "description": "The [ID] number of the element from the accessibility tree (preferred)"
-          },
-          "x": {
-            "type": "integer",
-            "description": "X coordinate on screen (fallback when no element_id)"
-          },
-          "y": {
-            "type": "integer",
-            "description": "Y coordinate on screen (fallback when no element_id)"
-          },
-          "reasoning": {
-            "type": "string",
-            "description": "Explanation of what you see and why you are right-clicking here"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["reasoning"]
-      },
-      "executor": "tools/computer-use-right-click.ts",
       "execution_target": "host"
     },
     {

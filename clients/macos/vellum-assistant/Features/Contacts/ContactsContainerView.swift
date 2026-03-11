@@ -1,16 +1,23 @@
 import SwiftUI
 import VellumAssistantShared
 
+/// Selection model for the Contacts tab — either the assistant's channel
+/// configuration or a specific contact.
+enum ContactSelection: Hashable {
+    case assistant
+    case contact(String)
+}
+
 /// Master-detail container for the Contacts tab in Settings.
 /// Left pane shows the contacts list; right pane shows detail for the
-/// selected contact, or a placeholder when nothing is selected.
+/// selected contact, the assistant channel configuration, or a placeholder.
 @MainActor
 struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
 
     @StateObject private var viewModel: ContactsViewModel
-    @State private var selectedContactId: String?
+    @State private var selection: ContactSelection? = .assistant
 
     init(daemonClient: DaemonClient?, store: SettingsStore? = nil) {
         self.daemonClient = daemonClient
@@ -24,7 +31,8 @@ struct ContactsContainerView: View {
             ScrollView {
                 ContactsListView(
                     viewModel: viewModel,
-                    selectedContactId: $selectedContactId
+                    selection: $selection,
+                    store: store
                 )
                 .padding(VSpacing.lg)
             }
@@ -46,41 +54,60 @@ struct ContactsContainerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(VColor.background)
-            } else if let contactId = selectedContactId,
-                      let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
-                ContactDetailView(
-                    contact: contact,
-                    daemonClient: daemonClient,
-                    store: store,
-                    onDelete: {
-                        selectedContactId = nil
-                        viewModel.loadContacts()
-                    }
-                )
-                .id(contactId)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
-                // True empty state — contacts loaded but none selected
-                VStack(spacing: VSpacing.md) {
-                    VIconView(.users, size: 36)
-                        .foregroundColor(VColor.textMuted)
-                    Text("Select a contact")
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Choose a contact from the list to view their details.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 240)
+                switch selection {
+                case .assistant:
+                    if let store {
+                        AssistantChannelsDetailView(store: store, daemonClient: daemonClient)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    } else {
+                        VStack(spacing: VSpacing.md) {
+                            ProgressView()
+                                .controlSize(.regular)
+                            Text("Loading assistant channels...")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(VColor.background)
+                    }
+                case .contact(let contactId):
+                    if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
+                        ContactDetailView(
+                            contact: contact,
+                            daemonClient: daemonClient,
+                            store: store,
+                            onDelete: {
+                                selection = .assistant
+                                viewModel.loadContacts()
+                            }
+                        )
+                        .id(contactId)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
+                case nil:
+                    // True empty state — contacts loaded but none selected
+                    VStack(spacing: VSpacing.md) {
+                        VIconView(.users, size: 36)
+                            .foregroundColor(VColor.textMuted)
+                        Text("Select a contact")
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Choose a contact from the list to view their details.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 240)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(VColor.background)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.background)
             }
         }
         .onReceive(viewModel.$contacts) { newContacts in
-            if selectedContactId == nil,
-               let guardian = newContacts.first(where: { $0.role == "guardian" }) {
-                selectedContactId = guardian.id
+            // Default to assistant on first load (don't override existing selection)
+            if selection == nil && !newContacts.isEmpty {
+                selection = .assistant
             }
         }
         .sheet(isPresented: $viewModel.isCreatingContact) {
@@ -88,7 +115,7 @@ struct ContactsContainerView: View {
                 daemonClient: daemonClient,
                 isPresented: $viewModel.isCreatingContact,
                 onCreated: { contact in
-                    selectedContactId = contact.id
+                    selection = .contact(contact.id)
                     viewModel.loadContacts()
                 }
             )

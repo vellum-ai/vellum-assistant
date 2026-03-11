@@ -73,7 +73,7 @@ extension AppDelegate {
             window.center()
         }
 
-        NSApp.setActivationPolicy(.regular)
+        NSApp.activateAsDockAppIfNeeded()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -82,11 +82,26 @@ extension AppDelegate {
 
     @objc func performRestart() {
         let bundleURL = Bundle.main.bundleURL
+
+        // Write a timestamped sentinel so the new instance's single-instance
+        // guard knows this is an intentional restart, not a duplicate launch.
+        // The sentinel contains the current Unix timestamp; the new instance
+        // honours it only if it is less than 30 seconds old, so a stale file
+        // left by a crash does not permanently disable the guard.
+        let sentinelDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".vellum")
+        try? FileManager.default.createDirectory(at: sentinelDir, withIntermediateDirectories: true)
+        let sentinelPath = sentinelDir.appendingPathComponent("restart-in-progress")
+        let timestamp = "\(Date().timeIntervalSince1970)"
+        try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
+
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
             if let error {
                 log.error("Restart failed — could not launch new instance: \(error.localizedDescription)")
+                // Clean up the sentinel so a failed restart doesn't leave
+                // a file that could bypass the guard on the next launch.
+                try? FileManager.default.removeItem(at: sentinelPath)
                 return
             }
             DispatchQueue.main.async {
@@ -153,7 +168,6 @@ extension AppDelegate {
             actorTokenBootstrapTask = nil
             ActorTokenManager.deleteToken()
 
-            assistantCli.stopMonitoring()
             hasSetupApp = false
             hasSetupDaemon = false
             showAuthWindow()
@@ -244,24 +258,19 @@ extension AppDelegate {
     /// restarts with the new assistant.
     ///
     /// The sequence is intentionally ordered to avoid stale references:
-    /// 1. Stop lifecycle monitoring
-    /// 2. Clear assistant-scoped runtime state (recording, windows, callbacks)
-    /// 3. Stop daemon processes and disconnect transport
-    /// 4. Persist the new assistant selection
-    /// 5. Reconfigure daemon transport and reconnect
-    /// 6. Resume monitoring and credential bootstrap
+    /// 1. Clear assistant-scoped runtime state (recording, windows, callbacks)
+    /// 2. Disconnect transport (leave old daemon running)
+    /// 3. Persist the new assistant selection
+    /// 4. Reconfigure daemon transport and reconnect
+    /// 5. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
-        // 1. Stop lifecycle monitoring
-        assistantCli.stopMonitoring()
-
-        // 2. Clear assistant-scoped runtime state while the daemon is still
+        // 1. Clear assistant-scoped runtime state while the daemon is still
         // running so forceStop can deliver a recording_status message.
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
 
-        // 3. Disconnect transport — leave the old daemon running so it stays
+        // 2. Disconnect transport — leave the old daemon running so it stays
         //    awake and can be switched back to without a cold start.
-        assistantCli.stopMonitoring()
         daemonClient.disconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
@@ -271,7 +280,7 @@ extension AppDelegate {
         bootstrapRetryTask?.cancel()
         bootstrapRetryTask = nil
 
-        // 4. Persist the new assistant selection
+        // 3. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
@@ -282,17 +291,17 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 5. Reconfigure daemon transport and reconnect
+        // 4. Reconfigure daemon transport and reconnect
         hasSetupDaemon = false
         setupDaemonClient()
 
-        // 6. Resume credential bootstrap and show UI
+        // 5. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
         ensureLocalAssistantApiKey()
 
-        // 7. Sync locally-stored API keys to the new daemon. The daemon may
+        // 6. Sync locally-stored API keys to the new daemon. The daemon may
         //    have started without ANTHROPIC_API_KEY in its environment (e.g.
         //    when the app was launched via Finder/open). Push keys from
         //    UserDefaults so the daemon can initialize its LLM providers.
@@ -377,9 +386,6 @@ extension AppDelegate {
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
                     // Daemon is still running — user can continue using the app.
-                    // retire() already set isStopping=true and stopped monitoring;
-                    // restart monitoring so the health check remains active.
-                    assistantCli.startMonitoring()
                     return false
                 }
                 // Retire failed but user chose Force Remove — stop the daemon
@@ -502,6 +508,61 @@ extension AppDelegate {
         UserDefaults.standard.removeObject(forKey: "user.profile")
         showOnboarding()
         return true
+    }
+
+    // MARK: - Uninstall
+
+    /// Retires all local assistants registered in the lockfile, then moves
+    /// the application bundle to the Trash and terminates.
+    ///
+    /// Shows a confirmation alert before proceeding. Each local assistant is
+    /// retired sequentially via the CLI; failures are logged but do not block
+    /// subsequent retires or the final app removal.
+    public func performUninstall() {
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Vellum"
+        alert.informativeText = "This will retire all local assistants and move Vellum to the Trash. This action cannot be undone."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        Task {
+            let allAssistants = LockfileAssistant.loadAll()
+            let localAssistants = allAssistants.filter { !$0.isRemote }
+
+            // Retire each local assistant so cloud/daemon resources are cleaned up.
+            for assistant in localAssistants {
+                do {
+                    log.info("Retiring local assistant '\(assistant.assistantId, privacy: .private)' as part of uninstall")
+                    try await assistantCli.retire(name: assistant.assistantId)
+                } catch {
+                    log.error("Failed to retire '\(assistant.assistantId, privacy: .private)' during uninstall: \(error.localizedDescription)")
+                }
+            }
+
+            // Stop any remaining daemon processes.
+            daemonClient.disconnect()
+            assistantCli.stop()
+
+            // Move the app bundle to the Trash.
+            let bundleURL = Bundle.main.bundleURL
+            do {
+                try FileManager.default.trashItem(at: bundleURL, resultingItemURL: nil)
+                log.info("Moved app bundle to Trash")
+            } catch {
+                log.error("Failed to move app to Trash: \(error.localizedDescription)")
+                let failAlert = NSAlert()
+                failAlert.messageText = "Could Not Remove Vellum"
+                failAlert.informativeText = "All assistants have been retired, but the app could not be moved to the Trash: \(error.localizedDescription)\n\nYou can manually drag Vellum to the Trash."
+                failAlert.alertStyle = .warning
+                failAlert.addButton(withTitle: "OK")
+                failAlert.runModal()
+            }
+
+            NSApp.terminate(nil)
+        }
     }
 
     // MARK: - Shared teardown helpers

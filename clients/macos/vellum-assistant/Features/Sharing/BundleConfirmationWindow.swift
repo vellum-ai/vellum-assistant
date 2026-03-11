@@ -32,7 +32,7 @@ final class BundleConfirmationWindow {
         window.level = .floating
         window.center()
 
-        NSApp.setActivationPolicy(.regular)
+        NSApp.activateAsDockAppIfNeeded()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 

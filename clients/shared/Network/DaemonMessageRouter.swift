@@ -81,6 +81,9 @@ extension DaemonClient {
         case .hostBashRequest(let msg):
             onHostBashRequest?(msg)
             handleHostBashRequest(msg)
+        case .hostFileRequest(let msg):
+            onHostFileRequest?(msg)
+            handleHostFileRequest(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
@@ -153,12 +156,6 @@ extension DaemonClient {
             onChannelVerificationSessionResponse?(msg)
         case .telegramConfigResponse(let msg):
             onTelegramConfigResponse?(msg)
-        case .twitterIntegrationConfigResponse(let msg):
-            onTwitterIntegrationConfigResponse?(msg)
-        case .twitterAuthResult(let msg):
-            onTwitterAuthResult?(msg)
-        case .twitterAuthStatusResponse(let msg):
-            onTwitterAuthStatusResponse?(msg)
         case .modelInfo(let msg):
             currentModel = msg.model
             onModelInfo?(msg)
@@ -328,7 +325,7 @@ extension DaemonClient {
     }
 
     /// Handle a get_signing_identity request from the daemon.
-    func handleGetSigningIdentity(_ msg: IPCGetSigningIdentityRequest) {
+    func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
         do {
             let keyId = try SigningIdentityManager.shared.getKeyId()
             let publicKey = try SigningIdentityManager.shared.getPublicKey()
@@ -351,6 +348,26 @@ extension DaemonClient {
         }
     }
     #endif
+
+    // MARK: - Host File Proxy
+
+    /// Handle a host_file_request by executing the file operation locally
+    /// and posting the result back to the daemon.
+    func handleHostFileRequest(_ msg: HostFileRequest) {
+        #if os(macOS)
+        httpTransport?.executeHostFileRequest(msg)
+        #else
+        log.warning("Received host_file_request on iOS — local file operations not supported")
+        Task {
+            let result = HostFileResultPayload(
+                requestId: msg.requestId,
+                content: "Host file operations are not supported on iOS",
+                isError: true
+            )
+            await httpTransport?.postHostFileResult(result)
+        }
+        #endif
+    }
 
     // MARK: - Host Bash Proxy
 

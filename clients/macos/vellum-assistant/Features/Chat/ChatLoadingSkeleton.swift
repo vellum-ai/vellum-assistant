@@ -5,8 +5,6 @@ import VellumAssistantShared
 /// Mimics the real `ChatBubble` layout — a short user message followed by a
 /// multi-line assistant response — so the transition to real content feels seamless.
 struct ChatLoadingSkeleton: View {
-    @State private var appearance = AvatarAppearanceManager.shared
-
     /// Line widths for the multi-line assistant text block.
     /// Varying lengths look more natural than uniform bones.
     private let assistantLineWidths: [CGFloat] = [0.92, 0.85, 0.78, 0.95, 0.70, 0.45]
@@ -50,8 +48,8 @@ struct ChatLoadingSkeleton: View {
 
     // MARK: - Assistant Message
 
-    /// Left-aligned assistant block with real avatar and six text lines inside
-    /// a subtle bubble, matching real ChatBubble assistant layout.
+    /// Left-aligned assistant block with text lines,
+    /// matching real ChatBubble assistant layout.
     private var assistantMessage: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -64,19 +62,6 @@ struct ChatLoadingSkeleton: View {
                 }
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-            .overlay(alignment: .topLeading) {
-                Image(nsImage: appearance.chatAvatarImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .strokeBorder(VColor.textMuted.opacity(0.2), lineWidth: 1)
-                    )
-                    .offset(x: -(28 + VSpacing.sm), y: 0)
-            }
-            .padding(.leading, 28 + VSpacing.sm)
 
             Spacer(minLength: 0)
         }

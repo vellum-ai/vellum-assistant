@@ -675,15 +675,6 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
     expect(includes).toContain("public-ingress");
   });
 
-  test("google-oauth-setup includes public-ingress", () => {
-    const includes = readSkillIncludes(
-      FIRST_PARTY_SKILLS_DIR,
-      "google-oauth-setup",
-    );
-    expect(includes).toBeDefined();
-    expect(includes).toContain("public-ingress");
-  });
-
   test("slack-oauth-setup includes browser", () => {
     const includes = readSkillIncludes(
       FIRST_PARTY_SKILLS_DIR,
@@ -735,11 +726,9 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.toolManifest).toBeDefined();
     expect(cuSkill!.toolManifest!.present).toBe(true);
     expect(cuSkill!.toolManifest!.valid).toBe(true);
-    expect(cuSkill!.toolManifest!.toolCount).toBe(12);
+    expect(cuSkill!.toolManifest!.toolCount).toBe(10);
     expect(cuSkill!.toolManifest!.toolNames).toEqual([
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",

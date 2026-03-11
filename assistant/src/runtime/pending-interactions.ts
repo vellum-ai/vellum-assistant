@@ -1,11 +1,12 @@
 /**
  * In-memory tracker that maps requestId to session info for pending
- * confirmation and secret interactions.
+ * confirmation, secret, host_bash, and host_file interactions.
  *
- * When the agent loop emits a confirmation_request or secret_request,
- * the onEvent callback registers the interaction here. Standalone HTTP
- * endpoints (/v1/confirm, /v1/secret, /v1/trust-rules) look up the
- * session from this tracker to resolve the interaction.
+ * When the agent loop emits a confirmation_request, secret_request,
+ * host_bash_request, or host_file_request, the onEvent callback registers
+ * the interaction here. Standalone HTTP endpoints (/v1/confirm, /v1/secret,
+ * /v1/trust-rules, /v1/host-bash-result, /v1/host-file-result) look up
+ * the session from this tracker to resolve the interaction.
  */
 
 import type { Session } from "../daemon/session.js";
@@ -28,7 +29,7 @@ export interface ConfirmationDetails {
 export interface PendingInteraction {
   session: Session;
   conversationId: string;
-  kind: "confirmation" | "secret" | "host_bash";
+  kind: "confirmation" | "secret" | "host_bash" | "host_file";
   confirmationDetails?: ConfirmationDetails;
 }
 
@@ -78,12 +79,23 @@ export function getByConversation(
 }
 
 /**
- * Remove all pending interactions for a given session.
- * Used when auto-denying all pending confirmations (e.g. new user message).
+ * Remove pending confirmation and secret interactions for a given session.
+ * Used when auto-denying all pending interactions (e.g. new user message).
+ *
+ * host_bash and host_file interactions are intentionally skipped — they
+ * represent in-flight tool executions proxied to the client, not
+ * confirmations to auto-deny. Removing them would orphan the request: the
+ * client would POST to /v1/host-bash-result or /v1/host-file-result after
+ * completing the operation, get a 404, and the proxy timer would fire with
+ * a spurious timeout error.
  */
 export function removeBySession(session: Session): void {
   for (const [requestId, interaction] of pending) {
-    if (interaction.session === session) {
+    if (
+      interaction.session === session &&
+      interaction.kind !== "host_bash" &&
+      interaction.kind !== "host_file"
+    ) {
       pending.delete(requestId);
     }
   }

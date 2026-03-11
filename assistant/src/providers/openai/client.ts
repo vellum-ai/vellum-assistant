@@ -306,6 +306,12 @@ export class OpenAIProvider implements Provider {
             },
           });
           break;
+        case "server_tool_use":
+          textParts.push(`[Web search: ${block.name}]`);
+          break;
+        case "web_search_tool_result":
+          textParts.push("[Web search results]");
+          break;
         // thinking, redacted_thinking, image — not applicable for OpenAI assistant messages
       }
     }
@@ -358,6 +364,15 @@ export class OpenAIProvider implements Provider {
             type: "text",
             text: this.fileBlockToText(block),
           });
+          break;
+        case "server_tool_use":
+          parts.push({
+            type: "text",
+            text: `[Web search: ${block.name}]`,
+          });
+          break;
+        case "web_search_tool_result":
+          parts.push({ type: "text", text: "[Web search results]" });
           break;
       }
     }

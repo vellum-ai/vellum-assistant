@@ -2,18 +2,14 @@
  * Shared utilities for messaging skill tools.
  */
 
-import {
-  request as httpsRequest,
-  type RequestOptions as HttpsRequestOptions,
-} from "node:https";
-
 import type { MessagingProvider } from "../../../../messaging/provider.js";
 import {
   getConnectedProviders,
   getMessagingProvider,
   isPlatformEnabled,
 } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import type { OAuthConnection } from "../../../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
 
 export function ok(content: string): ToolExecutionResult {
@@ -22,6 +18,87 @@ export function ok(content: string): ToolExecutionResult {
 
 export function err(message: string): ToolExecutionResult {
   return { content: message, isError: true };
+}
+
+// ── RFC 5322 address helpers ──────────────────────────────────────────────────
+
+export function extractHeader(
+  headers: Array<{ name: string; value: string }> | undefined,
+  name: string,
+): string {
+  return (
+    headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ??
+    ""
+  );
+}
+
+/**
+ * RFC 5322-aware address list parser. Splits a header value like
+ * `"Doe, Jane" <jane@example.com>, bob@example.com` into individual
+ * addresses without breaking on commas inside quoted display names.
+ */
+export function parseAddressList(header: string): string[] {
+  const addresses: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  let inAngle = false;
+
+  for (let i = 0; i < header.length; i++) {
+    const ch = header[i];
+
+    if (ch === '"' && !inAngle) {
+      inQuotes = !inQuotes;
+      current += ch;
+    } else if (ch === "<" && !inQuotes) {
+      inAngle = true;
+      current += ch;
+    } else if (ch === ">" && !inQuotes) {
+      inAngle = false;
+      current += ch;
+    } else if (ch === "," && !inQuotes && !inAngle) {
+      const trimmed = current.trim();
+      if (trimmed) addresses.push(trimmed);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  const trimmed = current.trim();
+  if (trimmed) addresses.push(trimmed);
+
+  return addresses;
+}
+
+/**
+ * Extracts the bare email from an address that may be in any of these forms:
+ *   - `user@example.com`
+ *   - `<user@example.com>`
+ *   - `"Display Name" <user@example.com>`
+ *   - `Display Name <user@example.com>`
+ *   - `"Team <Ops>" <user@example.com>`
+ *   - `user@example.com (team <ops>)`
+ *
+ * Extracts all angle-bracketed segments and picks the last one containing `@`,
+ * preferring the actual mailbox over display-name fragments like
+ * `"Acme <support@acme.com>" <owner@example.com>`. If no segment contains `@`,
+ * strips angle-bracketed portions and parenthetical comments, returning the
+ * remaining text. This handles display names with angle brackets and trailing
+ * RFC 5322 comments.
+ */
+export function extractEmail(address: string): string {
+  // Strip parenthetical comments first to avoid matching addresses inside them
+  const cleaned = address.replace(/\(.*?\)/g, "");
+  const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
+  if (segments.length > 0) {
+    const emailSegment = [...segments].reverse().find((s) => s.includes("@"));
+    if (emailSegment) return emailSegment.trim().toLowerCase();
+  }
+  return address
+    .replace(/<[^>]+>/g, "")
+    .replace(/\(.*?\)/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 /**
@@ -50,45 +127,15 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
 }
 
 /**
- * Execute a callback with a valid OAuth token for the given provider.
- * Providers that manage their own auth (e.g. Telegram with a bot token)
- * expose isConnected() and don't need an OAuth access_token lookup.
+ * Resolve an OAuthConnection (or empty string for non-OAuth providers)
+ * for the given messaging provider.
+ *
+ * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
+ * tokens — they receive an empty string which the string overload handles.
  */
-export async function withProviderToken<T>(
+export function getProviderConnection(
   provider: MessagingProvider,
-  fn: (token: string) => Promise<T>,
-): Promise<T> {
-  if (provider.isConnected?.()) {
-    return fn("");
-  }
-  return withValidToken(provider.credentialService, fn);
-}
-
-/** Make an HTTPS request pinned to a specific resolved IP to prevent DNS rebinding. */
-export function pinnedHttpsRequest(
-  target: URL,
-  resolvedAddress: string,
-  options?: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string;
-  },
-): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const reqOpts: HttpsRequestOptions = {
-      method: options?.method ?? "GET",
-      hostname: resolvedAddress,
-      port: target.port ? Number(target.port) : undefined,
-      path: `${target.pathname}${target.search}`,
-      headers: { host: target.host, ...options?.headers },
-      servername: target.hostname,
-    };
-    const req = httpsRequest(reqOpts, (res) => {
-      res.resume();
-      resolve(res.statusCode ?? 0);
-    });
-    req.once("error", reject);
-    if (options?.body) req.write(options.body);
-    req.end();
-  });
+): OAuthConnection | string {
+  if (provider.isConnected?.()) return "";
+  return resolveOAuthConnection(provider.credentialService);
 }

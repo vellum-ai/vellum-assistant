@@ -126,6 +126,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Conversation / messaging
   { endpoint: "messages:GET", scopes: ["chat.read"] },
   { endpoint: "messages:POST", scopes: ["chat.write"] },
+  { endpoint: "btw", scopes: ["chat.write"] },
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
@@ -144,6 +145,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "confirm", scopes: ["approval.write"] },
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "host-bash-result", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
 
   // Guardian actions
@@ -401,6 +403,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "schedules/cancel", scopes: ["settings.write"] },
 
   // Diagnostics
+  { endpoint: "export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/env-vars", scopes: ["settings.read"] },
 
@@ -409,8 +412,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // OAuth / integrations
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
-  { endpoint: "integrations/twitter/auth/start", scopes: ["settings.write"] },
-  { endpoint: "integrations/twitter/auth/status", scopes: ["settings.read"] },
 
   // Workspace files
   { endpoint: "workspace-files", scopes: ["settings.read"] },

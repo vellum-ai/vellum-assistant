@@ -62,7 +62,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
 
         // Format notification content
         let content = UNMutableNotificationContent()
-        content.title = formatTitle(summary: summary, steps: steps)
+        content.title = formatTitle(summary: summary, steps: steps, toolCalls: toolCalls)
         content.body = formatBody(toolCalls: toolCalls)
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
         content.sound = .default
@@ -115,16 +115,33 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
 
     // MARK: - Private Helpers
 
-    private func formatTitle(summary: String, steps: Int) -> String {
+    private func formatTitle(summary: String, steps: Int, toolCalls: [ToolCallData]) -> String {
         // Use the summary if it's meaningful (not empty and not just "Task completed")
         let cleanSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanSummary.isEmpty && cleanSummary.lowercased() != "task completed" {
             return cleanSummary
         }
 
+        // For single tool, show the friendly action as the title
+        if toolCalls.count == 1, let tc = toolCalls.first {
+            let toolName = tc.toolName.lowercased()
+            if toolName.contains("bash") || toolName.contains("command") {
+                if !tc.inputSummary.isEmpty {
+                    let cmd = tc.inputSummary.count > 40 ? String(tc.inputSummary.prefix(37)) + "..." : tc.inputSummary
+                    return "Ran command: \(cmd)"
+                }
+                return "Ran command"
+            }
+            let friendlyName = friendlyToolName(tc.toolName)
+            if !tc.inputSummary.isEmpty && tc.inputSummary.count < 40 && !tc.inputSummary.contains("--") {
+                return "\(friendlyName): \(tc.inputSummary)"
+            }
+            return friendlyName
+        }
+
         // Fallback to step count
-        let stepWord = steps == 1 ? "step" : "steps"
-        return "Task completed (\(steps) \(stepWord))"
+        let count = toolCalls.isEmpty ? steps : toolCalls.count
+        return "Completed \(count) action\(count == 1 ? "" : "s")"
     }
 
     private func formatBody(toolCalls: [ToolCallData]) -> String {
@@ -133,13 +150,33 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
             return "Your task has finished successfully."
         }
 
-        // Filter and format tool calls to be user-friendly
+        // Filter and format tool calls to be user-friendly.
+        // For single-tool notifications, the title shows the tool action so the body
+        // shows the reason. For multi-tool notifications, use reasons as labels.
+        let isSingleWithReason = toolCalls.count == 1
+            && toolCalls.first?.reasonDescription?.isEmpty == false
+        if isSingleWithReason, let reason = toolCalls.first?.reasonDescription, !reason.isEmpty {
+            let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
+            return String(capitalized)
+        }
         let friendlyTools = toolCalls.compactMap { tc -> String? in
+            if let reason = tc.reasonDescription, !reason.isEmpty {
+                let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
+                return String(capitalized)
+            }
+
             // Skip technical/internal tools that aren't user-facing
             let toolName = tc.toolName.lowercased()
             if toolName.contains("bash") || toolName.contains("command") {
                 // For bash commands, try to extract what was done
-                return extractBashAction(from: tc.inputSummary)
+                if let action = extractBashAction(from: tc.inputSummary) {
+                    return action
+                }
+                // Show the command, let macOS truncate if needed
+                if !tc.inputSummary.isEmpty {
+                    return "Ran command: \(tc.inputSummary)"
+                }
+                return "Ran command"
             }
 
             // Map tool names to friendly descriptions
@@ -216,6 +253,24 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
     /// Map technical tool names to user-friendly names
     private func friendlyToolName(_ toolName: String) -> String {
         switch toolName.lowercased() {
+        case "call_start":
+            return "Started call"
+        case "call_status":
+            return "Checked call"
+        case "call_end":
+            return "Ended call"
+        case "schedule_create":
+            return "Created schedule"
+        case "schedule_update":
+            return "Updated schedule"
+        case "schedule_delete":
+            return "Deleted schedule"
+        case "reminder_create":
+            return "Set reminder"
+        case "reminder_list":
+            return "Listed reminders"
+        case "reminder_cancel":
+            return "Cancelled reminder"
         case let name where name.contains("write"):
             return "Created file"
         case let name where name.contains("edit"):
@@ -233,7 +288,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         case let name where name.contains("type"):
             return "Typed text"
         default:
-            return toolName
+            return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 }

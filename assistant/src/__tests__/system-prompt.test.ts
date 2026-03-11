@@ -191,7 +191,9 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain('id="release-checklist"');
     expect(result).toContain('name="Release Checklist"');
     expect(result).toContain('description="Deployment checks."');
-    expect(result).toContain("call the `skill_load` tool with its `id`");
+    expect(result).toContain(
+      "call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
+    );
   });
 
   test("keeps SOUL.md and IDENTITY.md additive with skills", () => {
@@ -266,7 +268,7 @@ describe("buildSystemPrompt", () => {
   test("includes memory persistence section", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Memory Persistence");
-    expect(result).toContain("memory_save");
+    expect(result).toContain("memory_manage");
     expect(result).toContain("Saved > unsaved. Always.");
   });
 

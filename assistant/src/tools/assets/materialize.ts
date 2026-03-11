@@ -95,11 +95,6 @@ const definition: ToolDefinition = {
         description:
           "Path where the file should be written, relative to (or inside) the sandbox working directory.",
       },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are saving and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-      },
     },
     required: ["attachment_id", "destination_path"],
   },

@@ -10,7 +10,8 @@
  * `notifications` scope (classic) or Notification read permission (fine-grained).
  */
 
-import { withValidToken } from "../../security/token-manager.js";
+import type { OAuthConnection } from "../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import type {
@@ -20,8 +21,6 @@ import type {
 } from "../provider-types.js";
 
 const log = getLogger("watcher:github");
-
-const GITHUB_API_BASE = "https://api.github.com";
 
 // ── API types ──────────────────────────────────────────────────────────────────
 
@@ -82,31 +81,32 @@ function notificationToItem(n: GitHubNotification): WatcherItem {
 
 /** Fetch a single page of notifications since a timestamp. */
 async function fetchNotificationsPage(
-  token: string,
+  connection: OAuthConnection,
   since: string,
   page: number,
 ): Promise<{ items: GitHubNotification[]; hasMore: boolean }> {
-  const params = new URLSearchParams({
-    all: "false", // only unread
-    since,
-    per_page: "50",
-    page: String(page),
-  });
-
-  const resp = await fetch(`${GITHUB_API_BASE}/notifications?${params}`, {
+  const resp = await connection.request({
+    method: "GET",
+    path: "/notifications",
+    query: {
+      all: "false", // only unread
+      since,
+      per_page: "50",
+      page: String(page),
+    },
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
     },
   });
 
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
+  if (resp.status >= 400) {
+    const body =
+      typeof resp.body === "string" ? resp.body : JSON.stringify(resp.body);
     throw new Error(`GitHub Notifications API ${resp.status}: ${body}`);
   }
 
-  const items = (await resp.json()) as GitHubNotification[];
+  const items = resp.body as GitHubNotification[];
   // GitHub returns 50 per page; if we got a full page there may be more
   const hasMore = items.length === 50;
   return { items, hasMore };
@@ -130,44 +130,43 @@ export const githubProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     _watcherKey: string,
   ): Promise<FetchResult> {
-    return withValidToken(credentialService, async (token) => {
-      const since = watermark ?? new Date().toISOString();
-      const items: WatcherItem[] = [];
-      let page = 1;
+    const connection = resolveOAuthConnection(credentialService);
+    const since = watermark ?? new Date().toISOString();
+    const items: WatcherItem[] = [];
+    let page = 1;
 
-      while (true) {
-        const { items: pageItems, hasMore } = await fetchNotificationsPage(
-          token,
-          since,
-          page,
-        );
+    while (true) {
+      const { items: pageItems, hasMore } = await fetchNotificationsPage(
+        connection,
+        since,
+        page,
+      );
 
-        for (const n of pageItems) {
-          // Only surface notifications for reasons that warrant attention
-          const relevantReasons = new Set([
-            "assign",
-            "mention",
-            "review_requested",
-            "team_mention",
-          ]);
-          if (!relevantReasons.has(n.reason)) continue;
+      for (const n of pageItems) {
+        // Only surface notifications for reasons that warrant attention
+        const relevantReasons = new Set([
+          "assign",
+          "mention",
+          "review_requested",
+          "team_mention",
+        ]);
+        if (!relevantReasons.has(n.reason)) continue;
 
-          items.push(notificationToItem(n));
-        }
-
-        if (!hasMore) break;
-        page++;
+        items.push(notificationToItem(n));
       }
 
-      // New watermark: the time just before we fetched so we don't miss events
-      // that arrive between poll cycles.
-      const newWatermark = new Date().toISOString();
+      if (!hasMore) break;
+      page++;
+    }
 
-      log.info(
-        { count: items.length, watermark: newWatermark },
-        "GitHub: fetched new notifications",
-      );
-      return { items, watermark: newWatermark };
-    });
+    // New watermark: the time just before we fetched so we don't miss events
+    // that arrive between poll cycles.
+    const newWatermark = new Date().toISOString();
+
+    log.info(
+      { count: items.length, watermark: newWatermark },
+      "GitHub: fetched new notifications",
+    );
+    return { items, watermark: newWatermark };
   },
 };

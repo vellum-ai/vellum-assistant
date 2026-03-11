@@ -1,0 +1,44 @@
+// Host file proxy types.
+// Enables proxying file operations to the desktop client (host machine)
+// when running as a managed assistant.
+
+// === Server → Client ===
+
+export interface HostFileReadRequest {
+  type: "host_file_request";
+  requestId: string;
+  sessionId: string;
+  operation: "read";
+  path: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface HostFileWriteRequest {
+  type: "host_file_request";
+  requestId: string;
+  sessionId: string;
+  operation: "write";
+  path: string;
+  content: string;
+}
+
+export interface HostFileEditRequest {
+  type: "host_file_request";
+  requestId: string;
+  sessionId: string;
+  operation: "edit";
+  path: string;
+  old_string: string;
+  new_string: string;
+  replace_all?: boolean;
+}
+
+export type HostFileRequest =
+  | HostFileReadRequest
+  | HostFileWriteRequest
+  | HostFileEditRequest;
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _HostFileServerMessages = HostFileRequest;

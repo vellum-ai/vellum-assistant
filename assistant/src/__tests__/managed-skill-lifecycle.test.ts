@@ -71,18 +71,10 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 
 import { loadSkillCatalog } from "../config/skills.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { DeleteManagedSkillTool } from "../tools/skills/delete-managed.js";
+import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";
-import { ScaffoldManagedSkillTool } from "../tools/skills/scaffold-managed.js";
+import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
-
-const scaffoldTool = new (ScaffoldManagedSkillTool as any)() as InstanceType<
-  typeof ScaffoldManagedSkillTool
->;
-
-const deleteTool = new (DeleteManagedSkillTool as any)() as InstanceType<
-  typeof DeleteManagedSkillTool
->;
 
 function makeContext(): ToolContext {
   return {
@@ -105,7 +97,7 @@ afterEach(() => {
 describe("managed skill lifecycle: scaffold → catalog → prompt → delete", () => {
   test("full lifecycle: create skill, verify in catalog and prompt, then delete", async () => {
     // Step 1: Scaffold a managed skill
-    const scaffoldResult = await scaffoldTool.execute(
+    const scaffoldResult = await executeScaffoldManagedSkill(
       {
         skill_id: "lifecycle-test",
         name: "Lifecycle Test",
@@ -142,7 +134,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(prompt).toContain("## Dynamic Skill Authoring Workflow");
 
     // Step 5: Delete the skill
-    const deleteResult = await deleteTool.execute(
+    const deleteResult = await executeDeleteManagedSkill(
       {
         skill_id: "lifecycle-test",
       },
@@ -172,7 +164,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     const ctx = makeContext();
 
     // Create initial skill
-    await scaffoldTool.execute(
+    await executeScaffoldManagedSkill(
       {
         skill_id: "overwrite-test",
         name: "V1",
@@ -183,7 +175,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     );
 
     // Overwrite with updated content
-    const result = await scaffoldTool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "overwrite-test",
         name: "V2",
@@ -214,7 +206,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
   });
 
   test("delete non-existent skill returns error", async () => {
-    const result = await deleteTool.execute(
+    const result = await executeDeleteManagedSkill(
       {
         skill_id: "does-not-exist",
       },
@@ -232,7 +224,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     >;
 
     // Step 1: Scaffold a skill directly
-    const scaffoldResult = await scaffoldTool.execute(
+    const scaffoldResult = await executeScaffoldManagedSkill(
       {
         skill_id: "chain-test",
         name: "Chain Test",
@@ -261,7 +253,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(loadContent).toContain("echo chain-test-ok");
 
     // Step 3: Clean up
-    const deleteResult = await deleteTool.execute(
+    const deleteResult = await executeDeleteManagedSkill(
       { skill_id: "chain-test" },
       ctx,
     );

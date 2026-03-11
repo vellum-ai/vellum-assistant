@@ -2,10 +2,7 @@ import { createUserMessage } from "../agent/message-types.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { ContentBlock, Message, Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import {
-  estimatePromptTokens,
-  estimateTextTokens,
-} from "./token-estimator.js";
+import { estimatePromptTokens, estimateTextTokens } from "./token-estimator.js";
 import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 
 const log = getLogger("context-window");
@@ -201,7 +198,10 @@ export class ContextWindowManager {
       // messages may still contain un-truncated tool results. Apply truncation
       // so the caller gets the token savings even without summarization.
       const { messages: truncatedMessages, truncatedCount } =
-        truncateToolResultsAcrossHistory(messages, COMPACTION_TOOL_RESULT_MAX_CHARS);
+        truncateToolResultsAcrossHistory(
+          messages,
+          COMPACTION_TOOL_RESULT_MAX_CHARS,
+        );
       const didTruncate = truncatedCount > 0;
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
@@ -257,11 +257,10 @@ export class ContextWindowManager {
       createContextSummaryMessage(existingSummary ?? "Projected summary"),
       ...messages.slice(keepPlan.keepFromIndex),
     ];
-    const { messages: projectedMessages } =
-      truncateToolResultsAcrossHistory(
-        rawProjectedMessages,
-        COMPACTION_TOOL_RESULT_MAX_CHARS,
-      );
+    const { messages: projectedMessages } = truncateToolResultsAcrossHistory(
+      rawProjectedMessages,
+      COMPACTION_TOOL_RESULT_MAX_CHARS,
+    );
     const projectedInputTokens = estimatePromptTokens(
       projectedMessages,
       this.systemPrompt,
@@ -458,11 +457,10 @@ export class ContextWindowManager {
         createContextSummaryMessage("Projected summary"),
         ...messages.slice(fromIndex),
       ];
-      const { messages: projectedMessages } =
-        truncateToolResultsAcrossHistory(
-          rawProjected,
-          COMPACTION_TOOL_RESULT_MAX_CHARS,
-        );
+      const { messages: projectedMessages } = truncateToolResultsAcrossHistory(
+        rawProjected,
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
         providerName: this.provider.name,
       });
@@ -499,9 +497,7 @@ export class ContextWindowManager {
   private get summaryMaxTokens(): number {
     return Math.max(
       1,
-      Math.floor(
-        this.config.maxInputTokens * this.config.summaryBudgetRatio,
-      ),
+      Math.floor(this.config.maxInputTokens * this.config.summaryBudgetRatio),
     );
   }
 
@@ -736,6 +732,10 @@ function serializeBlock(block: ContentBlock): string {
       return `thinking: ${clampText(block.thinking)}`;
     case "redacted_thinking":
       return "redacted_thinking";
+    case "server_tool_use":
+      return `server_tool_use ${block.name}: ${clampText(stableJson(block.input))}`;
+    case "web_search_tool_result":
+      return `web_search_tool_result ${block.tool_use_id}`;
     default:
       return "unknown_block";
   }

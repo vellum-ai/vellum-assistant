@@ -15,19 +15,12 @@ struct GatewaySettingsCard: View {
     @State private var gatewayTargetCopied: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Section header
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Gateway")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text(isManaged
-                    ? "Gateway that forwards requests to this assistant"
-                    : "Local gateway that forwards requests to this assistant")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(
+            title: "Gateway",
+            subtitle: isManaged
+                ? "Gateway that forwards requests to this assistant"
+                : "Local gateway that forwards requests to this assistant"
+        ) {
             if !isManaged {
                 // Local Gateway Target (read-only copyable address)
                 Text("Local Gateway Target")
@@ -81,7 +74,7 @@ struct GatewaySettingsCard: View {
 
                 // Running badge — only shown when gateway is reachable
                 if store.gatewayReachable == true {
-                    VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
+                    VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
                 }
 
                 Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
@@ -130,7 +123,7 @@ struct GatewaySettingsCard: View {
 
                 // Save button at the bottom
                 HStack {
-                    VButton(label: "Save", style: .primary) {
+                    VButton(label: "Save", style: .primary, size: .medium) {
                         store.saveIngressPublicBaseUrl(gatewayUrlText)
                         isGatewayUrlFocused = false
                     }
@@ -150,10 +143,6 @@ struct GatewaySettingsCard: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             store.refreshIngressConfig()
             gatewayUrlText = store.ingressPublicBaseUrl

@@ -1,14 +1,17 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays the list of contacts, with a guardian section at the top,
-/// search, channel icons, and status indicators.
+/// Displays the list of contacts, with an assistant section at the top,
+/// a guardian ("Me") section, search, channel icons, and status indicators.
 @MainActor
 struct ContactsListView: View {
     @ObservedObject var viewModel: ContactsViewModel
-    @Binding var selectedContactId: String?
+    @Binding var selection: ContactSelection?
+    var store: SettingsStore?
 
     @State private var hoveredContactId: String?
+    @State private var isAssistantHovered = false
+    @State private var cachedAssistantDisplayName: String = AssistantDisplayName.placeholder
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -23,6 +26,9 @@ struct ContactsListView: View {
         }
         .onAppear {
             viewModel.loadContacts()
+        }
+        .task {
+            cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }
     }
 
@@ -46,6 +52,9 @@ struct ContactsListView: View {
 
     private var contactsList: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Assistant section (always visible, unaffected by search)
+            assistantSection
+
             // Guardian ("Me") section
             if let guardian = viewModel.guardianContact {
                 guardianSection(guardian)
@@ -70,6 +79,65 @@ struct ContactsListView: View {
         }
     }
 
+    // MARK: - Assistant Section
+
+    private var assistantSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Assistant")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            Button {
+                selection = .assistant
+            } label: {
+                HStack(spacing: VSpacing.md) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(cachedAssistantDisplayName)
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+
+                            Text("Assistant")
+                                .font(VFont.small)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xxs)
+                                .background(VColor.accent)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+                        }
+
+                        Text(assistantChannelSummary)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(selection == .assistant ? VColor.hoverOverlay.opacity(0.08) : (isAssistantHovered ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                isAssistantHovered = hovering
+            }
+            .vCard(background: VColor.surfaceSubtle)
+        }
+    }
+
+    /// Summarizes which assistant channels are configured.
+    private var assistantChannelSummary: String {
+        var channels: [String] = []
+        if store?.telegramHasBotToken == true { channels.append("Telegram") }
+        if store?.slackChannelHasBotToken == true && store?.slackChannelHasAppToken == true { channels.append("Slack") }
+        if store?.twilioHasCredentials == true { channels.append("Voice") }
+        if store?.assistantEmail != nil { channels.append("Email") }
+        return channels.isEmpty ? "No channels configured" : channels.joined(separator: ", ")
+    }
+
     // MARK: - Guardian Section
 
     private func guardianSection(_ contact: ContactPayload) -> some View {
@@ -79,7 +147,7 @@ struct ContactsListView: View {
                 .foregroundColor(VColor.textPrimary)
 
             Button {
-                selectedContactId = contact.id
+                selection = .contact(contact.id)
             } label: {
                 HStack(spacing: VSpacing.md) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -112,7 +180,7 @@ struct ContactsListView: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(selectedContactId == contact.id ? VColor.hoverOverlay.opacity(0.08) : (hoveredContactId == contact.id ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
+                .background(selection == .contact(contact.id) ? VColor.hoverOverlay.opacity(0.08) : (hoveredContactId == contact.id ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -165,7 +233,7 @@ struct ContactsListView: View {
 
     private func contactRow(_ contact: ContactPayload) -> some View {
         Button {
-            selectedContactId = contact.id
+            selection = .contact(contact.id)
         } label: {
             HStack(spacing: VSpacing.md) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -192,7 +260,7 @@ struct ContactsListView: View {
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selectedContactId == contact.id ? VColor.hoverOverlay.opacity(0.08) : (hoveredContactId == contact.id ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
+            .background(selection == .contact(contact.id) ? VColor.hoverOverlay.opacity(0.08) : (hoveredContactId == contact.id ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -262,7 +330,7 @@ struct ContactsListView: View {
 
     // MARK: - Helpers
 
-    /// Summarizes channel types into a human-readable string (e.g. "Telegram, SMS, Voice").
+    /// Summarizes channel types into a human-readable string (e.g. "Telegram, Voice").
     private func channelSummary(_ channels: [ContactChannelPayload]) -> String {
         let types = Set(channels.map(\.type))
         return types.sorted().map { channelLabel(for: $0) }.joined(separator: ", ")
@@ -272,7 +340,6 @@ struct ContactsListView: View {
     private func channelIcon(for type: String) -> VIcon {
         switch type {
         case "telegram": return .send
-        case "sms": return .messageSquare
         case "phone": return .phoneCall
         case "email": return .mail
         case "slack": return .hash
@@ -284,7 +351,6 @@ struct ContactsListView: View {
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
-        case "sms": return "SMS"
         case "phone": return "Voice"
         case "email": return "Email"
         case "slack": return "Slack"
@@ -332,10 +398,6 @@ struct ContactsListView: View {
                         isPrimary: true, status: "verified", policy: "allow"
                     ),
                     ContactChannelPayload(
-                        id: "ch-2", type: "sms", address: "+15551234567",
-                        isPrimary: false, status: "verified", policy: "allow"
-                    ),
-                    ContactChannelPayload(
                         id: "ch-3", type: "phone", address: "+15551234567",
                         isPrimary: false, status: "verified", policy: "allow"
                     ),
@@ -364,7 +426,7 @@ struct ContactsListView: View {
                 interactionCount: 3,
                 channels: [
                     ContactChannelPayload(
-                        id: "ch-5", type: "sms", address: "+15559876543",
+                        id: "ch-5", type: "email", address: "bob@example.com",
                         isPrimary: true, status: "pending", policy: "ask"
                     ),
                 ]
@@ -377,7 +439,7 @@ struct ContactsListView: View {
         ScrollView {
             ContactsListView(
                 viewModel: viewModel,
-                selectedContactId: .constant(nil)
+                selection: .constant(.assistant)
             )
             .padding(VSpacing.lg)
         }

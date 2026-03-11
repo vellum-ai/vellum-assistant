@@ -168,20 +168,25 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       "Toggle hatch new assistant behavior",
       DECLARED_FLAG_ID,
     );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter", "twitter");
+    createSkillOnDisk(
+      "browser",
+      "Browser",
+      "Web browsing automation",
+      "browser",
+    );
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
       },
     };
 
     const result = buildSystemPrompt();
 
-    // twitter is explicitly enabled, declared flagged skill is explicitly off
-    expect(result).toContain('id="twitter"');
+    // browser is explicitly enabled, declared flagged skill is explicitly off
+    expect(result).toContain('id="browser"');
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
@@ -192,7 +197,12 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       "Toggle hatch new assistant behavior",
       DECLARED_FLAG_ID,
     );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter", "twitter");
+    createSkillOnDisk(
+      "contacts",
+      "Contacts",
+      "View and manage contacts",
+      "contacts",
+    );
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
@@ -202,7 +212,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     // Both skills declare feature flags with registry defaultEnabled: false
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="twitter"');
+    expect(result).not.toContain('id="contacts"');
   });
 
   test("flagged-off skills hidden when all flags are OFF", () => {
@@ -212,20 +222,25 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       "Toggle hatch new assistant behavior",
       DECLARED_FLAG_ID,
     );
-    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter", "twitter");
+    createSkillOnDisk(
+      "contacts",
+      "Contacts",
+      "View and manage contacts",
+      "contacts",
+    );
 
     currentConfig = {
       sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": false,
+        "feature_flags.contacts.enabled": false,
       },
     };
 
     const result = buildSystemPrompt();
 
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
-    expect(result).not.toContain('id="twitter"');
+    expect(result).not.toContain('id="contacts"');
   });
 
   test("assistantFeatureFlagValues overrides control visibility", () => {

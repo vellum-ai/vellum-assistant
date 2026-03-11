@@ -1,5 +1,6 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
@@ -158,10 +159,10 @@ async function resolveWhatsAppCredentials(caches?: WhatsAppApiCaches): Promise<{
   let accessToken: string | undefined;
   if (caches?.credentials) {
     phoneNumberId = await caches.credentials.get(
-      "credential:whatsapp:phone_number_id",
+      credentialKey("whatsapp", "phone_number_id"),
     );
     accessToken = await caches.credentials.get(
-      "credential:whatsapp:access_token",
+      credentialKey("whatsapp", "access_token"),
     );
   }
   return { phoneNumberId, accessToken };

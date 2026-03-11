@@ -97,12 +97,6 @@ import { RiskLevel } from "../permissions/types.js";
 import { getTool, registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 
-// Import managed skill tools so they register in the tool registry.
-// Without this, classifyRisk falls through to RiskLevel.Medium (unknown tool)
-// instead of the declared RiskLevel.High — producing wrong test behavior.
-import "../tools/skills/scaffold-managed.js";
-import "../tools/skills/delete-managed.js";
-
 // Register a mock skill-origin tool for testing default-ask policy.
 const mockSkillTool: Tool = {
   name: "skill_test_tool",
@@ -4395,8 +4389,6 @@ describe("computer-use tool permission defaults", () => {
   test("computer_use_* tools classify as Low risk (proxy tools)", async () => {
     const cuToolNames = [
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",

@@ -24,12 +24,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { DeleteManagedSkillTool } from "../tools/skills/delete-managed.js";
+import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import type { ToolContext } from "../tools/types.js";
-
-const tool = new (DeleteManagedSkillTool as any)() as InstanceType<
-  typeof DeleteManagedSkillTool
->;
 
 function makeContext(): ToolContext {
   return {
@@ -69,7 +65,7 @@ describe("delete_managed_skill tool", () => {
     createSkill("doomed");
     createSkill("survivor");
 
-    const result = await tool.execute(
+    const result = await executeDeleteManagedSkill(
       {
         skill_id: "doomed",
       },
@@ -93,7 +89,7 @@ describe("delete_managed_skill tool", () => {
   });
 
   test("returns error for non-existent skill", async () => {
-    const result = await tool.execute(
+    const result = await executeDeleteManagedSkill(
       {
         skill_id: "ghost",
       },
@@ -105,13 +101,13 @@ describe("delete_managed_skill tool", () => {
   });
 
   test("rejects missing skill_id", async () => {
-    const result = await tool.execute({}, makeContext());
+    const result = await executeDeleteManagedSkill({}, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain("skill_id is required");
   });
 
   test("rejects invalid skill_id", async () => {
-    const result = await tool.execute(
+    const result = await executeDeleteManagedSkill(
       {
         skill_id: "../escape",
       },

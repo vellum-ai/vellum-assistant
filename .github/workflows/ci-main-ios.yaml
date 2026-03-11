@@ -22,8 +22,22 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
+      - name: Cache Homebrew XcodeGen
+        id: cache-xcodegen
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/xcodegen
+            /opt/homebrew/Cellar/xcodegen
+          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install XcodeGen
+        if: steps.cache-xcodegen.outputs.cache-hit != 'true'
         run: brew install xcodegen
+
+      - name: Link XcodeGen
+        if: steps.cache-xcodegen.outputs.cache-hit == 'true'
+        run: brew link xcodegen 2>/dev/null || true
 
       - name: Design token guard
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
@@ -35,20 +49,7 @@ jobs:
           key: ios-spm-${{ hashFiles('clients/Package.resolved') }}
           restore-keys: ios-spm-
 
-      - name: Cache Xcode DerivedData
-        uses: actions/cache@v4
-        with:
-          path: clients/ios/dist/DerivedData
-          key: ios-deriveddata-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/ios/project.yml', 'clients/shared/**/*.swift', 'clients/ios/**/*.swift') }}
-          restore-keys: |
-            ios-deriveddata-${{ hashFiles('clients/Package.resolved') }}-
-            ios-deriveddata-
-
-      - name: Build for simulator
-        working-directory: clients/ios
-        run: ./build.sh
-
-      - name: Run iOS tests
+      - name: Build & test
         working-directory: clients/ios
         run: ./build.sh test
 

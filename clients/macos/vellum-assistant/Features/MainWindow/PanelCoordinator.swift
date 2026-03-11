@@ -108,11 +108,6 @@ extension MainWindowView {
                 store: usageDashboardStore,
                 onClose: { windowState.selection = nil }
             )
-        case .taskQueue:
-            TaskQueuePanel(
-                viewModel: taskQueueViewModel,
-                onClose: { windowState.selection = nil }
-            )
         }
     }
 
@@ -495,12 +490,6 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-        case .taskQueue:
-            TaskQueuePanel(
-                viewModel: taskQueueViewModel,
-                onClose: { windowState.dismissOverlay() }
-            )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
         }
     }
 
@@ -705,6 +694,9 @@ struct ActiveChatViewWrapper: View {
             onSurfaceRefetch: { surfaceId, sessionId in
                 viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
             },
+            onRetryFailedMessage: { messageId in
+                viewModel.retryFailedMessage(id: messageId)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,
@@ -719,6 +711,9 @@ struct ActiveChatViewWrapper: View {
             onVoiceModeToggle: onVoiceModeToggle,
             threadId: threadId,
             anchorMessageId: $anchorMessageId,
+            btwResponse: viewModel.btwResponse,
+            btwLoading: viewModel.btwLoading,
+            onDismissBtw: { viewModel.dismissBtw() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
@@ -1191,7 +1186,7 @@ private struct AppLoadingView: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), taskQueueViewModel: TaskQueueViewModel(daemonClient: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

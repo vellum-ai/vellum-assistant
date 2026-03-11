@@ -4,14 +4,11 @@
  * Resolves pending host bash proxy requests by requestId when the desktop
  * client returns execution results via HTTP.
  */
-import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
-
-const log = getLogger("host-bash-routes");
 
 /**
  * POST /v1/host-bash-result — resolve a pending host bash request by requestId.
@@ -38,14 +35,27 @@ export async function handleHostBashResult(
     return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  const interaction = pendingInteractions.resolve(requestId);
-  if (!interaction) {
+  // Peek first (non-destructive) so we can validate the interaction kind
+  // without accidentally consuming a confirmation or secret interaction.
+  const peeked = pendingInteractions.get(requestId);
+  if (!peeked) {
     return httpError(
       "NOT_FOUND",
       "No pending interaction found for this requestId",
       404,
     );
   }
+
+  if (peeked.kind !== "host_bash") {
+    return httpError(
+      "CONFLICT",
+      `Pending interaction is of kind "${peeked.kind}", expected "host_bash"`,
+      409,
+    );
+  }
+
+  // Validation passed — consume the pending interaction.
+  const interaction = pendingInteractions.resolve(requestId)!;
 
   interaction.session.resolveHostBash(requestId, {
     stdout: stdout ?? "",

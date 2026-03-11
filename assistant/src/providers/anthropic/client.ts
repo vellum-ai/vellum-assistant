@@ -15,16 +15,6 @@ import type {
 
 const log = getLogger("anthropic-client");
 
-/**
- * The Anthropic API returns block types (server_tool_use, web_search_tool_result)
- * that are not yet in the installed SDK's ContentBlock union (SDK 0.39.x).
- * This extended type allows the switch statement to handle them without casting.
- */
-type AnthropicContentBlock =
-  | Anthropic.ContentBlock
-  | { type: "server_tool_use" }
-  | { type: "web_search_tool_result" };
-
 const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
 const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
@@ -529,12 +519,15 @@ export class AnthropicProvider implements Provider {
       const { effort, output_config, ...restConfig } = (config ?? {}) as Record<
         string,
         unknown
-      > & { effort?: string; output_config?: Record<string, unknown> };
+      > & {
+        effort?: Anthropic.OutputConfig["effort"];
+        output_config?: Record<string, unknown>;
+      };
       const mergedOutputConfig = {
         ...(output_config ?? {}),
         ...(effort ? { effort } : {}),
       };
-      const params: Anthropic.MessageCreateParams = {
+      const params: Anthropic.MessageStreamParams = {
         model: this.model,
         max_tokens: 64000,
         messages: sentMessages,
@@ -568,14 +561,12 @@ export class AnthropicProvider implements Provider {
               ? { cache_control: { type: "ephemeral" as const } }
               : {}),
           }));
-          params.tools = [
-            ...mappedOther,
-            {
-              type: "web_search_20250305" as const,
-              name: "web_search" as const,
-              max_uses: 5,
-            },
-          ] as unknown as Anthropic.MessageCreateParams["tools"];
+          const webSearchTool: Anthropic.WebSearchTool20250305 = {
+            type: "web_search_20250305",
+            name: "web_search",
+            max_uses: 5,
+          };
+          params.tools = [...mappedOther, webSearchTool];
         } else {
           params.tools = tools.map((t, i) => ({
             name: t.name,
@@ -608,18 +599,32 @@ export class AnthropicProvider implements Provider {
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
+      /** Minimal stream interface shared by MessageStream and BetaMessageStream. */
+      interface UnifiedStream {
+        on(event: "text", listener: (text: string) => void): this;
+        on(event: "thinking", listener: (thinking: string) => void): this;
+        on(
+          event: "streamEvent",
+          listener: (event: Anthropic.MessageStreamEvent) => void,
+        ): this;
+        on(event: "inputJson", listener: (partialJson: string) => void): this;
+        finalMessage(): Promise<Anthropic.Message>;
+      }
+
       let response: Anthropic.Message;
       try {
-        const stream = this.fastMode
-          ? this.client.beta.messages.stream(
+        const stream: UnifiedStream = this.fastMode
+          ? (this.client.beta.messages.stream(
               {
                 ...params,
                 betas: ["fast-mode-2026-02-01"],
                 speed: "fast",
               } as Parameters<typeof this.client.beta.messages.stream>[0],
               { signal: timeoutSignal },
-            )
-          : this.client.messages.stream(params, { signal: timeoutSignal });
+            ) as unknown as UnifiedStream)
+          : (this.client.messages.stream(params, {
+              signal: timeoutSignal,
+            }) as unknown as UnifiedStream);
 
         // Track whether we've seen a text content block so we can insert a
         // separator between consecutive text blocks in the same response.
@@ -672,6 +677,16 @@ export class AnthropicProvider implements Provider {
               type: "tool_use_preview_start",
               toolUseId: event.content_block.id,
               toolName: event.content_block.name,
+            });
+          }
+          if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "server_tool_use"
+          ) {
+            onEvent?.({
+              type: "server_tool_start",
+              name: event.content_block.name,
+              toolUseId: event.content_block.id,
             });
           }
           if (event.type === "content_block_stop") {
@@ -901,6 +916,19 @@ export class AnthropicProvider implements Provider {
           is_error: block.is_error,
         };
       }
+      case "server_tool_use":
+        return {
+          type: "server_tool_use",
+          id: block.id,
+          name: block.name,
+          input: block.input,
+        } as unknown as Anthropic.ContentBlockParam;
+      case "web_search_tool_result":
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: block.tool_use_id,
+          content: block.content,
+        } as unknown as Anthropic.ContentBlockParam;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },
@@ -911,9 +939,8 @@ export class AnthropicProvider implements Provider {
     }
   }
 
-  private fromAnthropicBlock(block: AnthropicContentBlock): ContentBlock {
-    const blockType = block.type as string;
-    switch (blockType) {
+  private fromAnthropicBlock(block: Anthropic.ContentBlock): ContentBlock {
+    switch (block.type) {
       case "text":
         return { type: "text", text: (block as Anthropic.TextBlock).text };
       case "thinking":
@@ -936,13 +963,28 @@ export class AnthropicProvider implements Provider {
           input: tu.input as Record<string, unknown>,
         };
       }
-      case "server_tool_use":
-      case "web_search_tool_result":
-        // Native Anthropic web search blocks — informational only, silently dropped
-        // by the empty-text filter in sendMessage.
-        return { type: "text", text: "" };
+      case "server_tool_use": {
+        const stu = block as Anthropic.ServerToolUseBlock;
+        return {
+          type: "server_tool_use",
+          id: stu.id,
+          name: stu.name,
+          input: stu.input as Record<string, unknown>,
+        };
+      }
+      case "web_search_tool_result": {
+        const wsr = block as Anthropic.WebSearchToolResultBlock;
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: wsr.tool_use_id,
+          content: wsr.content,
+        };
+      }
       default:
-        return { type: "text", text: `[unsupported block type: ${blockType}]` };
+        return {
+          type: "text",
+          text: `[unsupported block type: ${(block as { type: string }).type}]`,
+        };
     }
   }
 }

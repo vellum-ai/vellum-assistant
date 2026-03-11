@@ -16,19 +16,19 @@ extension HTTPTransport {
         registerDomainDispatcher { [weak self] message in
             guard let self else { return false }
 
-            if let msg = message as? IPCSessionSwitchRequest {
+            if let msg = message as? SessionSwitchRequest {
                 Task { await self.switchSession(conversationId: msg.sessionId) }
                 return true
-            } else if let msg = message as? IPCSessionRenameRequest {
+            } else if let msg = message as? SessionRenameRequest {
                 Task { await self.renameSession(sessionId: msg.sessionId, name: msg.title) }
                 return true
-            } else if message is IPCSessionsClearRequest {
+            } else if message is SessionsClearRequest {
                 Task { await self.clearAllSessions() }
                 return true
             } else if let msg = message as? CancelMessage {
                 Task { await self.cancelGeneration(sessionId: msg.sessionId ?? "") }
                 return true
-            } else if let msg = message as? IPCUndoRequest {
+            } else if let msg = message as? UndoRequest {
                 Task { await self.undoLastMessage(sessionId: msg.sessionId) }
                 return true
             } else if let msg = message as? RegenerateMessage {
@@ -43,7 +43,7 @@ extension HTTPTransport {
             } else if let msg = message as? ImageGenModelSetRequestMessage {
                 Task { await self.setImageGenModel(modelId: msg.model) }
                 return true
-            } else if let msg = message as? IPCConversationSearchRequest {
+            } else if let msg = message as? ConversationSearchRequest {
                 Task {
                     await self.searchConversations(
                         query: msg.query,
@@ -52,7 +52,7 @@ extension HTTPTransport {
                     )
                 }
                 return true
-            } else if let msg = message as? IPCMessageContentRequest {
+            } else if let msg = message as? MessageContentRequest {
                 Task { await self.fetchMessageContent(sessionId: msg.sessionId, messageId: msg.messageId) }
                 return true
             } else if let msg = message as? DeleteQueuedMessageMessage {

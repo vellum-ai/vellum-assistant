@@ -2,7 +2,10 @@
 name: transcribe
 description: Transcribe audio and video files using Whisper (cloud API or local)
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🎙️","vellum":{"display-name":"Transcribe"}}
+metadata:
+  emoji: "🎙️"
+  vellum:
+    display-name: "Transcribe"
 ---
 
 Transcribe audio and video files using OpenAI's Whisper model — either via the cloud API or locally via whisper.cpp.

@@ -1,30 +1,17 @@
 /**
  * HTTP route handlers for settings, identity/avatar, voice config,
- * OAuth connect, Twitter auth, and workspace files.
+ * OAuth connect, and workspace files.
  *
  * Handles settings, identity/avatar, voice config,
- * OAuth connect, Twitter auth, and workspace files.
+ * OAuth connect, and workspace files.
  *   - handlers/config-tools.ts (tool_names_list, tool_permission_simulate, env_vars_request)
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  getPlatformAssistantId,
-  getPlatformBaseUrl,
-} from "../../config/env.js";
-import {
-  getNestedValue,
-  invalidateConfigCache,
-  loadConfig,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
-import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   getProviderProfile,
@@ -36,20 +23,30 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
-import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
+import {
+  assertMetadataWritable,
+  getCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import {
   type ManifestOverride,
   resolveExecutionTarget,
 } from "../../tools/execution-target.js";
 import { getAllTools, getTool } from "../../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../../tools/schema-transforms.js";
 import { isSideEffectTool } from "../../tools/side-effects.js";
 import { setAvatarTool } from "../../tools/system/avatar-generator.js";
-import { ConfigError } from "../../util/errors.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
@@ -148,9 +145,9 @@ function getClientSecret(
   rawService: string,
 ): string | undefined {
   return (
-    getSecureKey(`credential:${resolvedService}:client_secret`) ??
+    getSecureKey(credentialKey(resolvedService, "client_secret")) ??
     (resolvedService !== rawService
-      ? getSecureKey(`credential:${rawService}:client_secret`)
+      ? getSecureKey(credentialKey(rawService, "client_secret"))
       : undefined) ??
     undefined
   );
@@ -176,9 +173,16 @@ async function handleOAuthConnectStart(body: {
 
   const resolvedService = resolveService(body.service);
 
-  let clientId = getSecureKey(`credential:${resolvedService}:client_id`);
+  // client_id is stored in metadata (oauth2ClientId), not the secure store.
+  let clientId = getCredentialMetadata(
+    resolvedService,
+    "access_token",
+  )?.oauth2ClientId;
   if (!clientId && resolvedService !== body.service) {
-    clientId = getSecureKey(`credential:${body.service}:client_id`);
+    clientId = getCredentialMetadata(
+      body.service,
+      "access_token",
+    )?.oauth2ClientId;
   }
 
   if (!clientId) {
@@ -217,6 +221,36 @@ async function handleOAuthConnectStart(body: {
       openUrl: (url: string) => {
         authUrl = url;
       },
+      onDeferredComplete: (deferredResult) => {
+        // Emit oauth_connect_result to all connected SSE clients so the
+        // UI can update immediately when the deferred browser flow completes.
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "oauth_connect_result",
+              success: deferredResult.success,
+              service: deferredResult.service,
+              accountInfo: deferredResult.accountInfo,
+              error: deferredResult.error,
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err, service: deferredResult.service },
+              "Failed to publish oauth_connect_result event",
+            );
+          });
+
+        if (!deferredResult.success) {
+          log.warn(
+            {
+              service: deferredResult.service,
+              err: deferredResult.error,
+            },
+            "Deferred OAuth connect failed",
+          );
+        }
+      },
     });
 
     if (!result.success) {
@@ -249,227 +283,6 @@ async function handleOAuthConnectStart(body: {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, service: body.service }, "OAuth connect flow failed");
     return httpError("INTERNAL_ERROR", sanitizeOAuthError(message), 500);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Twitter auth
-// ---------------------------------------------------------------------------
-
-function sanitizeTwitterAuthError(message: string): string {
-  const lower = message.toLowerCase();
-  if (lower.includes("timed out")) {
-    return "Twitter authentication timed out. Please try again.";
-  }
-  if (lower.includes("user_cancelled") || lower.includes("cancelled")) {
-    return "Twitter authentication was cancelled.";
-  }
-  if (lower.includes("denied") || lower.includes("invalid_grant")) {
-    return "Twitter denied the authorization request. Please try again.";
-  }
-  return "Twitter authentication failed. Please try again.";
-}
-
-async function handleTwitterAuthStart(): Promise<Response> {
-  try {
-    assertMetadataWritable();
-  } catch {
-    return httpError(
-      "UNPROCESSABLE_ENTITY",
-      "Credential metadata file has an unrecognized version. Cannot store OAuth credentials.",
-      422,
-    );
-  }
-
-  try {
-    const raw = loadRawConfig();
-    const mode =
-      (getNestedValue(raw, "twitter.integrationMode") as string | undefined) ??
-      "local_byo";
-    if (mode === "managed") {
-      const apiKey = getSecureKey("credential:vellum:assistant_api_key");
-      if (!apiKey) {
-        return Response.json(
-          {
-            ok: false,
-            error:
-              "An AssistantAPIKey is required for managed Twitter. Run assistant setup.",
-            errorCode: "managed_missing_api_key",
-          },
-          { status: 400 },
-        );
-      }
-      return Response.json(
-        {
-          ok: false,
-          error:
-            "Managed Twitter authentication is handled through the Vellum platform. Open Settings to connect.",
-          errorCode: "managed_auth_via_platform",
-        },
-        { status: 400 },
-      );
-    }
-    if (mode !== "local_byo") {
-      return httpError(
-        "BAD_REQUEST",
-        'Twitter integration mode must be "local_byo" to use this flow.',
-        400,
-      );
-    }
-
-    const clientId = getSecureKey("credential:integration:twitter:client_id");
-    if (!clientId) {
-      return httpError(
-        "BAD_REQUEST",
-        "No Twitter client credentials configured. Please set up your Client ID first.",
-        400,
-      );
-    }
-
-    const clientSecret =
-      getSecureKey("credential:integration:twitter:client_secret") || undefined;
-
-    let config;
-    try {
-      config = loadConfig();
-    } catch (err) {
-      const detail = err instanceof ConfigError ? err.message : String(err);
-      return httpError(
-        "INTERNAL_ERROR",
-        `Unable to load config: ${detail}`,
-        500,
-      );
-    }
-
-    try {
-      getPublicBaseUrl(config);
-    } catch {
-      return httpError(
-        "BAD_REQUEST",
-        "Set ingress.publicBaseUrl (or INGRESS_PUBLIC_BASE_URL) so OAuth callbacks can route through /webhooks/oauth/callback on the gateway.",
-        400,
-      );
-    }
-
-    let authUrl: string | undefined;
-
-    const result = await orchestrateOAuthConnect({
-      service: "integration:twitter",
-      clientId,
-      clientSecret,
-      isInteractive: true,
-      openUrl: (url: string) => {
-        authUrl = url;
-      },
-      allowedTools: ["twitter_post"],
-    });
-
-    if (!result.success) {
-      log.error(
-        { err: result.error },
-        "Twitter OAuth orchestrator returned error",
-      );
-      return httpError(
-        "INTERNAL_ERROR",
-        result.safeError
-          ? result.error
-          : sanitizeTwitterAuthError(result.error),
-        500,
-      );
-    }
-
-    if (result.deferred) {
-      return Response.json({
-        ok: true,
-        deferred: true,
-        authUrl: result.authUrl,
-      });
-    }
-
-    // Persist accountInfo to config
-    if (result.accountInfo) {
-      try {
-        const raw2 = loadRawConfig();
-        setNestedValue(raw2, "twitter.accountInfo", result.accountInfo);
-        saveRawConfig(raw2);
-        invalidateConfigCache();
-      } catch {
-        // Non-fatal
-      }
-    }
-
-    return Response.json({
-      ok: true,
-      accountInfo: result.accountInfo,
-      ...(authUrl ? { authUrl } : {}),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Twitter OAuth flow failed");
-    return httpError("INTERNAL_ERROR", sanitizeTwitterAuthError(message), 500);
-  }
-}
-
-function handleTwitterAuthStatus(): Response {
-  try {
-    const accessToken = getSecureKey(
-      "credential:integration:twitter:access_token",
-    );
-    const raw = loadRawConfig();
-    const mode =
-      (getNestedValue(raw, "twitter.integrationMode") as
-        | "local_byo"
-        | "managed"
-        | undefined) ?? "local_byo";
-    const accountInfo = getNestedValue(raw, "twitter.accountInfo") as
-      | string
-      | undefined;
-
-    // Managed prerequisites
-    const integrationModeManaged = mode === "managed";
-    const assistantApiKeyPresent = !!getSecureKey(
-      "credential:vellum:assistant_api_key",
-    );
-    const platformBaseUrlFromEnv = getPlatformBaseUrl();
-    const platformBaseUrlFromConfig = (
-      raw?.platform as Record<string, unknown> | undefined
-    )?.baseUrl as string | undefined;
-    const platformAssistantIdResolvable = !!(
-      (platformBaseUrlFromEnv || platformBaseUrlFromConfig) &&
-      (getSecureKey("credential:vellum:platform_assistant_id") ||
-        getPlatformAssistantId())
-    );
-
-    const managedPrerequisites = {
-      integrationModeManaged,
-      assistantApiKeyPresent,
-      platformAssistantIdResolvable,
-    };
-    const managedAvailable =
-      integrationModeManaged &&
-      assistantApiKeyPresent &&
-      platformAssistantIdResolvable;
-
-    // Local client configured
-    const localClientConfigured = !!getSecureKey(
-      "credential:integration:twitter:client_id",
-    );
-
-    // In managed mode, connected is always false (auth goes through platform)
-    const connected = mode === "managed" ? false : !!accessToken;
-
-    return Response.json({
-      connected,
-      accountInfo: accountInfo ?? undefined,
-      mode,
-      managedAvailable,
-      managedPrerequisites,
-      localClientConfigured,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to get Twitter auth status");
-    return httpError("INTERNAL_ERROR", message, 500);
   }
 }
 
@@ -544,23 +357,34 @@ function resolveManifestOverride(
 function handleToolNamesList(): Response {
   const tools = getAllTools();
   const nameSet = new Set(tools.map((t) => t.name));
-  const schemas: Record<
-    string,
-    {
-      type: string;
-      properties?: Record<string, unknown>;
-      required?: string[];
-    }
-  > = {};
+  type SchemaShape = {
+    type: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  const schemas: Record<string, SchemaShape> = {};
+
+  // Collect raw definitions from the registry so we can transform them.
+  const rawDefs: import("../../providers/types.js").ToolDefinition[] = [];
   for (const tool of tools) {
     try {
-      const def = tool.getDefinition();
-      schemas[tool.name] = def.input_schema as (typeof schemas)[string];
+      rawDefs.push(tool.getDefinition());
     } catch {
       // Skip tools whose definitions can't be resolved
     }
   }
 
+  // Apply reason injection so settings/debug schemas match runtime behavior.
+  const transformedDefs = injectReasonField(rawDefs, REASON_SKIP_SET);
+  for (const def of transformedDefs) {
+    schemas[def.name] = def.input_schema as SchemaShape;
+  }
+
+  // Skill manifest schemas are served raw (untransformed). Unlike runtime tool
+  // schemas which have `reason` injected via injectReasonField(), skill manifests
+  // reflect the original TOOLS.json content. This is intentional: skill tools are
+  // invoked through skill_execute (which has its own reason field), so their
+  // individual schemas are never sent to the LLM directly.
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {
@@ -572,8 +396,7 @@ function handleToolNamesList(): Response {
         for (const entry of manifest.tools) {
           if (nameSet.has(entry.name)) continue;
           nameSet.add(entry.name);
-          schemas[entry.name] =
-            entry.input_schema as unknown as (typeof schemas)[string];
+          schemas[entry.name] = entry.input_schema as unknown as SchemaShape;
         }
       } catch {
         // Skip skills whose manifests can't be parsed
@@ -806,20 +629,6 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
         };
         return handleOAuthConnectStart(body);
       },
-    },
-
-    // Twitter auth
-    {
-      endpoint: "integrations/twitter/auth/start",
-      method: "POST",
-      policyKey: "integrations/twitter/auth/start",
-      handler: async () => handleTwitterAuthStart(),
-    },
-    {
-      endpoint: "integrations/twitter/auth/status",
-      method: "GET",
-      policyKey: "integrations/twitter/auth/status",
-      handler: () => handleTwitterAuthStatus(),
     },
 
     // Workspace files (list/read -- distinct from workspace-routes.ts tree/file)

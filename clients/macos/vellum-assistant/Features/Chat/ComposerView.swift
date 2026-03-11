@@ -369,18 +369,11 @@ struct ComposerView: View {
     }
 
     private func handleComposerSubmit() {
-        #if os(macOS)
-        // `.onSubmit` fires on all Return variants, so keep the actual
-        // send-vs-newline behavior in the shared return-key contract.
-        ComposerReturnKeyRouting.handleSubmit(
-            cmdEnterToSend: cmdEnterToSend,
-            textView: NSApp.keyWindow?.firstResponder as? NSTextView
-        ) {
-            performSendAction()
-        }
-        #else
+        // On macOS, the bridge consumes all Return variants that should insert
+        // a newline (cmd-enter mode) or trigger a bridge-level send. The only
+        // Return events that reach `.onSubmit` are plain Return in default mode,
+        // which always means "send".
         performSendAction()
-        #endif
     }
 
     // MARK: - Text Entry Mode
@@ -491,7 +484,7 @@ struct ComposerView: View {
             }
         }
         .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
-        .animation(VAnimation.spring, value: canSend)
+        .animation(VAnimation.fast, value: canSend)
     }
 
     // MARK: - Dictation Inline Mode

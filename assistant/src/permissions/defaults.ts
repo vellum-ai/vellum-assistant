@@ -21,8 +21,6 @@ const HOST_FILE_TOOLS = [
 ] as const;
 const COMPUTER_USE_TOOLS = [
   "computer_use_click",
-  "computer_use_double_click",
-  "computer_use_right_click",
   "computer_use_type_text",
   "computer_use_key",
   "computer_use_scroll",
@@ -209,6 +207,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  const skillExecuteRule: DefaultRuleTemplate = {
+    id: "default:allow-skill_execute-global",
+    tool: "skill_execute",
+    pattern: "skill_execute:*",
+    scope: "everywhere",
+    decision: "allow",
+    priority: 100,
+  };
+
   // Browser tools were previously core-registered with RiskLevel.Low (auto-allowed).
   // After migration to skill-provided tools, default allow rules preserve the
   // same frictionless UX so they don't trigger permission prompts.
@@ -267,17 +274,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     }),
   );
 
-  // view_image is a read-only sandbox tool — always allow without prompting.
-  // Candidates contain "/" (absolute paths), so use "/**" globstar.
-  const viewImageRule: DefaultRuleTemplate = {
-    id: "default:allow-view_image-global",
-    tool: "view_image",
-    pattern: "view_image:/**",
-    scope: "everywhere",
-    decision: "allow",
-    priority: 100,
-  };
-
   // memory_recall is a read-only tool — always allow without prompting.
   const memoryRecallRule: DefaultRuleTemplate = {
     id: "default:allow-memory_recall-global",
@@ -299,10 +295,10 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     updatesDeleteRule,
     ...skillSourceMutationRules,
     skillLoadRule,
+    skillExecuteRule,
     browserNavigateRule,
     ...browserToolRules,
     ...uiSurfaceRules,
-    viewImageRule,
     memoryRecallRule,
   ];
 }

@@ -74,6 +74,8 @@ struct MessageListView: View {
     var onRehydrateMessage: ((UUID) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
+    /// Called when the user taps "Retry" on a per-message send failure.
+    var onRetryFailedMessage: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
@@ -99,7 +101,6 @@ struct MessageListView: View {
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
-    @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
     @State private var scrollDebounceTask: Task<Void, Never>?
@@ -301,22 +302,12 @@ struct MessageListView: View {
 
     @ViewBuilder
     private func thinkingIndicatorRow(displayMessages: [ChatMessage]) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(nsImage: appearance.chatAvatarImage)
-                .interpolation(.none)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 28, height: 28)
-                .clipShape(Circle())
-                .padding(.top, 2)
-
-            RunningIndicator(
-                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                    ? "Waking up..."
-                    : assistantStatusText ?? "Thinking",
-                showIcon: false
-            )
-        }
+        RunningIndicator(
+            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                ? "Waking up..."
+                : assistantStatusText ?? "Thinking",
+            showIcon: false
+        )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -439,6 +430,7 @@ struct MessageListView: View {
                             onReportMessage: onReportMessage,
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
+                            onRetryFailedMessage: onRetryFailedMessage,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onModelPickerSelect: onModelPickerSelect,
@@ -456,7 +448,6 @@ struct MessageListView: View {
                             onTap: { onSubagentTap?(subagent.id) }
                         )
                             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                            .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
@@ -917,6 +908,8 @@ private struct MessageCellView: View {
     var onRehydrateMessage: ((UUID) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
+    /// Called when the user taps "Retry" on a per-message send failure.
+    var onRetryFailedMessage: ((UUID) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
@@ -925,7 +918,6 @@ private struct MessageCellView: View {
     let configuredProviders: Set<String>
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
-    @State private var appearance = AvatarAppearanceManager.shared
 
     private func modelPickerView(for msg: ChatMessage) -> some View {
         ModelPickerBubble(
@@ -945,22 +937,12 @@ private struct MessageCellView: View {
 
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(nsImage: appearance.chatAvatarImage)
-                .interpolation(.none)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 28, height: 28)
-                .clipShape(Circle())
-                .padding(.top, 2)
-
-            RunningIndicator(
-                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                    ? "Waking up..."
-                    : assistantStatusText ?? "Thinking",
-                showIcon: false
-            )
-        }
+        RunningIndicator(
+            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                ? "Waking up..."
+                : assistantStatusText ?? "Thinking",
+            showIcon: false
+        )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
     }
@@ -1023,7 +1005,6 @@ private struct MessageCellView: View {
                 return conf
             }()
 
-            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
 
             ChatBubble(
                 message: message,
@@ -1038,7 +1019,7 @@ private struct MessageCellView: View {
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
                 resolveHttpPort: resolveHttpPort,
-                showAvatar: !previousIsAssistant,
+                onRetryFailedMessage: onRetryFailedMessage,
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
@@ -1055,7 +1036,6 @@ private struct MessageCellView: View {
                 onTap: { onSubagentTap?(subagent.id) }
             )
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                .padding(.leading, 36)
                 .id("subagent-\(subagent.id)")
         }
 

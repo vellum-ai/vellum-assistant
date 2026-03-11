@@ -1,4 +1,4 @@
-// External service integrations: Slack, Telegram, Twitter, Vercel, ingress, guardian.
+// External service integrations: Slack, Telegram, Vercel, ingress, guardian.
 
 import type { ChannelId } from "../../channels/types.js";
 
@@ -29,19 +29,6 @@ export interface VercelApiConfigRequest {
   apiToken?: string;
 }
 
-export interface TwitterIntegrationConfigRequest {
-  type: "twitter_integration_config";
-  action:
-    | "get"
-    | "set_mode"
-    | "set_local_client"
-    | "clear_local_client"
-    | "disconnect";
-  mode?: "local_byo" | "managed";
-  clientId?: string;
-  clientSecret?: string;
-}
-
 export interface TelegramConfigRequest {
   type: "telegram_config";
   action: "get" | "set" | "clear" | "set_commands" | "setup";
@@ -68,14 +55,6 @@ export interface ChannelVerificationSessionRequest {
   purpose?: "guardian" | "trusted_contact";
   /** Contact-channel ID for the absorbed contact-channel verify flow. */
   contactChannelId?: string;
-}
-
-export interface TwitterAuthStartRequest {
-  type: "twitter_auth_start";
-}
-
-export interface TwitterAuthStatusRequest {
-  type: "twitter_auth_status";
 }
 
 export interface IntegrationListRequest {
@@ -137,28 +116,6 @@ export interface VercelApiConfigResponse {
   error?: string;
 }
 
-export interface ManagedPrerequisites {
-  /** Whether twitter.integrationMode is set to "managed" in config. */
-  integrationModeManaged: boolean;
-  /** Whether the assistant API key credential exists in secure storage. */
-  assistantApiKeyPresent: boolean;
-  /** Whether the platform base URL is configured (platform registration resolvable). */
-  platformAssistantIdResolvable: boolean;
-}
-
-export interface TwitterIntegrationConfigResponse {
-  type: "twitter_integration_config_response";
-  success: boolean;
-  mode?: "local_byo" | "managed";
-  managedAvailable: boolean;
-  /** Detailed prerequisite status for managed Twitter availability. */
-  managedPrerequisites?: ManagedPrerequisites;
-  localClientConfigured: boolean;
-  connected: boolean;
-  accountInfo?: string;
-  error?: string;
-}
-
 export interface TelegramConfigResponse {
   type: "telegram_config_response";
   success: boolean;
@@ -211,23 +168,6 @@ export interface ChannelVerificationSessionResponse {
   pendingBootstrap?: boolean;
 }
 
-export interface TwitterAuthResult {
-  type: "twitter_auth_result";
-  success: boolean;
-  accountInfo?: string;
-  /** Machine-readable error code for programmatic handling (e.g. "managed_missing_api_key", "managed_auth_via_platform"). */
-  errorCode?: string;
-  error?: string;
-}
-
-export interface TwitterAuthStatusResponse {
-  type: "twitter_auth_status_response";
-  connected: boolean;
-  accountInfo?: string;
-  mode?: "local_byo" | "managed";
-  error?: string;
-}
-
 export interface IntegrationListResponse {
   type: "integration_list_response";
   integrations: Array<{
@@ -254,6 +194,7 @@ export interface IntegrationConnectResult {
 export interface OAuthConnectResultResponse {
   type: "oauth_connect_result";
   success: boolean;
+  service?: string;
   grantedScopes?: string[];
   accountInfo?: string;
   error?: string;
@@ -277,11 +218,8 @@ export type _IntegrationsClientMessages =
   | IngressConfigRequest
   | PlatformConfigRequest
   | VercelApiConfigRequest
-  | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
   | ChannelVerificationSessionRequest
-  | TwitterAuthStartRequest
-  | TwitterAuthStatusRequest
   | IntegrationListRequest
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
@@ -293,11 +231,8 @@ export type _IntegrationsServerMessages =
   | IngressConfigResponse
   | PlatformConfigResponse
   | VercelApiConfigResponse
-  | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
   | ChannelVerificationSessionResponse
-  | TwitterAuthResult
-  | TwitterAuthStatusResponse
   | IntegrationListResponse
   | IntegrationConnectResult
   | OAuthConnectResultResponse

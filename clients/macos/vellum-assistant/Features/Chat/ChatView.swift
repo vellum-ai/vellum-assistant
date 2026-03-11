@@ -64,6 +64,8 @@ struct ChatView: View {
     var onRehydrateMessage: ((UUID) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     var onSurfaceRefetch: ((String, String) -> Void)?
+    /// Called when the user taps "Retry" on a per-message send failure.
+    var onRetryFailedMessage: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -82,6 +84,15 @@ struct ChatView: View {
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
 
+    // MARK: - BTW Side-Chain
+
+    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
+    var btwResponse: String? = nil
+    /// True while a /btw request is in flight.
+    var btwLoading: Bool = false
+    /// Called to dismiss the btw overlay.
+    var onDismissBtw: (() -> Void)?
+
     // MARK: - Pagination
 
     var displayedMessageCount: Int = .max
@@ -96,6 +107,7 @@ struct ChatView: View {
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var containerWidth: CGFloat = 0
+    @State private var appearance = AvatarAppearanceManager.shared
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
@@ -104,9 +116,6 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if !hasAPIKey {
-                    APIKeyBanner(onOpenSettings: onOpenSettings)
-                }
                 if messages.isEmpty && !isHistoryLoaded {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
@@ -128,7 +137,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -138,7 +146,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
@@ -153,7 +160,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -163,7 +169,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
@@ -199,6 +204,7 @@ struct ChatView: View {
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,
                             onSurfaceRefetch: onSurfaceRefetch,
+                            onRetryFailedMessage: onRetryFailedMessage,
                             subagentDetailStore: subagentDetailStore,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
@@ -209,6 +215,18 @@ struct ChatView: View {
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
+
+                        // Assistant avatar pinned above the composer, Claude-style.
+                        if messages.contains(where: { $0.role == .assistant }) || isSending {
+                            HStack {
+                                VAvatarImage(image: appearance.chatAvatarImage, size: 52)
+                                Spacer()
+                            }
+                            .padding(.horizontal, VSpacing.xl)
+                            .padding(.vertical, VSpacing.sm)
+                            .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+                            .frame(maxWidth: .infinity)
+                        }
 
                         let composerMessages: [ChatMessage] = {
                             let all = messages.filter { !$0.isSubagentNotification }
@@ -230,15 +248,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
-                            sessionError: sessionError,
-                            isSecretBlockError: isSecretBlockError,
-                            onSendAnyway: onSendAnyway,
-                            isRetryableError: isRetryableError,
-                            onRetryError: onRetryError,
-                            isConnectionError: isConnectionError,
-                            hasRetryPayload: hasRetryPayload,
-                            connectionDiagnosticHint: connectionDiagnosticHint,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -248,10 +257,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            onRetrySessionError: onRetry,
-                            onCopyDebugInfo: onCopyDebugInfo,
-                            onDismissSessionError: onDismissSessionError,
                             watchSession: watchSession,
                             onStopWatch: onStopWatch,
                             isLearnMode: isLearnMode,
@@ -278,6 +283,10 @@ struct ChatView: View {
                 }
             )
             .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+            .overlay(alignment: .bottom) {
+                btwOverlay
+            }
+            .animation(VAnimation.fast, value: btwResponse != nil)
 
             // Drop target overlay
             if isDropTargeted {
@@ -301,8 +310,52 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
+        .overlay(alignment: .top) {
+            VStack(spacing: VSpacing.xs) {
+                if !hasAPIKey {
+                    ChatSessionErrorToast(
+                        message: "API key not set. Add one in Settings to start chatting.",
+                        icon: .keyRound,
+                        accentColor: VColor.warning,
+                        actionLabel: "Open Settings",
+                        onAction: onOpenSettings
+                    )
+                }
+
+                if let sessionError {
+                    ChatSessionErrorToast(
+                        error: sessionError,
+                        onRetry: onRetry,
+                        onCopyDebugInfo: onCopyDebugInfo,
+                        onDismiss: onDismissSessionError
+                    )
+                }
+
+                if let errorText, sessionError == nil {
+                    ChatSessionErrorToast(
+                        message: errorText,
+                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
+                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
+                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
+                        onDismiss: onDismissError
+                    )
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.top, VSpacing.sm)
+            .animation(VAnimation.fast, value: hasAPIKey)
+            .animation(VAnimation.fast, value: sessionError != nil)
+            .animation(VAnimation.fast, value: errorText != nil)
+        }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
+        }
+        .onKeyPress(.escape) {
+            if btwResponse != nil {
+                onDismissBtw?()
+                return .handled
+            }
+            return .ignored
         }
     }
 
@@ -311,6 +364,44 @@ struct ChatView: View {
     @ViewBuilder
     private var chatBackground: some View {
         EmptyView()
+    }
+
+    @ViewBuilder
+    private var btwOverlay: some View {
+        if let btwText = btwResponse {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack {
+                    Text("/btw")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    Button(action: { onDismissBtw?() }) {
+                        VIconView(.x, size: 12)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss btw response")
+                }
+
+                Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+
+                if !btwLoading {
+                    Text("Press Escape to dismiss")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .padding(VSpacing.md)
+            .background(VColor.surface)
+            .cornerRadius(VRadius.md)
+            .vShadow(VShadow.sm)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
     }
 
     /// Handle dropped items — supports both file URLs and raw image data.

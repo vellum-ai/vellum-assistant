@@ -169,6 +169,7 @@ public enum VColor {
     public static let chatBackground = adaptiveColor(light: Moss._100, dark: Moss._900)
     public static let surface = adaptiveColor(light: .white, dark: Moss._700)
     public static let surfaceBorder = adaptiveColor(light: Moss._100, dark: Moss._600)
+    public static let cardBorder = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Color(hex: 0x4A4A46))
     public static let surfaceSubtle = adaptiveColor(light: Moss._50, dark: Moss._900)
     public static let inputBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
 
@@ -216,10 +217,19 @@ public enum VColor {
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
-    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._700)
+    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._600)
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
-    public static let toggleOff = adaptiveColor(light: Stone._200, dark: Moss._600)
+    public static let toggleOn = adaptiveColor(light: Color(hex: 0x2A3825), dark: Forest._600)
+    public static let toggleOff = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
     public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
+    public static let toggleKnob = adaptiveColor(light: Stone._50, dark: Color.white)
+    public static let toggleKnobDisabled = adaptiveColor(light: Color(hex: 0xBDB9A9), dark: Moss._500)
+
+    // Radio option (activation key picker)
+    public static let radioBorder = adaptiveColor(light: Moss._200, dark: Moss._600)
+    public static let radioSelectedFill = adaptiveColor(light: Color(hex: 0x2A3825), dark: Forest._600)
+    public static let radioUnselectedStroke = adaptiveColor(light: Moss._300, dark: Moss._500)
+    public static let radioSelectedBg = adaptiveColor(light: Moss._200, dark: Moss._700)
 
     // Slash command highlight — green tint for /command tokens in composer and chat
     public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
@@ -246,8 +256,8 @@ public enum VColor {
     public static let buttonDangerPressed = Color(hex: 0xE0745A)
 
     // Tag & shortcut
-    public static let tagText = Moss._400
-    public static let tagBorder = Moss._100
+    public static let tagText = adaptiveColor(light: Moss._500, dark: Moss._400)
+    public static let tagBorder = adaptiveColor(light: Stone._300, dark: Moss._100)
 
     // Unread indicator
     public static let unreadIndicator = Danger._600

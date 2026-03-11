@@ -739,14 +739,17 @@ describe("GeminiProvider", () => {
     expect(lastConstructorOpts).toEqual({ apiKey: "test-key" });
   });
 
-  test("sets httpOptions.baseUrl when managedBaseUrl is provided", () => {
+  test("sets vertexai mode with httpOptions.baseUrl when managedBaseUrl is provided", () => {
     new GeminiProvider("managed-key", "gemini-3-flash", {
-      managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+      managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
     });
     expect(lastConstructorOpts).toEqual({
       apiKey: "managed-key",
+      vertexai: true,
+      project: "proxy",
+      location: "us-central1",
       httpOptions: {
-        baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+        baseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
       },
     });
   });
@@ -756,7 +759,7 @@ describe("GeminiProvider", () => {
       "managed-key",
       "gemini-3-flash",
       {
-        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
       },
     );
 
@@ -781,7 +784,7 @@ describe("GeminiProvider", () => {
       "managed-key",
       "gemini-3-flash",
       {
-        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+        managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
       },
     );
 

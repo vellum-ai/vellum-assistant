@@ -105,8 +105,8 @@ private struct PillSegment: View {
                 .fixedSize()
                 .foregroundColor(isSelected ? selectedTextColor : VColor.textSecondary)
                 .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.xs + 2)
                 .frame(maxWidth: .infinity)
+                .frame(height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md - 1)
                         .fill(segmentBackground)

@@ -173,12 +173,12 @@ describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
-      makeSkill("twitter", "bundled", "twitter"),
+      makeSkill("browser", "bundled", "browser"),
     ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
       },
     });
 
@@ -186,18 +186,18 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).not.toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("twitter");
+    expect(ids).toContain("browser");
   });
 
   test("flag ON skill appears normally", () => {
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
-      makeSkill("twitter", "bundled", "twitter"),
+      makeSkill("browser", "bundled", "browser"),
     ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: true,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
       },
     });
 
@@ -205,7 +205,7 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("twitter");
+    expect(ids).toContain("browser");
   });
 
   test("declared flag key defaults to registry value (false)", () => {
@@ -257,13 +257,13 @@ describe("resolveSkillStates with feature flags", () => {
   test("multiple skills with mixed flags — persisted overrides respected", () => {
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
-      makeSkill("twitter", "bundled", "twitter"),
+      makeSkill("browser", "bundled", "browser"),
       makeSkill("deploy", "bundled", "deploy"),
     ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
         "feature_flags.deploy.enabled": false,
       },
     });
@@ -271,8 +271,8 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // hatch-new-assistant and deploy explicitly false; twitter explicitly true
-    expect(ids).toEqual(["twitter"]);
+    // hatch-new-assistant and deploy explicitly false; browser explicitly true
+    expect(ids).toEqual(["browser"]);
   });
 });
 

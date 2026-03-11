@@ -67,7 +67,7 @@ export const PROVIDER_PROFILES: Record<string, OAuthProviderProfile> = {
     ],
     extraParams: { access_type: "offline", prompt: "consent" },
     callbackTransport: "loopback",
-    setupSkillId: "google-oauth-setup",
+    setupSkillId: "google-oauth-applescript",
     setup: {
       displayName: "Google (Gmail & Calendar)",
       dashboardUrl: "https://console.cloud.google.com/apis/credentials",

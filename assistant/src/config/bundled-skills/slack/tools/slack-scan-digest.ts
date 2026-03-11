@@ -1,11 +1,12 @@
 import { getConfig } from "../../../../config/loader.js";
 import * as slack from "../../../../messaging/providers/slack/client.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
+import type { OAuthConnection } from "../../../../oauth/connection.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, withSlackToken } from "./shared.js";
+import { err, getSlackConnection, ok } from "./shared.js";
 
 interface ThreadSummary {
   threadTs: string;
@@ -26,13 +27,16 @@ interface ChannelDigest {
 
 const userNameCache = new Map<string, string>();
 
-async function resolveUserName(token: string, userId: string): Promise<string> {
+async function resolveUserName(
+  connection: OAuthConnection,
+  userId: string,
+): Promise<string> {
   if (!userId) return "unknown";
   const cached = userNameCache.get(userId);
   if (cached) return cached;
 
   try {
-    const resp = await slack.userInfo(token, userId);
+    const resp = await slack.userInfo(connection, userId);
     const name =
       resp.user.profile?.display_name ||
       resp.user.profile?.real_name ||
@@ -46,7 +50,7 @@ async function resolveUserName(token: string, userId: string): Promise<string> {
 }
 
 async function scanChannel(
-  token: string,
+  connection: OAuthConnection,
   conv: SlackConversation,
   oldestTs: string,
   includeThreads: boolean,
@@ -57,7 +61,7 @@ async function scanChannel(
 
   try {
     const history = await slack.conversationHistory(
-      token,
+      connection,
       channelId,
       100,
       undefined,
@@ -71,7 +75,7 @@ async function scanChannel(
     }
 
     const keyParticipants = await Promise.all(
-      [...participantIds].map((uid) => resolveUserName(token, uid)),
+      [...participantIds].map((uid) => resolveUserName(connection, uid)),
     );
 
     const threadMessages = messages
@@ -86,7 +90,7 @@ async function scanChannel(
         if (includeThreads) {
           try {
             const replies = await slack.conversationReplies(
-              token,
+              connection,
               channelId,
               msg.ts,
               10,
@@ -97,11 +101,11 @@ async function scanChannel(
             }
             participants = await Promise.all(
               [...threadParticipantIds].map((uid) =>
-                resolveUserName(token, uid),
+                resolveUserName(connection, uid),
               ),
             );
           } catch {
-            participants = [await resolveUserName(token, msg.user ?? "")];
+            participants = [await resolveUserName(connection, msg.user ?? "")];
           }
         }
 
@@ -260,15 +264,34 @@ export async function run(
   const format = (input.format as string) ?? "text";
 
   try {
-    return await withSlackToken(async (token) => {
-      const oldestTs = String((Date.now() - hoursBack * 60 * 60 * 1000) / 1000);
+    const connection = getSlackConnection();
+    const oldestTs = String((Date.now() - hoursBack * 60 * 60 * 1000) / 1000);
 
-      let channelsToScan: SlackConversation[];
-      let failedLookups = 0;
+    let channelsToScan: SlackConversation[];
+    let failedLookups = 0;
 
-      if (channelIds?.length) {
+    if (channelIds?.length) {
+      const results = await Promise.allSettled(
+        channelIds.map((id) => slack.conversationInfo(connection, id)),
+      );
+      channelsToScan = results
+        .filter(
+          (
+            r,
+          ): r is PromiseFulfilledResult<
+            Awaited<ReturnType<typeof slack.conversationInfo>>
+          > => r.status === "fulfilled",
+        )
+        .map((r) => r.value.channel);
+      failedLookups = results.filter((r) => r.status === "rejected").length;
+    } else {
+      const config = getConfig();
+      const preferredIds = config.skills?.entries?.slack?.config
+        ?.preferredChannels as string[] | undefined;
+
+      if (preferredIds?.length) {
         const results = await Promise.allSettled(
-          channelIds.map((id) => slack.conversationInfo(token, id)),
+          preferredIds.map((id) => slack.conversationInfo(connection, id)),
         );
         channelsToScan = results
           .filter(
@@ -281,89 +304,69 @@ export async function run(
           .map((r) => r.value.channel);
         failedLookups = results.filter((r) => r.status === "rejected").length;
       } else {
-        const config = getConfig();
-        const preferredIds = config.skills?.entries?.slack?.config
-          ?.preferredChannels as string[] | undefined;
-
-        if (preferredIds?.length) {
-          const results = await Promise.allSettled(
-            preferredIds.map((id) => slack.conversationInfo(token, id)),
+        const allChannels: SlackConversation[] = [];
+        let cursor: string | undefined;
+        do {
+          const resp = await slack.listConversations(
+            connection,
+            "public_channel,private_channel",
+            true,
+            200,
+            cursor,
           );
-          channelsToScan = results
-            .filter(
-              (
-                r,
-              ): r is PromiseFulfilledResult<
-                Awaited<ReturnType<typeof slack.conversationInfo>>
-              > => r.status === "fulfilled",
-            )
-            .map((r) => r.value.channel);
-          failedLookups = results.filter((r) => r.status === "rejected").length;
-        } else {
-          const allChannels: SlackConversation[] = [];
-          let cursor: string | undefined;
-          do {
-            const resp = await slack.listConversations(
-              token,
-              "public_channel,private_channel",
-              true,
-              200,
-              cursor,
-            );
-            allChannels.push(...resp.channels);
-            cursor = resp.response_metadata?.next_cursor || undefined;
-          } while (cursor);
+          allChannels.push(...resp.channels);
+          cursor = resp.response_metadata?.next_cursor || undefined;
+        } while (cursor);
 
-          channelsToScan = allChannels
-            .filter((c) => c.is_member)
-            .sort((a, b) => {
-              const aTs = a.latest?.ts ? parseFloat(a.latest.ts) : 0;
-              const bTs = b.latest?.ts ? parseFloat(b.latest.ts) : 0;
-              return bTs - aTs;
-            })
-            .slice(0, maxChannels);
-        }
+        channelsToScan = allChannels
+          .filter((c) => c.is_member)
+          .sort((a, b) => {
+            const aTs = a.latest?.ts ? parseFloat(a.latest.ts) : 0;
+            const bTs = b.latest?.ts ? parseFloat(b.latest.ts) : 0;
+            return bTs - aTs;
+          })
+          .slice(0, maxChannels);
       }
+    }
 
-      const scanResults = await Promise.allSettled(
-        channelsToScan.map((conv) =>
-          scanChannel(token, conv, oldestTs, includeThreads),
-        ),
-      );
+    const scanResults = await Promise.allSettled(
+      channelsToScan.map((conv) =>
+        scanChannel(connection, conv, oldestTs, includeThreads),
+      ),
+    );
 
-      const digests: ChannelDigest[] = scanResults
-        .filter(
-          (r): r is PromiseFulfilledResult<ChannelDigest> =>
-            r.status === "fulfilled",
-        )
-        .map((r) => r.value)
-        .filter((d) => d.messageCount > 0 || d.error);
+    const digests: ChannelDigest[] = scanResults
+      .filter(
+        (r): r is PromiseFulfilledResult<ChannelDigest> =>
+          r.status === "fulfilled",
+      )
+      .map((r) => r.value)
+      .filter((d) => d.messageCount > 0 || d.error);
 
-      const skippedCount = scanResults.filter(
-        (r) => r.status === "rejected",
-      ).length;
+    const skippedCount = scanResults.filter(
+      (r) => r.status === "rejected",
+    ).length;
 
-      if (format === "blocks") {
-        const blocks = buildBlockKitOutput(
-          digests,
-          hoursBack,
-          channelsToScan.length,
-          skippedCount,
-        );
-        return ok(JSON.stringify({ blocks }, null, 2));
-      }
-
-      const result = {
-        scannedChannels: digests.length,
-        totalChannelsAttempted: channelsToScan.length,
-        skippedDueToErrors: skippedCount,
-        failedLookups,
+    if (format === "blocks") {
+      const blocks = buildBlockKitOutput(
+        digests,
         hoursBack,
-        channels: digests,
-      };
+        channelsToScan.length,
+        skippedCount,
+      );
+      return ok(JSON.stringify({ blocks }, null, 2));
+    }
 
-      return ok(JSON.stringify(result, null, 2));
-    });
+    const result = {
+      scannedChannels: digests.length,
+      totalChannelsAttempted: channelsToScan.length,
+      skippedDueToErrors: skippedCount,
+      failedLookups,
+      hoursBack,
+      channels: digests,
+    };
+
+    return ok(JSON.stringify(result, null, 2));
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

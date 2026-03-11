@@ -30,7 +30,7 @@ struct TrustRulesView: View {
             }
             .padding()
 
-            Divider()
+            SettingsDivider()
 
             if isLoading {
                 Spacer()
@@ -236,7 +236,7 @@ private struct TrustRuleFormView: View {
             }
             .padding()
 
-            Divider()
+            SettingsDivider()
 
             Form {
                 Picker("Tool", selection: $tool) {

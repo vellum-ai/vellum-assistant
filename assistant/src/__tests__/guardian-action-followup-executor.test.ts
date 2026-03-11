@@ -127,10 +127,7 @@ function resetTables(): void {
  * Create a request in `dispatching` state ready for the executor.
  * The call session has fromNumber='+15550001111' (the counterparty).
  */
-function createDispatchingRequest(
-  convId: string,
-  action: "call_back" | "message_back",
-) {
+function createDispatchingRequest(convId: string, action: "call_back") {
   ensureConversation(convId);
   const session = createCallSession({
     conversationId: convId,
@@ -278,30 +275,6 @@ describe("guardian-action-followup-executor", () => {
       expect(result.guardianReplyText.length).toBeGreaterThan(0);
 
       // Verify follow-up state is failed
-      const updated = getGuardianActionRequest(request.id);
-      expect(updated!.followupState).toBe("failed");
-      expect(updated!.followupCompletedAt).toBeGreaterThan(0);
-    });
-  });
-
-  // ── message_back (unsupported) error path ─────────────────────────────
-
-  describe("message_back", () => {
-    test("returns failure and finalizes as failed when message_back is dispatched", async () => {
-      const { request } = createDispatchingRequest(
-        "exec-msg-1",
-        "message_back",
-      );
-
-      const result = await executeFollowupAction(request.id, "message_back");
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toContain("Unsupported action");
-        expect(result.error).toContain("message_back");
-      }
-      expect(result.guardianReplyText.length).toBeGreaterThan(0);
-
       const updated = getGuardianActionRequest(request.id);
       expect(updated!.followupState).toBe("failed");
       expect(updated!.followupCompletedAt).toBeGreaterThan(0);

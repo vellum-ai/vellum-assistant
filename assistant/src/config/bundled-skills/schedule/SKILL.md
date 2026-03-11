@@ -2,7 +2,10 @@
 name: schedule
 description: Recurring and one-shot scheduling — cron, RRULE, or single fire-at time
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📅","vellum":{"display-name":"Schedule"}}
+metadata:
+  emoji: "📅"
+  vellum:
+    display-name: "Schedule"
 ---
 
 Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Both recurring and one-shot schedules support two modes: **execute** (run a message through the assistant) and **notify** (send a notification to the user).
@@ -144,8 +147,7 @@ Before confirming a schedule to the user, you MUST verify that you have the capa
 When `schedule_create` returns, it includes an integration status summary. Cross-reference the scheduled task's requirements against the available integrations:
 
 - If the task involves **email** (reading, sending, OTP verification): an email integration must be connected (check the "email" category)
-- If the task involves **tweeting or reading Twitter**: Twitter must be connected
-- If the task involves **sending SMS or making calls**: SMS/Twilio must be connected
+- If the task involves **making calls**: Twilio must be connected
 - If the task involves **web browsing or form-filling**: browser automation must be available (check client type)
 - If the task involves a **multi-step workflow** (e.g., book appointment → read confirmation email), trace the full dependency chain
 

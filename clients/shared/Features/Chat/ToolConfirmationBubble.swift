@@ -998,10 +998,10 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("npm install express")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm install express"),
+                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm install express"),
                 ],
                 scopeOptions: [
-                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
+                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
                 ],
                 executionTarget: "host"
             ),
@@ -1046,12 +1046,12 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("ls -la ~/Library/Application\\ Support/")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "ls -la ~/Library/Application\\ Support/"),
-                    IPCConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"ls -la ~/Library/Application\\\" command", pattern: "ls -la ~/Library/Application*"),
-                    IPCConfirmationRequestAllowlistOption(label: "tool", description: "Any ls command", pattern: "ls *"),
+                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "ls -la ~/Library/Application\\ Support/"),
+                    ConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"ls -la ~/Library/Application\\\" command", pattern: "ls -la ~/Library/Application*"),
+                    ConfirmationRequestAllowlistOption(label: "tool", description: "Any ls command", pattern: "ls *"),
                 ],
                 scopeOptions: [
-                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
+                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
                 ],
                 executionTarget: "host"
             ),
@@ -1125,11 +1125,11 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("npm test")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm test"),
+                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm test"),
                 ],
                 scopeOptions: [
-                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
-                    IPCConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
+                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
+                    ConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 executionTarget: "host"
             ),
@@ -1146,13 +1146,13 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("git push origin main")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "git push origin main"),
-                    IPCConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"git push\" command", pattern: "git push *"),
-                    IPCConfirmationRequestAllowlistOption(label: "tool", description: "Any git command", pattern: "git *"),
+                    ConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "git push origin main"),
+                    ConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"git push\" command", pattern: "git push *"),
+                    ConfirmationRequestAllowlistOption(label: "tool", description: "Any git command", pattern: "git *"),
                 ],
                 scopeOptions: [
-                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
-                    IPCConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
+                    ConfirmationRequestScopeOption(label: "This project", scope: "project"),
+                    ConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 executionTarget: "host"
             ),

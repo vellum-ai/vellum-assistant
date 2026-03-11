@@ -355,11 +355,11 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
     public var isVoiceModeActive: Bool = false
-    var pendingUserAttachments: [IPCAttachment]?
+    var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
     private(set) var lastFailedMessageDisplayText: String?
-    private(set) var lastFailedMessageAttachments: [IPCAttachment]?
+    private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
@@ -370,7 +370,7 @@ public final class ChatViewModel: ObservableObject {
     var secretBlockedMessageText: String?
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
-    var secretBlockedAttachments: [IPCAttachment]?
+    var secretBlockedAttachments: [UserMessageAttachment]?
     var secretBlockedActiveSurfaceId: String?
     var secretBlockedCurrentPage: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
@@ -533,6 +533,15 @@ public final class ChatViewModel: ObservableObject {
     /// send `hasMore` in the history response.
     @Published public var hasMoreHistory: Bool = false
 
+    // MARK: - BTW Side-Chain State
+
+    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
+    @Published public var btwResponse: String?
+    /// True while a /btw request is in flight.
+    @Published public var btwLoading: Bool = false
+    /// The in-flight btw streaming task, stored for cancellation.
+    private var btwTask: Task<Void, Never>?
+
     /// Whether there are more messages above the current display window.
     /// True when either:
     ///   1. There are locally loaded messages outside the current display suffix, OR
@@ -615,7 +624,7 @@ public final class ChatViewModel: ObservableObject {
               let sessionId = sessionId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
-            try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
+            try daemonClient.send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
         }
@@ -636,7 +645,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Handle a `message_content_response` from the daemon, updating the matching
     /// message with full (untruncated) text and tool call results.
-    public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+    public func handleMessageContentResponse(_ response: MessageContentResponse) {
         guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
 
         // Only update text when the message has a single segment (non-interleaved).
@@ -967,6 +976,17 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
+        // Intercept /btw side-chain messages before the normal send path.
+        if text.hasPrefix("/btw ") {
+            let question = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            inputText = ""
+            pendingAttachments = []
+            pendingSkillInvocation = nil
+            flushCoalescedPublish()
+            sendBtwMessage(question: question)
+            return
+        }
+
         // Confirmation state is now server-authoritative: the daemon emits
         // `confirmation_state_changed` events for all resolution paths.
         // No client-side pessimistic denial is needed.
@@ -1002,7 +1022,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingUserMessage = text
                 pendingUserMessageDisplayText = rawText
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
                 isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
@@ -1078,8 +1098,8 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedCurrentPage = nil
         flushCoalescedPublish()
 
-        let messageAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+        let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -1099,7 +1119,49 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
+    // MARK: - BTW Side-Chain
+
+    /// Send a /btw side-chain question and stream the response into `btwResponse`.
+    public func sendBtwMessage(question: String) {
+        guard !question.isEmpty else { return }
+
+        // Cancel any in-flight btw task to prevent interleaved deltas.
+        btwTask?.cancel()
+
+        btwLoading = true
+        btwResponse = ""
+
+        btwTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let stream = self.daemonClient.sendBtwMessage(
+                    content: question,
+                    conversationKey: self.sessionId ?? ""
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    self.btwResponse = (self.btwResponse ?? "") + delta
+                }
+            } catch is CancellationError {
+                // Stream was cancelled via dismiss — no error to show.
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
+            }
+            guard !Task.isCancelled else { return }
+            self.btwLoading = false
+        }
+    }
+
+    /// Clear btw side-chain state and cancel any in-flight stream.
+    public func dismissBtw() {
+        btwTask?.cancel()
+        btwTask = nil
+        btwResponse = nil
+        btwLoading = false
+    }
+
+    private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
         // message; message-less session creates (e.g. private thread
         // pre-allocation) are silent and shouldn't affect UI state.
@@ -1164,7 +1226,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -1867,7 +1929,34 @@ public final class ChatViewModel: ObservableObject {
             }
         }
         dismissSessionError()
-        regenerateLastMessage()
+
+        // When the last message is from the user (i.e. the assistant never
+        // responded — e.g. because the send was rate-limited with 429), resend
+        // the original message instead of regenerating. A /regenerate request
+        // would fail with 404 because the daemon never received the message.
+        if let lastMsg = messages.last, lastMsg.role == .user {
+            lastFailedMessageText = lastMsg.text
+            lastFailedMessageDisplayText = nil
+            // Preserve attachments so they are resent with the retry.
+            // ChatAttachment.data may already be cleared for older messages,
+            // but for a just-sent 429'd message it is still populated.
+            lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
+                guard !att.data.isEmpty else { return nil }
+                return UserMessageAttachment(
+                    id: att.id,
+                    filename: att.filename,
+                    mimeType: att.mimeType,
+                    data: att.data,
+                    extractedText: nil,
+                    sizeBytes: nil,
+                    thumbnailData: nil,
+                    filePath: att.filePath
+                )
+            }
+            retryLastMessage()
+        } else {
+            regenerateLastMessage()
+        }
     }
 
     /// Whether the current error has a failed user message that can be retried.
@@ -1974,6 +2063,50 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
             sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId)
+        }
+    }
+
+    /// Retry sending a specific failed message. Moves it to the end of the
+    /// conversation and resends it so it appears as the most recent message.
+    public func retryFailedMessage(id: UUID) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        let message = messages[idx]
+        guard message.role == .user, message.status == .sendFailed else { return }
+
+        // Remove the failed message from its current position
+        messages.remove(at: idx)
+
+        // Re-append it at the end with .sent status
+        var retryMessage = ChatMessage(
+            role: .user,
+            text: message.text,
+            status: .sent,
+            skillInvocation: message.skillInvocation,
+            attachments: message.attachments
+        )
+        retryMessage.isHidden = message.isHidden
+        messages.append(retryMessage)
+
+        // Convert ChatAttachments back to UserMessageAttachments for the send call
+        let userAttachments: [UserMessageAttachment]? = message.attachments.isEmpty ? nil : message.attachments.compactMap { att in
+            guard !att.data.isEmpty else { return nil }
+            return UserMessageAttachment(
+                id: att.id,
+                filename: att.filename,
+                mimeType: att.mimeType,
+                data: att.data,
+                extractedText: nil,
+                sizeBytes: nil,
+                thumbnailData: nil,
+                filePath: att.filePath
+            )
+        }
+
+        // Resend — bootstrap a new session if needed (mirrors retryLastMessage)
+        if sessionId == nil {
+            bootstrapSession(userMessage: message.text, attachments: userAttachments)
+        } else {
+            sendUserMessage(message.text, attachments: userAttachments)
         }
     }
 
@@ -2137,7 +2270,7 @@ public final class ChatViewModel: ObservableObject {
     ///     (older page fetched on demand). When `false`, the standard initial-load
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
-        _ historyMessages: [IPCHistoryResponseMessage],
+        _ historyMessages: [HistoryResponseMessage],
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
@@ -2491,6 +2624,7 @@ public final class ChatViewModel: ObservableObject {
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
+        btwTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)

@@ -21,6 +21,7 @@ import {
 import { loadRawConfig, saveRawConfig } from "../../../config/loader.js";
 import { syncTwilioWebhooks } from "../../../daemon/handlers/config-ingress.js";
 import type { IngressConfig } from "../../../inbound/public-ingress-urls.js";
+import { credentialKey } from "../../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
@@ -136,7 +137,7 @@ export async function handleSetTwilioCredentials(
   // validation (gateway/src/credential-reader.ts), while the assistant reads
   // from config via resolveAccountSid(). Both stores must stay in sync.
   const sidStored = await setSecureKeyAsync(
-    "credential:twilio:account_sid",
+    credentialKey("twilio", "account_sid"),
     body.accountSid,
   );
   if (!sidStored) {
@@ -148,11 +149,11 @@ export async function handleSetTwilioCredentials(
   }
 
   const tokenStored = await setSecureKeyAsync(
-    "credential:twilio:auth_token",
+    credentialKey("twilio", "auth_token"),
     body.authToken,
   );
   if (!tokenStored) {
-    await deleteSecureKeyAsync("credential:twilio:account_sid");
+    await deleteSecureKeyAsync(credentialKey("twilio", "account_sid"));
     return Response.json({
       success: false,
       hasCredentials: false,
@@ -202,8 +203,8 @@ export async function handleSetTwilioCredentials(
  * DELETE /v1/integrations/twilio/credentials
  */
 export async function handleClearTwilioCredentials(): Promise<Response> {
-  const r1 = await deleteSecureKeyAsync("credential:twilio:account_sid");
-  const r2 = await deleteSecureKeyAsync("credential:twilio:auth_token");
+  const r1 = await deleteSecureKeyAsync(credentialKey("twilio", "account_sid"));
+  const r2 = await deleteSecureKeyAsync(credentialKey("twilio", "auth_token"));
 
   if (r1 === "error" || r2 === "error") {
     return Response.json(

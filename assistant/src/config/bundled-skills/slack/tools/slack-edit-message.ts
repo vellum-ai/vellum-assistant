@@ -3,7 +3,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, withSlackToken } from "./shared.js";
+import { err, getSlackConnection, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -18,10 +18,9 @@ export async function run(
   }
 
   try {
-    return await withSlackToken(async (token) => {
-      await updateMessage(token, channel, timestamp, text);
-      return ok(`Message updated.`);
-    });
+    const connection = getSlackConnection();
+    await updateMessage(connection, channel, timestamp, text);
+    return ok(`Message updated.`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

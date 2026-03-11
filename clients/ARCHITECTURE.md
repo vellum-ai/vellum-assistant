@@ -52,7 +52,7 @@ Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewMod
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -757,53 +757,6 @@ Guardian approval prompts are rendered as structured card UIs in the chat timeli
 
 ---
 
-## Managed Twitter OAuth (macOS)
-
-When `twitter.integrationMode` is `managed`, the macOS Settings UI enables the assistant owner to connect their Twitter/X account through the platform rather than using local BYO OAuth credentials.
-
-### Key Concepts
-
-- **Hosting mode vs. credential mode are independent.** An assistant can be self-hosted (local daemon) yet use platform-managed Twitter credentials. The `twitter.integrationMode` config controls credential mode; the assistant's hosting mode is determined by its lockfile entry.
-- **Owner-only binding.** Only the assistant owner can connect or disconnect the managed Twitter account. Non-owner users see a disabled state and cannot trigger connect/disconnect. The platform enforces this via 403 responses with `owner_only` or `owner_credential_required` error codes.
-
-### Authentication Layers
-
-| Flow | Header | Token Source | Purpose |
-|------|--------|-------------|---------|
-| Connect/disconnect/status (Settings UI) | `X-Session-Token` | WorkOS session (via `SessionTokenManager`) | Authenticates the human user to the platform |
-| Runtime Twitter API calls (proxy client) | `Authorization: Api-Key {key}` | `credential:vellum:assistant_api_key` (secure storage) | Authenticates the assistant to the platform proxy |
-
-The proxy client (`platform-proxy-client.ts`) never includes user-level session tokens or user OAuth tokens. Token storage and refresh are handled server-side by the platform.
-
-### Connect Flow
-
-```
-Owner clicks "Connect Twitter" in Settings
-  --> PlatformTwitterOAuthService.connect(assistantId:)
-  --> POST /v1/assistants/{id}/twitter-oauth/connect/
-      (with X-Session-Token header)
-  --> Platform redirects to Twitter OAuth
-  --> Callback to platform, token stored server-side
-  --> Settings UI polls status until connected
-```
-
-### Daemon Guardrail
-
-When `integrationMode` is `managed`, the daemon's `handleTwitterAuthStart` handler returns a managed-specific error code (`managed_auth_via_platform` or `managed_missing_api_key`) and never calls `orchestrateOAuthConnect`. This prevents credential confusion between managed and local BYO flows.
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `clients/shared/App/Auth/PlatformTwitterOAuthService.swift` | Swift client for platform Twitter OAuth connect/disconnect/status |
-| `clients/macos/vellum-assistant/Features/Settings/SettingsStore.swift` | Settings state including managed Twitter connection UI |
-| `assistant/src/daemon/handlers/twitter-auth.ts` | Daemon auth handler with managed mode guardrail |
-| `assistant/src/twitter/platform-proxy-client.ts` | Runtime proxy client (Api-Key auth, no user tokens) |
-| `assistant/src/cli/commands/twitter/router.ts` | Strategy router dispatching to managed/oauth/browser paths |
-| `assistant/src/config/bundled-skills/twitter/SKILL.md` | Skill documentation including managed mode architecture |
-
----
-
 ## Shared Feature Stores
 
 Cross-platform `ObservableObject` stores in `clients/shared/Features/` encapsulate daemon communication and state management. Platform views delegate data operations to these stores while owning their own UI presentation state.
@@ -863,28 +816,6 @@ New settings sections brought to iOS for feature parity with macOS:
 | `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Keychain |
 | `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
 | `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
-
----
-
-## macOS Task Queue (M10)
-
-The Task Queue panel is a macOS side panel for managing one-shot work items.
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| `TaskQueuePanel` | `macos/.../Panels/TaskQueuePanel.swift` | Side panel with filter strip, task list, output/preflight sheet presentation |
-| `TaskQueueRow` | (private in TaskQueuePanel.swift) | Individual task row with status badge, priority menu, run/stop/result actions |
-| `TaskQueueViewModel` | `macos/.../Panels/TaskQueueViewModel.swift` | Centralized state: items, filters, run/cancel/timeout tracking, daemon callbacks |
-| `TaskPreflightView` | `macos/.../Panels/TaskPreflightView.swift` | Permission approval sheet with toggleable tool permissions and risk badges |
-| `TaskOutputView` | `macos/.../Panels/TaskOutputView.swift` | Output detail sheet with status, summary, highlights, and copy-to-clipboard |
-
-### Task Queue Data Flow
-
-1. `TaskQueueViewModel` sets up daemon callbacks in `init` and fetches the initial item list
-2. Filter strip controls which status subset is displayed (`All`, `Active`, `Completed`, `Failed`)
-3. Running a task triggers a preflight check; if permissions are needed, `TaskPreflightView` is presented
-4. Run requests include a timeout (10s); if the daemon doesn't respond, the task shows a "No response" warning
-5. Status changes from the daemon trigger debounced list refreshes (300ms)
 
 ---
 

@@ -206,6 +206,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   app_create: "app",
   app_update: "app",
   skill_load: "skill",
+  skill_execute: "skill",
   app_file_edit: "app file",
   app_file_write: "app file",
 };
@@ -816,6 +817,20 @@ export async function dispatchAgentEvent(
     case "tool_result":
       handleToolResult(state, deps, event);
       break;
+    case "server_tool_start": {
+      const friendlyNames: Record<string, string> = {
+        web_search: "Searching the web",
+      };
+      const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
+      deps.ctx.emitActivityState(
+        "tool_running",
+        "tool_use_start",
+        "assistant_turn",
+        deps.reqId,
+        statusText,
+      );
+      break;
+    }
     case "error":
       handleError(state, deps, event);
       break;

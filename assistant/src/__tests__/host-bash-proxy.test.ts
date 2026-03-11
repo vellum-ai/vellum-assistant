@@ -22,10 +22,10 @@ describe("HostBashProxy", () => {
   let sentMessages: unknown[];
   let sendToClient: (msg: unknown) => void;
 
-  function setup() {
+  function setup(onInternalResolve?: (requestId: string) => void) {
     sentMessages = [];
     sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostBashProxy(sendToClient);
+    proxy = new HostBashProxy(sendToClient, onInternalResolve);
   }
 
   afterEach(() => {
@@ -70,10 +70,7 @@ describe("HostBashProxy", () => {
     test("formats error output correctly", async () => {
       setup();
 
-      const resultPromise = proxy.request(
-        { command: "false" },
-        "session-1",
-      );
+      const resultPromise = proxy.request({ command: "false" }, "session-1");
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
@@ -187,9 +184,23 @@ describe("HostBashProxy", () => {
   });
 
   describe("isAvailable", () => {
-    test("returns true", () => {
+    test("returns false by default (no client connected)", () => {
       setup();
+      expect(proxy.isAvailable()).toBe(false);
+    });
+
+    test("returns true after updateSender with clientConnected=true", () => {
+      setup();
+      proxy.updateSender(sendToClient, true);
       expect(proxy.isAvailable()).toBe(true);
+    });
+
+    test("returns false after updateSender with clientConnected=false", () => {
+      setup();
+      proxy.updateSender(sendToClient, true);
+      expect(proxy.isAvailable()).toBe(true);
+      proxy.updateSender(sendToClient, false);
+      expect(proxy.isAvailable()).toBe(false);
     });
   });
 
@@ -219,7 +230,7 @@ describe("HostBashProxy", () => {
       setup();
 
       const newMessages: unknown[] = [];
-      proxy.updateSender((msg) => newMessages.push(msg));
+      proxy.updateSender((msg) => newMessages.push(msg), true);
 
       const resultPromise = proxy.request(
         { command: "echo updated" },
@@ -251,6 +262,74 @@ describe("HostBashProxy", () => {
         exitCode: 0,
         timedOut: false,
       });
+    });
+  });
+
+  describe("onInternalResolve callback", () => {
+    test("fires on abort", async () => {
+      const resolvedIds: string[] = [];
+      setup((id) => resolvedIds.push(id));
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+      await resultPromise;
+
+      expect(resolvedIds).toEqual([requestId]);
+    });
+
+    test("fires for each pending request on dispose", () => {
+      const resolvedIds: string[] = [];
+      setup((id) => resolvedIds.push(id));
+
+      // Create two pending requests and catch rejections from dispose
+      const p1 = proxy.request({ command: "echo a" }, "session-1");
+      const p2 = proxy.request({ command: "echo b" }, "session-1");
+      p1.catch(() => {}); // Expected rejection on dispose
+      p2.catch(() => {}); // Expected rejection on dispose
+
+      const ids = (sentMessages as Array<Record<string, unknown>>).map(
+        (m) => m.requestId as string,
+      );
+      expect(ids).toHaveLength(2);
+
+      proxy.dispose();
+
+      expect(resolvedIds).toHaveLength(2);
+      expect(resolvedIds).toContain(ids[0]);
+      expect(resolvedIds).toContain(ids[1]);
+    });
+
+    test("does not fire on normal client-initiated resolve", async () => {
+      const resolvedIds: string[] = [];
+      setup((id) => resolvedIds.push(id));
+
+      const resultPromise = proxy.request(
+        { command: "echo hello" },
+        "session-1",
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      // Normal resolve from client — should NOT trigger onInternalResolve
+      proxy.resolve(requestId, {
+        stdout: "hello",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      await resultPromise;
+      expect(resolvedIds).toEqual([]);
     });
   });
 });

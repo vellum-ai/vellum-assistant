@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getSecureKey,
@@ -127,7 +128,7 @@ export function registerCredentialsCommand(program: Command): void {
     "after",
     `
 Credentials are identified by name in service:field format, matching the
-storage convention used internally (credential:{service}:{field}):
+storage convention used internally (credential/{service}/{field}):
 
   twilio:account_sid        Twilio account SID
   twilio:auth_token         Twilio auth token
@@ -198,7 +199,7 @@ Examples:
         }
 
         const credentials = allMetadata.map((m) => {
-          const secret = getSecureKey(`credential:${m.service}:${m.field}`);
+          const secret = getSecureKey(credentialKey(m.service, m.field));
           return buildCredentialOutput(m, secret);
         });
 
@@ -273,7 +274,7 @@ Examples:
           }
 
           const { service, field } = parsed;
-          const storageKey = `credential:${service}:${field}`;
+          const storageKey = credentialKey(service, field);
 
           assertMetadataWritable();
 
@@ -350,7 +351,7 @@ Examples:
         }
 
         const { service, field } = parsed;
-        const storageKey = `credential:${service}:${field}`;
+        const storageKey = credentialKey(service, field);
 
         assertMetadataWritable();
 
@@ -424,11 +425,11 @@ Examples:
             return;
           }
           metadata = getCredentialMetadata(parsed.service, parsed.field);
-          storageKey = `credential:${parsed.service}:${parsed.field}`;
+          storageKey = credentialKey(parsed.service, parsed.field);
         } else {
           metadata = getCredentialMetadataById(name);
           if (metadata) {
-            storageKey = `credential:${metadata.service}:${metadata.field}`;
+            storageKey = credentialKey(metadata.service, metadata.field);
           } else {
             // No metadata found by UUID, and we can't determine the storage key
             writeOutput(cmd, { ok: false, error: "Credential not found" });
@@ -529,11 +530,11 @@ Examples:
             process.exitCode = 1;
             return;
           }
-          storageKey = `credential:${parsed.service}:${parsed.field}`;
+          storageKey = credentialKey(parsed.service, parsed.field);
         } else {
           const metadata = getCredentialMetadataById(name);
           if (metadata) {
-            storageKey = `credential:${metadata.service}:${metadata.field}`;
+            storageKey = credentialKey(metadata.service, metadata.field);
           } else {
             writeOutput(cmd, { ok: false, error: "Credential not found" });
             process.exitCode = 1;

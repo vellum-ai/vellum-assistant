@@ -141,8 +141,9 @@ const mockConfig = {
   contextWindow: {
     enabled: true,
     maxInputTokens: 180000,
-    targetBudgetRatio: 0.30,
-    compactThreshold: 0.8,    summaryBudgetRatio: 0.05,
+    targetBudgetRatio: 0.3,
+    compactThreshold: 0.8,
+    summaryBudgetRatio: 0.05,
   },
   thinking: { enabled: false },
 };
@@ -503,7 +504,7 @@ describe("End-to-end session creation benchmark", () => {
       if (i === 0) {
         expect(session.conversationId).toBe(id);
         expect(session.getMessages()).toHaveLength(0);
-        expect(projection.toolDefinitions.length).toBe(testSkillIds.length);
+        expect(projection.allowedToolNames.size).toBe(testSkillIds.length);
       }
       resetSkillToolProjection(session.skillProjectionState);
       session.dispose();

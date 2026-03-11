@@ -3,6 +3,7 @@
 - **Skills must be self-contained and portable**
   - Use `scripts/` for supporting logic with inline dependencies
   - When including code assets, utilities, or tools, load the [scripts best practices specification](https://agentskills.io/skill-creation/using-scripts.md) first
+  - **External dependencies in Bun/TypeScript scripts**: pin versions directly in the import path (e.g., `import { Command } from "commander@13.1.0"`). Bun auto-installs missing packages at runtime when no `node_modules` directory is found. Do NOT add a `package.json` or `bun.lock` to skill directories — this disables Bun's auto-install behavior and breaks portability.
   - Do not install CLIs into Vellum or the host system; provide instructions for users to install external packages if needed
   - Do not create new assistant tools and reference them from SKILL.md — this couples skills to Vellum internals and breaks compatibility with other agent systems
   - Do not include a TOOLS.json file in skill directories — skills should rely on CLI tools in `scripts/`, not custom tool definitions

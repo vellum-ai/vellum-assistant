@@ -94,7 +94,7 @@ func inferCategory(_ skill: SkillInfo) -> SkillCategory {
         || text.contains("chat") || text.contains("phone") || text.contains("phone call")
         || text.contains("voice call") || text.contains("video call")
         || text.contains("contact") || text.contains("notification") || text.contains("followup")
-        || text.contains("sms") || text.contains("slack") || text.contains("telegram") {
+        || text.contains("slack") || text.contains("telegram") {
         return .communication
     }
 
@@ -169,7 +169,7 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
         SubCategoryDef(label: "Triggers", emoji: "\u{23F0}", skillIds: ["watcher", "time-based-actions"]),
     ],
     .webSocial: [
-        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["twitter", "influencer"]),
+        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["influencer"]),
         SubCategoryDef(label: "Services", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
     ],
     .knowledge: [
@@ -1121,20 +1121,45 @@ struct ConstellationView: View {
             }
 
             // Center avatar on top of everything (full-size for constellation display)
-            Image(nsImage: appearance.fullAvatarImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: centerAvatarSize, height: centerAvatarSize)
-                .clipShape(Circle())
+            VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
                 .background(
-                    Circle()
-                        .fill(VColor.background.opacity(0.9))
-                        .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
-                )
-                .overlay(
-                    Circle()
-                        .stroke(Forest._500.opacity(0.4), lineWidth: 2)
-                        .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+                    ZStack {
+                        // Outer glow ring
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Forest._500.opacity(0.25),
+                                        Forest._500.opacity(0.08),
+                                        Color.clear
+                                    ],
+                                    center: .center,
+                                    startRadius: (centerAvatarSize + 16) / 2 - 4,
+                                    endRadius: (centerAvatarSize + 16) / 2 + 12
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 40, height: centerAvatarSize + 40)
+
+                        // Frosted backdrop
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        VColor.background.opacity(0.95),
+                                        VColor.background.opacity(0.85)
+                                    ],
+                                    center: .center,
+                                    startRadius: 0,
+                                    endRadius: (centerAvatarSize + 16) / 2
+                                )
+                            )
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+
+                        // Subtle inner ring
+                        Circle()
+                            .stroke(Forest._500.opacity(0.3), lineWidth: 1.5)
+                            .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
+                    }
                 )
                 .allowsHitTesting(false)
                 .position(effectivePosition(forId: "__center__"))

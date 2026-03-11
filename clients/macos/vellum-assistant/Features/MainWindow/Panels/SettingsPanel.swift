@@ -2,61 +2,31 @@ import SwiftUI
 import VellumAssistantShared
 
 enum SettingsTab: String {
-    case account = "Account"
-    case channels = "Channels"
+    case general = "General"
     case modelsAndServices = "Models & Services"
     case voice = "Voice"
-    case permissions = "Permissions"
-    case automation = "Automation"
-    case appearance = "Appearance"
-    case privacy = "Privacy"
+    case permissionsAndPrivacy = "Permissions & Privacy"
     case contacts = "Contacts"
-    case advanced = "Advanced"
-    case sentryTesting = "Sentry Testing"
+    case developer = "Developer"
 
-    /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
-    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> [SettingsTab] {
+    /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
+    static func primaryTabs(contactsEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
-            .account, .channels, .modelsAndServices, .voice,
-            .automation, .appearance, .permissions, .privacy
+            .general, .modelsAndServices, .voice,
+            .permissionsAndPrivacy
         ]
         if contactsEnabled {
             tabs.append(.contacts)
         }
-        if isDevMode {
-            tabs.append(.advanced)
-        }
-        if sentryTestingEnabled {
-            tabs.append(.sentryTesting)
-        }
         return tabs
     }
 
-    /// Maps legacy tab names (from HTTP or saved state) to current tabs.
-    /// The `isDevMode` parameter gates dev-only tabs so external callers
-    /// (e.g. daemon HTTP) cannot navigate to them when dev mode is off.
-    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> SettingsTab? {
-        let tab: SettingsTab?
-        // Try current values first
-        if let direct = SettingsTab(rawValue: value) {
-            tab = direct
-        } else {
-            // Map legacy names
-            switch value {
-            case "Connect": tab = .account
-            case "Integrations": tab = .modelsAndServices
-            case "Trust": tab = .permissions
-            case "Schedules": tab = .automation
-            case "Heartbeat": tab = .automation
-            case "Advanced": tab = .advanced
-            default: tab = nil
-            }
-        }
+    /// Resolves a tab name string to a SettingsTab. Only accepts current canonical names.
+    static func fromRawValue(_ value: String, contactsEnabled: Bool = false, developerEnabled: Bool = false) -> SettingsTab? {
+        guard let tab = SettingsTab(rawValue: value) else { return nil }
         // Block feature-flagged tabs when disabled
         if tab == .contacts && !contactsEnabled { return nil }
-        // Block dev-only tabs when dev mode is disabled
-        if tab == .advanced && !isDevMode { return nil }
-        if tab == .sentryTesting && !sentryTestingEnabled { return nil }
+        if tab == .developer && !developerEnabled { return nil }
         return tab
     }
 }
@@ -79,15 +49,7 @@ struct SettingsPanel: View {
     @State private var perplexitySetupExpanded = false
     @State private var braveSetupExpanded = false
     @State private var imageGenSetupExpanded = false
-    @State private var twitterSetupExpanded = false
-
     @State private var showingTrustRules = false
-    @State private var showingReminders = false
-    @State private var showingScheduledTasks = false
-    @State private var showingHeartbeatConfig = false
-    @State private var showingHeartbeatRuns = false
-    @State private var twitterClientId: String = ""
-    @State private var twitterClientSecret: String = ""
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var microphoneGranted: Bool = false
@@ -95,11 +57,14 @@ struct SettingsPanel: View {
     @State private var notificationsGranted: Bool = false
     @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
-    @State private var selectedTab: SettingsTab = .account
+    @State private var selectedTab: SettingsTab = .general
     @State private var isContactsEnabled: Bool = false
-    @State private var isSentryTestingEnabled: Bool = false
+    @State private var isDeveloperEnabled: Bool = false
+    @State private var showingDevUnlock: Bool = false
+    @State private var devUnlockText: String = ""
+    @State private var devUnlockMonitor: Any?
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
-    private static let sentryTestingFeatureFlagKey = "sentry_testing_enabled"
+    private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -141,12 +106,13 @@ struct SettingsPanel: View {
                     ScrollView {
                         selectedTabContent
                             .padding(.top, VSpacing.lg)
-                            .padding(.leading, VSpacing.lg)
                             .padding(.trailing, VSpacing.xl)
                             .padding(.bottom, VSpacing.xl)
-                            .frame(maxWidth: 700, alignment: .top)
+                            .frame(maxWidth: 900, alignment: .top)
                             .frame(maxWidth: .infinity)
+                            .background { OverlayScrollerStyle() }
                     }
+                    .scrollContentBackground(.hidden)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -158,18 +124,15 @@ struct SettingsPanel: View {
         .task {
             // Refresh permission status and feature flags when the view appears
             await refreshPermissionStatus()
-            await loadContactsFeatureFlag()
-            isSentryTestingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.sentryTestingFeatureFlagKey)
+            await loadFeatureFlags()
         }
         .onAppear {
             store.refreshAPIKeyState()
-            store.refreshTwitterStatus()
-            store.refreshManagedTwitterStatus()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
             if let pending = store.pendingSettingsTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(pending) {
+                if allVisibleTabs.contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
@@ -177,7 +140,7 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(tab) {
+                if allVisibleTabs.contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
@@ -188,7 +151,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
-                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled).contains(tab) else { return }
+                guard allVisibleTabs.contains(tab) else { return }
                 selectedTab = tab
             }
         }
@@ -198,12 +161,12 @@ struct SettingsPanel: View {
                 if key == Self.contactsFeatureFlagKey {
                     isContactsEnabled = enabled
                     if !enabled && selectedTab == .contacts {
-                        selectedTab = .account
+                        selectedTab = .general
                     }
-                } else if key == Self.sentryTestingFeatureFlagKey {
-                    isSentryTestingEnabled = enabled
-                    if !enabled && selectedTab == .sentryTesting {
-                        selectedTab = .account
+                } else if key == Self.developerFeatureFlagKey {
+                    isDeveloperEnabled = enabled
+                    if !enabled && selectedTab == .developer {
+                        selectedTab = .general
                     }
                 }
             }
@@ -217,47 +180,91 @@ struct SettingsPanel: View {
             Task { @MainActor in
                 await refreshPermissionStatus()
             }
-            // Refresh managed Twitter status when app regains focus (e.g. after
-            // completing the OAuth flow in the browser).
-            store.refreshManagedTwitterStatus()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
         }
-        .sheet(isPresented: $showingReminders) {
-            if let daemonClient {
-                RemindersView(daemonClient: daemonClient)
+        .onAppear {
+            devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.modifierFlags.contains(.command),
+                   event.charactersIgnoringModifiers == "d" {
+                    showingDevUnlock = true
+                    devUnlockText = ""
+                    return nil
+                }
+                return event
             }
         }
-        .sheet(isPresented: $showingScheduledTasks) {
-            if let daemonClient {
-                ScheduledTasksView(daemonClient: daemonClient)
+        .onDisappear {
+            if let monitor = devUnlockMonitor {
+                NSEvent.removeMonitor(monitor)
+                devUnlockMonitor = nil
             }
         }
-        .sheet(isPresented: $showingHeartbeatConfig) {
-            if let daemonClient {
-                HeartbeatConfigView(daemonClient: daemonClient)
+        .popover(isPresented: $showingDevUnlock) {
+            VStack(spacing: VSpacing.md) {
+                Text("Enter passcode")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.textSecondary)
+                SecureField("", text: $devUnlockText)
+                    .vInputStyle()
+                    .font(VFont.mono)
+                    .frame(width: 160)
+                    .onSubmit {
+                        if devUnlockText.lowercased() == "dev" {
+                            isDeveloperEnabled = true
+                            showingDevUnlock = false
+                            // Persist the flag so it survives relaunch
+                            Task {
+                                do {
+                                    if let daemonClient {
+                                        try await daemonClient.setFeatureFlag(key: Self.developerFeatureFlagKey, enabled: true)
+                                    } else {
+                                        try WorkspaceConfigIO.merge([
+                                            "assistantFeatureFlagValues": [Self.developerFeatureFlagKey: true]
+                                        ])
+                                    }
+                                } catch {
+                                    // Flag is already set in memory; persistence failure is non-fatal
+                                }
+                            }
+                        }
+                        devUnlockText = ""
+                    }
             }
-        }
-        .sheet(isPresented: $showingHeartbeatRuns) {
-            if let daemonClient {
-                HeartbeatRunsView(daemonClient: daemonClient)
-            }
+            .padding(VSpacing.lg)
         }
     }
 
     // MARK: - Nav Sidebar
 
+    /// All currently visible tabs (primary + gated bottom tabs).
+    private var allVisibleTabs: [SettingsTab] {
+        var tabs = SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled)
+        if isDeveloperEnabled {
+            tabs.append(.developer)
+        }
+        return tabs
+    }
+
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled, sentryTestingEnabled: isSentryTestingEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(contactsEnabled: isContactsEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
             }
             Spacer()
+            if isDeveloperEnabled {
+                Divider()
+                    .padding(.trailing, VSpacing.md)
+                SettingsNavRow(tab: .developer, isSelected: selectedTab == .developer) {
+                    selectedTab = .developer
+                }
+                .padding(.bottom, VSpacing.sm)
+            }
         }
         .padding(.top, VSpacing.lg)
         .padding(.trailing, VSpacing.sm)
@@ -268,32 +275,18 @@ struct SettingsPanel: View {
     @ViewBuilder
     private var selectedTabContent: some View {
         switch selectedTab {
-        case .account:
-            SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
-        case .channels:
-            SettingsChannelsTab(store: store, daemonClient: daemonClient)
+        case .general:
+            SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         case .modelsAndServices:
             integrationsContent
         case .voice:
             VoiceSettingsView(store: store)
-        case .permissions:
-            permissionsContent
-        case .automation:
-            SettingsAutomationTab(daemonClient: daemonClient, showingReminders: $showingReminders, showingScheduledTasks: $showingScheduledTasks, showingHeartbeatConfig: $showingHeartbeatConfig, showingHeartbeatRuns: $showingHeartbeatRuns)
-        case .appearance:
-            SettingsAppearanceTab(store: store)
-        case .privacy:
-            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
+        case .permissionsAndPrivacy:
+            permissionsAndPrivacyContent
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store)
-        case .advanced:
-            if store.isDevMode {
-                SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
-            } else {
-                SettingsAccountTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
-            }
-        case .sentryTesting:
-            SettingsDebugTab()
+        case .developer:
+            SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }
     }
 
@@ -334,8 +327,8 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearAPIKey()
                             apiKeyText = ""
                             anthropicSetupExpanded = false
@@ -363,20 +356,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveAPIKey(apiKeyText)
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                             .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         anthropicSetupExpanded = true
                     }
                 }
@@ -398,8 +391,8 @@ struct SettingsPanel: View {
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
                             perplexitySetupExpanded = false
@@ -427,20 +420,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.savePerplexityKey(perplexityKeyText)
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                             .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         perplexitySetupExpanded = true
                     }
                 }
@@ -462,8 +455,8 @@ struct SettingsPanel: View {
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearBraveKey()
                             braveKeyText = ""
                             braveSetupExpanded = false
@@ -491,20 +484,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveBraveKey(braveKeyText)
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                             .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         braveSetupExpanded = true
                     }
                 }
@@ -526,8 +519,8 @@ struct SettingsPanel: View {
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
                             imageGenSetupExpanded = false
@@ -576,20 +569,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveImageGenKey(imageGenKeyText)
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                             .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         imageGenSetupExpanded = true
                     }
                 }
@@ -598,232 +591,17 @@ struct SettingsPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
-            // TWITTER / X section
-            twitterSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Twitter Section
+    // MARK: - Permissions & Privacy Tab
 
-    private var twitterSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Twitter / X")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Post and read tweets as your assistant")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            // Mode Picker
-            HStack {
-                Text("Integration mode")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VSegmentedControl(
-                    items: [
-                        (label: "Local (BYO App)", tag: "local_byo"),
-                        (label: "Managed", tag: "managed"),
-                    ],
-                    selection: $store.twitterMode,
-                    style: .pill
-                )
-                .fixedSize()
-                .onChange(of: store.twitterMode) { _, newValue in
-                    store.setTwitterMode(newValue)
-                }
-            }
-
-            // Managed mode status
-            if store.twitterMode == "managed" {
-                if !authManager.isAuthenticated {
-                    // State 1: Not signed in
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {}
-                            .disabled(true)
-                    }
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.info, size: 14)
-                            .foregroundStyle(VColor.textSecondary)
-                        Text("Sign in to Vellum to use Managed")
-                            .font(VFont.caption)
-                            .foregroundStyle(VColor.textSecondary)
-                    }
-                } else if !store.isManagedTwitterEligible {
-                    // State 2/3: Signed in but prerequisites not met
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {}
-                            .disabled(true)
-                    }
-                    if let reason = store.managedTwitterBlockReason {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(.info, size: 14)
-                                .foregroundStyle(VColor.textSecondary)
-                            Text(reason)
-                                .font(VFont.caption)
-                                .foregroundStyle(VColor.textSecondary)
-                        }
-                    }
-                } else if store.managedTwitterConnected {
-                    // State 5: Connected
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                            VButton(label: "Disconnect", style: .danger) {
-                                store.disconnectManagedTwitter()
-                            }
-                            .disabled(store.managedTwitterConnectInProgress)
-                        }
-                        if let account = store.managedTwitterAccountInfo {
-                            Text(account)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                    }
-                } else if store.managedTwitterConnectInProgress {
-                    // State 6: In progress
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {}
-                            .disabled(true)
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Opening browser...")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                } else {
-                    // State 4: Eligible + disconnected
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {
-                            store.connectManagedTwitter()
-                        }
-                        if let error = store.managedTwitterError {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.error)
-                        }
-                    }
-                }
-            }
-
-            // Set Up (local BYO) mode content
-            if store.twitterMode == "local_byo" {
-                if store.twitterConnected {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                            VButton(label: "Disconnect", style: .danger) {
-                                store.disconnectTwitter()
-                            }
-                        }
-                        if let account = store.twitterAccountInfo {
-                            Text(account)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                    }
-                } else if store.twitterLocalClientConfigured {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        if store.twitterAuthInProgress {
-                            HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary) {}
-                                    .disabled(true)
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Connecting...")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        } else {
-                            HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary) {
-                                    store.connectTwitter()
-                                }
-                                VButton(label: "Reconfigure", style: .secondary) {
-                                    store.clearTwitterLocalClient()
-                                    twitterClientId = ""
-                                    twitterClientSecret = ""
-                                    twitterSetupExpanded = true
-                                }
-                            }
-                        }
-
-                        if let error = store.twitterAuthError {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.error)
-                        }
-                    }
-                } else if twitterSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("OAuth Client ID")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        TextField("OAuth Client ID", text: $twitterClientId)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        Text("OAuth Client Secret (optional)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Create an app at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
-                                store.saveTwitterLocalClient(
-                                    clientId: twitterClientId,
-                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
-                                )
-                                twitterClientId = ""
-                                twitterClientSecret = ""
-                                twitterSetupExpanded = false
-                            }
-                            .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
-                                twitterSetupExpanded = false
-                                twitterClientId = ""
-                                twitterClientSecret = ""
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary) {
-                        twitterSetupExpanded = true
-                    }
-                }
-            }
-        }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Permissions Tab
-
-    private var permissionsContent: some View {
+    private var permissionsAndPrivacyContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("macOS System Permissions")
+                Text("System Permissions")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
@@ -888,53 +666,27 @@ struct SettingsPanel: View {
             // TRUST RULES section
             if daemonClient != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Trust Rules")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Trust Rules")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("Control which tool actions are automatically allowed or denied")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        VButton(label: "Manage", style: .secondary) {
-                            daemonClient?.isTrustRulesSheetOpen = true
-                            showingTrustRules = true
-                        }
-                        .disabled(store.isAnyTrustRulesSheetOpen)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Trust Rules")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+                        Text("Control which tool actions are automatically allowed or denied")
+                            .font(VFont.sectionDescription)
+                            .foregroundColor(VColor.textMuted)
                     }
+                    VButton(label: "Manage", style: .secondary, size: .medium) {
+                        daemonClient?.isTrustRulesSheetOpen = true
+                        showingTrustRules = true
+                    }
+                    .disabled(store.isAnyTrustRulesSheetOpen)
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
             }
 
-            // COMPUTER USAGE section (moved from Advanced)
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Computer Usage")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    Text("Max Steps per Session")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    VInfoTooltip("Maximum number of tool-use steps the assistant can take in a single session")
-                    Spacer()
-                    Text("\(Int(store.maxSteps))")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
+            // PRIVACY section (merged from SettingsPrivacyTab)
+            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -944,23 +696,8 @@ struct SettingsPanel: View {
 
     private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text(subtitle)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            VToggle(isOn: .constant(granted), label: label, helperText: subtitle)
+                .allowsHitTesting(false)
         }
         .buttonStyle(.plain)
     }
@@ -976,24 +713,37 @@ struct SettingsPanel: View {
         notificationBadgesGranted = await PermissionManager.notificationBadgeStatus() == .granted
     }
 
-    // MARK: - Contacts Feature Flag
+    // MARK: - Feature Flag Loading
 
-    private func loadContactsFeatureFlag() async {
+    private func loadFeatureFlags() async {
         if let daemonClient {
             do {
                 let flags = try await daemonClient.getFeatureFlags()
-                if let flag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
-                    isContactsEnabled = flag.enabled
-                    return
+                if let contactsFlag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
+                    isContactsEnabled = contactsFlag.enabled
                 }
+                if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
+                    isDeveloperEnabled = developerFlag.enabled
+                }
+                return
             } catch {
                 // Fall through to local config fallback.
             }
         }
+        // Build resolved values: start with bundled registry defaults, then overlay persisted overrides
+        let registry = loadFeatureFlagRegistry()
+        let registryDefaults = Dictionary(
+            uniqueKeysWithValues: (registry?.assistantScopeFlags() ?? []).map { ($0.key, $0.defaultEnabled) }
+        )
         let config = WorkspaceConfigIO.read()
-        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
-           let enabled = canonicalFlags[Self.contactsFeatureFlagKey] {
-            isContactsEnabled = enabled
+        let persistedFlags = (config["assistantFeatureFlagValues"] as? [String: Bool]) ?? [:]
+        let resolved = registryDefaults.merging(persistedFlags) { _, persisted in persisted }
+
+        if let contactsEnabled = resolved[Self.contactsFeatureFlagKey] {
+            isContactsEnabled = contactsEnabled
+        }
+        if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
+            isDeveloperEnabled = developerEnabled
         }
     }
 
@@ -1117,6 +867,21 @@ struct SettingsPanelEnvVarsSheet: View {
             }
         }
     }
+}
+
+/// Sets the enclosing NSScrollView to overlay style — thin scroller, no track background.
+struct OverlayScrollerStyle: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let scrollView = view.enclosingScrollView else { return }
+            scrollView.scrollerStyle = .overlay
+            scrollView.scrollerKnobStyle = .default
+            scrollView.hasHorizontalScroller = false
+        }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 struct SettingsPanel_Previews: PreviewProvider {

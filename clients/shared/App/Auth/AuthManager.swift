@@ -61,7 +61,7 @@ public final class AuthManager {
                 state = .unauthenticated
             }
         } catch {
-            log.error("Session check failed: \(error.localizedDescription)")
+            log.error("Session check failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             state = .unauthenticated
         }
     }
@@ -165,7 +165,7 @@ public final class AuthManager {
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             log.info("User cancelled WorkOS login")
         } catch {
-            log.error("WorkOS login failed: \(error.localizedDescription)")
+            log.error("WorkOS login failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
     }
@@ -174,7 +174,7 @@ public final class AuthManager {
         do {
             _ = try await authService.logout()
         } catch {
-            log.error("Logout request failed: \(error.localizedDescription)")
+            log.error("Logout request failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
         }
         await SessionTokenManager.deleteTokenAsync()
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")

@@ -173,7 +173,7 @@ async function executeCallBack(
 
 /**
  * Execute a follow-up action after the conversation engine has classified
- * the guardian's intent as call_back or message_back and the follow-up
+ * the guardian's intent as call_back and the follow-up
  * state has been transitioned to `dispatching`.
  *
  * On success: finalizes the follow-up to `completed` and returns
@@ -250,7 +250,6 @@ export async function executeFollowupAction(
     actionResult = await executeCallBack(request, counterparty);
   } else {
     // decline is already handled in M5 — should not reach the executor.
-    // message_back (SMS) is no longer supported.
     finalizeFollowup(requestId, "failed");
     const errorText = await composeGuardianActionMessageGenerative(
       {

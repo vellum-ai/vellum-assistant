@@ -9,9 +9,11 @@
 import {
   batchGetMessages,
   getProfile,
+  listMessages,
 } from "../../messaging/providers/gmail/client.js";
 import type { GmailMessage } from "../../messaging/providers/gmail/types.js";
-import { withValidToken } from "../../security/token-manager.js";
+import type { OAuthConnection } from "../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -20,8 +22,6 @@ import type {
 } from "../provider-types.js";
 
 const log = getLogger("watcher:gmail");
-
-const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /** Gmail History API response types */
 interface HistoryMessage {
@@ -71,29 +71,38 @@ function messageToItem(msg: GmailMessage): WatcherItem {
 }
 
 async function fetchHistory(
-  token: string,
+  connection: OAuthConnection,
   startHistoryId: string,
 ): Promise<HistoryListResponse> {
-  const params = new URLSearchParams({
+  const query: Record<string, string> = {
     startHistoryId,
     historyTypes: "messageAdded",
     maxResults: "100",
-  });
-  const url = `${GMAIL_API_BASE}/history?${params}`;
-  const resp = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
+  };
+
+  const resp = await connection.request({
+    method: "GET",
+    path: "/history",
+    query,
   });
 
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
-    if (resp.status === 404) {
-      // historyId expired — caller handles fallback
-      throw new HistoryExpiredError(body);
-    }
+  if (resp.status === 404) {
+    const body =
+      typeof resp.body === "string"
+        ? resp.body
+        : JSON.stringify(resp.body ?? "");
+    throw new HistoryExpiredError(body);
+  }
+
+  if (resp.status < 200 || resp.status >= 300) {
+    const body =
+      typeof resp.body === "string"
+        ? resp.body
+        : JSON.stringify(resp.body ?? "");
     throw new Error(`Gmail History API ${resp.status}: ${body}`);
   }
 
-  return resp.json() as Promise<HistoryListResponse>;
+  return resp.body as HistoryListResponse;
 }
 
 class HistoryExpiredError extends Error {
@@ -109,13 +118,12 @@ export const gmailProvider: WatcherProvider = {
   requiredCredentialService: "integration:gmail",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
-    return withValidToken(credentialService, async (token) => {
-      const profile = await getProfile(token);
-      if (!profile.historyId) {
-        throw new Error("Gmail profile did not return a historyId");
-      }
-      return profile.historyId;
-    });
+    const connection = resolveOAuthConnection(credentialService);
+    const profile = await getProfile(connection);
+    if (!profile.historyId) {
+      throw new Error("Gmail profile did not return a historyId");
+    }
+    return profile.historyId;
   },
 
   async fetchNew(
@@ -124,76 +132,76 @@ export const gmailProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     _watcherKey: string,
   ): Promise<FetchResult> {
-    return withValidToken(credentialService, async (token) => {
-      if (!watermark) {
-        // No watermark — get initial position, return no items
-        const profile = await getProfile(token);
-        return { items: [], watermark: profile.historyId ?? "0" };
+    const connection = resolveOAuthConnection(credentialService);
+
+    if (!watermark) {
+      // No watermark — get initial position, return no items
+      const profile = await getProfile(connection);
+      return { items: [], watermark: profile.historyId ?? "0" };
+    }
+
+    try {
+      const historyResp = await fetchHistory(connection, watermark);
+      const newWatermark = historyResp.historyId ?? watermark;
+
+      if (!historyResp.history || historyResp.history.length === 0) {
+        return { items: [], watermark: newWatermark };
       }
 
-      try {
-        const historyResp = await fetchHistory(token, watermark);
-        const newWatermark = historyResp.historyId ?? watermark;
-
-        if (!historyResp.history || historyResp.history.length === 0) {
-          return { items: [], watermark: newWatermark };
-        }
-
-        // Collect unique new message IDs
-        const messageIds = new Set<string>();
-        for (const record of historyResp.history) {
-          if (record.messagesAdded) {
-            for (const added of record.messagesAdded) {
-              messageIds.add(added.message.id);
-            }
+      // Collect unique new message IDs
+      const messageIds = new Set<string>();
+      for (const record of historyResp.history) {
+        if (record.messagesAdded) {
+          for (const added of record.messagesAdded) {
+            messageIds.add(added.message.id);
           }
         }
-
-        if (messageIds.size === 0) {
-          return { items: [], watermark: newWatermark };
-        }
-
-        // Fetch metadata for new messages
-        const messages = await batchGetMessages(
-          token,
-          Array.from(messageIds),
-          "metadata",
-          ["From", "Subject", "Date"],
-        );
-
-        // Only include INBOX messages (skip sent, drafts, etc.)
-        const inboxMessages = messages.filter((m) =>
-          m.labelIds?.includes("INBOX"),
-        );
-
-        const items = inboxMessages.map(messageToItem);
-        log.info(
-          { count: items.length, watermark: newWatermark },
-          "Gmail: fetched new messages",
-        );
-
-        return { items, watermark: newWatermark };
-      } catch (err) {
-        if (err instanceof HistoryExpiredError) {
-          log.warn(
-            "Gmail historyId expired, falling back to recent unread messages",
-          );
-          return fallbackFetch(token);
-        }
-        throw err;
       }
-    });
+
+      if (messageIds.size === 0) {
+        return { items: [], watermark: newWatermark };
+      }
+
+      // Fetch metadata for new messages
+      const messages = await batchGetMessages(
+        connection,
+        Array.from(messageIds),
+        "metadata",
+        ["From", "Subject", "Date"],
+      );
+
+      // Only include INBOX messages (skip sent, drafts, etc.)
+      const inboxMessages = messages.filter((m) =>
+        m.labelIds?.includes("INBOX"),
+      );
+
+      const items = inboxMessages.map(messageToItem);
+      log.info(
+        { count: items.length, watermark: newWatermark },
+        "Gmail: fetched new messages",
+      );
+
+      return { items, watermark: newWatermark };
+    } catch (err) {
+      if (err instanceof HistoryExpiredError) {
+        log.warn(
+          "Gmail historyId expired, falling back to recent unread messages",
+        );
+        return fallbackFetch(connection);
+      }
+      throw err;
+    }
   },
 };
 
 /**
  * Fallback when historyId expires: list recent unread inbox messages.
  */
-async function fallbackFetch(token: string): Promise<FetchResult> {
-  const { listMessages } =
-    await import("../../messaging/providers/gmail/client.js");
+async function fallbackFetch(
+  connection: OAuthConnection,
+): Promise<FetchResult> {
   const listResp = await listMessages(
-    token,
+    connection,
     "is:unread newer_than:1d",
     20,
     undefined,
@@ -201,12 +209,12 @@ async function fallbackFetch(token: string): Promise<FetchResult> {
   );
 
   if (!listResp.messages || listResp.messages.length === 0) {
-    const profile = await getProfile(token);
+    const profile = await getProfile(connection);
     return { items: [], watermark: profile.historyId ?? "0" };
   }
 
   const messages = await batchGetMessages(
-    token,
+    connection,
     listResp.messages.map((m) => m.id),
     "metadata",
     ["From", "Subject", "Date"],
@@ -215,6 +223,6 @@ async function fallbackFetch(token: string): Promise<FetchResult> {
   const items = messages.map(messageToItem);
 
   // Get fresh historyId for the new watermark
-  const profile = await getProfile(token);
+  const profile = await getProfile(connection);
   return { items, watermark: profile.historyId ?? "0" };
 }

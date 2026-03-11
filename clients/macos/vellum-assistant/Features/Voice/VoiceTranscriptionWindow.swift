@@ -15,11 +15,7 @@ struct VoiceTranscriptionView: View {
                     .stroke(VColor.accent, lineWidth: 2.5)
                     .frame(width: circleSize, height: circleSize)
 
-                Image(nsImage: appearance.chatAvatarImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: circleSize - 8, height: circleSize - 8)
-                    .clipShape(Circle())
+                VAvatarImage(image: appearance.chatAvatarImage, size: circleSize - 8, showBorder: false)
             }
 
             Text(voiceModeManager.stateLabel.isEmpty ? "Listening" : voiceModeManager.stateLabel)

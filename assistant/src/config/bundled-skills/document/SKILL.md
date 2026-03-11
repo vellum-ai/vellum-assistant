@@ -2,7 +2,10 @@
 name: document
 description: Write, draft, or compose long-form text (blog posts, articles, essays, reports, guides). Use when the user says write, draft, compose, or create a blog/article/essay.
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📄","vellum":{"display-name":"Document"}}
+metadata:
+  emoji: "📄"
+  vellum:
+    display-name: "Document"
 ---
 
 Create and edit long-form documents using the built-in rich text editor. Documents open in workspace mode with chat docked to the side.

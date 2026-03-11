@@ -259,7 +259,8 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("openai", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("openai");
+    // No user OpenAI key — route through Vertex managed proxy
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "openai");
@@ -289,8 +290,8 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("gemini", "user-key");
   } else {
-    // No user Gemini key — try managed proxy fallback
-    const managedBaseUrl = buildManagedBaseUrl("gemini");
+    // No user Gemini key — route through Vertex managed proxy
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "gemini");
@@ -337,7 +338,8 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("fireworks", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("fireworks");
+    // No user Fireworks key — route through Vertex managed proxy
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "fireworks");
@@ -369,7 +371,8 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("openrouter", "user-key");
   } else {
-    const managedBaseUrl = buildManagedBaseUrl("openrouter");
+    // No user OpenRouter key — route through Vertex managed proxy
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "openrouter");

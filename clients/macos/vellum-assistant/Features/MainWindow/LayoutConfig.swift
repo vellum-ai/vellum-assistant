@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - Domain Types
 
 public enum NativePanelId: String, Equatable, Sendable {
-    case chat, threadList, settings, debug, generated, avatarCustomization, apps, intelligence, usageDashboard, taskQueue
+    case chat, threadList, settings, debug, generated, avatarCustomization, apps, intelligence, usageDashboard
 }
 
 extension NativePanelId: Codable {
@@ -18,6 +18,9 @@ extension NativePanelId: Codable {
         // Legacy Home Base panel — map to apps as a reasonable fallback
         case "directory":
             self = .apps
+        // Legacy Task Queue panel — removed, degrade gracefully
+        case "taskQueue":
+            self = .chat
         default:
             guard let value = NativePanelId(rawValue: rawValue) else {
                 throw DecodingError.dataCorruptedError(
@@ -50,10 +53,20 @@ extension SlotContent: Codable {
             // If the value is stale (e.g. a removed panel like "assistantInbox"),
             // degrade to .empty instead of failing the entire layout decode.
             let rawPanel = try container.decode(String.self, forKey: .panel)
-            if let panel = NativePanelId(rawValue: rawPanel) {
-                self = .native(panel)
-            } else {
-                self = .empty
+            // Handle legacy panel IDs that were renamed or removed
+            switch rawPanel {
+            case "identity", "agent":
+                self = .native(.intelligence)
+            case "directory":
+                self = .native(.apps)
+            case "taskQueue":
+                self = .native(.chat)
+            default:
+                if let panel = NativePanelId(rawValue: rawPanel) {
+                    self = .native(panel)
+                } else {
+                    self = .empty
+                }
             }
         case "surface":
             let surfaceId = try container.decode(String.self, forKey: .surfaceId)
@@ -138,6 +151,9 @@ extension SlotContent {
             // Legacy Home Base panel — map to apps as a reasonable fallback
             case "directory":
                 id = .apps
+            // Legacy Task Queue panel — removed, degrade gracefully
+            case "taskQueue":
+                id = .chat
             default:
                 guard let parsed = NativePanelId(rawValue: panel) else { return nil }
                 id = parsed

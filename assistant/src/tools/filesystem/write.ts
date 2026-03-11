@@ -28,13 +28,8 @@ class FileWriteTool implements Tool {
             type: "string",
             description: "The content to write to the file",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of why this file is being written, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
-        required: ["path", "content", "reason"],
+        required: ["path", "content"],
       },
     };
   }
@@ -97,4 +92,5 @@ class FileWriteTool implements Tool {
   }
 }
 
-registerTool(new FileWriteTool());
+export const fileWriteTool = new FileWriteTool();
+registerTool(fileWriteTool);

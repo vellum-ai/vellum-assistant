@@ -56,7 +56,7 @@ extension HTTPTransport {
             }
 
             // --- Recording Status (client → server lifecycle update) ---
-            if let msg = message as? IPCRecordingStatus {
+            if let msg = message as? RecordingStatus {
                 Task { await self.sendRecordingStatus(msg) }
                 return true
             }
@@ -253,7 +253,7 @@ extension HTTPTransport {
 
     // MARK: - Recording Endpoints
 
-    private func sendRecordingStatus(_ msg: IPCRecordingStatus) async {
+    private func sendRecordingStatus(_ msg: RecordingStatus) async {
         guard let url = buildURL(for: .recordingStatus) else { return }
 
         var request = URLRequest(url: url)
