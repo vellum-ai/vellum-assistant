@@ -1535,6 +1535,49 @@ public struct HostBashResultPayload: Codable, Sendable {
     }
 }
 
+// MARK: - Host File Proxy
+
+/// Request from the daemon to execute a file operation on the host machine.
+/// The desktop client receives this via SSE, performs the operation locally,
+/// and POSTs the result back to `/v1/host-file-result`.
+public struct HostFileRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let sessionId: String
+    public let operation: String  // "read", "write", "edit"
+    public let path: String
+    // Read fields
+    public let offset: Int?
+    public let limit: Int?
+    // Write fields
+    public let content: String?
+    // Edit fields
+    public let oldString: String?
+    public let newString: String?
+    public let replaceAll: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, requestId, sessionId, operation, path
+        case offset, limit, content
+        case oldString = "old_string"
+        case newString = "new_string"
+        case replaceAll = "replace_all"
+    }
+}
+
+/// Payload posted back to the daemon with the result of a host file operation.
+public struct HostFileResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let content: String
+    public let isError: Bool
+
+    public init(requestId: String, content: String, isError: Bool) {
+        self.requestId = requestId
+        self.content = content
+        self.isError = isError
+    }
+}
+
 /// Server-side assistant activity lifecycle event.
 /// Backed by generated `AssistantActivityState`.
 public typealias AssistantActivityStateMessage = AssistantActivityState
@@ -2217,6 +2260,7 @@ public enum ServerMessage: Decodable, Sendable {
     case tokenRotated(TokenRotatedMessage)
     case identityChanged(IdentityChanged)
     case hostBashRequest(HostBashRequest)
+    case hostFileRequest(HostFileRequest)
     case pong
     case unknown(String)
 
@@ -2655,6 +2699,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_bash_request":
             let message = try HostBashRequest(from: decoder)
             self = .hostBashRequest(message)
+        case "host_file_request":
+            let message = try HostFileRequest(from: decoder)
+            self = .hostFileRequest(message)
         case "pong":
             self = .pong
         default:
