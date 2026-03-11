@@ -192,6 +192,9 @@ export async function run(
           subject ?? "",
           text,
           inReplyTo,
+          undefined,
+          undefined,
+          threadId,
         );
         return ok(
           `Gmail draft created (ID: ${draft.id}). Review it in your Gmail Drafts, then tell me to send it or send it yourself from Gmail.`,
