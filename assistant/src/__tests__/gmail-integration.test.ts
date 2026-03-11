@@ -33,7 +33,6 @@ describe("Messaging tool contract", () => {
     "gmail_download_attachment",
     "gmail_send_with_attachments",
     "gmail_forward",
-    "gmail_summarize_thread",
     "gmail_follow_up",
     "gmail_triage",
     "gmail_filters",
