@@ -184,13 +184,13 @@ extension MainWindowView {
 
             // MARK: Nav Items (fixed)
             SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence)) {
-                windowState.togglePanel(.intelligence)
+                windowState.showPanel(.intelligence)
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps)) {
-                windowState.showAppsPanel()
+                windowState.showPanel(.apps)
             }
             SidebarNavRow(icon: VIcon.clipboardList.rawValue, label: "Tasks", isActive: windowState.selection == .panel(.taskQueue)) {
-                windowState.togglePanel(.taskQueue)
+                windowState.showPanel(.taskQueue)
             }
 
             // Divider between nav items and threads
@@ -477,13 +477,13 @@ extension MainWindowView {
             }
 
             SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
-                windowState.togglePanel(.intelligence)
+                windowState.showPanel(.intelligence)
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
-                windowState.showAppsPanel()
+                windowState.showPanel(.apps)
             }
             SidebarNavRow(icon: VIcon.clipboardList.rawValue, label: "Tasks", isActive: windowState.selection == .panel(.taskQueue), isExpanded: false) {
-                windowState.togglePanel(.taskQueue)
+                windowState.showPanel(.taskQueue)
             }
 
             sidebarSectionDivider(isExpanded: false)

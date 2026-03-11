@@ -213,25 +213,11 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    // MARK: - Panel Toggling
+    // MARK: - Panel Navigation
 
-    func togglePanel(_ panel: SidePanelType) {
-        if case .panel(let current) = selection, current == panel {
-            selection = nil
-        } else {
-            selection = .panel(panel)
-        }
-        if case .panel(let p) = selection, p == panel {
-            lastActivePanelString = String(describing: panel)
-        } else {
-            lastActivePanelString = nil
-        }
-    }
-
-    /// Navigate directly to the Apps panel (always full-width, no toggle).
-    func showAppsPanel() {
-        selection = .panel(.apps)
-        lastActivePanelString = String(describing: SidePanelType.apps)
+    func showPanel(_ panel: SidePanelType) {
+        selection = .panel(panel)
+        lastActivePanelString = String(describing: panel)
     }
 
     func refreshAPIKeyStatus(isConnected: Bool) {
