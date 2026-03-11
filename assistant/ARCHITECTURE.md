@@ -797,14 +797,17 @@ The daemon emits two distinct error message types via SSE:
 
 ### Session Error Codes
 
-| Code                        | Meaning                                                             | Retryable |
-| --------------------------- | ------------------------------------------------------------------- | --------- |
-| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes       |
-| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                    | Yes       |
-| `PROVIDER_API`              | Provider returned a server error (5xx)                              | Yes       |
-| `SESSION_ABORTED`           | Non-user abort interrupted the request                              | Yes       |
-| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                        | No        |
-| `REGENERATE_FAILED`         | Failed to regenerate a previous response                            | Yes       |
+| Code                        | Meaning                                                                 | Retryable |
+| --------------------------- | ----------------------------------------------------------------------- | --------- |
+| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS)     | Yes       |
+| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                        | Yes       |
+| `PROVIDER_API`              | Provider returned a server error (5xx) or retryable 4xx                 | Yes       |
+| `PROVIDER_BILLING`          | Invalid/expired API key or insufficient credits (HTTP 401, billing 4xx) | No        |
+| `CONTEXT_TOO_LARGE`         | Request exceeds the model's context window (HTTP 413, token limit)      | No        |
+| `SESSION_ABORTED`           | Non-user abort interrupted the request                                  | Yes       |
+| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                            | No        |
+| `REGENERATE_FAILED`         | Failed to regenerate a previous response                                | Yes       |
+| `UNKNOWN`                   | Unrecognized error that does not match any specific category            | No        |
 
 ### Error Classification
 
@@ -812,7 +815,7 @@ The daemon classifies errors via `classifySessionError()` in `session-error.ts`.
 
 Classification uses a two-tier strategy:
 
-1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `401` maps to `PROVIDER_BILLING` (not retryable, invalid/expired key), `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (retryable) unless a message pattern matches a more specific non-retryable category (context-too-large, billing).
+1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `413` maps to `CONTEXT_TOO_LARGE` (not retryable), `401` maps to `PROVIDER_BILLING` (not retryable, invalid/expired key), `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (retryable) unless a message pattern matches a more specific non-retryable category (context-too-large, billing/auth).
 2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle regeneration contexts.
 
 Debug details are capped at 4,000 characters to prevent oversized payloads.
