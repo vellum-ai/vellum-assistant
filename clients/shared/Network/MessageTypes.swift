@@ -792,8 +792,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil) {
-        self.init(type: "message_complete", sessionId: sessionId, attachments: attachments)
+    public init(sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+        self.init(type: "message_complete", sessionId: sessionId, attachments: attachments, messageId: messageId)
     }
 }
 

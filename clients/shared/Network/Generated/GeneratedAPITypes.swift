@@ -2646,11 +2646,13 @@ public struct MessageComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String?
     public let attachments: [UserMessageAttachment]?
+    public let messageId: String?
 
-    public init(type: String, sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil) {
+    public init(type: String, sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.attachments = attachments
+        self.messageId = messageId
     }
 }
 

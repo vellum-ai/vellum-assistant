@@ -591,6 +591,13 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            // Backfill the daemon's persisted message ID so diagnostics exports
+            // can anchor to it without requiring a history reload.
+            if let messageId = complete.messageId,
+               let msgId = currentAssistantMessageId,
+               let idx = messages.firstIndex(where: { $0.id == msgId }) {
+                messages[idx].daemonMessageId = messageId
+            }
             // Strip heavy binary data from old messages to cap memory growth.
             trimOldMessagesIfNeeded()
             let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
