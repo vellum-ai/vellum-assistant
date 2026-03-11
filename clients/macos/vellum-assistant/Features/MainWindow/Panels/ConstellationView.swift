@@ -169,7 +169,7 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
         SubCategoryDef(label: "Triggers", emoji: "\u{23F0}", skillIds: ["watcher", "time-based-actions"]),
     ],
     .webSocial: [
-        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["twitter", "influencer"]),
+        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["influencer"]),
         SubCategoryDef(label: "Services", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
     ],
     .knowledge: [

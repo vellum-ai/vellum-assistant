@@ -425,19 +425,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "twitter",
-      "name": "twitter",
-      "description": "Read and post on X (formerly Twitter) via OAuth or managed mode",
-      "metadata": {
-        "emoji": "𝕏",
-        "vellum": {
-          "display-name": "X",
-          "user-invocable": "true"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "typescript-eval",
       "name": "typescript-eval",
       "description": "Test TypeScript code snippets before persisting as skills",
