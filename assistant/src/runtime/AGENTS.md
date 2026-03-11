@@ -34,6 +34,15 @@ Host bash allows the assistant to execute shell commands on the desktop host mac
   - `POST /v1/host-bash-result` — `{ requestId, stdout, stderr, exitCode, timedOut }`
 - **Tracking**: Uses the same `pending-interactions` tracker as approvals, with `kind: "host_bash"`. The endpoint validates the interaction kind before resolving.
 
+### Host file (desktop proxy file operations)
+
+Host file allows the assistant to perform file operations (read, write, edit) on the desktop host machine via the client, rather than in the daemon's own sandbox.
+
+- **Discovery**: Clients discover pending host file requests via SSE events (`host_file_request`) which include a `requestId`.
+- **Resolution**: Clients execute the file operation on the host and respond via:
+  - `POST /v1/host-file-result` — `{ requestId, content, isError }`
+- **Tracking**: Uses the same `pending-interactions` tracker as approvals and host bash, with `kind: "host_file"`. The endpoint validates the interaction kind before resolving.
+
 ### Channel approvals (Telegram, SMS)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
