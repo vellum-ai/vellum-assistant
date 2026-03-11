@@ -1,8 +1,3 @@
-export type AvatarGenerationStrategy =
-  | "managed_required"
-  | "managed_prefer"
-  | "local_only";
-
 export interface ManagedAvatarImagePayload {
   mime_type: string;
   data_base64: string;
