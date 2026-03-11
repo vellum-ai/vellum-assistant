@@ -1,3 +1,5 @@
+import type { OAuthConnection } from "../../../oauth/connection.js";
+import { GOOGLE_CALENDAR_BASE_URL } from "../../../oauth/provider-base-urls.js";
 import type {
   CalendarEvent,
   CalendarEventsListResponse,
@@ -6,6 +8,7 @@ import type {
   FreeBusyResponse,
 } from "./types.js";
 
+/** Used by the legacy string-token path. */
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 
 export class CalendarApiError extends Error {
@@ -20,39 +23,111 @@ export class CalendarApiError extends Error {
 }
 
 async function request<T>(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const url = `${CALENDAR_API_BASE}${path}`;
-  const resp = await fetch(url, {
-    ...options,
+  if (typeof connectionOrToken === "string") {
+    // Legacy path: use raw token directly
+    const token = connectionOrToken;
+    const url = `${CALENDAR_API_BASE}${path}`;
+    const resp = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      throw new CalendarApiError(
+        resp.status,
+        resp.statusText,
+        `Calendar API ${resp.status}: ${body}`,
+      );
+    }
+    const contentLength = resp.headers.get("content-length");
+    if (resp.status === 204 || contentLength === "0") {
+      return undefined as T;
+    }
+    const text = await resp.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
+  }
+
+  // OAuthConnection path: use connection.request() with baseUrl override
+  const connection = connectionOrToken;
+  const method = (options?.method ?? "GET").toUpperCase();
+
+  // Extract non-auth headers
+  let extraHeaders: Record<string, string> | undefined;
+  if (options?.headers) {
+    const raw = options.headers;
+    const result: Record<string, string> = {};
+    if (raw instanceof Headers) {
+      raw.forEach((v, k) => {
+        if (k.toLowerCase() !== "authorization") result[k] = v;
+      });
+    } else if (Array.isArray(raw)) {
+      for (const [k, v] of raw) {
+        if (k.toLowerCase() !== "authorization") result[k] = v;
+      }
+    } else {
+      for (const [k, v] of Object.entries(raw)) {
+        if (k.toLowerCase() !== "authorization" && v !== undefined)
+          result[k] = v;
+      }
+    }
+    if (Object.keys(result).length > 0) extraHeaders = result;
+  }
+
+  // Extract body
+  let reqBody: unknown | undefined;
+  if (options?.body) {
+    if (typeof options.body === "string") {
+      try {
+        reqBody = JSON.parse(options.body);
+      } catch {
+        reqBody = options.body;
+      }
+    } else {
+      reqBody = options.body;
+    }
+  }
+
+  const resp = await connection.request({
+    method,
+    path,
+    baseUrl: GOOGLE_CALENDAR_BASE_URL,
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      ...options?.headers,
+      ...extraHeaders,
     },
+    body: reqBody,
   });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
+
+  if (resp.status < 200 || resp.status >= 300) {
+    const bodyStr =
+      typeof resp.body === "string"
+        ? resp.body
+        : JSON.stringify(resp.body ?? "");
     throw new CalendarApiError(
       resp.status,
-      resp.statusText,
-      `Calendar API ${resp.status}: ${body}`,
+      "",
+      `Calendar API ${resp.status}: ${bodyStr}`,
     );
   }
-  const contentLength = resp.headers.get("content-length");
-  if (resp.status === 204 || contentLength === "0") {
+
+  if (resp.status === 204 || resp.body === undefined) {
     return undefined as T;
   }
-  const text = await resp.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  return resp.body as T;
 }
 
 /** List events from a calendar. */
 export async function listEvents(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
   calendarId = "primary",
   options?: {
     timeMin?: string;
@@ -86,19 +161,19 @@ export async function listEvents(
   if (options?.syncToken) params.set("syncToken", options.syncToken);
 
   return request<CalendarEventsListResponse>(
-    token,
+    connectionOrToken,
     `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
   );
 }
 
 /** Get a single event by ID. */
 export async function getEvent(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
   eventId: string,
   calendarId = "primary",
 ): Promise<CalendarEvent> {
   return request<CalendarEvent>(
-    token,
+    connectionOrToken,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
     )}`,
@@ -107,7 +182,7 @@ export async function getEvent(
 
 /** Create a new event. */
 export async function createEvent(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
   event: {
     summary: string;
     start: { dateTime?: string; date?: string; timeZone?: string };
@@ -121,7 +196,7 @@ export async function createEvent(
 ): Promise<CalendarEvent> {
   const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
-    token,
+    connectionOrToken,
     `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
     {
       method: "POST",
@@ -132,7 +207,7 @@ export async function createEvent(
 
 /** Update an event (patch). */
 export async function patchEvent(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
   eventId: string,
   updates: Partial<{
     summary: string;
@@ -147,7 +222,7 @@ export async function patchEvent(
 ): Promise<CalendarEvent> {
   const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
-    token,
+    connectionOrToken,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
     )}?${params}`,
@@ -160,10 +235,10 @@ export async function patchEvent(
 
 /** Query free/busy information. */
 export async function freeBusy(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
   query: FreeBusyRequest,
 ): Promise<FreeBusyResponse> {
-  return request<FreeBusyResponse>(token, "/freeBusy", {
+  return request<FreeBusyResponse>(connectionOrToken, "/freeBusy", {
     method: "POST",
     body: JSON.stringify(query),
   });
@@ -171,7 +246,10 @@ export async function freeBusy(
 
 /** List calendars the user has access to. */
 export async function listCalendars(
-  token: string,
+  connectionOrToken: OAuthConnection | string,
 ): Promise<CalendarListResponse> {
-  return request<CalendarListResponse>(token, "/users/me/calendarList");
+  return request<CalendarListResponse>(
+    connectionOrToken,
+    "/users/me/calendarList",
+  );
 }
