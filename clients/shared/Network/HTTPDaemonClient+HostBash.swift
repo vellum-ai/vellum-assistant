@@ -142,7 +142,11 @@ extension HTTPTransport {
             }
 
             process.waitUntilExit()
-            pipeGroup.wait()
+            await withCheckedContinuation { continuation in
+                pipeGroup.notify(queue: .global()) {
+                    continuation.resume()
+                }
+            }
             timerSource.cancel()
 
             let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
