@@ -35,11 +35,13 @@ export class GeminiProvider implements Provider {
   ) {
     this.client = options.managedBaseUrl
       ? new GoogleGenAI({
-          apiKey,
           vertexai: true,
           project: options.vertexProject ?? "proxy",
           location: options.vertexLocation ?? "us-central1",
-          httpOptions: { baseUrl: options.managedBaseUrl },
+          httpOptions: {
+            baseUrl: options.managedBaseUrl,
+            headers: { Authorization: `Bearer ${apiKey}` },
+          },
         })
       : new GoogleGenAI({ apiKey });
     this.model = model;
