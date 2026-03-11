@@ -96,7 +96,7 @@ describe("one-time send override", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not enabled");
     // Value must NOT be stored in keychain
-    expect(storedKeys.has("credential:svc:key")).toBe(false);
+    expect(storedKeys.has("credential/svc/key")).toBe(false);
   });
 
   test("transient_send succeeds when allowOneTimeSend is enabled", async () => {
@@ -119,7 +119,7 @@ describe("one-time send override", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("NOT saved");
     // Value must NOT be stored in keychain
-    expect(storedKeys.has("credential:svc:key")).toBe(false);
+    expect(storedKeys.has("credential/svc/key")).toBe(false);
   });
 
   test("store delivery always persists to keychain regardless of allowOneTimeSend", async () => {
@@ -138,7 +138,7 @@ describe("one-time send override", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("stored");
-    expect(storedKeys.has("credential:svc:key")).toBe(true);
+    expect(storedKeys.has("credential/svc/key")).toBe(true);
   });
 
   test("transient_send response content never contains the secret value", async () => {

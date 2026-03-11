@@ -108,7 +108,7 @@ describe("session-messaging secret redirect", () => {
       label: "Telegram Bot Token",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:telegram:bot_token",
+      "credential/telegram/bot_token",
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
     expect(upsertCredentialMetadataMock).toHaveBeenCalledWith(
@@ -158,7 +158,7 @@ describe("session-messaging secret redirect", () => {
       label: "Telegram Bot Token",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:telegram:bot_token",
+      "credential/telegram/bot_token",
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
   });
@@ -197,7 +197,7 @@ describe("session-messaging secret redirect", () => {
       label: "Telegram Bot Token",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:telegram:bot_token",
+      "credential/telegram/bot_token",
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
   });
@@ -231,7 +231,7 @@ describe("session-messaging secret redirect", () => {
       label: "Secure Credential Entry",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:detected:Some Unknown Secret",
+      "credential/detected/Some Unknown Secret",
       "opaque-secret",
     );
     expect(upsertCredentialMetadataMock).toHaveBeenCalledWith(

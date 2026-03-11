@@ -85,7 +85,7 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -109,7 +109,7 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -161,7 +161,7 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -182,7 +182,7 @@ describe("CredentialBroker.serverUse", () => {
     upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["publish_page"],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -201,7 +201,7 @@ describe("CredentialBroker.serverUse", () => {
       allowedTools: ["publish_page"],
       allowedDomains: ["vercel.com"],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -222,7 +222,7 @@ describe("CredentialBroker.serverUse", () => {
       allowedTools: ["publish_page"],
       allowedDomains: [],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = await broker.serverUse({
       service: "vercel",
@@ -247,7 +247,7 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("aws", "access_key", {
         allowedTools: ["deploy_lambda", "s3_upload"],
       });
-      setSecureKey("credential:aws:access_key", "AKIA_test");
+      setSecureKey("credential/aws/access_key", "AKIA_test");
 
       const result = await broker.serverUse({
         service: "aws",
@@ -270,7 +270,7 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("stripe", "secret_key", {
         allowedTools: [],
       });
-      setSecureKey("credential:stripe:secret_key", "sk_test_xyz");
+      setSecureKey("credential/stripe/secret_key", "sk_test_xyz");
 
       const result = await broker.serverUse({
         service: "stripe",
@@ -291,7 +291,7 @@ describe("CredentialBroker.serverUse", () => {
         allowedTools: ["git_push"],
         allowedDomains: ["github.com"],
       });
-      setSecureKey("credential:github:oauth_token", "gho_test");
+      setSecureKey("credential/github/oauth_token", "gho_test");
 
       const result = await broker.serverUse({
         service: "github",
@@ -322,7 +322,7 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("vercel", "api_token", {
         allowedTools: ["publish_page", "unpublish_page"],
       });
-      setSecureKey("credential:vercel:api_token", "tok_updated");
+      setSecureKey("credential/vercel/api_token", "tok_updated");
 
       const result = await broker.serverUse({
         service: "vercel",
@@ -342,8 +342,8 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("vercel", "deploy_hook", {
         allowedTools: ["trigger_deploy"],
       });
-      setSecureKey("credential:vercel:api_token", "tok_api");
-      setSecureKey("credential:vercel:deploy_hook", "hook_secret");
+      setSecureKey("credential/vercel/api_token", "tok_api");
+      setSecureKey("credential/vercel/deploy_hook", "hook_secret");
 
       // api_token should deny trigger_deploy
       const r1 = await broker.serverUse({
@@ -377,8 +377,8 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("gitlab", "api_token", {
         allowedTools: ["gitlab_api"],
       });
-      setSecureKey("credential:github:api_token", "gh_tok");
-      setSecureKey("credential:gitlab:api_token", "gl_tok");
+      setSecureKey("credential/github/api_token", "gh_tok");
+      setSecureKey("credential/gitlab/api_token", "gl_tok");
 
       // github credential should not serve gitlab tool
       const r1 = broker.serverUseById({
@@ -395,8 +395,8 @@ describe("CredentialBroker.serverUse", () => {
       upsertCredentialMetadata("gitlab", "api_token", {
         allowedTools: ["gitlab_api"],
       });
-      setSecureKey("credential:github:api_token", "gh_tok");
-      setSecureKey("credential:gitlab:api_token", "gl_tok");
+      setSecureKey("credential/github/api_token", "gh_tok");
+      setSecureKey("credential/gitlab/api_token", "gl_tok");
 
       // github credential should not serve gitlab tool
       const r1 = await broker.serverUse({
@@ -458,7 +458,7 @@ describe("CredentialBroker.serverUseById", () => {
         },
       ],
     });
-    setSecureKey("credential:fal:api_key", "fal-secret-key");
+    setSecureKey("credential/fal/api_key", "fal-secret-key");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,
@@ -483,7 +483,7 @@ describe("CredentialBroker.serverUseById", () => {
     const meta = upsertCredentialMetadata("fal", "api_key", {
       allowedTools: ["media_proxy"],
     });
-    setSecureKey("credential:fal:api_key", "fal-secret-key");
+    setSecureKey("credential/fal/api_key", "fal-secret-key");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,
@@ -514,7 +514,7 @@ describe("CredentialBroker.serverUseById", () => {
       allowedTools: ["media_proxy"],
       allowedDomains: ["github.com"],
     });
-    setSecureKey("credential:github:oauth_token", "gho_test");
+    setSecureKey("credential/github/oauth_token", "gho_test");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,
@@ -531,7 +531,7 @@ describe("CredentialBroker.serverUseById", () => {
     const meta = upsertCredentialMetadata("vercel", "api_token", {
       allowedTools: ["media_proxy"],
     });
-    setSecureKey("credential:vercel:api_token", "test-vercel-token");
+    setSecureKey("credential/vercel/api_token", "test-vercel-token");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,
@@ -547,7 +547,7 @@ describe("CredentialBroker.serverUseById", () => {
     const meta = upsertCredentialMetadata("stripe", "secret_key", {
       allowedTools: [],
     });
-    setSecureKey("credential:stripe:secret_key", "sk_test_xyz");
+    setSecureKey("credential/stripe/secret_key", "sk_test_xyz");
 
     const result = broker.serverUseById({
       credentialId: meta.credentialId,

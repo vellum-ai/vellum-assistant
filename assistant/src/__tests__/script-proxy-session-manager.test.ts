@@ -56,7 +56,7 @@ function makeResolved(
     credentialId,
     service: "test-service",
     field: "api-key",
-    storageKey: `credential:test-service:api-key`,
+    storageKey: `credential/test-service/api-key`,
     injectionTemplates: templates,
     metadata: {
       credentialId,

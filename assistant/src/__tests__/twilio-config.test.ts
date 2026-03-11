@@ -30,7 +30,7 @@ import { getTwilioConfig } from "../calls/twilio-config.js";
 describe("twilio-config", () => {
   beforeEach(() => {
     mockSecureKeys = {
-      "credential:twilio:auth_token": "test_auth_token",
+      "credential/twilio/auth_token": "test_auth_token",
     };
     mockLoadConfigResult = {
       twilio: {

@@ -197,10 +197,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("reports ready when all Meta credentials and display number are configured", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        "credential/whatsapp/phone_number_id": "123456789",
+        "credential/whatsapp/access_token": "EAAxxxxxx",
+        "credential/whatsapp/app_secret": "abc123",
+        "credential/whatsapp/webhook_verify_token": "my-verify-token",
       };
       mockRawConfig = {
         whatsapp: { phoneNumber: "+15551234567" },
@@ -215,10 +215,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("reports not ready when display phone number is missing", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        "credential/whatsapp/phone_number_id": "123456789",
+        "credential/whatsapp/access_token": "EAAxxxxxx",
+        "credential/whatsapp/app_secret": "abc123",
+        "credential/whatsapp/webhook_verify_token": "my-verify-token",
       };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
@@ -236,10 +236,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("checks each Meta credential individually", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
+        "credential/whatsapp/phone_number_id": "123456789",
         // access_token missing
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        "credential/whatsapp/app_secret": "abc123",
+        "credential/whatsapp/webhook_verify_token": "my-verify-token",
       };
       mockRawConfig = {
         ingress: { publicBaseUrl: "https://example.com", enabled: true },
@@ -272,10 +272,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("checks invite policy", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        "credential/whatsapp/phone_number_id": "123456789",
+        "credential/whatsapp/access_token": "EAAxxxxxx",
+        "credential/whatsapp/app_secret": "abc123",
+        "credential/whatsapp/webhook_verify_token": "my-verify-token",
       };
       mockRawConfig = {
         whatsapp: { phoneNumber: "+15551234567" },
@@ -293,10 +293,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
 
     test("checks ingress configuration", async () => {
       mockSecureKeys = {
-        "credential:whatsapp:phone_number_id": "123456789",
-        "credential:whatsapp:access_token": "EAAxxxxxx",
-        "credential:whatsapp:app_secret": "abc123",
-        "credential:whatsapp:webhook_verify_token": "my-verify-token",
+        "credential/whatsapp/phone_number_id": "123456789",
+        "credential/whatsapp/access_token": "EAAxxxxxx",
+        "credential/whatsapp/app_secret": "abc123",
+        "credential/whatsapp/webhook_verify_token": "my-verify-token",
       };
       mockRawConfig = {
         whatsapp: { phoneNumber: "+15551234567" },

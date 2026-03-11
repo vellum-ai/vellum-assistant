@@ -142,7 +142,7 @@ describe("executeBrowserFillCredential", () => {
       '[data-vellum-eid="e1"]',
       "super-secret-password",
     );
-    expect(mockGetSecureKey).toHaveBeenCalledWith("credential:gmail:password");
+    expect(mockGetSecureKey).toHaveBeenCalledWith("credential/gmail/password");
   });
 
   test("fills credential by CSS selector", async () => {
@@ -297,7 +297,7 @@ describe("executeBrowserFillCredential", () => {
         "password",
       );
       expect(mockGetSecureKey).toHaveBeenCalledWith(
-        "credential:gmail:password",
+        "credential/gmail/password",
       );
     });
 
