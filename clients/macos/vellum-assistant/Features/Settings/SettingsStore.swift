@@ -89,7 +89,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramSaveInProgress: Bool = false
     @Published var telegramError: String?
 
-    // MARK: - Twilio SMS Integration State
+    // MARK: - Twilio Integration State
 
     @Published var twilioHasCredentials: Bool = false
     @Published var twilioPhoneNumber: String?
@@ -110,17 +110,6 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramVerificationError: String?
     @Published var telegramVerificationAlreadyBound: Bool = false
 
-    // MARK: - Channel Verification State (SMS)
-
-    @Published var smsVerificationIdentity: String?
-    @Published var smsVerificationUsername: String?
-    @Published var smsVerificationDisplayName: String?
-    @Published var smsVerificationVerified: Bool = false
-    @Published var smsVerificationInProgress: Bool = false
-    @Published var smsVerificationInstruction: String?
-    @Published var smsVerificationError: String?
-    @Published var smsVerificationAlreadyBound: Bool = false
-
     // MARK: - Channel Verification State (Voice)
 
     @Published var voiceVerificationIdentity: String?
@@ -140,14 +129,6 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramOutboundSendCount: Int = 0
     @Published var telegramBootstrapUrl: String?
     @Published var telegramOutboundCode: String?
-
-    // MARK: - Outbound Verification Session State (SMS)
-
-    @Published var smsOutboundSessionId: String?
-    @Published var smsOutboundExpiresAt: Date?
-    @Published var smsOutboundNextResendAt: Date?
-    @Published var smsOutboundSendCount: Int = 0
-    @Published var smsOutboundCode: String?
 
     // MARK: - Outbound Verification Session State (Voice)
 
@@ -575,28 +556,6 @@ public final class SettingsStore: ObservableObject {
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
-            case "sms":
-                self.smsVerificationInProgress = false
-                if response.success {
-                    self.smsVerificationIdentity = response.guardianExternalUserId
-                    self.smsVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.smsVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
-                    let isVerified = response.bound ?? false
-                    self.smsVerificationVerified = isVerified
-                    if isVerified {
-                        self.smsVerificationInstruction = nil
-                    } else if let instruction = response.instruction {
-                        self.smsVerificationInstruction = instruction
-                    }
-                    self.smsVerificationError = nil
-                    self.smsVerificationAlreadyBound = false
-                } else {
-                    let isAlreadyBound = response.error == "already_bound"
-                    self.smsVerificationAlreadyBound = isAlreadyBound
-                    self.smsVerificationError = isAlreadyBound
-                        ? "A guardian is already bound. Revoke it first or replace it."
-                        : response.error
-                }
             case "phone":
                 self.voiceVerificationInProgress = false
                 if response.success {
@@ -686,7 +645,6 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh channel verification status on init
         refreshChannelVerificationStatus(channel: "telegram")
-        refreshChannelVerificationStatus(channel: "sms")
         refreshChannelVerificationStatus(channel: "phone")
         refreshChannelVerificationStatus(channel: "slack")
 
@@ -1196,7 +1154,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Twilio SMS Actions (HTTP)
+    // MARK: - Twilio Actions (HTTP)
 
     /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
     /// Uses httpTransport for remote connections, otherwise defaults to local gateway.
@@ -1296,11 +1254,10 @@ public final class SettingsStore: ObservableObject {
                   let friendlyName = dict["friendlyName"] as? String,
                   let caps = dict["capabilities"] as? [String: Any] else { return nil }
             let voice = caps["voice"] as? Bool ?? false
-            let sms = caps["sms"] as? Bool ?? false
             return TwilioNumberInfo(
                 phoneNumber: phoneNumber,
                 friendlyName: friendlyName,
-                capabilities: TwilioNumberCapabilities(voice: voice, sms: sms)
+                capabilities: TwilioNumberCapabilities(voice: voice, sms: false)
             )
         }
     }
@@ -1422,11 +1379,6 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationError = nil
             telegramVerificationAlreadyBound = false
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInProgress = true
-            smsVerificationError = nil
-            smsVerificationAlreadyBound = false
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInProgress = true
             voiceVerificationError = nil
@@ -1447,9 +1399,6 @@ public final class SettingsStore: ObservableObject {
                 case "telegram":
                     telegramVerificationInProgress = false
                     telegramVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "sms":
-                    smsVerificationInProgress = false
-                    smsVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "phone":
                     voiceVerificationInProgress = false
                     voiceVerificationError = "Daemon is not connected. Reconnect and try again."
@@ -1475,9 +1424,6 @@ public final class SettingsStore: ObservableObject {
             case "telegram":
                 telegramVerificationInProgress = false
                 telegramVerificationError = "Failed to start verification. Try again."
-            case "sms":
-                smsVerificationInProgress = false
-                smsVerificationError = "Failed to start verification. Try again."
             case "phone":
                 voiceVerificationInProgress = false
                 voiceVerificationError = "Failed to start verification. Try again."
@@ -1497,9 +1443,6 @@ public final class SettingsStore: ObservableObject {
         case "telegram":
             telegramVerificationInProgress = false
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInProgress = false
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInProgress = false
             voiceVerificationInstruction = nil
@@ -1525,8 +1468,6 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInstruction = nil
         case "slack":
@@ -1717,10 +1658,6 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationInProgress = true
             telegramVerificationError = nil
             telegramVerificationAlreadyBound = false
-        case "sms":
-            smsVerificationInProgress = true
-            smsVerificationError = nil
-            smsVerificationAlreadyBound = false
         case "phone":
             voiceVerificationInProgress = true
             voiceVerificationError = nil
@@ -1738,9 +1675,6 @@ public final class SettingsStore: ObservableObject {
                 case "telegram":
                     telegramVerificationInProgress = false
                     telegramVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "sms":
-                    smsVerificationInProgress = false
-                    smsVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "phone":
                     voiceVerificationInProgress = false
                     voiceVerificationError = "Daemon is not connected. Reconnect and try again."
@@ -1763,9 +1697,6 @@ public final class SettingsStore: ObservableObject {
             case "telegram":
                 telegramVerificationInProgress = false
                 telegramVerificationError = "Failed to start verification. Try again."
-            case "sms":
-                smsVerificationInProgress = false
-                smsVerificationError = "Failed to start verification. Try again."
             case "phone":
                 voiceVerificationInProgress = false
                 voiceVerificationError = "Failed to start verification. Try again."
@@ -1795,8 +1726,6 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramVerificationInProgress = false
-        case "sms":
-            smsVerificationInProgress = false
         case "phone":
             voiceVerificationInProgress = false
         case "slack":
@@ -1823,12 +1752,6 @@ public final class SettingsStore: ObservableObject {
             telegramOutboundSendCount = 0
             telegramBootstrapUrl = nil
             telegramOutboundCode = nil
-        case "sms":
-            smsOutboundSessionId = nil
-            smsOutboundExpiresAt = nil
-            smsOutboundNextResendAt = nil
-            smsOutboundSendCount = 0
-            smsOutboundCode = nil
         case "phone":
             voiceOutboundSessionId = nil
             voiceOutboundExpiresAt = nil
@@ -1884,17 +1807,6 @@ public final class SettingsStore: ObservableObject {
                 // Bootstrap complete — clear the URL so resend becomes available
                 telegramBootstrapUrl = nil
             }
-        case "sms":
-            if sessionId != smsOutboundSessionId {
-                smsOutboundNextResendAt = nil
-                smsOutboundSendCount = 0
-                smsOutboundCode = nil
-            }
-            smsOutboundSessionId = sessionId
-            if let expiresAt { smsOutboundExpiresAt = expiresAt }
-            if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
-            if let sendCount { smsOutboundSendCount = sendCount }
-            if let secret { smsOutboundCode = secret }
         case "phone":
             if sessionId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
@@ -1932,7 +1844,6 @@ public final class SettingsStore: ObservableObject {
         // Disambiguate when exactly one channel has verification in progress
         let inProgressChannels = [
             ("telegram", telegramVerificationInProgress),
-            ("sms", smsVerificationInProgress),
             ("phone", voiceVerificationInProgress),
             ("slack", slackVerificationInProgress),
         ].filter(\.1)
@@ -1953,8 +1864,6 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramVerificationInstruction = nil
-        case "sms":
-            smsVerificationInstruction = nil
         case "phone":
             voiceVerificationInstruction = nil
         case "slack":
@@ -1977,12 +1886,6 @@ public final class SettingsStore: ObservableObject {
                 if self.telegramVerificationError == nil {
                     self.telegramVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
-            case "sms":
-                self.smsVerificationInProgress = false
-                self.smsVerificationInstruction = nil
-                if self.smsVerificationError == nil {
-                    self.smsVerificationError = "Timed out waiting for verification instructions. Try again."
-                }
             case "phone":
                 self.voiceVerificationInProgress = false
                 self.voiceVerificationInstruction = nil
@@ -2004,7 +1907,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func startVerificationStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" || channel == "phone" || channel == "slack" else { return }
+        guard channel == "telegram" || channel == "phone" || channel == "slack" else { return }
         stopVerificationStatusPolling(for: channel)
         verificationStatusPollingDeadlines[channel] = Date().addingTimeInterval(verificationStatusPollWindow)
         scheduleVerificationStatusPoll(for: channel, delay: verificationStatusPollInterval)
