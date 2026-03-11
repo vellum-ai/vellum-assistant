@@ -70,7 +70,9 @@ Every step follows this rhythm:
 
 Before beginning, tell the user:
 
-> I'm going to open a few pages in your browser and walk you through Google Cloud setup. Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
+> We're going to set up Google OAuth together — 9 steps, about 3–5 minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
+>
+> Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
 
 ## Step 0: Prerequisite Check
 
@@ -154,9 +156,9 @@ Open: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.co
 
 **Checkpoint:** Ask the user to confirm it says "Manage" (meaning it's enabled).
 
-**Milestone acknowledgment:**
+**Milestone acknowledgment (4 of 9):**
 
-> APIs are enabled — nice. Now the fun part.
+> APIs are enabled — that's steps 3 and 4 done. Now we'll set up the OAuth consent screen.
 
 Wait for confirmation.
 
@@ -224,7 +226,7 @@ host_bash:
 > - **Sensitive scopes:** `calendar.readonly`, `calendar.events`, `gmail.send`
 > - **Restricted scopes (Gmail):** `gmail.modify`, `gmail.readonly`
 
-> I know this is a lot of setup — we're about halfway through and the hardest part is behind us.
+> That's step 5 of 9 — over halfway, and the fiddliest part is behind us.
 
 Wait for confirmation.
 
@@ -277,6 +279,10 @@ credential_store prompt:
 ```
 
 Do not navigate away from the credential dialog until both values are stored. After both are stored, tell the user they can close the dialog.
+
+**Milestone acknowledgment (7 of 9):**
+
+> Credentials saved — just two steps left: authorize and verify.
 
 ---
 
@@ -353,8 +359,7 @@ When the user reports something doesn't look right, offer to take a screenshot t
 
 - **Confident but not bossy** — "Go ahead and click Enable" not "You must click Enable"
 - **Specific but not rigid** — "Look for a blue button that says Enable" not "Click the button at coordinates 450, 320"
-- **Acknowledging the tedium** — "I know this is a lot of setup — we're about halfway through and the hardest part is behind us"
-- **Celebratory at milestones** — "APIs are enabled — nice. Now the fun part."
+- **Progress-aware** — use the milestone markers to keep the user oriented on where they are and how much is left
 - **Calm when things go sideways** — "That doesn't look quite right, but no worries — let me see what we're working with"
 
 ## Guardrails
