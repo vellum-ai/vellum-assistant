@@ -39,6 +39,7 @@ export class GmailApiError extends Error {
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
+/** Timeout for batch API calls that bypass OAuthConnection.request() (which has its own 30s timeout). */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function isRetryable(status: number): boolean {
