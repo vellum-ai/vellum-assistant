@@ -1257,7 +1257,7 @@ public final class SettingsStore: ObservableObject {
             return TwilioNumberInfo(
                 phoneNumber: phoneNumber,
                 friendlyName: friendlyName,
-                capabilities: TwilioNumberCapabilities(voice: voice, sms: false)
+                capabilities: TwilioNumberCapabilities(voice: voice)
             )
         }
     }
