@@ -86,6 +86,7 @@ async function handleBtw(
               config: {
                 max_tokens: 1024,
                 tool_choice: { type: "none" },
+                modelIntent: "latency-optimized",
               },
               onEvent: (event) => {
                 if (event.type === "text_delta") {
@@ -107,12 +108,16 @@ async function handleBtw(
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown error";
           log.error({ err }, "btw side-chain streaming error");
-          controller.enqueue(
-            encoder.encode(
-              `event: btw_error\ndata: ${JSON.stringify({ error: message })}\n\n`,
-            ),
-          );
-          controller.close();
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `event: btw_error\ndata: ${JSON.stringify({ error: message })}\n\n`,
+              ),
+            );
+            controller.close();
+          } catch {
+            /* stream already closed */
+          }
         } finally {
           cleanupTimeout();
           timeoutSignal.removeEventListener("abort", onTimeoutAbort);
@@ -142,6 +147,7 @@ export function btwRouteDefinitions(deps: {
     {
       endpoint: "btw",
       method: "POST",
+      policyKey: "btw",
       handler: async ({ req, authContext }) =>
         handleBtw(req, deps, authContext),
     },
