@@ -149,14 +149,21 @@ export async function handleGuardianReplyIntercept(
   if (routerResult.consumed) {
     // Deliver reply text if the router produced one
     if (routerResult.replyText) {
+      const routerReplyPayload: Parameters<typeof deliverChannelReply>[1] = {
+        chatId: conversationExternalId,
+        text: routerResult.replyText,
+        assistantId: canonicalAssistantId,
+      };
+      // On Slack, send guardian management replies (disambiguation, pending
+      // request lists, etc.) as ephemeral so only the guardian sees them.
+      if (sourceChannel === "slack" && rawSenderId) {
+        routerReplyPayload.ephemeral = true;
+        routerReplyPayload.user = rawSenderId;
+      }
       try {
         await deliverChannelReply(
           replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: routerResult.replyText,
-            assistantId: canonicalAssistantId,
-          },
+          routerReplyPayload,
           mintBearerToken(),
         );
       } catch (err) {
