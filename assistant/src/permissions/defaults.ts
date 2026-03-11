@@ -209,6 +209,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  const skillExecuteRule: DefaultRuleTemplate = {
+    id: "default:allow-skill_execute-global",
+    tool: "skill_execute",
+    pattern: "skill_execute:*",
+    scope: "everywhere",
+    decision: "allow",
+    priority: 100,
+  };
+
   // Browser tools were previously core-registered with RiskLevel.Low (auto-allowed).
   // After migration to skill-provided tools, default allow rules preserve the
   // same frictionless UX so they don't trigger permission prompts.
@@ -288,6 +297,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     updatesDeleteRule,
     ...skillSourceMutationRules,
     skillLoadRule,
+    skillExecuteRule,
     browserNavigateRule,
     ...browserToolRules,
     ...uiSurfaceRules,
