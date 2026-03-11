@@ -57,9 +57,6 @@ class HostFileReadTool implements Tool {
     if (context.hostFileProxy?.isAvailable()) {
       return context.hostFileProxy.request(
         {
-          type: "host_file_request",
-          requestId: "", // proxy generates its own
-          sessionId: context.sessionId,
           operation: "read",
           path: rawPath,
           offset: typeof input.offset === "number" ? input.offset : undefined,

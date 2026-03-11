@@ -92,9 +92,6 @@ class HostFileEditTool implements Tool {
     if (context.hostFileProxy?.isAvailable()) {
       return context.hostFileProxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: context.sessionId,
           operation: "edit",
           path: rawPath,
           old_string: oldString as string,

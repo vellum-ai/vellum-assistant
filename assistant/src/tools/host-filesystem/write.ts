@@ -63,9 +63,6 @@ class HostFileWriteTool implements Tool {
     if (context.hostFileProxy?.isAvailable()) {
       return context.hostFileProxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: context.sessionId,
           operation: "write",
           path: rawPath,
           content: fileContent,

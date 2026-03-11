@@ -6,6 +6,12 @@ import { getLogger } from "../util/logger.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type { HostFileRequest } from "./message-types/host-file.js";
 
+/** Clean input type for callers — transport envelope fields are added by the proxy. */
+export type HostFileInput = Omit<
+  HostFileRequest,
+  "type" | "requestId" | "sessionId"
+>;
+
 const log = getLogger("host-file-proxy");
 
 interface PendingRequest {
@@ -37,7 +43,7 @@ export class HostFileProxy {
   }
 
   request(
-    input: HostFileRequest,
+    input: HostFileInput,
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
@@ -79,6 +85,7 @@ export class HostFileProxy {
 
       this.sendToClient({
         ...input,
+        type: "host_file_request",
         requestId,
         sessionId,
       } as ServerMessage);
