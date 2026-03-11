@@ -744,12 +744,12 @@ describe("GeminiProvider", () => {
       managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
     });
     expect(lastConstructorOpts).toEqual({
-      apiKey: "managed-key",
       vertexai: true,
       project: "proxy",
       location: "us-central1",
       httpOptions: {
         baseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
+        headers: { Authorization: "Bearer managed-key" },
       },
     });
   });
