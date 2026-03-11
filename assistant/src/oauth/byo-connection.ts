@@ -17,6 +17,9 @@ import type {
 
 const log = getLogger("byo-oauth-connection");
 
+/** Default per-request timeout to prevent hung requests from blocking indefinitely. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export interface BYOOAuthConnectionOptions {
   id: string;
   providerKey: string;
@@ -67,6 +70,7 @@ export class BYOOAuthConnection implements OAuthConnection {
           Authorization: `Bearer ${token}`,
         },
         body: req.body ? JSON.stringify(req.body) : undefined,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
       if (resp.status === 401) {
