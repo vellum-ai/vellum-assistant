@@ -138,60 +138,57 @@ The Google Cloud Console uses a "Google Auth Platform" layout. The consent scree
 
 ### Step 4a: Initial setup (if not already configured)
 
-Navigate to: `https://console.cloud.google.com/auth/overview?project=PROJECT_ID`
+Navigate to: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
 
 Tell the user:
 
-> I've opened the Google Auth Platform page. If you see a **Get Started** button, click it and fill in:
+> I've opened the **Branding** page. If it shows existing branding (app name, emails), the consent screen is already configured — let me know and we'll skip ahead.
+>
+> If the page is empty or shows a **Get Started** button, fill in:
 >
 > 1. **App name:** `Vellum Assistant`
 > 2. **User support email:** select your email from the dropdown
-> 3. Click **Next**
-> 4. **Audience / User type:** select **External**
-> 5. Click **Next**
-> 6. **Contact information:** enter your email
-> 7. Click **Next**
-> 8. Check the **Agree to Google API Services User Data Policy** checkbox
-> 9. Click **Continue**, then **Create**
->
-> If you see a dashboard instead of "Get Started", the auth platform is already set up — just let me know and we'll move on!
+> 3. **Developer contact email:** enter your email
+> 4. Click **Save**
 >
 > Let me know when you're through!
 
-Wait for confirmation.
+Wait for confirmation. If already configured, skip directly to Step 4b.
 
-### Step 4b: Add test users
+### Step 4b: Set audience to External and add test users
 
 Navigate to: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 
 Tell the user:
 
-> Now I've opened the **Audience** page (it's in the left sidebar). Scroll down to the **Test users** section, click **+ Add users**, enter your email address, and click **Save**.
+> I've opened the **Audience** page. Two things to check here:
 >
-> Let me know when done!
-
-Wait for confirmation.
+> 1. **User type:** If it doesn't already show **External**, select **External** and save.
+> 2. **Test users:** Scroll down to the **Test users** section, click **+ Add users**, enter your email address, and click **Save**.
+>
+> Let me know when both are done!
 
 ### Step 4c: Add scopes
 
-Navigate to: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
+First, copy the required scopes to the clipboard, then navigate to the Data Access page:
+
+```
+host_bash:
+  command: |
+    osascript -e '
+    set the clipboard to "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email"
+    tell application "Google Chrome"
+      activate
+      if (count of windows) = 0 then
+        make new window
+      end if
+      set URL of active tab of front window to "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
+    end tell'
+```
 
 Tell the user:
 
-> Now I've opened the **Data Access** page (left sidebar). Click **Add or Remove Scopes**.
->
-> In the scopes panel, look for the **"Manually add scopes"** text box at the bottom. Paste these scopes in, one at a time or comma-separated:
->
-> ```
-> https://www.googleapis.com/auth/gmail.readonly
-> https://www.googleapis.com/auth/gmail.modify
-> https://www.googleapis.com/auth/gmail.send
-> https://www.googleapis.com/auth/calendar.readonly
-> https://www.googleapis.com/auth/calendar.events
-> https://www.googleapis.com/auth/userinfo.email
-> ```
->
-> After adding them, click **Add to Table** (or **Update**), then click **Save**.
+> Now I've opened the **Data Access** page and copied the required scopes to your clipboard. Click **Add or Remove Scopes**, find the **"Manually add scopes"** text box at the bottom, **paste** (Cmd+V), then click **Add to Table** (or **Update**), and **Save**.
 >
 > When done, you should see them listed on the page:
 >
@@ -207,17 +204,15 @@ Wait for confirmation.
 
 ## Step 5: Create OAuth Credentials
 
-Navigate to: `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`
+Navigate directly to the client creation page: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`
 
 Tell the user:
 
-> I've opened the Credentials page. Now:
+> I've opened the Create Client page. You should see an **Application type** dropdown.
 >
-> 1. Click **+ Create Credentials** at the top
-> 2. Choose **OAuth client ID**
-> 3. Application type: **Desktop app**
-> 4. Name: **Vellum Assistant**
-> 5. Click **Create**
+> 1. Select **Desktop app** from the dropdown
+> 2. Set the name to **Vellum Assistant**
+> 3. Click **Create**
 >
 > **Keep the dialog open** when it shows the Client ID and Client Secret. I'll prompt you to paste them securely in the app.
 >
@@ -272,7 +267,7 @@ Tell the user:
 ```
 credential_store:
   action: "oauth2_connect"
-  service: "gmail"
+  service: "integration:gmail"
 ```
 
 If the tool returns an auth URL instead of auto-completing, send the URL to the user.
@@ -352,28 +347,31 @@ Tell the user:
 
 > **Step 3: Configure the OAuth consent screen**
 >
-> Open: `https://console.cloud.google.com/auth/overview?project=PROJECT_ID`
+> This has a few parts. Work through them in order:
 >
-> If you see **Get Started**, click it and set:
+> **3a. Branding** — Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
 >
+> If the page is empty or shows **Get Started**, fill in:
 > - App name: **Vellum Assistant**
 > - User support email: **your email**
-> - User type: **External**
-> - Contact email: **your email**
-> - Agree to the policy, click **Continue** then **Create**
+> - Developer contact email: **your email**
+> - Click **Save**
 >
-> Then go to **Audience** in the left sidebar and add **your email** as a test user.
+> If branding is already configured, skip to the next part.
 >
-> Then go to **Data Access** in the left sidebar and add these scopes:
+> **3b. Audience** — Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 >
-> - `https://www.googleapis.com/auth/gmail.readonly`
-> - `https://www.googleapis.com/auth/gmail.modify`
-> - `https://www.googleapis.com/auth/gmail.send`
-> - `https://www.googleapis.com/auth/calendar.readonly`
-> - `https://www.googleapis.com/auth/calendar.events`
-> - `https://www.googleapis.com/auth/userinfo.email`
+> - Set user type to **External** if not already set
+> - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
 >
-> Let me know when that's all done.
+> **3c. Scopes** — Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
+>
+> - Click **Add or Remove Scopes**
+> - Find the **"Manually add scopes"** text box and paste these (comma-separated):
+>   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email`
+> - Click **Add to Table**, then **Save**
+>
+> Let me know when all three parts are done.
 
 ## Path B Step 5: Create Web Application Credentials
 
@@ -388,16 +386,15 @@ Tell the user:
 
 > **Step 4: Create OAuth credentials**
 >
-> Open: `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`
+> Open: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`
 >
 > Use this exact redirect URI:
 > `OAUTH_CALLBACK_URL`
 >
-> 1. Click **+ Create Credentials** -> **OAuth client ID**
-> 2. Application type: **Web application**
-> 3. Name: **Vellum Assistant**
-> 4. Add the redirect URI shown above under **Authorized redirect URIs**
-> 5. Click **Create**
+> 1. Application type: **Web application**
+> 2. Name: **Vellum Assistant**
+> 3. Under **Authorized redirect URIs**, click **Add URI** and paste the redirect URI shown above
+> 4. Click **Create**
 >
 > When the dialog appears, copy the Client ID and Client Secret. You'll send them to me next.
 
@@ -450,7 +447,7 @@ Tell the user:
 ```
 credential_store:
   action: "oauth2_connect"
-  service: "gmail"
+  service: "integration:gmail"
 ```
 
 Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.
