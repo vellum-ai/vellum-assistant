@@ -1357,6 +1357,19 @@ extension ChatViewModel {
                 default:
                     break
                 }
+            } else if !msg.chunk.isEmpty,
+                      let existingId = currentAssistantMessageId,
+                      let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+                      let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                // Append plain-text output chunks to partialOutput for any tool type.
+                // Structured JSON sub-events (with a valid subType) are handled above.
+                let maxPartialOutput = 5000
+                messages[msgIndex].toolCalls[tcIndex].partialOutput.append(msg.chunk)
+                if messages[msgIndex].toolCalls[tcIndex].partialOutput.count > maxPartialOutput {
+                    let excess = messages[msgIndex].toolCalls[tcIndex].partialOutput.count - maxPartialOutput
+                    messages[msgIndex].toolCalls[tcIndex].partialOutput.removeFirst(excess)
+                }
+                messages[msgIndex].toolCalls[tcIndex].partialOutputLength = messages[msgIndex].toolCalls[tcIndex].partialOutput.count
             }
 
         case .toolResult(let msg):
