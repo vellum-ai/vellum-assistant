@@ -98,6 +98,35 @@ function writeSkillWithIncludes(
   );
 }
 
+function writeToolsJson(
+  skillId: string,
+  tools: Array<{
+    name: string;
+    description: string;
+    category?: string;
+    risk?: string;
+    input_schema?: Record<string, unknown>;
+    executor?: string;
+    execution_target?: string;
+  }>,
+): void {
+  const skillDir = join(TEST_DIR, "skills", skillId);
+  mkdirSync(skillDir, { recursive: true });
+  const manifest = {
+    version: 1,
+    tools: tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      category: t.category ?? "general",
+      risk: t.risk ?? "low",
+      input_schema: t.input_schema ?? { type: "object", properties: {} },
+      executor: t.executor ?? "scripts/run.sh",
+      execution_target: t.execution_target ?? "host",
+    })),
+  };
+  writeFileSync(join(skillDir, "TOOLS.json"), JSON.stringify(manifest));
+}
+
 async function executeSkillLoad(
   input: Record<string, unknown>,
 ): Promise<{ content: string; isError: boolean }> {
@@ -688,6 +717,137 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("Included Skills (immediate): none");
     expect(result.content).toMatch(
       /<loaded_skill id="empty-includes" version="v1:[a-f0-9]{64}" \/>/,
+    );
+  });
+
+  test("skill with TOOLS.json includes tool schemas section in output", async () => {
+    writeSkill(
+      "skill-with-tools",
+      "Skill With Tools",
+      "Has tools",
+      "Main body.",
+    );
+    writeToolsJson("skill-with-tools", [
+      {
+        name: "deploy_app",
+        description: "Deploy the application to production",
+        input_schema: {
+          type: "object",
+          properties: {
+            environment: {
+              type: "string",
+              description: "Target environment",
+            },
+            force: {
+              type: "boolean",
+              description: "Force deploy even if checks fail",
+            },
+          },
+          required: ["environment"],
+        },
+      },
+      {
+        name: "rollback_app",
+        description: "Rollback to previous version",
+        input_schema: {
+          type: "object",
+          properties: {
+            version: {
+              type: "string",
+              description: "Version to rollback to",
+            },
+          },
+          required: ["version"],
+        },
+      },
+    ]);
+    writeFileSync(
+      join(TEST_DIR, "skills", "SKILLS.md"),
+      "- skill-with-tools\n",
+    );
+
+    const result = await executeSkillLoad({ skill: "skill-with-tools" });
+    expect(result.isError).toBe(false);
+
+    // Should contain the Available Tools section header
+    expect(result.content).toContain("## Available Tools");
+
+    // Should instruct the LLM to use skill_execute
+    expect(result.content).toContain(
+      "Use `skill_execute` to call these tools.",
+    );
+
+    // Should contain tool names as headings
+    expect(result.content).toContain("### deploy_app");
+    expect(result.content).toContain("### rollback_app");
+
+    // Should contain tool descriptions
+    expect(result.content).toContain("Deploy the application to production");
+    expect(result.content).toContain("Rollback to previous version");
+
+    // Should list parameters with types and required/optional markers
+    expect(result.content).toContain(
+      "- environment (string, required): Target environment",
+    );
+    expect(result.content).toContain(
+      "- force (boolean, optional): Force deploy even if checks fail",
+    );
+    expect(result.content).toContain(
+      "- version (string, required): Version to rollback to",
+    );
+  });
+
+  test("skill without TOOLS.json does not include tool schemas section", async () => {
+    writeSkill("no-tools", "No Tools", "No tools manifest", "Body.");
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- no-tools\n");
+
+    const result = await executeSkillLoad({ skill: "no-tools" });
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("## Available Tools");
+    expect(result.content).not.toContain("skill_execute");
+  });
+
+  test("included child skill with TOOLS.json has its tool schemas in output", async () => {
+    writeSkillWithIncludes(
+      "parent-tools",
+      "Parent Tools",
+      "Parent with tooled child",
+      "Parent body.",
+      ["child-tools"],
+    );
+    writeSkill("child-tools", "Child Tools", "Child with tools", "Child body.");
+    writeToolsJson("child-tools", [
+      {
+        name: "child_action",
+        description: "A child tool action",
+        input_schema: {
+          type: "object",
+          properties: {
+            target: {
+              type: "string",
+              description: "Action target",
+            },
+          },
+          required: ["target"],
+        },
+      },
+    ]);
+    writeFileSync(
+      join(TEST_DIR, "skills", "SKILLS.md"),
+      "- parent-tools\n- child-tools\n",
+    );
+
+    const result = await executeSkillLoad({ skill: "parent-tools" });
+    expect(result.isError).toBe(false);
+
+    // The child skill's tool schemas should appear
+    expect(result.content).toContain("### child_action");
+    expect(result.content).toContain("A child tool action");
+    expect(result.content).toContain(
+      "- target (string, required): Action target",
+    );
+    expect(result.content).toContain(
+      "Use `skill_execute` to call these tools.",
     );
   });
 });
