@@ -419,6 +419,10 @@ assistant contacts invites revoke <invite_id> --json
 
 Replace `<invite_id>` with the invite's `id` from the list response. The same revoke command is used for both Telegram and voice invites.
 
+## Google Contacts
+
+Use `google_contacts` to list or search the user's Google Contacts by name or email. Returns name, email, phone, and organization. Requires the `contacts.readonly` OAuth scope — users may need to re-authorize Gmail to grant this additional permission.
+
 ## Contact Fields
 
 - **displayName** -- the contact's name (required)
