@@ -77,7 +77,53 @@ function checkSlackEnvelope<T extends SlackApiResponse>(data: T): T {
 }
 
 /**
+ * Build a Slack API request using a raw token (for retry via `connection.withToken`).
+ */
+async function rawSlackRequest<T extends SlackApiResponse>(
+  token: string,
+  method: string,
+  query: Record<string, string> | undefined,
+  body: Record<string, unknown> | undefined,
+): Promise<T> {
+  let url = `${SLACK_API_BASE}/${method}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  let init: RequestInit;
+  if (body) {
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    init = { method: "POST", headers, body: JSON.stringify(body) };
+  } else {
+    if (query && Object.keys(query).length > 0) {
+      url += `?${new URLSearchParams(query)}`;
+    }
+    init = { method: "GET", headers };
+  }
+
+  const resp = await fetch(url, init);
+  if (resp.status === 429) {
+    throw new SlackApiError(429, "rate_limited", "Slack API rate limited");
+  }
+  if (!resp.ok) {
+    throw new SlackApiError(
+      resp.status,
+      `http_${resp.status}`,
+      `Slack API HTTP ${resp.status}`,
+    );
+  }
+  return checkSlackEnvelope((await resp.json()) as T);
+}
+
+/**
  * Execute a Slack API request via OAuthConnection with rate-limit retry.
+ *
+ * Slack returns HTTP 200 with `{ ok: false, error: "invalid_auth" }` for
+ * auth errors. Because `connection.request()` delegates to `withValidToken`
+ * which only retries on HTTP-level 401s, we catch Slack envelope auth
+ * errors (mapped to SlackApiError with status 401) and perform a single
+ * retry via `connection.withToken()` which forces a token refresh before
+ * giving us the new token.
  */
 async function requestViaConnection<T extends SlackApiResponse>(
   connection: OAuthConnection,
@@ -135,7 +181,20 @@ async function requestViaConnection<T extends SlackApiResponse>(
       continue;
     }
 
-    return checkSlackEnvelope(data);
+    try {
+      return checkSlackEnvelope(data);
+    } catch (err) {
+      // Slack envelope auth errors (invalid_auth, token_expired, etc.) come
+      // back as HTTP 200, so they escape withValidToken's retry scope inside
+      // connection.request(). Catch them here and retry once with a freshly-
+      // refreshed token via connection.withToken().
+      if (err instanceof SlackApiError && err.status === 401) {
+        return connection.withToken((freshToken) =>
+          rawSlackRequest<T>(freshToken, method, query, body),
+        );
+      }
+      throw err;
+    }
   }
 
   // Unreachable, but TypeScript needs this
