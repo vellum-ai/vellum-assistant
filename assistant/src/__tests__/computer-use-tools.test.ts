@@ -4,12 +4,10 @@ import {
   allComputerUseTools,
   computerUseClickTool,
   computerUseDoneTool,
-  computerUseDoubleClickTool,
   computerUseDragTool,
   computerUseKeyTool,
   computerUseOpenAppTool,
   computerUseRespondTool,
-  computerUseRightClickTool,
   computerUseRunAppleScriptTool,
   computerUseScrollTool,
   computerUseTypeTextTool,
@@ -42,8 +40,8 @@ const ctx: ToolContext = {
 // ── Tool definitions ────────────────────────────────────────────────
 
 describe("computer-use tool definitions", () => {
-  test("allComputerUseTools contains 12 tools", () => {
-    expect(allComputerUseTools.length).toBe(12);
+  test("allComputerUseTools contains 10 tools", () => {
+    expect(allComputerUseTools.length).toBe(10);
   });
 
   test("all tools have proxy execution mode", () => {
@@ -72,33 +70,39 @@ describe("computer-use tool definitions", () => {
   });
 });
 
-// ── Click tool variants ─────────────────────────────────────────────
+// ── Unified click tool ──────────────────────────────────────────────
 
-describe("click tool variants", () => {
-  for (const [tool, label] of [
-    [computerUseClickTool, "click"],
-    [computerUseDoubleClickTool, "double_click"],
-    [computerUseRightClickTool, "right_click"],
-  ] as const) {
-    test(`${tool.name} has correct name`, () => {
-      expect(tool.name).toBe(`computer_use_${label}`);
-    });
+describe("computer_use_click (unified)", () => {
+  test("has correct name", () => {
+    expect(computerUseClickTool.name).toBe("computer_use_click");
+  });
 
-    test(`${tool.name} schema requires reasoning`, () => {
-      expect(schema(tool).required).toContain("reasoning");
-    });
+  test("schema requires reasoning", () => {
+    expect(schema(computerUseClickTool).required).toContain("reasoning");
+  });
 
-    test(`${tool.name} schema supports element_id and coordinates`, () => {
-      const props = schema(tool).properties as Record<string, { type: string }>;
-      expect(props.element_id.type).toBe("integer");
-      expect(props.x.type).toBe("integer");
-      expect(props.y.type).toBe("integer");
-    });
+  test("schema supports click_type enum", () => {
+    const props = schema(computerUseClickTool).properties as Record<
+      string,
+      { type: string; enum?: string[] }
+    >;
+    expect(props.click_type.type).toBe("string");
+    expect(props.click_type.enum).toEqual(["single", "double", "right"]);
+  });
 
-    test(`${tool.name} execute throws proxy error`, () => {
-      expect(() => tool.execute({}, ctx)).toThrow("Proxy tool");
-    });
-  }
+  test("schema supports element_id and coordinates", () => {
+    const props = schema(computerUseClickTool).properties as Record<
+      string,
+      { type: string }
+    >;
+    expect(props.element_id.type).toBe("integer");
+    expect(props.x.type).toBe("integer");
+    expect(props.y.type).toBe("integer");
+  });
+
+  test("execute throws proxy error", () => {
+    expect(() => computerUseClickTool.execute({}, ctx)).toThrow("Proxy tool");
+  });
 });
 
 // ── type_text ───────────────────────────────────────────────────────

@@ -17,8 +17,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 180000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
     },
   }),
   invalidateConfigCache: () => {},
@@ -180,13 +181,11 @@ describe("ComputerUseSession lifecycle", () => {
     });
 
     const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
-    expect(cuTools).toHaveLength(12);
+    expect(cuTools).toHaveLength(10);
 
     // Assert exact set of expected CU tool names
     const expectedCuTools = [
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",

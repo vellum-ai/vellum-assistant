@@ -46,12 +46,10 @@ import * as claudeCode from "./bundled-skills/claude-code/tools/claude-code.js";
 // ── computer-use ───────────────────────────────────────────────────────────────
 import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-use-click.js";
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
-import * as computerUseDoubleClick from "./bundled-skills/computer-use/tools/computer-use-double-click.js";
 import * as computerUseDrag from "./bundled-skills/computer-use/tools/computer-use-drag.js";
 import * as computerUseKey from "./bundled-skills/computer-use/tools/computer-use-key.js";
 import * as computerUseOpenApp from "./bundled-skills/computer-use/tools/computer-use-open-app.js";
 import * as computerUseRespond from "./bundled-skills/computer-use/tools/computer-use-respond.js";
-import * as computerUseRightClick from "./bundled-skills/computer-use/tools/computer-use-right-click.js";
 import * as computerUseRunApplescript from "./bundled-skills/computer-use/tools/computer-use-run-applescript.js";
 import * as computerUseScroll from "./bundled-skills/computer-use/tools/computer-use-scroll.js";
 import * as computerUseTypeText from "./bundled-skills/computer-use/tools/computer-use-type-text.js";
@@ -244,8 +242,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // computer-use
   ["computer-use:tools/computer-use-click.ts", computerUseClick],
-  ["computer-use:tools/computer-use-double-click.ts", computerUseDoubleClick],
-  ["computer-use:tools/computer-use-right-click.ts", computerUseRightClick],
   ["computer-use:tools/computer-use-type-text.ts", computerUseTypeText],
   ["computer-use:tools/computer-use-key.ts", computerUseKey],
   ["computer-use:tools/computer-use-scroll.ts", computerUseScroll],
