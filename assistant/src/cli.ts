@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import * as readline from "node:readline";
@@ -503,7 +504,7 @@ export async function startCli(): Promise<void> {
       const trimmed = answer.trim().toLowerCase();
       if (trimmed === "n") {
         // Create a new conversation by using a unique key
-        conversationKey = `builtin-cli:${Date.now()}`;
+        conversationKey = `builtin-cli:${randomUUID()}`;
         sessionId = "";
         pendingSessionPick = false;
         // Reconnect SSE with new conversation key
@@ -1147,7 +1148,7 @@ export async function startCli(): Promise<void> {
 
     if (content === "/new") {
       // Create a new conversation by using a unique key
-      conversationKey = `builtin-cli:${Date.now()}`;
+      conversationKey = `builtin-cli:${randomUUID()}`;
       sessionId = "";
       reconnectSse().then(() => {
         process.stdout.write(
