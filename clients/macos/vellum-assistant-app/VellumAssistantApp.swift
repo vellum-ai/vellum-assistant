@@ -6,6 +6,19 @@ struct VellumAssistantApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
+        // The Settings scene exists solely to host the .commands menu items
+        // below.  It renders EmptyView — no actual content — but SwiftUI
+        // still creates a managed NSWindow for it.  During activation-policy
+        // transitions (.accessory → .regular) macOS can restore/show this
+        // window, producing a "ghost" blank window that appears as a second
+        // app instance.
+        //
+        // Mitigations (see AppDelegate.applicationDidFinishLaunching):
+        //  • Saved frame removed on every launch to prevent restoration.
+        //  • NSWindow.allowsAutomaticWindowTabbing = false.
+        //  • Activation-policy cycling eliminated (the primary trigger).
+        //  • AppDelegate dismisses stray Settings windows after policy
+        //    transitions as a final safety net.
         Settings {
             EmptyView()
         }

@@ -14,9 +14,27 @@ extension NSApplication {
     /// already in that mode.  Redundant `setActivationPolicy(.regular)` calls
     /// can cause macOS to re-evaluate the dock tile, which in rare timing
     /// windows produces a duplicate dock entry.
+    ///
+    /// After transitioning, any stray SwiftUI-managed windows (e.g. the
+    /// Settings scene's EmptyView window) are closed.  macOS can restore
+    /// these during policy transitions, producing a "ghost" blank window.
     func activateAsDockAppIfNeeded() {
-        if activationPolicy() != .regular {
-            setActivationPolicy(.regular)
+        guard activationPolicy() != .regular else { return }
+        setActivationPolicy(.regular)
+        dismissSettingsGhostWindows()
+    }
+
+    /// Close any SwiftUI Settings-scene windows that macOS may have
+    /// restored during an activation-policy transition.  The Settings
+    /// scene renders `EmptyView` and should never be user-visible.
+    func dismissSettingsGhostWindows() {
+        for window in windows where window.title.contains("Settings") {
+            // Only target the SwiftUI-managed Settings window, not any
+            // app-created window that happens to include "Settings".
+            guard type(of: window) == NSWindow.self else { continue }
+            if window.contentView is NSHostingView<AnyView> || window.contentView?.subviews.isEmpty == true {
+                window.orderOut(nil)
+            }
         }
     }
 }
@@ -199,31 +217,34 @@ extension AppDelegate {
 extension AppDelegate {
 
     func setupWindowObserver() {
-        // Watch for Settings window closing to revert to accessory activation policy
+        // Observe window close to revert activation policy when the user
+        // *explicitly* closes all windows.  Unlike the previous 200ms async
+        // timer, this fires synchronously and only after the close animation
+        // completes, avoiding the rapid .accessory → .regular cycling that
+        // produced duplicate dock tiles (a well-documented macOS bug).
         windowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            // Queue is .main so we're already on the main thread
             MainActor.assumeIsolated {
                 guard let self else { return }
-                guard let window = notification.object as? NSWindow,
-                      window.title.contains("Settings") || window.title.contains("Vellum") else { return }
-                // Keep .regular if MainWindow exists; only revert for legacy menu-bar-only mode
-                guard self.mainWindow == nil else { return }
-                self.scheduleActivationPolicyRevert()
-            }
-        }
-    }
+                guard let closedWindow = notification.object as? NSWindow else { return }
 
-    /// Revert to accessory activation policy after a short delay if no visible windows remain.
-    func scheduleActivationPolicyRevert() {
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            guard let self else { return }
-            guard let statusItem = self.statusItem else { return }
-            let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== statusItem.button?.window }
-            if !hasVisibleWindows {
-                NSApp.setActivationPolicy(.accessory)
+                // Ignore the status-bar button's private window.
+                if closedWindow === self.statusItem?.button?.window { return }
+
+                // If the MainWindow is still around (even if it just closed
+                // this notification), keep the dock icon visible.
+                if self.mainWindow != nil { return }
+
+                // Check whether any real app window remains visible.
+                let hasVisibleWindows = NSApp.windows.contains { win in
+                    win.isVisible
+                    && win !== closedWindow
+                    && win !== self.statusItem?.button?.window
+                }
+                if !hasVisibleWindows {
+                    NSApp.setActivationPolicy(.accessory)
+                }
             }
         }
     }
@@ -486,11 +507,30 @@ extension AppDelegate {
         return main
     }
 
+    /// Timestamp of the last `showMainWindow` invocation that performed
+    /// an activation-policy transition.  Used to debounce rapid calls from
+    /// concurrent daemon callbacks (tool confirmations, surface shows,
+    /// notification handlers) that would otherwise cycle the policy and
+    /// risk producing duplicate dock tiles.
+    private static let showMainWindowDebounceInterval: TimeInterval = 0.5
+    private var lastShowMainWindowTime: CFAbsoluteTime = 0
+
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
         // Centralized bootstrap guard: non-first-launch callers (dock reopen,
         // hotkey, menu bar) must not create the window during bootstrap.
         // The bootstrap task itself passes isFirstLaunch: true to bypass this.
         if isBootstrapping && !isFirstLaunch { return }
+
+        // Debounce: if the window is already visible and we were called
+        // very recently (< 500ms), skip the redundant show cycle.  This
+        // prevents concurrent daemon callbacks from triggering multiple
+        // activation-policy transitions in quick succession.
+        let now = CFAbsoluteTimeGetCurrent()
+        if mainWindow?.isVisible == true,
+           now - lastShowMainWindowTime < Self.showMainWindowDebounceInterval {
+            return
+        }
+        lastShowMainWindowTime = now
 
         if let existing = mainWindow {
             existing.show()
