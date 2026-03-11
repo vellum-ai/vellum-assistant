@@ -342,7 +342,7 @@ struct MessageListView: View {
                 .onDisappear {
                     avatarBreathing = false
                 }
-                .onChange(of: reduceMotion) { newValue in
+                .onChange(of: reduceMotion) { _, newValue in
                     if newValue {
                         avatarBreathing = false
                     } else {
