@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CLI_HELP_REFERENCE } from "../../cli/reference.js";
-import { getBaseDataDir, getIsContainerized } from "../../config/env-registry.js";
+import { getBaseDataDir } from "../../config/env-registry.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
 import { getLogger } from "../../util/logger.js";

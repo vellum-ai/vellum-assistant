@@ -1,8 +1,7 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
-
 import {
   buildCliReferenceSection,
   buildConfigSection,
@@ -50,7 +49,6 @@ export {
   isOnboardingComplete,
   stripCommentLines,
 } from "./sections/core.js";
-
 export {
   buildAccessPreferenceSection,
   buildAttachmentSection,
@@ -62,14 +60,12 @@ export {
   buildSystemPermissionSection,
   buildToolPermissionSection,
 } from "./sections/operations.js";
-
 export {
   buildLearningMemorySection,
   buildMemoryPersistenceSection,
   buildMemoryRecallSection,
   buildWorkspaceReflectionSection,
 } from "./sections/persistence.js";
-
 export {
   buildChannelAwarenessSection,
   buildChannelCommandIntentSection,
@@ -79,7 +75,6 @@ export {
   buildVerificationRoutingSection,
   buildVoiceSetupRoutingSection,
 } from "./sections/routing.js";
-
 export { appendSkillsCatalog } from "./sections/skills.js";
 
 /**
