@@ -2,29 +2,34 @@ import SwiftUI
 import VellumAssistantShared
 
 /// A sheet displayed before sending logs, letting the user pick a reason
-/// category, describe the issue, and optionally provide an email for follow-up.
+/// category, describe the issue, and provide an email for follow-up.
 @MainActor
 struct LogReportFormView: View {
     let onSend: (LogReportFormData) -> Void
     let onCancel: () -> Void
 
     @State private var selectedReason: LogReportReason?
+    @State private var name: String = ""
     @State private var message: String = ""
     @AppStorage("logReportEmail") private var email: String = ""
+
+    private var canSend: Bool {
+        selectedReason != nil && !email.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             header
-            reasonPicker
-            messageField
+            reasonList
             emailField
-            privacyNote
+            nameField
+            messageField
             Spacer(minLength: 0)
             actionRow
         }
         .padding(VSpacing.xl)
         .background(VColor.background)
-        .frame(width: 440, height: 520)
+        .frame(width: 480)
     }
 
     // MARK: - Sections
@@ -41,7 +46,7 @@ struct LogReportFormView: View {
         }
     }
 
-    private var reasonPicker: some View {
+    private var reasonList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(LogReportReason.allCases) { reason in
                 ReasonRow(
@@ -50,6 +55,19 @@ struct LogReportFormView: View {
                     action: { selectedReason = reason }
                 )
             }
+        }
+    }
+
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Name (optional)")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+            VTextField(
+                placeholder: "Your name",
+                text: $name,
+                leadingIcon: VIcon.user.rawValue
+            )
         }
     }
 
@@ -69,7 +87,7 @@ struct LogReportFormView: View {
 
     private var emailField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Email (optional)")
+            Text("Email")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
             VTextField(
@@ -78,13 +96,6 @@ struct LogReportFormView: View {
                 leadingIcon: VIcon.mail.rawValue
             )
         }
-    }
-
-    private var privacyNote: some View {
-        Text("Your email is stored locally on this device for follow-up. It is not sent to any external service.")
-            .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var actionRow: some View {
@@ -98,11 +109,12 @@ struct LogReportFormView: View {
                 leftIcon: VIcon.send.rawValue,
                 style: .primary,
                 size: .medium,
-                isDisabled: selectedReason == nil
+                isDisabled: !canSend
             ) {
                 guard let reason = selectedReason else { return }
                 onSend(LogReportFormData(
                     reason: reason,
+                    name: name,
                     message: message,
                     email: email
                 ))
@@ -165,6 +177,6 @@ private struct ReasonRow: View {
             onCancel: {}
         )
     }
-    .frame(width: 440, height: 520)
+    .frame(width: 480, height: 620)
 }
 #endif

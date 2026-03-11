@@ -47,25 +47,36 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            event.message = SentryMessage(formatted: "Manual log export")
+            event.message = SentryMessage(formatted: "\(formData.reason.displayName) log report")
             event.tags = [
-                "source": "manual_log_export",
+                "source": "log_report",
                 "report_reason": formData.reason.rawValue,
             ]
-            if !formData.message.isEmpty {
-                event.extra = ["report_message": formData.message]
-            }
+
+            // User-provided context (message, email, category) is sent via
+            // Sentry's UserFeedback API, linked to the event. This keeps PII
+            // out of event tags/extras and lets us use Sentry's built-in
+            // feedback UI for triage.
+            let feedback = MetricKitManager.UserFeedbackData(
+                comments: formData.message.isEmpty ? nil : formData.message,
+                email: formData.email,
+                name: formData.name.isEmpty ? formData.email : formData.name
+            )
 
             await withCheckedContinuation { continuation in
-                MetricKitManager.sendManualReport(event, attachments: [attachment]) {
+                MetricKitManager.sendManualReport(
+                    event,
+                    attachments: [attachment],
+                    userFeedback: feedback
+                ) {
                     try? FileManager.default.removeItem(at: archiveURL)
                     continuation.resume()
                 }
             }
 
             let alert = NSAlert()
-            alert.messageText = "Logs Sent"
-            alert.informativeText = "Log archive has been uploaded to Vellum."
+            alert.messageText = "Log Sent"
+            alert.informativeText = "Your log report has been sent to Vellum."
             alert.alertStyle = .informational
             alert.runModal()
         }

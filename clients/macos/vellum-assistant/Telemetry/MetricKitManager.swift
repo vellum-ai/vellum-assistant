@@ -54,9 +54,19 @@ import os
     /// `completion` is called on `sentrySerialQueue` after the flush finishes
     /// (or immediately if Sentry was already enabled and no flush is needed).
     /// `nonisolated` so the Settings sheet can call it from a detached Task.
+    /// Data for Sentry's User Feedback API, attached to the captured event.
+    /// Sent via `SentrySDK.capture(userFeedback:)` so it appears in Sentry's
+    /// "User Feedback" section linked to the event.
+    struct UserFeedbackData: Sendable {
+        let comments: String?
+        let email: String?
+        let name: String?
+    }
+
     nonisolated static func sendManualReport(
         _ event: Event,
         attachments: [Attachment] = [],
+        userFeedback: UserFeedbackData? = nil,
         completion: (@Sendable () -> Void)? = nil
     ) {
         sentrySerialQueue.async {
@@ -87,7 +97,19 @@ import os
                 }
             }
 
-            SentrySDK.capture(event: event)
+            let eventId = SentrySDK.capture(event: event)
+
+            // Send user feedback linked to the event so it appears in Sentry's
+            // User Feedback section. This lets us associate user-provided context
+            // (message, email, category) with the event without embedding PII in
+            // event tags or extras.
+            if let feedbackData = userFeedback {
+                let feedback = Sentry.UserFeedback(eventId: eventId)
+                feedback.comments = feedbackData.comments ?? ""
+                feedback.email = feedbackData.email ?? ""
+                feedback.name = feedbackData.name ?? ""
+                SentrySDK.capture(userFeedback: feedback)
+            }
 
             // Clean up attachments so they don't leak into subsequent events.
             if !attachments.isEmpty {

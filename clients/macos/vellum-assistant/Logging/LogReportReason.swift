@@ -39,6 +39,7 @@ enum LogReportReason: String, CaseIterable, Identifiable, Sendable {
 /// Aggregated form data collected from the log report sheet.
 struct LogReportFormData: Sendable {
     var reason: LogReportReason
+    var name: String
     var message: String
-    var email: String
+    var email: String  // Required — used for follow-up via Sentry UserFeedback
 }
