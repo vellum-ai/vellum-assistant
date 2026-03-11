@@ -32,38 +32,18 @@ import {
 import { appendSkillsCatalog } from "./sections/skills.js";
 
 // ── Re-exports ──
-// Preserve the public API so existing importers continue to work.
+// Only re-export symbols that are actually imported from this module
+// elsewhere in the codebase. Dead re-exports were removed as part of
+// the prompt-size audit (PRs 1-7).
 
 export {
   buildCliReferenceSection,
-  buildConfigSection,
-  buildContainerizedSection,
   ensurePromptFiles,
-  isOnboardingComplete,
   stripCommentLines,
 } from "./sections/core.js";
 export {
-  buildAccessPreferenceSection,
-  buildAttachmentSection,
-  buildInChatConfigurationSection,
-  buildIntegrationSection,
-  buildPostToolResponseSection,
-  buildStarterTaskRoutingSection,
-  buildSwarmGuidanceSection,
-  buildSystemPermissionSection,
-  buildToolPermissionSection,
-} from "./sections/operations.js";
-export { buildPersistenceSection } from "./sections/persistence.js";
-export {
   buildChannelAwarenessSection,
-  buildChannelCommandIntentSection,
-  buildExternalCommsIdentitySection,
-  buildPhoneCallsRoutingSection,
-  buildTaskScheduleReminderRoutingSection,
-  buildVerificationRoutingSection,
-  buildVoiceSetupRoutingSection,
 } from "./sections/routing.js";
-export { appendSkillsCatalog } from "./sections/skills.js";
 
 /**
  * Build the system prompt from ~/.vellum prompt files,
@@ -74,6 +54,23 @@ export { appendSkillsCatalog } from "./sections/skills.js";
  *   2. Append USER.md (user profile)
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  *   4. Append skills catalog from ~/.vellum/workspace/skills
+ *
+ * ── Prompt philosophy (established in the prompt-size audit, PRs 1-7) ──
+ *
+ * The base system prompt should contain ONLY universally applicable rules:
+ * identity, behavioral foundations, tool permissions, routing dispatch
+ * hints, and core operational constraints that apply to every turn.
+ *
+ * Specific workflows, detailed playbooks, and domain-deep guidance belong
+ * in skills (loaded on demand via skill_load) or runtime injections
+ * (channel capabilities, attachments, etc.). This keeps the base prompt
+ * small and focused, reducing token overhead on every turn. New guidance
+ * should be added as a skill unless it genuinely applies to every single
+ * conversation turn.
+ *
+ * Budget guardrails in system-prompt.test.ts enforce that the assembled
+ * prompt stays within a character budget and that individual sections do
+ * not regress in size without deliberate review.
  */
 export function buildSystemPrompt(): string {
   const soulPath = getWorkspacePromptPath("SOUL.md");

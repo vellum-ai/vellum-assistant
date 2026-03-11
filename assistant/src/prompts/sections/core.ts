@@ -77,15 +77,6 @@ export function ensurePromptFiles(): void {
 }
 
 /**
- * Returns true when BOOTSTRAP.md has been deleted from the workspace,
- * signalling the first-run ritual is complete.
- */
-export function isOnboardingComplete(): boolean {
-  const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-  return !existsSync(bootstrapPath);
-}
-
-/**
  * Strip lines starting with `_` (comment convention for prompt .md files)
  * and collapse any resulting consecutive blank lines.
  *

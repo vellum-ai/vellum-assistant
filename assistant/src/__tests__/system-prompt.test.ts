@@ -88,9 +88,11 @@ const {
   buildSystemPrompt,
   ensurePromptFiles,
   stripCommentLines,
-  buildExternalCommsIdentitySection,
-  buildPhoneCallsRoutingSection,
 } = await import("../prompts/system-prompt.js");
+
+// Import section builders directly from their modules for focused tests
+const { buildExternalCommsIdentitySection, buildPhoneCallsRoutingSection } =
+  await import("../prompts/sections/routing.js");
 
 /** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
@@ -115,6 +117,137 @@ function basePrompt(result: string): string {
   }
   return s;
 }
+
+// =====================================================================
+// Prompt budget guardrails
+//
+// These tests prevent prompt bloat from returning silently. The budget
+// is based on the post-audit baseline (PRs 1-7) and should only be
+// increased after deliberate review. If a budget test fails, it means
+// a change added significant prompt text -- consider whether the new
+// content belongs in a skill or runtime injection instead.
+// =====================================================================
+
+describe("prompt budget guardrails", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  // The pre-audit system prompt was ~53,000 chars in system-prompt.ts alone.
+  // After the audit (PRs 1-7), the assembled prompt without user content or
+  // skills catalog should be well under 15,000 chars. This budget catches
+  // regressions without pinning exact prose.
+  const TOTAL_BUDGET_CHARS = 15_000;
+
+  test(`total prompt length stays under ${TOTAL_BUDGET_CHARS} chars (no user content, no skills)`, () => {
+    const result = buildSystemPrompt();
+    expect(result.length).toBeLessThan(TOTAL_BUDGET_CHARS);
+  });
+
+  test("prompt is materially smaller than the pre-audit baseline of ~53,000 chars", () => {
+    const result = buildSystemPrompt();
+    // The prompt should be less than 30% of the original size
+    const PRE_AUDIT_BASELINE = 53_000;
+    expect(result.length).toBeLessThan(PRE_AUDIT_BASELINE * 0.3);
+  });
+
+  // Per-section budgets prevent any single section from quietly ballooning.
+  // These are generous limits -- the actual sections are much smaller.
+  const SECTION_BUDGETS: Record<string, number> = {
+    "## Configuration": 1_500,
+    "## Assistant CLI": 1_000,
+    "## Tool Call Timing": 500,
+    "## Tool Permissions": 1_500,
+    "## Channel Awareness & Trust Gating": 1_500,
+    "## External Communications Identity": 1_000,
+    "## Memory & Workspace Persistence": 1_000,
+    "## Parallel Task Orchestration": 500,
+    "## External Service Access Preference": 1_000,
+    "## Routing: Starter Tasks": 500,
+    "## Routing: Phone Calls": 500,
+    "## Routing: Voice Setup & Troubleshooting": 500,
+    "## Skill Authoring": 1_000,
+    "## Sending Files to the User": 1_500,
+    "## In-Chat Configuration": 2_000,
+    "## System Permissions": 500,
+    "## Tool Routing: Tasks vs Schedules vs Notifications": 800,
+    "## Channel Command Intents": 1_200,
+  };
+
+  test("each prompt section stays within its character budget", () => {
+    const result = buildSystemPrompt();
+    const violations: string[] = [];
+
+    for (const [heading, budget] of Object.entries(SECTION_BUDGETS)) {
+      const idx = result.indexOf(heading);
+      if (idx === -1) continue;
+
+      // Find the end of this section (start of next ## heading or end of string)
+      const afterHeading = idx + heading.length;
+      const nextSection = result.indexOf("\n\n## ", afterHeading);
+      const sectionEnd = nextSection === -1 ? result.length : nextSection;
+      const sectionLength = sectionEnd - idx;
+
+      if (sectionLength > budget) {
+        violations.push(
+          `"${heading}" is ${sectionLength} chars (budget: ${budget})`,
+        );
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test("all expected core sections are present in the assembled prompt", () => {
+    const result = buildSystemPrompt();
+    const expectedSections = [
+      "## Configuration",
+      "## Assistant CLI",
+      "## Tool Call Timing",
+      "## Tool Permissions",
+      "## Channel Awareness & Trust Gating",
+      "## External Communications Identity",
+      "## Memory & Workspace Persistence",
+      "## Parallel Task Orchestration",
+      "## External Service Access Preference",
+      "## Routing: Starter Tasks",
+      "## Routing: Phone Calls",
+      "## Routing: Voice Setup & Troubleshooting",
+      "## Skill Authoring",
+      "## Sending Files to the User",
+      "## In-Chat Configuration",
+      "## System Permissions",
+      "## Tool Routing: Tasks vs Schedules vs Notifications",
+      "## Channel Command Intents",
+    ];
+
+    const missing = expectedSections.filter((s) => !result.includes(s));
+    expect(missing).toEqual([]);
+  });
+
+  test("no deleted or migrated sections have reappeared", () => {
+    const result = buildSystemPrompt();
+    // These sections were deliberately removed or migrated to skills during the audit
+    const deletedSections = [
+      "## Starter Task Playbooks",
+      "## Dynamic Skill Authoring Workflow",
+      "### Quick routing rules",
+      "### Entity type routing: work items vs task templates",
+      "### Trigger phrases",
+      "### Exclusivity rules",
+      "### What it does",
+    ];
+
+    const reappeared = deletedSections.filter((s) => result.includes(s));
+    expect(reappeared).toEqual([]);
+  });
+});
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
@@ -189,8 +322,6 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("## Available Skills");
     expect(result).toContain("<available_skills>");
     expect(result).toContain('id="release-checklist"');
-    expect(result).toContain('name="Release Checklist"');
-    expect(result).toContain('description="Deployment checks."');
     expect(result).toContain("skill_load");
     expect(result).toContain("skill_execute");
   });
@@ -214,65 +345,45 @@ describe("buildSystemPrompt", () => {
     );
   });
 
-  test("includes swarm guidance section", () => {
+  // ── Behavior-level section presence checks ──
+  // These verify that expected sections exist in the prompt without
+  // pinning exact prose, so the wording can be refined freely.
+
+  test("includes parallel orchestration guidance with swarm_delegate reference", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Parallel Task Orchestration");
     expect(result).toContain("swarm_delegate");
   });
 
-  test("includes external service access preference section", () => {
+  test("includes external service access preference with priority order", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## External Service Access Preference");
-    expect(result).toContain("CLI tools via host_bash");
+    // Verify the preference hierarchy exists (sandbox -> CLI -> API -> fetch -> browser)
+    expect(result).toContain("host_bash");
     expect(result).toContain("Browser automation");
   });
 
-  test("includes external comms identity section", () => {
+  test("includes external comms identity section with user reference", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## External Communications Identity");
+    expect(result).toContain("**assistant**");
+    expect(result).toContain("**John**");
   });
 
-  test("external comms identity section contains assistant guidance and resolved user reference", () => {
-    const result = buildSystemPrompt();
-    expect(result).toContain("Refer to yourself as an **assistant**");
-    expect(result).toContain("on behalf of **John**");
-  });
-
-  test("buildExternalCommsIdentitySection returns section with expected content", () => {
-    const section = buildExternalCommsIdentitySection();
-    expect(section).toContain("## External Communications Identity");
-    expect(section).toContain("assistant");
-    expect(section).toContain("John");
-    expect(section).toContain(
-      "Do not volunteer that you are an AI unless directly asked",
-    );
-    expect(section).toContain("Occasional variations are acceptable");
-  });
-
-  test("includes phone calls routing section", () => {
+  test("includes phone calls routing dispatch hint", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Routing: Phone Calls");
     expect(result).toContain("phone-calls");
   });
 
-  test("buildPhoneCallsRoutingSection returns compact dispatch hint", () => {
-    const section = buildPhoneCallsRoutingSection();
-    expect(section).toContain("## Routing: Phone Calls");
-    expect(section).toContain("phone-calls");
-    expect(section).toContain("Do NOT improvise Twilio setup");
-    // Detailed trigger phrases and exclusivity rules now live in the skill
-    expect(section).not.toContain("### Trigger phrases");
-    expect(section).not.toContain("### Exclusivity rules");
-  });
-
-  test("includes compact persistence section", () => {
+  test("includes compact persistence section with memory tools", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Memory & Workspace Persistence");
     expect(result).toContain("memory_manage");
     expect(result).toContain("memory_recall");
   });
 
-  test("config section uses workspace directory from platform util", () => {
+  test("config section references workspace directory from platform util", () => {
     const result = buildSystemPrompt();
     expect(result).toContain(`\`${TEST_DIR}/\``);
   });
@@ -312,10 +423,9 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("");
   });
 
-  describe("app-builder tool ownership guidance", () => {
+  describe("migrated content is not in base prompt", () => {
     test("iteration guidance does not mention app_update for HTML changes", () => {
       const result = buildSystemPrompt();
-      // The iteration line should not reference app_update for changing HTML
       expect(result).not.toContain("use `app_update` to change the HTML");
     });
 
@@ -351,7 +461,6 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "UPDATES.md"), "# v1.3\n\nSome update notes.");
     const result = buildSystemPrompt();
     expect(result).toContain("### Update Handling");
-    expect(result).toContain("Use your judgment");
   });
 
   test("omits update handling instructions when UPDATES.md is absent", () => {
@@ -362,7 +471,6 @@ describe("buildSystemPrompt", () => {
   test("config section lists UPDATES.md", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("`UPDATES.md`");
-    expect(result).toContain("Release notes");
   });
 
   test("strips comment lines starting with _ from prompt files", () => {
@@ -387,6 +495,39 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "_ All comments\n_ Nothing else");
     const result = buildSystemPrompt();
     expect(basePrompt(result)).toBe("");
+  });
+});
+
+// ── Section builder unit tests ──
+// Test individual section builders directly from their modules.
+
+describe("buildExternalCommsIdentitySection", () => {
+  test("contains section heading and key contract elements", () => {
+    const section = buildExternalCommsIdentitySection();
+    expect(section).toContain("## External Communications Identity");
+    expect(section).toContain("assistant");
+    expect(section).toContain("John");
+  });
+
+  test("includes AI disclosure guidance", () => {
+    const section = buildExternalCommsIdentitySection();
+    expect(section).toContain("Do not volunteer that you are an AI");
+  });
+});
+
+describe("buildPhoneCallsRoutingSection", () => {
+  test("returns compact dispatch hint referencing the skill", () => {
+    const section = buildPhoneCallsRoutingSection();
+    expect(section).toContain("## Routing: Phone Calls");
+    expect(section).toContain("phone-calls");
+    expect(section).toContain("Do NOT improvise Twilio setup");
+  });
+
+  test("does not include detailed trigger or exclusivity sections", () => {
+    const section = buildPhoneCallsRoutingSection();
+    // Detailed trigger phrases and exclusivity rules now live in the skill
+    expect(section).not.toContain("### Trigger phrases");
+    expect(section).not.toContain("### Exclusivity rules");
   });
 });
 
