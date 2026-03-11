@@ -1,4 +1,11 @@
-import { updateSequence } from "../../../../sequence/store.js";
+import {
+  exitEnrollment,
+  getEnrollment,
+  getSequence,
+  pauseEnrollment,
+  resumeEnrollment,
+  updateSequence,
+} from "../../../../sequence/store.js";
 import type {
   SequenceStatus,
   SequenceStep,
@@ -13,7 +20,72 @@ export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const id = input.id as string;
+  const id = input.id as string | undefined;
+  const enrollmentId = input.enrollment_id as string | undefined;
+  const enrollmentAction = input.enrollment_action as string | undefined;
+
+  // ── Enrollment-level lifecycle actions ──────────────────────────────
+  if (enrollmentId) {
+    if (!enrollmentAction)
+      return err(
+        "enrollment_action is required when enrollment_id is provided.",
+      );
+
+    try {
+      const enrollment = getEnrollment(enrollmentId);
+      if (!enrollment) return err(`Enrollment not found: ${enrollmentId}`);
+
+      switch (enrollmentAction) {
+        case "pause": {
+          if (enrollment.status !== "active")
+            return err(
+              `Enrollment is not active (status: ${enrollment.status}).`,
+            );
+          pauseEnrollment(enrollmentId);
+          return ok(
+            `Enrollment ${enrollmentId} paused. Resume it later to continue from step ${
+              enrollment.currentStep + 1
+            }.`,
+          );
+        }
+        case "resume": {
+          if (enrollment.status !== "paused")
+            return err(
+              `Enrollment is not paused (status: ${enrollment.status}).`,
+            );
+          const seq = enrollment.sequenceId
+            ? getSequence(enrollment.sequenceId)
+            : null;
+          if (seq && seq.status !== "active")
+            return err(
+              `Cannot resume enrollment — parent sequence "${seq.name}" is ${seq.status}. Resume the sequence first.`,
+            );
+          resumeEnrollment(enrollmentId);
+          return ok(`Enrollment ${enrollmentId} resumed.`);
+        }
+        case "cancel": {
+          if (
+            enrollment.status !== "active" &&
+            enrollment.status !== "paused"
+          ) {
+            return ok(
+              `Enrollment already in terminal state: ${enrollment.status}`,
+            );
+          }
+          exitEnrollment(enrollmentId, "cancelled");
+          return ok(`Enrollment for ${enrollment.contactEmail} cancelled.`);
+        }
+        default:
+          return err(
+            `Unknown enrollment_action: "${enrollmentAction}". Use "pause", "resume", or "cancel".`,
+          );
+      }
+    } catch (e) {
+      return err(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // ── Sequence-level update ──────────────────────────────────────────
   if (!id) return err("id is required.");
 
   const name = input.name as string | undefined;
