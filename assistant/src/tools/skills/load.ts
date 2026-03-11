@@ -119,11 +119,6 @@ export class SkillLoadTool implements Tool {
             type: "string",
             description: "The skill id or skill name to load.",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are loading and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["skill"],
       },

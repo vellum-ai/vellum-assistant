@@ -38,13 +38,8 @@ class FileEditTool implements Tool {
             description:
               "Replace all occurrences of old_string instead of requiring a unique match (default: false)",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of why this file is being edited, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
-        required: ["path", "old_string", "new_string", "reason"],
+        required: ["path", "old_string", "new_string"],
       },
     };
   }

@@ -38,11 +38,6 @@ class FileReadTool implements Tool {
             type: "number",
             description: "Maximum number of lines to read",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are reading and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["path"],
       },

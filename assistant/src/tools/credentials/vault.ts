@@ -206,11 +206,6 @@ class CredentialStoreTool implements Tool {
             description:
               "Templates describing how to inject this credential into proxied requests (for store and prompt actions)",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["action"],
       },

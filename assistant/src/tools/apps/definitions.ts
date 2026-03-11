@@ -51,11 +51,6 @@ const appOpenTool: Tool = {
             description:
               "Display mode. 'preview' shows an inline preview card in chat. 'workspace' opens the full app in a workspace panel. Defaults to 'workspace'.",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are opening and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["app_id"],
       },
