@@ -223,16 +223,12 @@ describe("browser skill migration end-state", () => {
         previouslyActiveSkillIds: tracking,
       });
 
-      // Exactly 14 new tool definitions should be projected
-      expect(projection.toolDefinitions).toHaveLength(BROWSER_TOOL_COUNT);
+      // Tool definitions are no longer sent to the LLM (dispatched via
+      // skill_execute), so toolDefinitions is expected to be empty.
+      expect(projection.toolDefinitions).toHaveLength(0);
 
-      // Every browser tool name should be in the projection
-      const projectedNames = projection.toolDefinitions.map((d) => d.name);
-      for (const name of BROWSER_TOOL_NAMES) {
-        expect(projectedNames).toContain(name);
-      }
-
-      // The allowedToolNames set should also contain all browser tools
+      // All 14 browser tools should be registered and tracked in allowedToolNames
+      expect(projection.allowedToolNames.size).toBe(BROWSER_TOOL_COUNT);
       for (const name of BROWSER_TOOL_NAMES) {
         expect(projection.allowedToolNames.has(name)).toBe(true);
       }
