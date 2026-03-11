@@ -41,6 +41,13 @@ export async function run(
             return err(
               `Enrollment is not active (status: ${enrollment.status}).`,
             );
+          const parentSeq = enrollment.sequenceId
+            ? getSequence(enrollment.sequenceId)
+            : null;
+          if (parentSeq && parentSeq.status === "archived")
+            return err(
+              `Cannot pause enrollment — parent sequence "${parentSeq.name}" is archived.`,
+            );
           pauseEnrollment(enrollmentId);
           return ok(
             `Enrollment ${enrollmentId} paused. Resume it later to continue from step ${
