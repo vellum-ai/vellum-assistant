@@ -11,22 +11,22 @@ extension HTTPTransport {
         registerDomainDispatcher { [weak self] message in
             guard let self else { return false }
 
-            if let msg = message as? IPCWorkItemsListRequest {
+            if let msg = message as? WorkItemsListRequest {
                 Task { await self.fetchWorkItemsList(status: msg.status) }
                 return true
-            } else if let msg = message as? IPCWorkItemCompleteRequest {
+            } else if let msg = message as? WorkItemCompleteRequest {
                 Task { await self.handleWorkItemComplete(id: msg.id) }
                 return true
-            } else if let msg = message as? IPCWorkItemDeleteRequest {
+            } else if let msg = message as? WorkItemDeleteRequest {
                 Task { await self.handleWorkItemDelete(id: msg.id) }
                 return true
-            } else if let msg = message as? IPCWorkItemRunTaskRequest {
+            } else if let msg = message as? WorkItemRunTaskRequest {
                 Task { await self.handleWorkItemRunTask(id: msg.id) }
                 return true
-            } else if let msg = message as? IPCWorkItemOutputRequest {
+            } else if let msg = message as? WorkItemOutputRequest {
                 Task { await self.fetchWorkItemOutput(id: msg.id) }
                 return true
-            } else if let msg = message as? IPCWorkItemUpdateRequest {
+            } else if let msg = message as? WorkItemUpdateRequest {
                 Task {
                     await self.handleWorkItemUpdate(
                         id: msg.id,
@@ -38,13 +38,13 @@ extension HTTPTransport {
                     )
                 }
                 return true
-            } else if let msg = message as? IPCWorkItemPreflightRequest {
+            } else if let msg = message as? WorkItemPreflightRequest {
                 Task { await self.handleWorkItemPreflight(id: msg.id) }
                 return true
-            } else if let msg = message as? IPCWorkItemApprovePermissionsRequest {
+            } else if let msg = message as? WorkItemApprovePermissionsRequest {
                 Task { await self.handleWorkItemApprovePermissions(id: msg.id, approvedTools: msg.approvedTools) }
                 return true
-            } else if let msg = message as? IPCWorkItemCancelRequest {
+            } else if let msg = message as? WorkItemCancelRequest {
                 Task { await self.handleWorkItemCancel(id: msg.id) }
                 return true
             }
@@ -84,7 +84,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemsListResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemsListResponse.self, from: data)
             onMessage?(.workItemsListResponse(decoded))
         } catch {
             log.error("Fetch work items list error: \(error.localizedDescription)")
@@ -143,7 +143,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemDeleteResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemDeleteResponse.self, from: data)
             onMessage?(.workItemDeleteResponse(decoded))
         } catch {
             log.error("Work item delete error: \(error.localizedDescription)")
@@ -172,7 +172,7 @@ extension HTTPTransport {
                     log.error("Work item run task failed (\(http.statusCode)): \(errorBody)")
                     // Decode error to emit a response with error info
                     let errorMsg = (try? JSONDecoder().decode(HTTPErrorEnvelopeLocal.self, from: data))?.error.message ?? "HTTP \(http.statusCode)"
-                    onMessage?(.workItemRunTaskResponse(IPCWorkItemRunTaskResponse(
+                    onMessage?(.workItemRunTaskResponse(WorkItemRunTaskResponse(
                         type: "work_item_run_task_response",
                         id: id,
                         lastRunId: "",
@@ -184,11 +184,11 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemRunTaskResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemRunTaskResponse.self, from: data)
             onMessage?(.workItemRunTaskResponse(decoded))
         } catch {
             log.error("Work item run task error: \(error.localizedDescription)")
-            onMessage?(.workItemRunTaskResponse(IPCWorkItemRunTaskResponse(
+            onMessage?(.workItemRunTaskResponse(WorkItemRunTaskResponse(
                 type: "work_item_run_task_response",
                 id: id,
                 lastRunId: "",
@@ -219,7 +219,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemOutputResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemOutputResponse.self, from: data)
             onMessage?(.workItemOutputResponse(decoded))
         } catch {
             log.error("Fetch work item output error: \(error.localizedDescription)")
@@ -275,7 +275,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemUpdateResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemUpdateResponse.self, from: data)
             onMessage?(.workItemUpdateResponse(decoded))
         } catch {
             log.error("Work item update error: \(error.localizedDescription)")
@@ -305,7 +305,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemPreflightResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemPreflightResponse.self, from: data)
             onMessage?(.workItemPreflightResponse(decoded))
         } catch {
             log.error("Work item preflight error: \(error.localizedDescription)")
@@ -338,7 +338,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemApprovePermissionsResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemApprovePermissionsResponse.self, from: data)
             onMessage?(.workItemApprovePermissionsResponse(decoded))
         } catch {
             log.error("Work item approve permissions error: \(error.localizedDescription)")
@@ -368,7 +368,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCWorkItemCancelResponse.self, from: data)
+            let decoded = try decoder.decode(WorkItemCancelResponse.self, from: data)
             onMessage?(.workItemCancelResponse(decoded))
         } catch {
             log.error("Work item cancel error: \(error.localizedDescription)")

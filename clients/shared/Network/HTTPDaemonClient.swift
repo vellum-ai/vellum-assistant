@@ -30,10 +30,10 @@ struct ConversationsListResponse: Decodable {
         let threadType: String?
         let source: String?
         let scheduleJobId: String?
-        let channelBinding: IPCChannelBinding?
+        let channelBinding: ChannelBinding?
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
-        let assistantAttention: IPCAssistantAttention?
+        let assistantAttention: AssistantAttention?
         let displayOrder: Double?
         let isPinned: Bool?
     }
@@ -1517,7 +1517,7 @@ public final class HTTPTransport {
     }
 
     /// Upload a single attachment and return its server-assigned ID.
-    private func uploadAttachment(_ attachment: IPCAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
+    private func uploadAttachment(_ attachment: UserMessageAttachment, isRetry: Bool = false) async -> AttachmentUploadResult {
         guard let url = buildURL(for: .uploadAttachment) else { return .transientFailure }
 
         var request = URLRequest(url: url)
@@ -1563,7 +1563,7 @@ public final class HTTPTransport {
         }
     }
 
-    func sendMessage(content: String?, sessionId: String, attachments: [IPCAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+    func sendMessage(content: String?, sessionId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
 
@@ -1929,7 +1929,7 @@ public final class HTTPTransport {
         return jsonCompatible
     }
 
-    func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
+    func sendConversationSeen(_ signal: ConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
         var request = URLRequest(url: url)
@@ -1973,7 +1973,7 @@ public final class HTTPTransport {
         }
     }
 
-    func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async throws {
+    func sendConversationUnread(_ signal: ConversationUnreadSignal, isRetry: Bool = false) async throws {
         guard let url = buildURL(for: .conversationsUnread) else {
             throw HTTPTransportError.invalidURL
         }
@@ -2597,7 +2597,7 @@ public final class HTTPTransport {
             }
 
             do {
-                let decoded = try decoder.decode(IPCTrustRulesListResponse.self, from: data)
+                let decoded = try decoder.decode(TrustRulesListResponse.self, from: data)
                 onMessage?(.trustRulesListResponse(decoded))
             } catch {
                 log.error("HTTPTransport: failed to decode trust rules response: \(error)")
@@ -2711,7 +2711,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
+                    SessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
@@ -2747,7 +2747,7 @@ public final class HTTPTransport {
             }
 
             // The runtime's /v1/messages endpoint returns messages with `content`
-            // (string) and `timestamp` (ISO 8601 string), but IPCHistoryResponseMessage
+            // (string) and `timestamp` (ISO 8601 string), but HistoryResponseMessage
             // expects `text` and `timestamp` as a Double (ms since epoch). Transform
             // the response to match the expected message format.
             do {
@@ -3506,7 +3506,7 @@ public final class HTTPTransport {
 
             if http.statusCode == 200 {
                 let patched = injectType("conversation_search_response", into: data)
-                let decoded = try decoder.decode(IPCConversationSearchResponse.self, from: patched)
+                let decoded = try decoder.decode(ConversationSearchResponse.self, from: patched)
                 onMessage?(.conversationSearchResponse(decoded))
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
@@ -3534,7 +3534,7 @@ public final class HTTPTransport {
 
             if http.statusCode == 200 {
                 let patched = injectType("message_content_response", into: data)
-                let decoded = try decoder.decode(IPCMessageContentResponse.self, from: patched)
+                let decoded = try decoder.decode(MessageContentResponse.self, from: patched)
                 onMessage?(.messageContentResponse(decoded))
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)

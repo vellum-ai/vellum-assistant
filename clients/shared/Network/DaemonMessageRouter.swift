@@ -328,7 +328,7 @@ extension DaemonClient {
     }
 
     /// Handle a get_signing_identity request from the daemon.
-    func handleGetSigningIdentity(_ msg: IPCGetSigningIdentityRequest) {
+    func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
         do {
             let keyId = try SigningIdentityManager.shared.getKeyId()
             let publicKey = try SigningIdentityManager.shared.getPublicKey()

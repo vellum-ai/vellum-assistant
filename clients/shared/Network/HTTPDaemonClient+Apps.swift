@@ -35,13 +35,13 @@ extension HTTPTransport {
             } else if let msg = message as? OpenBundleMessage {
                 Task { await self.handleOpenBundle(filePath: msg.filePath) }
                 return true
-            } else if let msg = message as? IPCAppHistoryRequest {
+            } else if let msg = message as? AppHistoryRequest {
                 Task { await self.fetchAppHistory(appId: msg.appId, limit: msg.limit) }
                 return true
-            } else if let msg = message as? IPCAppDiffRequest {
+            } else if let msg = message as? AppDiffRequest {
                 Task { await self.fetchAppDiff(appId: msg.appId, fromCommit: msg.fromCommit, toCommit: msg.toCommit) }
                 return true
-            } else if let msg = message as? IPCAppRestoreRequest {
+            } else if let msg = message as? AppRestoreRequest {
                 Task { await self.handleAppRestore(appId: msg.appId, commitHash: msg.commitHash) }
                 return true
             } else if message is SharedAppsListRequestMessage {
@@ -124,7 +124,7 @@ extension HTTPTransport {
 
             let decoded = try decoder.decode(HTTPAppsListResponse.self, from: data)
             let apps = decoded.apps.map { app in
-                IPCAppsListResponseApp(
+                AppsListResponseApp(
                     id: app.id,
                     name: app.name,
                     description: app.description,
@@ -135,7 +135,7 @@ extension HTTPTransport {
                     contentId: app.contentId
                 )
             }
-            onMessage?(.appsListResponse(IPCAppsListResponse(
+            onMessage?(.appsListResponse(AppsListResponse(
                 type: "apps_list_response",
                 apps: apps
             )))
@@ -203,7 +203,7 @@ extension HTTPTransport {
 
             // REST returns { success, result, error? } — wrap into HTTP envelope
             let rest = try decoder.decode(RESTAppDataResponse.self, from: data)
-            let appDataResponse = IPCAppDataResponse(
+            let appDataResponse = AppDataResponse(
                 type: "app_data_response",
                 surfaceId: msg.surfaceId,
                 callId: msg.callId,
@@ -289,7 +289,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppDeleteResponse.self, from: data)
+            let decoded = try decoder.decode(AppDeleteResponse.self, from: data)
             onMessage?(.appDeleteResponse(decoded))
         } catch {
             log.error("App delete error: \(error.localizedDescription)")
@@ -317,7 +317,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppPreviewResponse.self, from: data)
+            let decoded = try decoder.decode(AppPreviewResponse.self, from: data)
             onMessage?(.appPreviewResponse(decoded))
         } catch {
             log.error("Fetch app preview error: \(error.localizedDescription)")
@@ -350,7 +350,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppUpdatePreviewResponse.self, from: data)
+            let decoded = try decoder.decode(AppUpdatePreviewResponse.self, from: data)
             onMessage?(.appUpdatePreviewResponse(decoded))
         } catch {
             log.error("App update preview error: \(error.localizedDescription)")
@@ -380,7 +380,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCBundleAppResponse.self, from: data)
+            let decoded = try decoder.decode(BundleAppResponse.self, from: data)
             onMessage?(.bundleAppResponse(decoded))
         } catch {
             log.error("Bundle app error: \(error.localizedDescription)")
@@ -413,7 +413,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCOpenBundleResponse.self, from: data)
+            let decoded = try decoder.decode(OpenBundleResponse.self, from: data)
             onMessage?(.openBundleResponse(decoded))
         } catch {
             log.error("Open bundle error: \(error.localizedDescription)")
@@ -449,7 +449,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppHistoryResponse.self, from: data)
+            let decoded = try decoder.decode(AppHistoryResponse.self, from: data)
             onMessage?(.appHistoryResponse(decoded))
         } catch {
             log.error("Fetch app history error: \(error.localizedDescription)")
@@ -486,7 +486,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppDiffResponse.self, from: data)
+            let decoded = try decoder.decode(AppDiffResponse.self, from: data)
             onMessage?(.appDiffResponse(decoded))
         } catch {
             log.error("Fetch app diff error: \(error.localizedDescription)")
@@ -519,7 +519,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppRestoreResponse.self, from: data)
+            let decoded = try decoder.decode(AppRestoreResponse.self, from: data)
             onMessage?(.appRestoreResponse(decoded))
         } catch {
             log.error("App restore error: \(error.localizedDescription)")
@@ -543,7 +543,7 @@ extension HTTPTransport {
                 }
                 if http.statusCode == 404 {
                     // Older assistants may not expose the shared-apps route yet.
-                    onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(
+                    onMessage?(.sharedAppsListResponse(SharedAppsListResponse(
                         type: "shared_apps_list_response",
                         apps: []
                     )))
@@ -557,7 +557,7 @@ extension HTTPTransport {
 
             let decoded = try decoder.decode(HTTPSharedAppsListResponse.self, from: data)
             let apps = decoded.apps.map { app in
-                IPCSharedAppsListResponseApp(
+                SharedAppsListResponseApp(
                     uuid: app.uuid,
                     name: app.name,
                     description: app.description,
@@ -573,7 +573,7 @@ extension HTTPTransport {
                     updateAvailable: app.updateAvailable
                 )
             }
-            onMessage?(.sharedAppsListResponse(IPCSharedAppsListResponse(
+            onMessage?(.sharedAppsListResponse(SharedAppsListResponse(
                 type: "shared_apps_list_response",
                 apps: apps
             )))
@@ -604,7 +604,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCSharedAppDeleteResponse.self, from: data)
+            let decoded = try decoder.decode(SharedAppDeleteResponse.self, from: data)
             onMessage?(.sharedAppDeleteResponse(decoded))
         } catch {
             log.error("Shared app delete error: \(error.localizedDescription)")
@@ -667,7 +667,7 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCShareAppCloudResponse.self, from: data)
+            let decoded = try decoder.decode(ShareAppCloudResponse.self, from: data)
             onMessage?(.shareAppCloudResponse(decoded))
         } catch {
             log.error("Share app cloud error: \(error.localizedDescription)")

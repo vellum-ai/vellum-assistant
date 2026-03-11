@@ -43,10 +43,10 @@ extension HTTPTransport {
             } else if let msg = message as? HistoryRequestMessage {
                 Task { await self.fetchHistory(sessionId: msg.sessionId) }
                 return true
-            } else if let msg = message as? IPCConversationSeenSignal {
+            } else if let msg = message as? ConversationSeenSignal {
                 Task { await self.sendConversationSeen(msg) }
                 return true
-            } else if let msg = message as? IPCConversationUnreadSignal {
+            } else if let msg = message as? ConversationUnreadSignal {
                 Task {
                     do {
                         try await self.sendConversationUnread(msg)

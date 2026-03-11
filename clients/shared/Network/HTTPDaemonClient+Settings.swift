@@ -25,7 +25,7 @@ extension HTTPTransport {
             }
 
             // --- Voice Config ---
-            if let msg = message as? IPCVoiceConfigUpdateRequest {
+            if let msg = message as? VoiceConfigUpdateRequest {
                 Task { await self.sendEncodablePost(.settingsVoice, body: msg, method: "PUT", label: "voice_config_update") }
                 return true
             }
@@ -69,7 +69,7 @@ extension HTTPTransport {
             }
 
             // --- Dictation ---
-            if let msg = message as? IPCDictationRequest {
+            if let msg = message as? DictationRequest {
                 Task { await self.sendEncodablePost(.dictation, body: msg, label: "dictation_request") }
                 return true
             }
@@ -91,7 +91,7 @@ extension HTTPTransport {
             }
 
             // --- OAuth ---
-            if let msg = message as? IPCOAuthConnectStartRequest {
+            if let msg = message as? OAuthConnectStartRequest {
                 Task { await self.sendEncodablePost(.integrationsOAuthStart, body: msg, label: "oauth_connect_start") }
                 return true
             }
@@ -107,13 +107,13 @@ extension HTTPTransport {
             }
 
             // --- Suggestion ---
-            if let msg = message as? IPCSuggestionRequest {
+            if let msg = message as? SuggestionRequest {
                 Task { await self.sendEncodablePost(.suggestion, body: msg, label: "suggestion_request") }
                 return true
             }
 
             // --- Heartbeat ---
-            if let msg = message as? IPCHeartbeatConfig {
+            if let msg = message as? HeartbeatConfig {
                 if msg.action == "get" {
                     Task { await self.sendGenericPost(.heartbeatConfig, method: "GET", label: "heartbeat_config_get") }
                 } else {
@@ -121,19 +121,19 @@ extension HTTPTransport {
                 }
                 return true
             }
-            if let msg = message as? IPCHeartbeatRunsList {
+            if let msg = message as? HeartbeatRunsList {
                 Task { await self.sendEncodablePost(.heartbeatRuns, body: msg, method: "GET", label: "heartbeat_runs_list") }
                 return true
             }
-            if message is IPCHeartbeatRunNow {
+            if message is HeartbeatRunNow {
                 Task { await self.sendGenericPost(.heartbeatRunNow, label: "heartbeat_run_now") }
                 return true
             }
-            if message is IPCHeartbeatChecklistRead {
+            if message is HeartbeatChecklistRead {
                 Task { await self.sendGenericPost(.heartbeatChecklist, method: "GET", label: "heartbeat_checklist_read") }
                 return true
             }
-            if let msg = message as? IPCHeartbeatChecklistWrite {
+            if let msg = message as? HeartbeatChecklistWrite {
                 Task { await self.sendEncodablePost(.heartbeatChecklistWrite, body: msg, method: "PUT", label: "heartbeat_checklist_write") }
                 return true
             }

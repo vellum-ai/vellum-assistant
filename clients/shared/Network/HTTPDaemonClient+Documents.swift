@@ -104,7 +104,7 @@ extension HTTPTransport {
             // REST returns { documents: [...] } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentListResponse.self, from: data)
             let docs = rest.documents.map { doc in
-                IPCDocumentListResponseDocument(
+                DocumentListResponseDocument(
                     surfaceId: doc.surfaceId,
                     conversationId: doc.conversationId,
                     title: doc.title,
@@ -113,7 +113,7 @@ extension HTTPTransport {
                     updatedAt: doc.updatedAt
                 )
             }
-            let documentListResponse = IPCDocumentListResponse(
+            let documentListResponse = DocumentListResponse(
                 type: "document_list_response",
                 documents: docs
             )
@@ -146,7 +146,7 @@ extension HTTPTransport {
 
             // REST returns { success, surfaceId, conversationId, ... } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentLoadResponse.self, from: data)
-            let documentLoadResponse = IPCDocumentLoadResponse(
+            let documentLoadResponse = DocumentLoadResponse(
                 type: "document_load_response",
                 surfaceId: rest.surfaceId,
                 conversationId: rest.conversationId,
@@ -214,7 +214,7 @@ extension HTTPTransport {
 
             // REST returns { success, surfaceId, error? } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentSaveResponse.self, from: data)
-            let documentSaveResponse = IPCDocumentSaveResponse(
+            let documentSaveResponse = DocumentSaveResponse(
                 type: "document_save_response",
                 surfaceId: rest.surfaceId,
                 success: rest.success,
