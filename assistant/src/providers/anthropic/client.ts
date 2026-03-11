@@ -916,6 +916,19 @@ export class AnthropicProvider implements Provider {
           is_error: block.is_error,
         };
       }
+      case "server_tool_use":
+        return {
+          type: "server_tool_use",
+          id: block.id,
+          name: block.name,
+          input: block.input,
+        } as unknown as Anthropic.ContentBlockParam;
+      case "web_search_tool_result":
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: block.tool_use_id,
+          content: block.content,
+        } as unknown as Anthropic.ContentBlockParam;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },
@@ -950,11 +963,23 @@ export class AnthropicProvider implements Provider {
           input: tu.input as Record<string, unknown>,
         };
       }
-      case "server_tool_use":
-      case "web_search_tool_result":
-        // Native Anthropic web search blocks — informational only, silently dropped
-        // by the empty-text filter in sendMessage.
-        return { type: "text", text: "" };
+      case "server_tool_use": {
+        const stu = block as Anthropic.ServerToolUseBlock;
+        return {
+          type: "server_tool_use",
+          id: stu.id,
+          name: stu.name,
+          input: stu.input as Record<string, unknown>,
+        };
+      }
+      case "web_search_tool_result": {
+        const wsr = block as Anthropic.WebSearchToolResultBlock;
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: wsr.tool_use_id,
+          content: wsr.content,
+        };
+      }
       default:
         return {
           type: "text",
