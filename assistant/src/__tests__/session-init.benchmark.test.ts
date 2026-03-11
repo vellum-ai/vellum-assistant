@@ -363,6 +363,18 @@ describe("Session initialization benchmark", () => {
     expect(median(timings)).toBeLessThan(50);
   });
 
+  test("assembled prompt is materially smaller than pre-audit baseline", () => {
+    const prompt = buildSystemPrompt();
+    // The pre-audit system prompt (before PRs 1-7) was ~53,000 chars in
+    // a single file. The post-audit prompt should be well under 30% of
+    // that, even with user content and skills. This test catches
+    // regressions that silently re-inflate the prompt.
+    const PRE_AUDIT_BASELINE = 53_000;
+    expect(prompt.length).toBeLessThan(PRE_AUDIT_BASELINE * 0.3);
+    // Sanity: the prompt should still contain meaningful content
+    expect(prompt.length).toBeGreaterThan(1_000);
+  });
+
   test("repeated buildSystemPrompt calls are consistently fast (10 iterations)", () => {
     const timings: number[] = [];
     for (let i = 0; i < 10; i++) {
