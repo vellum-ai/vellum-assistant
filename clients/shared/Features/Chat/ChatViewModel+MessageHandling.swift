@@ -1611,8 +1611,15 @@ extension ChatViewModel {
                     messages[idx].status = .sendFailed
                 }
                 // Only reset sending state if no other messages are in-flight.
-                // Check if any non-failed user messages are still pending.
-                let hasActiveSend = messages.contains(where: { $0.role == .user && ($0.status == .processing || $0.status == .sent) }) && isSending
+                // Check for genuinely in-flight statuses (.processing, .queued)
+                // — NOT .sent, which is the default/terminal status for all
+                // previously delivered messages.
+                let hasActiveSend = isSending && messages.contains(where: { msg in
+                    guard msg.role == .user else { return false }
+                    if msg.status == .processing { return true }
+                    if case .queued = msg.status { return true }
+                    return false
+                })
                 if !hasActiveSend {
                     isThinking = false
                     isSending = false
