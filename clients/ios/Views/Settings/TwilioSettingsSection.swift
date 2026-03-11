@@ -105,14 +105,6 @@ struct TwilioSettingsSection: View {
                                                     .background(Color.blue.opacity(0.15))
                                                     .cornerRadius(4)
                                             }
-                                            if number.capabilities.sms {
-                                                Text("SMS")
-                                                    .font(.caption2)
-                                                    .padding(.horizontal, 4)
-                                                    .padding(.vertical, 1)
-                                                    .background(Color.green.opacity(0.15))
-                                                    .cornerRadius(4)
-                                            }
                                         }
                                     }
                                     Spacer()
@@ -184,7 +176,7 @@ struct TwilioSettingsSection: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will remove your Twilio Account SID and Auth Token. Your phone number assignment will be preserved. Voice calls and SMS will stop working until credentials are reconfigured.")
+            Text("This will remove your Twilio Account SID and Auth Token. Your phone number assignment will be preserved. Voice calls will stop working until credentials are reconfigured.")
         }
         .sheet(isPresented: $showProvisionSheet) {
             provisionSheet
@@ -335,11 +327,10 @@ struct TwilioSettingsSection: View {
                   let friendlyName = dict["friendlyName"] as? String,
                   let caps = dict["capabilities"] as? [String: Any] else { return nil }
             let voice = caps["voice"] as? Bool ?? false
-            let sms = caps["sms"] as? Bool ?? false
             return TwilioNumberInfo(
                 phoneNumber: phoneNumber,
                 friendlyName: friendlyName,
-                capabilities: TwilioNumberCapabilities(voice: voice, sms: sms)
+                capabilities: TwilioNumberCapabilities(voice: voice)
             )
         }
     }
