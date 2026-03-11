@@ -97,6 +97,7 @@ describe("Messaging skill split", () => {
     const names: string[] = sequencesManifest.tools.map(
       (t: { name: string }) => t.name,
     );
+    expect(names).toHaveLength(expectedSequenceToolNames.length);
     for (const name of expectedSequenceToolNames) {
       expect(names).toContain(name);
     }
