@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "DictationContext")
