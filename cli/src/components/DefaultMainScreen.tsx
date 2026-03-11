@@ -1894,6 +1894,7 @@ function ChatApp({
                 bearerToken,
               );
               h.showSpinner("Working...");
+              setInputFocused(true);
               continue;
             }
 
@@ -1920,6 +1921,7 @@ function ChatApp({
                 },
               );
               h.showSpinner("Working...");
+              setInputFocused(true);
               continue;
             }
           } catch {
