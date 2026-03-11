@@ -120,6 +120,14 @@
       "label": "Email Sequences",
       "description": "Enable email sequence management skill",
       "defaultEnabled": true
+    },
+    {
+      "id": "settings-developer-nav",
+      "scope": "assistant",
+      "key": "feature_flags.settings-developer-nav.enabled",
+      "label": "Settings Developer Nav",
+      "description": "Control Developer nav visibility in macOS settings",
+      "defaultEnabled": false
     }
   ]
 }
