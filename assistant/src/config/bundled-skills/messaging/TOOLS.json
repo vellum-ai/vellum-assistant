@@ -121,7 +121,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Compose a message. For Gmail, creates a draft for review; for other platforms, sends directly. High-risk action. Include a confidence score (0-1).",
+      "description": "Send a message or create a draft. On Gmail, creates a draft for review. Supports file attachments on Gmail via attachment_paths. High-risk action. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -146,6 +146,17 @@
           "in_reply_to": {
             "type": "string",
             "description": "Message-ID header for replies (Gmail only)"
+          },
+          "attachment_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Absolute file paths of attachments to include (Gmail only)"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID to continue an existing thread (Gmail only)"
           },
           "confidence": {
             "type": "number",
