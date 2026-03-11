@@ -64,6 +64,7 @@ Use `browser_screenshot` after critical actions (form submission, booking confir
 ## When to Use Browser Automation
 
 Browser automation should be your **last resort** for interacting with external services. Prefer:
+
 1. Sandbox CLI tools or host CLI tools (gh, curl, etc.) with structured output
 2. Direct API calls via curl/httpie with API tokens from credential_store
 3. `web_fetch` for public endpoints

@@ -14,6 +14,7 @@ You are delegating a coding task to Claude Code, an autonomous AI coding agent. 
 ## Capabilities
 
 Claude Code can:
+
 - Read, write, and edit files across a codebase
 - Run shell commands (build, test, lint, deploy scripts)
 - Perform multi-step engineering tasks autonomously (refactoring, implementing features, debugging)
@@ -23,6 +24,7 @@ Claude Code can:
 ## When to Delegate
 
 Delegate to Claude Code when the task involves:
+
 - Writing or modifying source code
 - Running build/test/lint commands and iterating on failures
 - Exploring a codebase to answer architectural questions
@@ -31,6 +33,7 @@ Delegate to Claude Code when the task involves:
 - Any task that benefits from direct filesystem and shell access
 
 Do NOT delegate when:
+
 - The user just wants a conversational answer or explanation
 - The task is pure information retrieval with no code changes needed
 - The user explicitly wants to discuss an approach before implementation

@@ -28,6 +28,7 @@ Use this skill to interact with native macOS apps and system-level features via 
 **Creative:** Adobe Photoshop, Final Cut Pro
 
 For any unlisted app, check scriptability first:
+
 ```bash
 osascript -e 'tell application "AppName" to get name'
 ```
