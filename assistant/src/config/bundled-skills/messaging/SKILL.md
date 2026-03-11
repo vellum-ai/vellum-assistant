@@ -52,7 +52,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
    - Call `skill_load` with `skill: "google-oauth-applescript"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Gmail?"
-     - **detail:** "I'll open Chrome and walk you through setting up Google Cloud credentials — creating a project, enabling APIs, and connecting your account. Takes about 5 minutes."
+     - **detail:** "I'll open a few pages in your browser and walk you through setting up Google Cloud credentials — creating a project, enabling APIs, and connecting your account. Takes about 5 minutes."
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.

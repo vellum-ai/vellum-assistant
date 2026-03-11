@@ -134,7 +134,7 @@
     {
       "id": "google-oauth-applescript",
       "name": "google-oauth-applescript",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using collaborative AppleScript navigation",
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
