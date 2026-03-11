@@ -90,6 +90,7 @@ import type {
   ChannelCapabilities,
   TrustContext,
 } from "./session-runtime-assembly.js";
+import { messagesContainAttachments } from "./session-runtime-assembly.js";
 import type { SkillProjectionCache } from "./session-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -155,6 +156,7 @@ export class Session {
   /** @internal */ currentRequestId?: string;
   /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
+  /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -357,7 +359,13 @@ export class Session {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
-    return loadFromDbImpl(this);
+    await loadFromDbImpl(this);
+    // Scan loaded history for attachment content blocks so that asset
+    // tools are available when resuming a conversation that already had
+    // attachments. One-way: once true it stays true for the session.
+    if (!this.hasAttachments && messagesContainAttachments(this.messages)) {
+      this.hasAttachments = true;
+    }
   }
 
   async ensureActorScopedHistory(): Promise<void> {
@@ -697,6 +705,11 @@ export class Session {
   ): Promise<string> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
+    }
+    // One-way flag: once an attachment arrives, asset tools stay available
+    // for the remainder of the session.
+    if (!this.hasAttachments && attachments.length > 0) {
+      this.hasAttachments = true;
     }
     return persistUserMessageImpl(
       this,
