@@ -100,6 +100,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   trustContext?: TrustContext;
   /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
+  /** Optional proxy for delegating host_bash execution to a connected client. */
+  hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -178,6 +180,7 @@ export function createToolExecutor(
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
+      hostBashProxy: ctx.hostBashProxy,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }

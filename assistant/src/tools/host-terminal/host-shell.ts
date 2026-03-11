@@ -101,6 +101,20 @@ class HostShellTool implements Tool {
         isError: true,
       };
     }
+    // Proxy to connected client for execution on the user's machine
+    // when a capable client is available (managed/cloud-hosted mode).
+    if (context.hostBashProxy?.isAvailable()) {
+      return context.hostBashProxy.request(
+        {
+          command,
+          working_dir: rawWorkingDir as string | undefined,
+          timeout_seconds: input.timeout_seconds as number | undefined,
+        },
+        context.sessionId,
+        context.signal,
+      );
+    }
+
     const workingDir =
       typeof rawWorkingDir === "string" ? rawWorkingDir : homedir();
 
