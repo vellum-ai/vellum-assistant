@@ -54,8 +54,8 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   /**
    * Custom connectivity check. The standard registry check looks for
-   * credential:telegram:access_token, but the Telegram bot token is
-   * stored as credential:telegram:bot_token. This method lets the
+   * credential/telegram/access_token, but the Telegram bot token is
+   * stored as credential/telegram/bot_token. This method lets the
    * registry detect that Telegram credentials exist.
    *
    * Both bot_token and webhook_secret are required — the gateway's

@@ -51,6 +51,23 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
 
+## Rate Limiting & Diagnostics
+
+All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
+
+- **Authenticated**: 60 requests/minute
+- **Unauthenticated**: 20 requests/minute
+
+When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid thread switching, polling, or unexpected request volume.
+
+Logs are written to `~/.vellum/workspace/data/logs/vellum.log` by default. If `logFile.dir` is configured, logs rotate daily as `assistant-YYYY-MM-DD.log` in that directory. To watch rate limit events in real time:
+
+```bash
+tail -f ~/.vellum/workspace/data/logs/vellum.log | grep rate-limit
+```
+
+The provider-level rate limiter (`providers/ratelimit.ts`) also logs warnings (module: `rate-limit`) when request rate or token budget limits are enforced.
+
 ## HTTP-Only Transport
 
 HTTP is the sole transport for client-daemon communication. The runtime HTTP server (`assistant/src/runtime/http-server.ts`) is the canonical API surface. Clients connect via HTTP for request/response operations and SSE (`GET /v1/events`) for streaming server-to-client events.

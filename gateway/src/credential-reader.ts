@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
+import { credentialKey } from "./credential-key.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("credential-reader");
@@ -319,9 +320,11 @@ export async function readTelegramCredentials(): Promise<TelegramCredentials | n
 
     if (!hasBotToken || !hasWebhookSecret) return null;
 
-    const botToken = await readCredential("credential:telegram:bot_token");
+    const botToken = await readCredential(
+      credentialKey("telegram", "bot_token"),
+    );
     const webhookSecret = await readCredential(
-      "credential:telegram:webhook_secret",
+      credentialKey("telegram", "webhook_secret"),
     );
 
     if (!botToken || !webhookSecret) {
@@ -367,8 +370,12 @@ export async function readTwilioCredentials(): Promise<TwilioCredentials | null>
 
     if (!hasAccountSid || !hasAuthToken) return null;
 
-    const accountSid = await readCredential("credential:twilio:account_sid");
-    const authToken = await readCredential("credential:twilio:auth_token");
+    const accountSid = await readCredential(
+      credentialKey("twilio", "account_sid"),
+    );
+    const authToken = await readCredential(
+      credentialKey("twilio", "auth_token"),
+    );
 
     if (!accountSid || !authToken) {
       log.warn(
@@ -420,8 +427,12 @@ export async function readSlackChannelCredentials(): Promise<SlackChannelCredent
 
     if (!hasBotToken || !hasAppToken) return null;
 
-    const botToken = await readCredential("credential:slack_channel:bot_token");
-    const appToken = await readCredential("credential:slack_channel:app_token");
+    const botToken = await readCredential(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    const appToken = await readCredential(
+      credentialKey("slack_channel", "app_token"),
+    );
 
     if (!botToken || !appToken) {
       log.warn(
@@ -492,14 +503,16 @@ export async function readWhatsAppCredentials(): Promise<WhatsAppCredentials | n
       return null;
 
     const phoneNumberId = await readCredential(
-      "credential:whatsapp:phone_number_id",
+      credentialKey("whatsapp", "phone_number_id"),
     );
     const accessToken = await readCredential(
-      "credential:whatsapp:access_token",
+      credentialKey("whatsapp", "access_token"),
     );
-    const appSecret = await readCredential("credential:whatsapp:app_secret");
+    const appSecret = await readCredential(
+      credentialKey("whatsapp", "app_secret"),
+    );
     const webhookVerifyToken = await readCredential(
-      "credential:whatsapp:webhook_verify_token",
+      credentialKey("whatsapp", "webhook_verify_token"),
     );
 
     if (!phoneNumberId || !accessToken || !appSecret || !webhookVerifyToken) {

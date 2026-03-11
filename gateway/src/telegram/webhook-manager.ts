@@ -1,5 +1,6 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
 
@@ -36,9 +37,11 @@ export async function reconcileTelegramWebhook(
   let botToken: string | undefined;
   let webhookSecret: string | undefined;
   if (caches?.credentials) {
-    botToken = await caches.credentials.get("credential:telegram:bot_token");
+    botToken = await caches.credentials.get(
+      credentialKey("telegram", "bot_token"),
+    );
     webhookSecret = await caches.credentials.get(
-      "credential:telegram:webhook_secret",
+      credentialKey("telegram", "webhook_secret"),
     );
   }
 

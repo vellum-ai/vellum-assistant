@@ -17,7 +17,7 @@ guaranteed-valid access token, refreshing transparently if the stored token
 is expired or near-expiry. Callers never need to handle refresh themselves.
 
 The <service> argument is the short integration name (e.g. "twitter", "gmail",
-"slack"). Internally this maps to credential:integration:<service>:access_token.
+"slack"). Internally this maps to credential/integration:<service>/access_token.
 
 Examples:
   $ assistant oauth token twitter

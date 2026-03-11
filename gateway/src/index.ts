@@ -14,6 +14,7 @@ import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
+import { credentialKey } from "./credential-key.js";
 import {
   CredentialWatcher,
   type CredentialChangeEvent,
@@ -843,10 +844,10 @@ async function main() {
     }
 
     const botToken = await credentialCache.get(
-      "credential:slack_channel:bot_token",
+      credentialKey("slack_channel", "bot_token"),
     );
     const appToken = await credentialCache.get(
-      "credential:slack_channel:app_token",
+      credentialKey("slack_channel", "app_token"),
     );
     if (!botToken || !appToken) return;
 

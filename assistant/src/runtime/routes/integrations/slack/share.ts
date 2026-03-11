@@ -12,6 +12,7 @@ import {
   userInfo,
 } from "../../../../messaging/providers/slack/client.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
+import { credentialKey } from "../../../../security/credential-key.js";
 import { getSecureKey } from "../../../../security/secure-keys.js";
 import { getLogger } from "../../../../util/logger.js";
 import { httpError } from "../../../http-errors.js";
@@ -29,8 +30,8 @@ const log = getLogger("slack-share");
  */
 function resolveSlackToken(): string | undefined {
   return (
-    getSecureKey("credential:integration:slack:access_token") ??
-    getSecureKey("credential:slack_channel:bot_token")
+    getSecureKey(credentialKey("integration:slack", "access_token")) ??
+    getSecureKey(credentialKey("slack_channel", "bot_token"))
   );
 }
 

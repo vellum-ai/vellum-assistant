@@ -90,7 +90,7 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/',
       "security find-generic-password",
-      "secret-tool lookup service vellum-assistant account credential:ngrok:authtoken",
+      "secret-tool lookup service vellum-assistant account credential/ngrok/authtoken",
     ],
   },
   {
@@ -119,6 +119,7 @@ const KEYCHAIN_ALLOWLIST = new Set<string>([
 const KEYCHAIN_PATTERNS = [
   "security find-generic-password",
   "secret-tool lookup service vellum-assistant account credential:",
+  "secret-tool lookup service vellum-assistant account credential/",
 ];
 
 const HOST_BASH_RETRIEVAL_ALLOWLIST = new Set<string>([

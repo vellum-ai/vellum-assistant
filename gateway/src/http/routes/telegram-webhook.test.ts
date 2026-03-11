@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
 
 // --- Mocks ----------------------------------------------------------------
 
@@ -104,7 +105,8 @@ function postRequest(body: string): Request {
 function makeCaches() {
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:telegram:webhook_secret") return "test-secret";
+      if (key === credentialKey("telegram", "webhook_secret"))
+        return "test-secret";
       return undefined;
     },
     invalidate: () => {},

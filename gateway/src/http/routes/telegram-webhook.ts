@@ -2,6 +2,7 @@ import { buildTelegramTransportMetadata } from "../../channels/transport-hints.j
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
@@ -72,7 +73,9 @@ export function createTelegramWebhookHandler(
 
     // Verify webhook secret from cache
     const webhookSecret = caches?.credentials
-      ? await caches.credentials.get("credential:telegram:webhook_secret")
+      ? await caches.credentials.get(
+          credentialKey("telegram", "webhook_secret"),
+        )
       : undefined;
 
     let secretVerified =
@@ -82,7 +85,7 @@ export function createTelegramWebhookHandler(
     // force-refresh the webhook secret and retry once.
     if (!secretVerified && caches?.credentials) {
       const freshSecret = await caches.credentials.get(
-        "credential:telegram:webhook_secret",
+        credentialKey("telegram", "webhook_secret"),
         { force: true },
       );
       if (freshSecret) {
