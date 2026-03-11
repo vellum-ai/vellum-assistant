@@ -416,6 +416,9 @@ public final class HTTPTransport {
         // Attachments
         case uploadAttachment
 
+        // Host Bash Proxy
+        case hostBashResult
+
         // Misc
         case channelVerificationSessions
         case registerDeviceToken
@@ -814,6 +817,9 @@ public final class HTTPTransport {
         // Attachments
         case .uploadAttachment:
             return ("/v1/attachments", nil)
+        // Host Bash Proxy
+        case .hostBashResult:
+            return ("/v1/host-bash-result", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
@@ -1195,6 +1201,9 @@ public final class HTTPTransport {
         // Attachments
         case .uploadAttachment:
             return ("\(prefix)/attachments/", nil)
+        // Host Bash Proxy
+        case .hostBashResult:
+            return ("\(prefix)/host-bash-result/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
