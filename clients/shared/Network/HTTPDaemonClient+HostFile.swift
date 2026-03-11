@@ -129,14 +129,14 @@ extension HTTPTransport {
             lines = Array(lines[..<limit])
         }
 
-        // Format with line numbers matching daemon output format
+        // Format with line numbers matching daemon output format:
+        // 6-char right-padded line number + 2 spaces + content
+        // e.g. "     1  line content"
         let lineNumberStart = max(offset ?? 1, 1)
-        let maxLineNumber = lineNumberStart + lines.count - 1
-        let numberWidth = String(maxLineNumber).count
         let formatted = lines.enumerated().map { index, line in
             let lineNumber = lineNumberStart + index
-            let paddedNumber = String(repeating: " ", count: max(0, numberWidth - String(lineNumber).count)) + "\(lineNumber)"
-            return "\(paddedNumber)\t\(line)"
+            let padded = String(repeating: " ", count: max(0, 6 - String(lineNumber).count)) + "\(lineNumber)"
+            return "\(padded)  \(line)"
         }
 
         return formatted.joined(separator: "\n")
