@@ -31,6 +31,10 @@ import {
   getAllToolDefinitions,
   getMcpToolDefinitions,
 } from "../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../tools/schema-transforms.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
@@ -663,6 +667,6 @@ export function createResolveToolsCallback(
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return allBaseDefs;
+    return injectReasonField(allBaseDefs, REASON_SKIP_SET);
   };
 }

@@ -31,6 +31,10 @@ import {
   resolveExecutionTarget,
 } from "../../tools/execution-target.js";
 import { getAllTools, getTool } from "../../tools/registry.js";
+import {
+  injectReasonField,
+  REASON_SKIP_SET,
+} from "../../tools/schema-transforms.js";
 import { isSideEffectTool } from "../../tools/side-effects.js";
 import { setAvatarTool } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
@@ -309,23 +313,34 @@ function resolveManifestOverride(
 function handleToolNamesList(): Response {
   const tools = getAllTools();
   const nameSet = new Set(tools.map((t) => t.name));
-  const schemas: Record<
-    string,
-    {
-      type: string;
-      properties?: Record<string, unknown>;
-      required?: string[];
-    }
-  > = {};
+  type SchemaShape = {
+    type: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  const schemas: Record<string, SchemaShape> = {};
+
+  // Collect raw definitions from the registry so we can transform them.
+  const rawDefs: import("../../providers/types.js").ToolDefinition[] = [];
   for (const tool of tools) {
     try {
-      const def = tool.getDefinition();
-      schemas[tool.name] = def.input_schema as (typeof schemas)[string];
+      rawDefs.push(tool.getDefinition());
     } catch {
       // Skip tools whose definitions can't be resolved
     }
   }
 
+  // Apply reason injection so settings/debug schemas match runtime behavior.
+  const transformedDefs = injectReasonField(rawDefs, REASON_SKIP_SET);
+  for (const def of transformedDefs) {
+    schemas[def.name] = def.input_schema as SchemaShape;
+  }
+
+  // Skill manifest schemas are served raw (untransformed). Unlike runtime tool
+  // schemas which have `reason` injected via injectReasonField(), skill manifests
+  // reflect the original TOOLS.json content. This is intentional: skill tools are
+  // invoked through skill_execute (which has its own reason field), so their
+  // individual schemas are never sent to the LLM directly.
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {
@@ -337,8 +352,7 @@ function handleToolNamesList(): Response {
         for (const entry of manifest.tools) {
           if (nameSet.has(entry.name)) continue;
           nameSet.add(entry.name);
-          schemas[entry.name] =
-            entry.input_schema as unknown as (typeof schemas)[string];
+          schemas[entry.name] = entry.input_schema as unknown as SchemaShape;
         }
       } catch {
         // Skip skills whose manifests can't be parsed
