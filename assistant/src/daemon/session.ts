@@ -397,6 +397,12 @@ export class Session {
     return this.sendToClient;
   }
 
+  /** Mark host proxies as unavailable so tool execution uses local fallback. */
+  clearProxyAvailability(): void {
+    this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostFileProxy?.updateSender(this.sendToClient, false);
+  }
+
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }

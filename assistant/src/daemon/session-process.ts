@@ -118,6 +118,8 @@ export interface ProcessSessionContext {
   setTurnChannelContext(ctx: TurnChannelContext): void;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
+  /** Mark host proxies as unavailable so tool execution uses local fallback. */
+  clearProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -263,6 +265,13 @@ export async function drainQueue(
   );
   if (queuedInterfaceCtx) {
     session.setTurnInterfaceContext(queuedInterfaceCtx);
+  }
+
+  // Non-interactive queued messages (channel requests) must not execute tools
+  // via the desktop host proxy. Clear proxy availability so isAvailable()
+  // returns false and tool execution falls back to local.
+  if (next.isInteractive === false) {
+    session.clearProxyAvailability();
   }
 
   // Resolve slash commands for queued messages
