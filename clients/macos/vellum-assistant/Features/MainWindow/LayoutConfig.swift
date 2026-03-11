@@ -18,6 +18,9 @@ extension NativePanelId: Codable {
         // Legacy Home Base panel — map to apps as a reasonable fallback
         case "directory":
             self = .apps
+        // Legacy Task Queue panel — removed, degrade gracefully
+        case "taskQueue":
+            self = .chat
         default:
             guard let value = NativePanelId(rawValue: rawValue) else {
                 throw DecodingError.dataCorruptedError(
@@ -138,6 +141,9 @@ extension SlotContent {
             // Legacy Home Base panel — map to apps as a reasonable fallback
             case "directory":
                 id = .apps
+            // Legacy Task Queue panel — removed, degrade gracefully
+            case "taskQueue":
+                id = .chat
             default:
                 guard let parsed = NativePanelId(rawValue: panel) else { return nil }
                 id = parsed
