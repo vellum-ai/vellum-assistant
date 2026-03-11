@@ -34,7 +34,6 @@ import * as externalConversationStore from "../../memory/external-conversation-s
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
-import type { HostBashResponse } from "../message-types/host-bash.js";
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -50,6 +49,7 @@ import type {
   UsageRequest,
 } from "../message-protocol.js";
 import { normalizeThreadType } from "../message-protocol.js";
+import type { HostBashResponse } from "../message-types/host-bash.js";
 import type { Session } from "../session.js";
 import {
   buildSessionErrorMessage,
