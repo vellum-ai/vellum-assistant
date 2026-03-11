@@ -25,32 +25,6 @@ private let log = Logger(
 @MainActor
 enum LogExporter {
 
-    /// Presents an NSSavePanel and writes the tar.gz archive to the chosen location.
-    static func exportLogs() {
-        let panel = NSSavePanel()
-        panel.title = "Export Assistant Logs"
-        panel.nameFieldStringValue = defaultArchiveName()
-        panel.allowedContentTypes = [.gzip]
-        panel.canCreateDirectories = true
-
-        guard panel.runModal() == .OK, let destURL = panel.url else { return }
-
-        Task {
-            do {
-                try await buildArchive(destination: destURL)
-                log.info("Logs exported to \(destURL.path)")
-                NSWorkspace.shared.activateFileViewerSelecting([destURL])
-            } catch {
-                log.error("Log export failed: \(error.localizedDescription)")
-                let alert = NSAlert()
-                alert.messageText = "Export Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.runModal()
-            }
-        }
-    }
-
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
     static func sendLogsToSentry() {
         Task {
