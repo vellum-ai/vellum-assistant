@@ -697,7 +697,7 @@ echo "✅ No plain text keys detected in $CHECKED_FILES files"
 
 DIRS_TO_CHECK=("assistant" "cli" "gateway")
 
-# Detect bun location (reused by IPC check below)
+# Detect bun location (reused by message contract check below)
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
 
 for DIR in "${DIRS_TO_CHECK[@]}"; do
