@@ -685,41 +685,6 @@
       },
       "executor": "tools/gmail-outreach-scan.ts",
       "execution_target": "host"
-    },
-    {
-      "name": "google_contacts",
-      "description": "List or search Google Contacts. Requires contacts.readonly scope (re-authorization may be needed).",
-      "category": "gmail",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": ["list", "search"],
-            "description": "Contacts action"
-          },
-          "query": {
-            "type": "string",
-            "description": "Search query (for search action)"
-          },
-          "page_size": {
-            "type": "number",
-            "description": "Number of contacts to return (default 50, for list)"
-          },
-          "page_token": {
-            "type": "string",
-            "description": "Pagination token (for list)"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["action"]
-      },
-      "executor": "tools/google-contacts.ts",
-      "execution_target": "host"
     }
   ]
 }
