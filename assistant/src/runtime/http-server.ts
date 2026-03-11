@@ -126,6 +126,7 @@ import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
+import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
@@ -938,6 +939,7 @@ export class RuntimeHttpServer {
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
+      ...hostFileRouteDefinitions(),
       ...(this.getSkillContext
         ? skillRouteDefinitions({
             getSkillContext: this.getSkillContext,

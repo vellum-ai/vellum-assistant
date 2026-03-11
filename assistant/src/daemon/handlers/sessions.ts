@@ -35,6 +35,7 @@ import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
+import { HostFileProxy } from "../host-file-proxy.js";
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -157,6 +158,12 @@ export function makeEventSender(params: {
         session,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (event.type === "host_file_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_file",
       });
     }
 
@@ -420,6 +427,10 @@ export async function handleSessionCreate(
         pendingInteractions.resolve(requestId);
       });
       session.setHostBashProxy(proxy);
+      const fileProxy = new HostFileProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostFileProxy(fileProxy);
     }
     session.updateClient(sendEvent, false);
     session
