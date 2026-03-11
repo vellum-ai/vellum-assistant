@@ -353,12 +353,11 @@ struct SettingsAppearanceTab: View {
         let utcOffset: String
     }
 
-    /// Stable timezone metadata (city, region, offset label) — computed once.
+    /// Stable timezone metadata (city, region) — computed once. Time-sensitive fields computed on access.
     private struct TimezoneMetadata {
         let identifier: String
         let city: String
         let region: String
-        let utcOffset: String
         let tz: TimeZone
     }
 
@@ -378,22 +377,14 @@ struct SettingsAppearanceTab: View {
         return tz.localizedName(for: .standard, locale: .current) ?? selectedTimezone
     }
 
-    /// Stable metadata cached once; time-sensitive fields computed on access.
+    /// Stable metadata cached once; time-sensitive fields (offset, currentTime) computed on access.
     private static let timezoneMetadata: [TimezoneMetadata] = {
         knownTimezones.compactMap { id -> TimezoneMetadata? in
             guard let tz = TimeZone(identifier: id) else { return nil }
             let parts = id.components(separatedBy: "/")
             let city = (parts.last ?? id).replacingOccurrences(of: "_", with: " ")
             let region = parts.count > 1 ? parts[0].replacingOccurrences(of: "_", with: " ") : ""
-
-            let seconds = tz.secondsFromGMT()
-            let hours = seconds / 3600
-            let minutes = abs(seconds % 3600) / 60
-            let offsetStr = minutes > 0
-                ? String(format: "GMT%+d:%02d", hours, minutes)
-                : String(format: "GMT%+d", hours)
-
-            return TimezoneMetadata(identifier: id, city: city, region: region, utcOffset: offsetStr, tz: tz)
+            return TimezoneMetadata(identifier: id, city: city, region: region, tz: tz)
         }
         .sorted { $0.identifier < $1.identifier }
     }()
@@ -404,23 +395,37 @@ struct SettingsAppearanceTab: View {
         return f
     }()
 
+    private static func utcOffsetString(for tz: TimeZone) -> String {
+        let seconds = tz.secondsFromGMT()
+        let hours = seconds / 3600
+        let minutes = abs(seconds % 3600) / 60
+        return minutes > 0
+            ? String(format: "GMT%+d:%02d", hours, minutes)
+            : String(format: "GMT%+d", hours)
+    }
+
     private var filteredTimezones: [TimezoneEntry] {
-        let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let source = query.isEmpty ? Self.timezoneMetadata : Self.timezoneMetadata.filter {
-            $0.city.lowercased().contains(query)
-            || $0.region.lowercased().contains(query)
-            || $0.utcOffset.lowercased().contains(query)
-            || $0.identifier.lowercased().contains(query)
-        }
         let now = Date()
         let formatter = Self.timeFormatter
-        return source.map { meta in
+        let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return Self.timezoneMetadata.compactMap { meta in
+            let offset = Self.utcOffsetString(for: meta.tz)
+
+            if !query.isEmpty {
+                guard meta.city.lowercased().contains(query)
+                    || meta.region.lowercased().contains(query)
+                    || offset.lowercased().contains(query)
+                    || meta.identifier.lowercased().contains(query)
+                else { return nil }
+            }
+
             formatter.timeZone = meta.tz
             return TimezoneEntry(
                 identifier: meta.identifier, city: meta.city, region: meta.region,
-                displayLabel: "\(meta.utcOffset) — \(meta.city)",
+                displayLabel: "\(offset) — \(meta.city)",
                 currentTime: formatter.string(from: now),
-                utcOffset: meta.utcOffset
+                utcOffset: offset
             )
         }
     }
