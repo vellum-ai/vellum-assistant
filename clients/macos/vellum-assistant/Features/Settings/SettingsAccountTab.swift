@@ -14,9 +14,17 @@ struct SettingsAccountTab: View {
     @State private var platformUrlText: String = ""
     @FocusState private var isPlatformUrlFocused: Bool
 
-    // -- Assistant Info state (from SettingsAdvancedTab) --
+    // -- Assistant Info state --
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
+
+    // -- Healthz state --
+    @State private var healthz: DaemonHealthz?
+    @State private var isLoadingHealthz: Bool = false
+
+    // -- Restart state --
+    @State private var showingRestartConfirmation: Bool = false
+    @State private var isRestarting: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
     @State private var identity: IdentityInfo?
@@ -40,16 +48,31 @@ struct SettingsAccountTab: View {
 
     private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
+    private var currentAssistant: LockfileAssistant? {
+        lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
             assistantInfoSection
+            restartDaemonSection
+            if let assistant = currentAssistant {
+                AssistantBackupsSection(assistant: assistant, store: store)
+                    .withRestoreConfirmation
+            }
             switchAssistantSection
             GatewaySettingsCard(
                 store: store,
                 daemonClient: daemonClient,
-                isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
+                isManaged: currentAssistant?.isManaged ?? false
             )
+            if let assistant = currentAssistant, assistant.isManaged {
+                AssistantUpgradeSection(
+                    assistant: assistant,
+                    currentVersion: healthz?.version
+                )
+            }
             hatchNewAssistantSection
             retireAssistantSection
         }
@@ -70,11 +93,40 @@ struct SettingsAccountTab: View {
                 }
             }
             Task { await loadHatchFlag() }
+            Task { await fetchHealthz() }
         }
         .onChange(of: store.platformBaseUrl) { _, newValue in
             if !isPlatformUrlFocused {
                 platformUrlText = newValue
             }
+        }
+        .alert("Restart Daemon", isPresented: $showingRestartConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Restart", role: .destructive) {
+                isRestarting = true
+                Task {
+                    await performRestart()
+                    isRestarting = false
+                }
+            }
+        } message: {
+            Text("Are you sure you want to restart the daemon? It will be briefly unavailable.")
+        }
+        .sheet(isPresented: $isRestarting) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text("Restarting daemon...")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Text("The assistant will be briefly unavailable.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -216,11 +268,96 @@ struct SettingsAccountTab: View {
             if let daemonClient {
                 AccountDaemonStatusRows(daemonClient: daemonClient)
             }
+
+            healthzInfoRows
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var healthzInfoRows: some View {
+        if isLoadingHealthz {
+            HStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading health data...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+        } else if let healthz {
+            if let version = healthz.version, !version.isEmpty {
+                infoRow(label: "Version", value: version, mono: true)
+            }
+
+            if let disk = healthz.disk {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(alignment: .top) {
+                        Text("Disk Usage")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 100, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ProgressView(value: disk.usedMb, total: disk.totalMb)
+                                .progressViewStyle(.linear)
+                                .frame(maxWidth: 200)
+
+                            Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+
+                        Spacer()
+                    }
+                }
+            }
+
+            if let memory = healthz.memory {
+                infoRow(
+                    label: "Memory",
+                    value: "\(formatMb(memory.currentMb)) RSS / \(formatMb(memory.maxMb)) max"
+                )
+            }
+
+            if let cpu = healthz.cpu {
+                infoRow(
+                    label: "CPU",
+                    value: "\(String(format: "%.1f", cpu.currentPercent))% (\(cpu.maxCores) cores)"
+                )
+            }
+        }
+    }
+
+    private func formatMb(_ mb: Double) -> String {
+        if mb >= 1024 {
+            return String(format: "%.1f GB", mb / 1024)
+        }
+        return String(format: "%.0f MB", mb)
+    }
+
+    private func fetchHealthz() async {
+        isLoadingHealthz = true
+        defer { isLoadingHealthz = false }
+
+        guard let assistant = currentAssistant else { return }
+
+        if assistant.isManaged || assistant.isRemote {
+            healthz = await DaemonHealthzFetcher.fetchManaged(
+                baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
+                assistantId: assistant.assistantId,
+                sessionToken: SessionTokenManager.getToken(),
+                organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            )
+        } else {
+            let port = assistant.resolvedDaemonPort()
+            healthz = await DaemonHealthzFetcher.fetchLocal(
+                port: port,
+                bearerToken: ActorTokenManager.getToken()
+            )
+        }
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
@@ -412,6 +549,49 @@ struct SettingsAccountTab: View {
     private func switchToAssistant(_ assistant: LockfileAssistant) {
         AppDelegate.shared?.performSwitchAssistant(to: assistant)
         onClose()
+    }
+
+    // MARK: - Restart Daemon
+
+    private var restartDaemonSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Restart Daemon")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Restart the daemon process")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
+                    Text("The assistant will be briefly unavailable during restart.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                VButton(label: "Restart", style: .secondary) {
+                    showingRestartConfirmation = true
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func performRestart() async {
+        do {
+            try await AppDelegate.shared?.assistantCli.hatch(
+                name: selectedAssistantId,
+                daemonOnly: true,
+                restart: true
+            )
+            // Re-fetch healthz after restart
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await fetchHealthz()
+        } catch {
+            // Restart failed — healthz fetch will show disconnected state
+        }
     }
 
     // MARK: - Retire Assistant
