@@ -63,12 +63,11 @@ describe("always-loaded tool count", () => {
       "memory_save",
       "memory_update",
       "skill_load",
-      "view_image",
       "web_fetch",
       "web_search",
     ].sort();
 
     expect(activeNames).toEqual(expectedNames);
-    expect(activeTools.length).toBe(17);
+    expect(activeTools.length).toBe(16);
   });
 });

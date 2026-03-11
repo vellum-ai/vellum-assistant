@@ -29,7 +29,6 @@ import "./assets/materialize.js";
 import "./assets/search.js";
 import "./filesystem/edit.js";
 import "./filesystem/read.js";
-import "./filesystem/view-image.js";
 import "./filesystem/write.js";
 import "./network/web-fetch.js";
 import "./network/web-search.js";
@@ -58,7 +57,6 @@ export const eagerModuleToolNames: string[] = [
   "request_system_permission",
   "asset_search",
   "asset_materialize",
-  "view_image",
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
