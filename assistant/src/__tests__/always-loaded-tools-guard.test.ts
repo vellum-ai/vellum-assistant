@@ -58,10 +58,8 @@ describe("always-loaded tool count", () => {
       "host_file_edit",
       "host_file_read",
       "host_file_write",
-      "memory_delete",
+      "memory_manage",
       "memory_recall",
-      "memory_save",
-      "memory_update",
       "skill_execute",
       "skill_load",
       "web_fetch",
@@ -69,6 +67,6 @@ describe("always-loaded tool count", () => {
     ].sort();
 
     expect(activeNames).toEqual(expectedNames);
-    expect(activeTools.length).toBe(17);
+    expect(activeTools.length).toBe(15);
   });
 });

@@ -1834,7 +1834,7 @@ final class ChatViewModelTests: XCTestCase {
     func testTextToolTextCreatesInterleavedSegments() {
         // Text delta → tool call → more text delta
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "What are you working on?")))
-        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "memory_save", input: ["key": AnyCodable("task")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "memory_manage", input: ["key": AnyCodable("task")], sessionId: nil)))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Saved that to memory.")))
 
         XCTAssertEqual(viewModel.messages.count, 1)
@@ -1879,7 +1879,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistoryUsesTextSegments() {
-        let toolCall = HistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
+        let toolCall = HistoryResponseToolCall(name: "memory_manage", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
         let historyItems: [HistoryResponseMessage] = [
             HistoryResponseMessage(
                 id: nil,

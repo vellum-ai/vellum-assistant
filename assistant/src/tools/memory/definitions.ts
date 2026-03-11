@@ -3,7 +3,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_update/memory_delete.",
+    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_manage.",
   input_schema: {
     type: "object",
     properties: {
@@ -26,16 +26,26 @@ export const memoryRecallDefinition: ToolDefinition = {
   },
 };
 
-export const memorySaveDefinition: ToolDefinition = {
-  name: "memory_save",
+export const memoryManageDefinition: ToolDefinition = {
+  name: "memory_manage",
   description:
-    "Save a fact, preference, decision, or other noteworthy information to memory for future recall. Use this when the user shares something worth remembering.",
+    "Save, update, or delete memory items. Use 'save' for new information worth remembering, 'update' to correct existing items, 'delete' to remove outdated items.",
   input_schema: {
     type: "object",
     properties: {
+      op: {
+        type: "string",
+        enum: ["save", "update", "delete"],
+        description: "The operation to perform",
+      },
+      memory_id: {
+        type: "string",
+        description: "ID of existing memory item (required for update/delete)",
+      },
       statement: {
         type: "string",
-        description: "The fact or preference to remember (1-2 sentences)",
+        description:
+          "The fact or preference to remember (required for save/update, 1-2 sentences)",
       },
       kind: {
         type: "string",
@@ -52,66 +62,19 @@ export const memorySaveDefinition: ToolDefinition = {
           "playbook",
           "learning",
         ],
-        description: "Category of the memory item",
+        description: "Category of the memory item (required for save)",
       },
       subject: {
         type: "string",
-        description: "Short subject/topic label (2-8 words)",
+        description:
+          "Short subject/topic label, 2-8 words (optional, save only)",
       },
       reason: {
         type: "string",
         description:
-          "Brief non-technical explanation of what you are saving and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
+          "Brief non-technical explanation shown to the user as a status update",
       },
     },
-    required: ["statement", "kind"],
-  },
-};
-
-export const memoryUpdateDefinition: ToolDefinition = {
-  name: "memory_update",
-  description:
-    "Update or correct an existing memory item. Use this when previously saved information needs to be changed.",
-  input_schema: {
-    type: "object",
-    properties: {
-      memory_id: {
-        type: "string",
-        description:
-          "ID of the memory item to update (from memory_recall results)",
-      },
-      statement: {
-        type: "string",
-        description: "The updated statement to replace the existing one",
-      },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are updating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-      },
-    },
-    required: ["memory_id", "statement"],
-  },
-};
-
-export const memoryDeleteDefinition: ToolDefinition = {
-  name: "memory_delete",
-  description:
-    "Delete a previously saved memory item. Use this when information is no longer relevant, was saved in error, or the user asks to forget something.",
-  input_schema: {
-    type: "object",
-    properties: {
-      memory_id: {
-        type: "string",
-        description:
-          "ID of the memory item to delete (from memory_recall results)",
-      },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are deleting and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-      },
-    },
-    required: ["memory_id"],
+    required: ["op"],
   },
 };

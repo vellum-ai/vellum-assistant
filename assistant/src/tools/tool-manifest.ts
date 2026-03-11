@@ -12,12 +12,7 @@ import { credentialStoreTool } from "./credentials/vault.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { fileWriteTool } from "./filesystem/write.js";
-import {
-  memoryDeleteTool,
-  memoryRecallTool,
-  memorySaveTool,
-  memoryUpdateTool,
-} from "./memory/register.js";
+import { memoryManageTool, memoryRecallTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import type { LazyToolDescriptor } from "./registry.js";
@@ -86,9 +81,7 @@ export const explicitTools: Tool[] = [
   assetSearchTool,
   assetMaterializeTool,
   // Always-explicit tools
-  memorySaveTool,
-  memoryUpdateTool,
-  memoryDeleteTool,
+  memoryManageTool,
   memoryRecallTool,
   credentialStoreTool,
 ];

@@ -268,7 +268,7 @@ describe("buildSystemPrompt", () => {
   test("includes memory persistence section", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## Memory Persistence");
-    expect(result).toContain("memory_save");
+    expect(result).toContain("memory_manage");
     expect(result).toContain("Saved > unsaved. Always.");
   });
 
