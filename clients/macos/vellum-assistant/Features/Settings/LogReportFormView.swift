@@ -157,17 +157,14 @@ private struct ReasonRow: View {
 // MARK: - Preview
 
 #if DEBUG
-struct LogReportFormView_Preview: PreviewProvider {
-    static var previews: some View {
-        ZStack {
-            VColor.background.ignoresSafeArea()
-            LogReportFormView(
-                onSend: { _ in },
-                onCancel: {}
-            )
-        }
-        .frame(width: 440, height: 520)
-        .previewDisplayName("LogReportFormView")
+#Preview("LogReportFormView") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        LogReportFormView(
+            onSend: { _ in },
+            onCancel: {}
+        )
     }
+    .frame(width: 440, height: 520)
 }
 #endif
