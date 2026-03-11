@@ -23,6 +23,12 @@ struct WakeUpStepView: View {
     @State private var showTitle = false
     @State private var showSubtext = false
     @State private var showButtons = false
+    @State private var showCharacters = false
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     private var primaryButtonTitle: String {
         onboardingPrimaryButtonTitle(isAuthenticated: authManager?.isAuthenticated == true)
@@ -111,7 +117,21 @@ struct WakeUpStepView: View {
         Text("\u{00A9} 2026 Vellum Inc.")
             .font(VFont.monoSmall)
             .foregroundStyle(VColor.textMuted.opacity(0.5))
-            .padding(.bottom, VSpacing.lg)
+            .padding(.bottom, VSpacing.sm)
+
+        // Characters peeking up from the bottom — single composed image
+        // exported from Figma, displayed edge-to-edge at the window bottom.
+        if let characters = Self.welcomeCharacters {
+            Image(nsImage: characters)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .opacity(showCharacters ? 1 : 0)
+                .offset(y: showCharacters ? 0 : 30)
+                .animation(.easeOut(duration: 0.6).delay(0.7), value: showCharacters)
+                .onAppear { showCharacters = true }
+                .accessibilityHidden(true)
+        }
     }
 }
 
