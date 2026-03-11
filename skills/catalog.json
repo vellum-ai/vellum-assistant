@@ -248,19 +248,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "onboarding-starter-tasks",
-      "name": "onboarding-starter-tasks",
-      "description": "Playbooks for onboarding starter task cards (make_it_yours, research_topic, research_to_ui)",
-      "metadata": {
-        "emoji": "🚀",
-        "vellum": {
-          "display-name": "Onboarding Starter Tasks",
-          "user-invocable": "false"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "public-ingress",
       "name": "public-ingress",
       "description": "Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl",
