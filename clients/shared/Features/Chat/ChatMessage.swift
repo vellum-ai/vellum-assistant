@@ -1655,6 +1655,8 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].inputFull = ""
             toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil
+            toolCalls[i].partialOutput = ""
+            toolCalls[i].partialOutputRevision = 0
         }
         for i in attachments.indices {
             attachments[i].data = ""
