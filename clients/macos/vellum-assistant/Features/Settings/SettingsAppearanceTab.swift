@@ -363,7 +363,7 @@ struct SettingsAppearanceTab: View {
 
     private var selectedCityPlaceholder: String {
         guard !selectedTimezone.isEmpty,
-              let tz = TimeZone(identifier: selectedTimezone) else {
+              TimeZone(identifier: selectedTimezone) != nil else {
             return "Search city or country..."
         }
         let parts = selectedTimezone.components(separatedBy: "/")
