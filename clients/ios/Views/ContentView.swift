@@ -21,7 +21,7 @@ struct ContentView: View {
         _threadStore = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
     }
 
-    private enum Tab { case chats, tasks, things, intelligence, settings }
+    private enum Tab { case chats, things, intelligence, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -229,14 +229,6 @@ struct ContentView: View {
                 .tag(Tab.chats)
                 .tabItem {
                     Label { Text("Chats") } icon: { VIconView(.messageSquare, size: 12) }
-                }
-
-            TasksTabView(onConnectTapped: navigateToConnectSettings)
-                .environmentObject(clientProvider)
-                .id(ObjectIdentifier(clientProvider.client as AnyObject))
-                .tag(Tab.tasks)
-                .tabItem {
-                    Label { Text("Tasks") } icon: { VIconView(.clipboardList, size: 12) }
                 }
 
             ThingsTabView(onConnectTapped: navigateToConnectSettings)
