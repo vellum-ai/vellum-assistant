@@ -14,9 +14,10 @@ import { Command } from "commander";
 
 const execFileAsync = promisify(execFile);
 
-async function ensureChromeWithCdp(
-  opts?: { startUrl?: string; port?: number },
-): Promise<{ baseUrl: string; launchedByUs: boolean; userDataDir: string }> {
+async function ensureChromeWithCdp(opts?: {
+  startUrl?: string;
+  port?: number;
+}): Promise<{ baseUrl: string; launchedByUs: boolean; userDataDir: string }> {
   const args = ["browser", "chrome", "launch"];
   if (opts?.startUrl) args.push("--start-url", opts.startUrl);
   if (opts?.port) args.push("--port", String(opts.port));
