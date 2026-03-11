@@ -751,6 +751,8 @@ function buildPostToolResponseSection(): string {
     "  → Call document_create",
     "",
     "For permission-gated tools, send one short context sentence immediately before the tool call so the user can make an informed allow/deny decision.",
+    "",
+    '**Reason field:** For every tool call, include a `reason` parameter — a brief, non-technical explanation of what you are doing and why. This is shown to the user as a live status update. Use simple language a non-technical person would understand (e.g. "Checking your project settings" not "file_read config.ts").',
   ].join("\n");
 }
 
