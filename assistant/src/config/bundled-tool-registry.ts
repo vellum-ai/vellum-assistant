@@ -140,6 +140,8 @@ import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
 import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js";
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
+// ── screen-watch ─────────────────────────────────────────────────────────────
+import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── slack ────────────────────────────────────────────────────────────────────
 import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
 import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
@@ -323,6 +325,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["playbooks:tools/playbook-list.ts", playbookList],
   ["playbooks:tools/playbook-update.ts", playbookUpdate],
   ["playbooks:tools/playbook-delete.ts", playbookDelete],
+
+  // screen-watch
+  ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
 
   // schedule
   ["schedule:tools/schedule-create.ts", scheduleCreate],

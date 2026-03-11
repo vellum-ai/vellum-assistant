@@ -19,7 +19,6 @@ import { navigateSettingsTabTool } from "./system/navigate-settings.js";
 import { openSystemSettingsTool } from "./system/open-system-settings.js";
 import { voiceConfigUpdateTool } from "./system/voice-config.js";
 import type { Tool } from "./types.js";
-import { screenWatchTool } from "./watch/screen-watch.js";
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects.
@@ -82,7 +81,6 @@ export const explicitTools: Tool[] = [
   memoryDeleteTool,
   memoryRecallTool,
   credentialStoreTool,
-  screenWatchTool,
   voiceConfigUpdateTool,
   setAvatarTool,
   openSystemSettingsTool,
