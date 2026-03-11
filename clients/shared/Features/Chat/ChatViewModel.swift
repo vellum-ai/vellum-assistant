@@ -355,11 +355,11 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
     public var isVoiceModeActive: Bool = false
-    var pendingUserAttachments: [IPCAttachment]?
+    var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
     private(set) var lastFailedMessageDisplayText: String?
-    private(set) var lastFailedMessageAttachments: [IPCAttachment]?
+    private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
@@ -370,7 +370,7 @@ public final class ChatViewModel: ObservableObject {
     var secretBlockedMessageText: String?
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
-    var secretBlockedAttachments: [IPCAttachment]?
+    var secretBlockedAttachments: [UserMessageAttachment]?
     var secretBlockedActiveSurfaceId: String?
     var secretBlockedCurrentPage: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
@@ -622,7 +622,7 @@ public final class ChatViewModel: ObservableObject {
               let sessionId = sessionId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
-            try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
+            try daemonClient.send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
         }
@@ -643,7 +643,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Handle a `message_content_response` from the daemon, updating the matching
     /// message with full (untruncated) text and tool call results.
-    public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+    public func handleMessageContentResponse(_ response: MessageContentResponse) {
         guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
 
         // Only update text when the message has a single segment (non-interleaved).
@@ -1018,7 +1018,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingUserMessage = text
                 pendingUserMessageDisplayText = rawText
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
                 isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
@@ -1094,8 +1094,8 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedCurrentPage = nil
         flushCoalescedPublish()
 
-        let messageAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+        let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -1146,7 +1146,7 @@ public final class ChatViewModel: ObservableObject {
         btwLoading = false
     }
 
-    private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
+    private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
         // message; message-less session creates (e.g. private thread
         // pre-allocation) are silent and shouldn't affect UI state.
@@ -1211,7 +1211,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -2184,7 +2184,7 @@ public final class ChatViewModel: ObservableObject {
     ///     (older page fetched on demand). When `false`, the standard initial-load
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
-        _ historyMessages: [IPCHistoryResponseMessage],
+        _ historyMessages: [HistoryResponseMessage],
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false

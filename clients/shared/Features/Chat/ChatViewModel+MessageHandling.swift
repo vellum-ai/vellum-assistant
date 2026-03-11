@@ -317,7 +317,7 @@ extension ChatViewModel {
     }
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    func mapMessageAttachments(_ attachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
+    func mapMessageAttachments(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
         attachments.compactMap { attachment in
             let id = attachment.id ?? UUID().uuidString
             let base64 = attachment.data
@@ -365,7 +365,7 @@ extension ChatViewModel {
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
-    func ingestAssistantAttachments(_ attachments: [IPCUserMessageAttachment]?) {
+    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?) {
         guard let attachments, !attachments.isEmpty else { return }
         let chatAttachments = mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
@@ -1048,7 +1048,7 @@ extension ChatViewModel {
                     // Reconstruct attachments from the blocked user message's ChatAttachments
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
                         secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId

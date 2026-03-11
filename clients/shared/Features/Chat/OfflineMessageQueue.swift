@@ -17,7 +17,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     let attachments: [OfflineQueuedAttachment]
     let enqueuedAt: Date
 
-    init(sessionId: String?, text: String, displayText: String? = nil, attachments: [IPCAttachment]?) {
+    init(sessionId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?) {
         self.id = UUID()
         self.sessionId = sessionId
         self.text = text
@@ -29,10 +29,10 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     }
 
     /// Reconstruct the attachment list for dispatch.
-    var messageAttachments: [IPCAttachment]? {
+    var messageAttachments: [UserMessageAttachment]? {
         guard !attachments.isEmpty else { return nil }
         return attachments.map {
-            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText)
         }
     }
 }
@@ -40,7 +40,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
 struct OfflineQueuedAttachment: Codable {
     let filename: String
     let mimeType: String
-    /// Base64-encoded attachment data, matching the `IPCAttachment.data` string format.
+    /// Base64-encoded attachment data, matching the `UserMessageAttachment.data` string format.
     let data: String
     let extractedText: String?
 }
@@ -76,7 +76,7 @@ final class OfflineMessageQueue {
     // MARK: - Enqueue
 
     /// Append a message to the end of the offline queue and persist it.
-    func enqueue(sessionId: String?, text: String, displayText: String? = nil, attachments: [IPCAttachment]?) {
+    func enqueue(sessionId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?) {
         let message = OfflineQueuedMessage(sessionId: sessionId, text: text, displayText: displayText, attachments: attachments)
         queue.append(message)
         save()

@@ -24,7 +24,7 @@ final class ToolConfirmationDataTests: XCTestCase {
     }
 
     func testUnifiedDiffPreviewShowsReplacedLines() {
-        let diff = IPCConfirmationRequestDiff(
+        let diff = ConfirmationRequestDiff(
             filePath: "/tmp/test.txt",
             oldContent: "line1\nline2\nline3",
             newContent: "line1\nline2-updated\nline3",
@@ -51,7 +51,7 @@ final class ToolConfirmationDataTests: XCTestCase {
         newLines[2] = "CHANGED_A"
         newLines[17] = "CHANGED_B"
 
-        let diff = IPCConfirmationRequestDiff(
+        let diff = ConfirmationRequestDiff(
             filePath: "/tmp/multi.txt",
             oldContent: oldLines.joined(separator: "\n"),
             newContent: newLines.joined(separator: "\n"),
@@ -79,7 +79,7 @@ final class ToolConfirmationDataTests: XCTestCase {
         var newLines = oldLines
         newLines[500] = "line501-updated"
 
-        let diff = IPCConfirmationRequestDiff(
+        let diff = ConfirmationRequestDiff(
             filePath: "/tmp/large.txt",
             oldContent: oldLines.joined(separator: "\n"),
             newContent: newLines.joined(separator: "\n"),

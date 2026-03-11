@@ -34,9 +34,9 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
-    public let diff: IPCConfirmationRequestDiff?
-    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
-    public let scopeOptions: [IPCConfirmationRequestScopeOption]
+    public let diff: ConfirmationRequestDiff?
+    public let allowlistOptions: [ConfirmationRequestAllowlistOption]
+    public let scopeOptions: [ConfirmationRequestScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -598,7 +598,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: IPCConfirmationRequestDiff? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption] = [], scopeOptions: [IPCConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -620,17 +620,17 @@ public struct ToolConfirmationData: Equatable {
         input: [String: AnyCodable],
         riskLevel: String,
         executionTarget: String?,
-        promptPayload: IPCToolPermissionSimulateResponsePromptPayload
+        promptPayload: ToolPermissionSimulateResponsePromptPayload
     ) -> ToolConfirmationData {
         let allowlistOptions = promptPayload.allowlistOptions.map { opt in
-            IPCConfirmationRequestAllowlistOption(
+            ConfirmationRequestAllowlistOption(
                 label: opt.label,
                 description: opt.description,
                 pattern: opt.pattern
             )
         }
         let scopeOptions = promptPayload.scopeOptions.map { opt in
-            IPCConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
+            ConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
         }
         return ToolConfirmationData(
             requestId: "simulation",
