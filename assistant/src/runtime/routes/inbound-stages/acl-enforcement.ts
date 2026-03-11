@@ -403,11 +403,12 @@ export async function enforceIngressAcl(
 
     if (resolvedMember) {
       if (resolvedMember.channel.status !== "active") {
+        const isBlockedMember = resolvedMember.channel.status === "blocked";
         // Same bypass logic as the no-member branch: verification codes and
-        // bootstrap commands must pass through even when the member record is
-        // revoked/blocked — otherwise the user can never re-verify.
+        // bootstrap commands must pass through for re-verifiable states
+        // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
-        if (isGuardianVerifyCode) {
+        if (!isBlockedMember && isGuardianVerifyCode) {
           const hasPendingChallenge = !!getPendingSession(sourceChannel);
           const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
@@ -424,7 +425,7 @@ export async function enforceIngressAcl(
             );
           }
         }
-        if (isBootstrapCommand) {
+        if (!isBlockedMember && isBootstrapCommand) {
           const bootstrapPayload = (
             rawCommandIntentForAcl as Record<string, unknown>
           ).payload as string;
