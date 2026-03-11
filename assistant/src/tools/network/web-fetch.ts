@@ -882,4 +882,5 @@ class WebFetchTool implements Tool {
   }
 }
 
-registerTool(new WebFetchTool());
+export const webFetchTool = new WebFetchTool();
+registerTool(webFetchTool);

@@ -50,4 +50,5 @@ export class SkillExecuteTool implements Tool {
   }
 }
 
-registerTool(new SkillExecuteTool());
+export const skillExecuteTool = new SkillExecuteTool();
+registerTool(skillExecuteTool);

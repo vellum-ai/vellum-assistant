@@ -103,4 +103,5 @@ class FileReadTool implements Tool {
   }
 }
 
-registerTool(new FileReadTool());
+export const fileReadTool = new FileReadTool();
+registerTool(fileReadTool);

@@ -298,4 +298,5 @@ export class SkillLoadTool implements Tool {
   }
 }
 
-registerTool(new SkillLoadTool());
+export const skillLoadTool = new SkillLoadTool();
+registerTool(skillLoadTool);

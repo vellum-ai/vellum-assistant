@@ -161,4 +161,5 @@ class FileEditTool implements Tool {
   }
 }
 
-registerTool(new FileEditTool());
+export const fileEditTool = new FileEditTool();
+registerTool(fileEditTool);
