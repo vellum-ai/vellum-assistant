@@ -31,8 +31,9 @@ enum SentryDeviceInfo {
     static func configureSentryScope() {
         SentrySDK.configureScope { scope in
             scope.setTag(value: deviceId, key: "device_id")
-            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
-                scope.setTag(value: assistantId, key: "assistant_id")
+            if let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+               LockfileAssistant.loadAll().contains(where: { $0.assistantId == storedId }) {
+                scope.setTag(value: storedId, key: "assistant_id")
             } else {
                 scope.removeTag(key: "assistant_id")
             }
