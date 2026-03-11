@@ -105,22 +105,6 @@ extension HTTPTransport {
             }
             timerSource.resume()
 
-            do {
-                try process.run()
-            } catch {
-                timerSource.cancel()
-                log.error("Failed to launch host bash process: \(error.localizedDescription)")
-                let result = HostBashResultPayload(
-                    requestId: request.requestId,
-                    stdout: "",
-                    stderr: "Failed to launch process: \(error.localizedDescription)",
-                    exitCode: nil,
-                    timedOut: false
-                )
-                await self.postHostBashResult(result)
-                return
-            }
-
             // Read stdout and stderr concurrently to avoid deadlock.
             // If we read sequentially and the process fills one pipe's buffer
             // (~64 KB), the process blocks on that write, the other pipe never
@@ -141,11 +125,38 @@ extension HTTPTransport {
                 pipeGroup.leave()
             }
 
-            process.waitUntilExit()
-            await withCheckedContinuation { continuation in
-                pipeGroup.notify(queue: .global()) {
-                    continuation.resume()
+            // Use terminationHandler + continuation instead of waitUntilExit()
+            // so the cooperative thread pool thread is suspended (not blocked)
+            // for the duration of the bash command. terminationHandler is set
+            // before process.run() to avoid a race where the process exits
+            // before the handler is installed.
+            do {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    process.terminationHandler = { _ in
+                        pipeGroup.notify(queue: .global()) {
+                            continuation.resume()
+                        }
+                    }
+                    do {
+                        try process.run()
+                    } catch {
+                        // Clear the handler since we never started
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: error)
+                    }
                 }
+            } catch {
+                timerSource.cancel()
+                log.error("Failed to launch host bash process: \(error.localizedDescription)")
+                let result = HostBashResultPayload(
+                    requestId: request.requestId,
+                    stdout: "",
+                    stderr: "Failed to launch process: \(error.localizedDescription)",
+                    exitCode: nil,
+                    timedOut: false
+                )
+                await self.postHostBashResult(result)
+                return
             }
             timerSource.cancel()
 
