@@ -45,14 +45,23 @@ function loadToolManifest(
 /**
  * Format a skill tool manifest into a human-readable "Available Tools" section
  * that instructs the LLM to use `skill_execute` to invoke the tools.
+ *
+ * When `childSkillName` is provided, a lighter sub-heading is used instead of
+ * the full `## Available Tools` header + preamble, avoiding duplicate headers
+ * when parent and child skills both have TOOLS.json.
  */
-function formatToolSchemas(manifest: SkillToolManifest): string {
-  const lines: string[] = [
-    "## Available Tools",
-    "",
-    "Use `skill_execute` to call these tools.",
-    "",
-  ];
+function formatToolSchemas(
+  manifest: SkillToolManifest,
+  childSkillName?: string,
+): string {
+  const lines: string[] = childSkillName
+    ? [`### Tools from ${childSkillName}`, ""]
+    : [
+        "## Available Tools",
+        "",
+        "Use `skill_execute` to call these tools.",
+        "",
+      ];
 
   for (const tool of manifest.tools) {
     lines.push(`### ${tool.name}`);
@@ -221,12 +230,14 @@ export class SkillLoadTool implements Tool {
             `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childLoaded.skill.body}`,
           );
 
-          // Load tool schemas for the included skill
+          // Load tool schemas for the included skill (lighter sub-heading)
           const childManifest = loadToolManifest(
             childLoaded.skill.directoryPath,
           );
           if (childManifest) {
-            includedBodies.push(formatToolSchemas(childManifest));
+            includedBodies.push(
+              formatToolSchemas(childManifest, childLoaded.skill.displayName),
+            );
           }
         }
       }
