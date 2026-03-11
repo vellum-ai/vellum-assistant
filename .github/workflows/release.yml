@@ -701,6 +701,7 @@ jobs:
       - name: Build binaries
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
 
       - name: Build release .app
