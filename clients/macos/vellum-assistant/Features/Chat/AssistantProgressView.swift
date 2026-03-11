@@ -673,10 +673,11 @@ private struct StepDetailRow: View {
                 .padding(.horizontal, VSpacing.lg)
             }
 
-            // Live output (streaming, running tools only)
-            if !toolCall.partialOutput.isEmpty && !toolCall.isComplete {
+            // Live output: shown while tool is running, and also as fallback
+            // when the tool completed without a final result (cancel/error).
+            if !toolCall.partialOutput.isEmpty && (!toolCall.isComplete || toolCall.result == nil) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Live output")
+                    Text(toolCall.isComplete ? "Output" : "Live output")
                         .font(VFont.small)
                         .foregroundColor(VColor.textMuted)
                         .textCase(.uppercase)
