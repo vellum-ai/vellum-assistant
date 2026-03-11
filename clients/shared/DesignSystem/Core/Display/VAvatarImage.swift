@@ -74,15 +74,15 @@ struct VAvatarImage: View {
         VColor.background.ignoresSafeArea()
         HStack(spacing: VSpacing.lg) {
             VAvatarImage(
-                image: AvatarAppearanceManager.shared.chatAvatarImage,
+                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
                 size: 28
             )
             VAvatarImage(
-                image: AvatarAppearanceManager.shared.chatAvatarImage,
+                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
                 size: 40
             )
             VAvatarImage(
-                image: AvatarAppearanceManager.shared.chatAvatarImage,
+                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
                 size: 52
             )
         }
