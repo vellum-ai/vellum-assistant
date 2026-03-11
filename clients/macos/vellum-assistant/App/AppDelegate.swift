@@ -78,6 +78,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapInterstitialWindow: NSWindow?
     var crashReportWindow: NSWindow?
     var crashReportWindowObserver: NSObjectProtocol?
+    var logReportWindow: NSWindow?
+    var logReportWindowObserver: NSObjectProtocol?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     var bootstrapRetryTask: Task<Void, Never>?
     /// Tracks the most recent failure kind during bootstrap retries so that

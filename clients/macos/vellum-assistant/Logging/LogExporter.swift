@@ -25,14 +25,15 @@ private let log = Logger(
 enum LogExporter {
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
-    static func sendLogsToSentry() {
+    /// Includes report metadata (reason, message, email) from the log report form.
+    static func sendLogsToSentry(formData: LogReportFormData) {
         Task {
             let fileManager = FileManager.default
             let archiveURL = fileManager.temporaryDirectory
                 .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
             do {
-                try await buildArchive(destination: archiveURL)
+                try await buildArchive(destination: archiveURL, formData: formData)
             } catch {
                 log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
                 let alert = NSAlert()
@@ -47,7 +48,13 @@ enum LogExporter {
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
             event.message = SentryMessage(formatted: "Manual log export")
-            event.tags = ["source": "manual_log_export"]
+            event.tags = [
+                "source": "manual_log_export",
+                "report_reason": formData.reason.rawValue,
+            ]
+            if !formData.message.isEmpty {
+                event.extra = ["report_message": formData.message]
+            }
 
             await withCheckedContinuation { continuation in
                 MetricKitManager.sendManualReport(event, attachments: [attachment]) {
@@ -76,7 +83,7 @@ enum LogExporter {
 
     /// Builds a tar.gz archive containing all discoverable log files.
     /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
-    private nonisolated static func buildArchive(destination: URL) async throws {
+    private nonisolated static func buildArchive(destination: URL, formData: LogReportFormData? = nil) async throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
@@ -150,6 +157,24 @@ enum LogExporter {
         PortDiagnostics.write(
             to: tempDir.appendingPathComponent("port-diagnostics.json")
         )
+
+        // 9. Report metadata — reason and message from the log report form.
+        // Email is intentionally excluded from the archive to avoid sending PII to Sentry.
+        // It is persisted locally via @AppStorage("logReportEmail") and can be correlated
+        // with the device_id Sentry tag when follow-up is needed.
+        if let formData {
+            let metadata: [String: String] = [
+                "reason": formData.reason.rawValue,
+                "message": formData.message,
+                "device_id": SentryDeviceInfo.deviceId,
+            ]
+            if let data = try? JSONSerialization.data(
+                withJSONObject: metadata,
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
+            }
+        }
 
         // Verify we have at least one file to export
         let collected = try fileManager.contentsOfDirectory(
