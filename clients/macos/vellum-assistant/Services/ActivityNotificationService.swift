@@ -62,7 +62,7 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
 
         // Format notification content
         let content = UNMutableNotificationContent()
-        content.title = formatTitle(summary: summary, steps: steps)
+        content.title = formatTitle(summary: summary, steps: steps, toolCalls: toolCalls)
         content.body = formatBody(toolCalls: toolCalls)
         content.categoryIdentifier = "ACTIVITY_COMPLETE"
         content.sound = .default
@@ -115,16 +115,33 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
 
     // MARK: - Private Helpers
 
-    private func formatTitle(summary: String, steps: Int) -> String {
+    private func formatTitle(summary: String, steps: Int, toolCalls: [ToolCallData]) -> String {
         // Use the summary if it's meaningful (not empty and not just "Task completed")
         let cleanSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanSummary.isEmpty && cleanSummary.lowercased() != "task completed" {
             return cleanSummary
         }
 
+        // For single tool, show the friendly action as the title
+        if toolCalls.count == 1, let tc = toolCalls.first {
+            let toolName = tc.toolName.lowercased()
+            if toolName.contains("bash") || toolName.contains("command") {
+                if !tc.inputSummary.isEmpty {
+                    let cmd = tc.inputSummary.count > 40 ? String(tc.inputSummary.prefix(37)) + "..." : tc.inputSummary
+                    return "Ran command: \(cmd)"
+                }
+                return "Ran command"
+            }
+            let friendlyName = friendlyToolName(tc.toolName)
+            if !tc.inputSummary.isEmpty && tc.inputSummary.count < 40 && !tc.inputSummary.contains("--") {
+                return "\(friendlyName): \(tc.inputSummary)"
+            }
+            return friendlyName
+        }
+
         // Fallback to step count
-        let stepWord = steps == 1 ? "step" : "steps"
-        return "Task completed (\(steps) \(stepWord))"
+        let count = toolCalls.isEmpty ? steps : toolCalls.count
+        return "Completed \(count) action\(count == 1 ? "" : "s")"
     }
 
     private func formatBody(toolCalls: [ToolCallData]) -> String {
@@ -134,15 +151,16 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         }
 
         // Filter and format tool calls to be user-friendly.
-        // For body text, show the target detail (tool name + input) rather than the
-        // reasonDescription, since the title already shows the reason. For multi-tool
-        // notifications where only some have reasons, use the reason as the label.
+        // For single-tool notifications, the title shows the tool action so the body
+        // shows the reason. For multi-tool notifications, use reasons as labels.
         let isSingleWithReason = toolCalls.count == 1
             && toolCalls.first?.reasonDescription?.isEmpty == false
+        if isSingleWithReason, let reason = toolCalls.first?.reasonDescription, !reason.isEmpty {
+            let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
+            return String(capitalized)
+        }
         let friendlyTools = toolCalls.compactMap { tc -> String? in
-            // For single-tool notifications where the title already shows the reason,
-            // use the target detail (friendly name + input) for the body instead
-            if !isSingleWithReason, let reason = tc.reasonDescription, !reason.isEmpty {
+            if let reason = tc.reasonDescription, !reason.isEmpty {
                 let capitalized = reason.prefix(1).uppercased() + reason.dropFirst()
                 return String(capitalized)
             }
@@ -154,8 +172,8 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
                 if let action = extractBashAction(from: tc.inputSummary) {
                     return action
                 }
-                // Show the raw command if it's short enough
-                if !tc.inputSummary.isEmpty && tc.inputSummary.count < 50 {
+                // Show the command, let macOS truncate if needed
+                if !tc.inputSummary.isEmpty {
                     return "Ran command: \(tc.inputSummary)"
                 }
                 return "Ran command"
