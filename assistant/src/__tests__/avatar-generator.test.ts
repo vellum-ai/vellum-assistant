@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ManagedAvatarError } from "../media/avatar-types.js";
-
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -10,7 +8,7 @@ let mockRouterResult: unknown;
 let mockRouterError: Error | undefined;
 let mockWorkspaceDir = "/tmp/test-workspace";
 
-const routedGenerateAvatarFn = mock(async () => {
+const generateAvatarFn = mock(async () => {
   if (mockRouterError) throw mockRouterError;
   return mockRouterResult;
 });
@@ -24,7 +22,7 @@ const renameSyncFn = mock(() => {});
 // ---------------------------------------------------------------------------
 
 mock.module("../media/avatar-router.js", () => ({
-  routedGenerateAvatar: routedGenerateAvatarFn,
+  generateAvatar: generateAvatarFn,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -57,8 +55,6 @@ function successResult() {
   return {
     imageBase64: "iVBORw0KGgoAAAANSUhEUg==",
     mimeType: "image/png",
-    pathUsed: "local" as const,
-    correlationId: "test-corr-id",
   };
 }
 
@@ -78,7 +74,7 @@ describe("setAvatarTool", () => {
     mockRouterResult = successResult();
     mockRouterError = undefined;
     mockWorkspaceDir = "/tmp/test-workspace";
-    routedGenerateAvatarFn.mockClear();
+    generateAvatarFn.mockClear();
     mkdirSyncFn.mockClear();
     writeFileSyncFn.mockClear();
     renameSyncFn.mockClear();
@@ -89,7 +85,7 @@ describe("setAvatarTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Avatar updated");
-    expect(routedGenerateAvatarFn).toHaveBeenCalledTimes(1);
+    expect(generateAvatarFn).toHaveBeenCalledTimes(1);
   });
 
   test("empty description returns error", async () => {
@@ -97,7 +93,7 @@ describe("setAvatarTool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("description is required");
-    expect(routedGenerateAvatarFn).not.toHaveBeenCalled();
+    expect(generateAvatarFn).not.toHaveBeenCalled();
   });
 
   test("no image data returned yields error", async () => {
@@ -107,54 +103,6 @@ describe("setAvatarTool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No image data returned");
-  });
-
-  test("ManagedAvatarError with statusCode 429 returns user-friendly rate limit message", async () => {
-    mockRouterError = new ManagedAvatarError({
-      code: "some_error_code",
-      subcode: "too_many_requests",
-      detail: "Rate limited",
-      retryable: true,
-      correlationId: "corr-rate",
-      statusCode: 429,
-    });
-
-    const result = await executeAvatar("a cat");
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("rate limited");
-  });
-
-  test("ManagedAvatarError with 503 returns service unavailable message", async () => {
-    mockRouterError = new ManagedAvatarError({
-      code: "avatar_service_error",
-      subcode: "upstream_unavailable",
-      detail: "Service down",
-      retryable: true,
-      correlationId: "corr-503",
-      statusCode: 503,
-    });
-
-    const result = await executeAvatar("a cat");
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("temporarily unavailable");
-  });
-
-  test("ManagedAvatarError with other code returns detail message", async () => {
-    mockRouterError = new ManagedAvatarError({
-      code: "avatar_content_filtered",
-      subcode: "policy_violation",
-      detail: "Content was filtered by safety policy",
-      retryable: false,
-      correlationId: "corr-filter",
-      statusCode: 400,
-    });
-
-    const result = await executeAvatar("a cat");
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Content was filtered by safety policy");
   });
 
   test("generic error returns mapped message", async () => {
