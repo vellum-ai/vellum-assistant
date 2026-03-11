@@ -905,7 +905,12 @@ public struct ToolCallData: Identifiable, Equatable {
         case "web_search":
             return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
         case "memory_manage":
-            return "Saved a memory"
+            let op = inputRawDict?["op"]?.value as? String ?? "save"
+            switch op {
+            case "update": return "Updated a memory"
+            case "delete": return "Deleted a memory"
+            default: return "Saved a memory"
+            }
         case "memory_recall":
             return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
         case "task_run":

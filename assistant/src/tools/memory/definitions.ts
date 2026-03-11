@@ -26,55 +26,69 @@ export const memoryRecallDefinition: ToolDefinition = {
   },
 };
 
+const memoryManageProperties = {
+  op: {
+    type: "string" as const,
+    enum: ["save", "update", "delete"],
+    description: "The operation to perform",
+  },
+  memory_id: {
+    type: "string" as const,
+    description: "ID of existing memory item (required for update/delete)",
+  },
+  statement: {
+    type: "string" as const,
+    description:
+      "The fact or preference to remember (required for save/update, 1-2 sentences)",
+  },
+  kind: {
+    type: "string" as const,
+    enum: [
+      "preference",
+      "fact",
+      "decision",
+      "profile",
+      "relationship",
+      "event",
+      "opinion",
+      "instruction",
+      "style",
+      "playbook",
+      "learning",
+    ],
+    description: "Category of the memory item (required for save)",
+  },
+  subject: {
+    type: "string" as const,
+    description: "Short subject/topic label, 2-8 words (optional, save only)",
+  },
+  reason: {
+    type: "string" as const,
+    description:
+      "Brief non-technical explanation shown to the user as a status update",
+  },
+};
+
 export const memoryManageDefinition: ToolDefinition = {
   name: "memory_manage",
   description:
     "Save, update, or delete memory items. Use 'save' for new information worth remembering, 'update' to correct existing items, 'delete' to remove outdated items.",
   input_schema: {
     type: "object",
-    properties: {
-      op: {
-        type: "string",
-        enum: ["save", "update", "delete"],
-        description: "The operation to perform",
+    properties: memoryManageProperties,
+    anyOf: [
+      {
+        properties: { op: { const: "save" } },
+        required: ["op", "statement", "kind"],
       },
-      memory_id: {
-        type: "string",
-        description: "ID of existing memory item (required for update/delete)",
+      {
+        properties: { op: { const: "update" } },
+        required: ["op", "memory_id", "statement"],
       },
-      statement: {
-        type: "string",
-        description:
-          "The fact or preference to remember (required for save/update, 1-2 sentences)",
+      {
+        properties: { op: { const: "delete" } },
+        required: ["op", "memory_id"],
       },
-      kind: {
-        type: "string",
-        enum: [
-          "preference",
-          "fact",
-          "decision",
-          "profile",
-          "relationship",
-          "event",
-          "opinion",
-          "instruction",
-          "style",
-          "playbook",
-          "learning",
-        ],
-        description: "Category of the memory item (required for save)",
-      },
-      subject: {
-        type: "string",
-        description:
-          "Short subject/topic label, 2-8 words (optional, save only)",
-      },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation shown to the user as a status update",
-      },
-    },
-    required: ["op"],
+    ],
   },
 };
