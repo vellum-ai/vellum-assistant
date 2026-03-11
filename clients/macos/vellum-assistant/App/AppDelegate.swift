@@ -290,7 +290,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         // Provision an AssistantAPIKey for local assistants so they can
-        // call platform APIs (e.g. managed avatar generation).
+        // call platform APIs.
         ensureLocalAssistantApiKey()
 
         if isFirstLaunch {
