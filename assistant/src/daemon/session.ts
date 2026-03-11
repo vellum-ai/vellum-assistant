@@ -47,6 +47,7 @@ import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -158,6 +159,7 @@ export class Session {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -374,6 +376,7 @@ export class Session {
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
     this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+    this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
@@ -417,6 +420,7 @@ export class Session {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     this.hostBashProxy?.dispose();
+    this.hostFileProxy?.dispose();
     disposeSession(this);
   }
 
@@ -585,6 +589,20 @@ export class Session {
       this.hostBashProxy.dispose();
     }
     this.hostBashProxy = proxy;
+  }
+
+  resolveHostFile(
+    requestId: string,
+    response: { content: string; isError: boolean },
+  ): void {
+    this.hostFileProxy?.resolve(requestId, response);
+  }
+
+  setHostFileProxy(proxy: HostFileProxy | undefined): void {
+    if (this.hostFileProxy && this.hostFileProxy !== proxy) {
+      this.hostFileProxy.dispose();
+    }
+    this.hostFileProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
