@@ -131,7 +131,6 @@ import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── sequences ──────────────────────────────────────────────────────────────────
 import * as sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
-import * as sequenceCancel from "./bundled-skills/sequences/tools/sequence-cancel.js";
 import * as sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
 import * as sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
 import * as sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
@@ -139,8 +138,6 @@ import * as sequenceEnrollmentList from "./bundled-skills/sequences/tools/sequen
 import * as sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
 import * as sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
 import * as sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
-import * as sequencePause from "./bundled-skills/sequences/tools/sequence-pause.js";
-import * as sequenceResume from "./bundled-skills/sequences/tools/sequence-resume.js";
 import * as sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
 // ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
@@ -344,9 +341,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["sequences:tools/sequence-enrollment-list.ts", sequenceEnrollmentList],
   ["sequences:tools/sequence-import.ts", sequenceImport],
   ["sequences:tools/sequence-analytics.ts", sequenceAnalytics],
-  ["sequences:tools/sequence-pause.ts", sequencePause],
-  ["sequences:tools/sequence-resume.ts", sequenceResume],
-  ["sequences:tools/sequence-cancel.ts", sequenceCancel],
 
   // settings
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
