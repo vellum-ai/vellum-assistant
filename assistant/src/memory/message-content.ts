@@ -87,6 +87,29 @@ export function extractMediaBlocks(raw: string): Array<{
   }
 }
 
+/**
+ * Lightweight variant of extractMediaBlocks that returns only type and index
+ * metadata without decoding base64 image data into Buffers.
+ */
+export function extractMediaBlockMeta(
+  raw: string,
+): Array<{ type: "image"; index: number }> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const results: Array<{ type: "image"; index: number }> = [];
+    for (let i = 0; i < parsed.length; i++) {
+      const block = parsed[i] as { type?: string };
+      if (block.type === "image") {
+        results.push({ type: "image" as const, index: i });
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
