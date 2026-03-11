@@ -239,7 +239,8 @@ extension MainWindowView {
                             threadManager: threadManager,
                             windowState: windowState,
                             sidebar: sidebar,
-                            selectThread: { selectThread(thread) }
+                            selectThread: { selectThread(thread) },
+                            onOpenInNewWindow: { threadWindowManager.openInNewWindow(threadId: $0) }
                         )
                             .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {

@@ -48,9 +48,14 @@ struct ThreadActionsDrawer: View {
     let onUnpin: () -> Void
     let onArchive: () -> Void
     let onRename: () -> Void
+    var onOpenInNewWindow: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let onOpenInNewWindow {
+                SidebarPrimaryRow(icon: VIcon.externalLink.rawValue, label: "Open in new window", action: onOpenInNewWindow)
+            }
+
             if presentation.canCopy {
                 SidebarPrimaryRow(icon: VIcon.copy.rawValue, label: "Copy full thread", action: onCopy)
             }

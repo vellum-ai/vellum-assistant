@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var threadWindowManager: ThreadWindowManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
     var conversationZoomManager: ConversationZoomManager
@@ -57,8 +58,9 @@ struct MainWindowView: View {
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, taskQueueViewModel: TaskQueueViewModel, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, threadWindowManager: ThreadWindowManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, taskQueueViewModel: TaskQueueViewModel, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
+        self.threadWindowManager = threadWindowManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.conversationZoomManager = conversationZoomManager
@@ -493,7 +495,12 @@ struct MainWindowView: View {
                                 threadManager.archiveThread(id: id)
                                 dismissThreadDrawer()
                             },
-                            onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                            onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                            onOpenInNewWindow: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadWindowManager.openInNewWindow(threadId: id)
+                                dismissThreadDrawer()
+                            }
                         )
                         .offset(x: threadTitleFrame.minX, y: threadTitleFrame.maxY)
                         .zIndex(10)
