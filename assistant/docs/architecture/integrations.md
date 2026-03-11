@@ -89,7 +89,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant UI as Settings UI (Swift)
-    participant IPC as IPC Socket
+    participant HTTP as HTTP Transport
     participant Handler as Daemon Handlers
     participant Registry as IntegrationRegistry
     participant OAuth as OAuth2 PKCE Flow
@@ -101,15 +101,15 @@ sequenceDiagram
     participant API as Gmail REST API
 
     Note over UI,API: Connection Flow
-    UI->>IPC: integration_connect {integrationId: "gmail"}
-    IPC->>Handler: dispatch
+    UI->>HTTP: integration_connect {integrationId: "gmail"}
+    HTTP->>Handler: dispatch
     Handler->>Registry: getIntegration("gmail")
     Registry-->>Handler: IntegrationDefinition
     Handler->>OAuth: startOAuth2Flow(config)
     OAuth->>OAuth: generate code_verifier + code_challenge (S256)
     OAuth->>OAuth: start Bun.serve on random port
-    OAuth->>IPC: open_url (Google consent URL)
-    IPC->>Browser: open URL
+    OAuth->>HTTP: open_url (Google consent URL)
+    HTTP->>Browser: open URL
     Browser->>Google: user authorizes
     Google->>OAuth: callback with auth code
     OAuth->>Google: exchange code + code_verifier for tokens
@@ -117,8 +117,8 @@ sequenceDiagram
     OAuth->>Vault: setSecureKey (access + refresh)
     OAuth->>Vault: upsertCredentialMetadata (allowedTools, expiresAt)
     OAuth-->>Handler: success + account email
-    Handler->>IPC: integration_connect_result {success, accountInfo}
-    IPC->>UI: show connected state
+    Handler->>HTTP: integration_connect_result {success, accountInfo}
+    HTTP->>UI: show connected state
 
     Note over UI,API: Tool Execution Flow
     Tool->>TokenMgr: withValidToken("gmail", callback)
@@ -148,7 +148,7 @@ Twitter's OAuth2 flow delegates to the shared **connect orchestrator** (`oauth/c
 ```mermaid
 sequenceDiagram
     participant UI as Settings UI (Swift)
-    participant IPC as IPC Socket
+    participant HTTP as HTTP Transport
     participant Handler as oauth-connect handler
     participant Orchestrator as ConnectOrchestrator
     participant ScopePolicy as Scope Policy
@@ -159,8 +159,8 @@ sequenceDiagram
     participant API as X API (v2)
 
     Note over UI,API: Connection Flow (via generic orchestrator)
-    UI->>IPC: oauth_connect_start {service: "twitter"}
-    IPC->>Handler: dispatch
+    UI->>HTTP: oauth_connect_start {service: "twitter"}
+    HTTP->>Handler: dispatch
     Handler->>Handler: resolve client_id / client_secret from keychain
     Handler->>Orchestrator: orchestrateOAuthConnect(options)
     Orchestrator->>Orchestrator: resolveService("twitter") → "integration:twitter"
@@ -169,8 +169,8 @@ sequenceDiagram
     ScopePolicy-->>Orchestrator: {ok: true, scopes}
     Orchestrator->>OAuth: startOAuth2Flow(config)
     OAuth->>OAuth: generate code_verifier + code_challenge (S256)
-    OAuth->>IPC: open_url (twitter.com/i/oauth2/authorize)
-    IPC->>Browser: open URL
+    OAuth->>HTTP: open_url (twitter.com/i/oauth2/authorize)
+    HTTP->>Browser: open URL
     Browser->>Twitter: user authorizes
     Twitter->>OAuth: callback with auth code
     OAuth->>Twitter: exchange code + code_verifier at api.x.com/2/oauth2/token
@@ -180,8 +180,8 @@ sequenceDiagram
     API-->>Orchestrator: username
     Orchestrator->>Vault: storeOAuth2Tokens (access + refresh + metadata)
     Orchestrator-->>Handler: {success, grantedScopes, accountInfo: "@username"}
-    Handler->>IPC: oauth_connect_result {success, accountInfo}
-    IPC->>UI: show connected state
+    Handler->>HTTP: oauth_connect_result {success, accountInfo}
+    HTTP->>UI: show connected state
 ```
 
 #### Two-Mode Operation Architecture
@@ -348,7 +348,7 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 
 Result is a discriminated union: `{ success, deferred, grantedScopes, accountInfo }` or `{ success: false, error }`.
 
-### Generic Daemon IPC
+### Generic Daemon HTTP API
 
 `assistant/src/daemon/handlers/oauth-connect.ts` handles `oauth_connect_start` messages. The handler:
 
