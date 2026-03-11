@@ -198,12 +198,9 @@ When a user asks to declutter, clean up, or organize their email:
    - **Caption**: Data scope, e.g. "Newsletters, notifications, and outreach from last 90 days. Deselect anything you want to keep."
    - **Action button (exactly 1)**: "Archive Selected" (primary). **NEVER offer Delete, Trash, or any destructive action.**
 3. **Wait for user action**: Stop and wait. Do NOT proceed until the user clicks the action button.
-4. **Act on selection**: Call `messaging_archive_by_sender` **once** with `scan_id` + all selected senders' `id` values.
+4. **Act on selection**: For each selected sender, call `messaging_archive_by_sender` with a `query` built from the sender's email address (e.g., `from:newsletter@example.com category:promotions newer_than:90d`). Use the `search_query` field from the sender digest results if available, or construct a `from:<email>` query matching the original scan's scope.
 5. **Accurate summary**: Format: "Cleaned up [total_archived] emails from [sender_count] senders."
 
-### Scan ID
+### Query-Based Archiving
 
-Scan tools (`messaging_sender_digest`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context.
-
-- Pass `scan_id` + `sender_ids` to `messaging_archive_by_sender` instead of `message_ids`
-- Scan results expire after **30 minutes** — if archiving fails with an expiration error, re-run the scan
+Unlike Gmail's `gmail_archive` (which supports `scan_id` + `sender_ids`), `messaging_archive_by_sender` is query-based. Build `from:<email>` queries from the sender digest results to target specific senders. Include the same date/category filters used in the original scan to keep the scope consistent.
