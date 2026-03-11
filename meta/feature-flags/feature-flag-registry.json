@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "twitter",
-      "scope": "assistant",
-      "key": "feature_flags.twitter.enabled",
-      "label": "Twitter",
-      "description": "Enable X (Twitter) skill section in the system prompt",
-      "defaultEnabled": false
-    },
-    {
       "id": "messaging",
       "scope": "assistant",
       "key": "feature_flags.messaging.enabled",

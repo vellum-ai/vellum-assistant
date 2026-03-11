@@ -364,11 +364,11 @@ describe("projectSkillTools feature flag enforcement", () => {
   test("mixed flag-on and flag-off skills — only flag-on tools projected", () => {
     mockCatalog = [
       makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID),
-      makeSkill("twitter"),
+      makeSkill("plain-skill"),
     ];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]),
-      twitter: makeManifest(["twitter_post"]),
+      "plain-skill": makeManifest(["plain_action"]),
     };
 
     const history: Message[] = [
@@ -400,7 +400,7 @@ describe("projectSkillTools feature flag enforcement", () => {
             type: "tool_use",
             id: "tu-2",
             name: "skill_load",
-            input: { skill: "twitter" },
+            input: { skill: "plain-skill" },
           },
         ],
       },
@@ -411,14 +411,14 @@ describe("projectSkillTools feature flag enforcement", () => {
             type: "tool_result",
             tool_use_id: "tu-2",
             content:
-              '<loaded_skill id="twitter" version="v1:default-hash-twitter" />',
+              '<loaded_skill id="plain-skill" version="v1:default-hash-plain-skill" />',
           },
         ],
       },
     ];
     const prevActive = new Map<string, string>();
 
-    // Declared skill is OFF, twitter is undeclared with no persisted override so remains ON.
+    // Declared skill is OFF, plain-skill is undeclared with no persisted override so remains ON.
     currentConfig = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
@@ -428,7 +428,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     });
 
     const toolNames = result.toolDefinitions.map((t) => t.name);
-    expect(toolNames).toContain("twitter_post");
+    expect(toolNames).toContain("plain_action");
     expect(toolNames).not.toContain("browser_navigate");
   });
 });
