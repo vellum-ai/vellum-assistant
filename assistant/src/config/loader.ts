@@ -333,8 +333,10 @@ export function loadConfig(): AssistantConfig {
     }
 
     // Environment variables override everything
-    if (process.env.SANDBOX_ENABLED === "false") {
+    if (process.env.VELLUM_CONFIG_SANDBOX_ENABLED === "false") {
       config.sandbox.enabled = false;
+    } else if (process.env.VELLUM_CONFIG_SANDBOX_ENABLED === "true") {
+      config.sandbox.enabled = true;
     }
 
     if (process.env.ANTHROPIC_API_KEY) {
