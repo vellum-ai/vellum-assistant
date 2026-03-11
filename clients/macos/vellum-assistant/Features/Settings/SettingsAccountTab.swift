@@ -575,15 +575,42 @@ struct SettingsAccountTab: View {
     }
 
     private func performRestart() async {
+        guard let assistant = currentAssistant else { return }
+
+        if assistant.isManaged || assistant.isRemote {
+            await performManagedRestart(assistant: assistant)
+        } else {
+            await performLocalRestart()
+        }
+
+        // Re-fetch healthz after restart
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        await fetchHealthz()
+    }
+
+    private func performManagedRestart(assistant: LockfileAssistant) async {
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
+        guard let url = URL(string: "\(baseURL)/v1/assistants/restart/") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    private func performLocalRestart() async {
         do {
             try await AppDelegate.shared?.assistantCli.hatch(
                 name: selectedAssistantId,
                 daemonOnly: true,
                 restart: true
             )
-            // Re-fetch healthz after restart
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await fetchHealthz()
         } catch {
             // Restart failed — healthz fetch will show disconnected state
         }
