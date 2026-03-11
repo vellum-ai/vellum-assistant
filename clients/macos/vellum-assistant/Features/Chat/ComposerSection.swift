@@ -65,16 +65,12 @@ struct ComposerSection: View {
             }
 
             if let errorText, sessionError == nil {
-                ChatErrorBanner(
-                    text: errorText,
-                    isSecretBlockError: isSecretBlockError,
-                    onSendAnyway: onSendAnyway,
-                    isRetryableError: isRetryableError,
-                    onRetryError: onRetryError,
-                    isConnectionError: isConnectionError,
-                    hasRetryPayload: hasRetryPayload,
-                    connectionDiagnosticHint: connectionDiagnosticHint,
-                    onDismissError: onDismissError
+                ChatSessionErrorToast(
+                    message: errorText,
+                    subtitle: isConnectionError ? connectionDiagnosticHint : nil,
+                    actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
+                    onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
+                    onDismiss: onDismissError
                 )
             }
             ComposerView(

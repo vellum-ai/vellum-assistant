@@ -24,73 +24,58 @@ struct ErrorBannerGalleryView: View {
 
                 divider()
 
-                // MARK: - macOS ChatErrorBanner
+                // MARK: - ChatSessionErrorToast (Message Init)
 
                 sectionHeader(
-                    "macOS ChatErrorBanner",
-                    description: "Red error banner displayed above the composer with action variants."
+                    "ChatSessionErrorToast — Message Init",
+                    description: "Solid accent background toast for unstructured error messages."
                 )
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     label("Basic with dismiss")
-                    ChatErrorBanner(
-                        text: "An unexpected error occurred.",
-                        isSecretBlockError: false,
-                        onSendAnyway: {},
-                        isRetryableError: false,
-                        onRetryError: {},
-                        isConnectionError: false,
-                        onDismissError: {}
+                    ChatSessionErrorToast(
+                        message: "An unexpected error occurred.",
+                        onDismiss: {}
                     )
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     label("Secret block error — Send Anyway")
-                    ChatErrorBanner(
-                        text: "Your message may contain sensitive information.",
-                        isSecretBlockError: true,
-                        onSendAnyway: {},
-                        isRetryableError: false,
-                        onRetryError: {},
-                        isConnectionError: false,
-                        onDismissError: {}
+                    ChatSessionErrorToast(
+                        message: "Your message may contain sensitive information.",
+                        actionLabel: "Send Anyway",
+                        onAction: {},
+                        onDismiss: {}
                     )
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     label("Retryable error — Retry")
-                    ChatErrorBanner(
-                        text: "The request failed. Please retry.",
-                        isSecretBlockError: false,
-                        onSendAnyway: {},
-                        isRetryableError: true,
-                        onRetryError: {},
-                        isConnectionError: false,
-                        onDismissError: {}
+                    ChatSessionErrorToast(
+                        message: "The request failed. Please retry.",
+                        actionLabel: "Retry",
+                        onAction: {},
+                        onDismiss: {}
                     )
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     label("Connection error with diagnostic hint")
-                    ChatErrorBanner(
-                        text: "Unable to reach the server.",
-                        isSecretBlockError: false,
-                        onSendAnyway: {},
-                        isRetryableError: false,
-                        onRetryError: {},
-                        isConnectionError: true,
-                        hasRetryPayload: true,
-                        connectionDiagnosticHint: "Check that the daemon is running on port 8080.",
-                        onDismissError: {}
+                    ChatSessionErrorToast(
+                        message: "Unable to reach the server.",
+                        subtitle: "Check that the daemon is running on port 8080.",
+                        actionLabel: "Retry",
+                        onAction: {},
+                        onDismiss: {}
                     )
                 }
 
                 divider()
 
-                // MARK: - ChatSessionErrorToast
+                // MARK: - ChatSessionErrorToast (SessionError Init)
 
                 sectionHeader(
-                    "ChatSessionErrorToast",
+                    "ChatSessionErrorToast — SessionError Init",
                     description: "Structured error toast with category-based icon, color, and recovery suggestion."
                 )
 
@@ -141,7 +126,7 @@ struct ErrorBannerGalleryView: View {
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    label("unknown")
+                    label("unknown with debug details")
                     ChatSessionErrorToast(
                         error: SessionError(
                             category: .unknown,

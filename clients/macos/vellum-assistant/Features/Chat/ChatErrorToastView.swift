@@ -1,29 +1,83 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Generic error banner displayed above the composer (red background, white text).
-struct ChatErrorBanner: View {
-    let text: String
-    let isSecretBlockError: Bool
-    let onSendAnyway: () -> Void
-    let isRetryableError: Bool
-    let onRetryError: () -> Void
-    let isConnectionError: Bool
-    var hasRetryPayload: Bool = true
-    var connectionDiagnosticHint: String? = nil
-    let onDismissError: () -> Void
+// MARK: - Session Error Toast
+
+/// Unified error toast displayed above the composer with solid accent background and white text.
+///
+/// Supports two initialization paths:
+/// 1. From a typed `SessionError` (category-based icon, color, and recovery suggestion)
+/// 2. From an unstructured message string (replaces the former `ChatErrorBanner`)
+struct ChatSessionErrorToast: View {
+    // MARK: - Display Properties
+
+    private let icon: VIcon
+    private let message: String
+    private let subtitle: String?
+    private let accent: Color
+    private let actionLabel: String?
+    private let onAction: (() -> Void)?
+    private let showCopyDebug: Bool
+    private let onCopyDebugInfo: (() -> Void)?
+    private let onDismiss: () -> Void
+
+    // MARK: - SessionError Init
+
+    /// Initialize from a typed `SessionError` with category-based styling.
+    init(
+        error: SessionError,
+        onRetry: @escaping () -> Void,
+        onCopyDebugInfo: @escaping () -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.icon = Self.iconForCategory(error.category)
+        self.message = error.message
+        self.subtitle = error.recoverySuggestion
+        self.accent = Self.accentColor(for: error.category)
+        self.actionLabel = error.isRetryable ? Self.actionLabel(for: error.category) : nil
+        self.onAction = error.isRetryable ? onRetry : nil
+        self.showCopyDebug = error.debugDetails != nil
+        self.onCopyDebugInfo = onCopyDebugInfo
+        self.onDismiss = onDismiss
+    }
+
+    // MARK: - Unstructured Message Init
+
+    /// Initialize from an unstructured error message (replaces `ChatErrorBanner`).
+    init(
+        message: String,
+        subtitle: String? = nil,
+        icon: VIcon = .triangleAlert,
+        accentColor: Color = VColor.error,
+        actionLabel: String? = nil,
+        onAction: (() -> Void)? = nil,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.icon = icon
+        self.message = message
+        self.subtitle = subtitle
+        self.accent = accentColor
+        self.actionLabel = actionLabel
+        self.onAction = onAction
+        self.showCopyDebug = false
+        self.onCopyDebugInfo = nil
+        self.onDismiss = onDismiss
+    }
+
+    // MARK: - Body
 
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(.triangleAlert, size: 14)
+        HStack(alignment: .center, spacing: VSpacing.sm) {
+            VIconView(icon, size: 14)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text(text)
+                Text(message)
                     .font(VFont.caption)
                     .lineLimit(4)
                     .textSelection(.enabled)
-                if isConnectionError, let hint = connectionDiagnosticHint {
-                    Text(hint)
+
+                if let subtitle {
+                    Text(subtitle)
                         .font(VFont.small)
                         .opacity(0.8)
                         .lineLimit(2)
@@ -33,93 +87,23 @@ struct ChatErrorBanner: View {
 
             Spacer()
 
-            if isSecretBlockError {
-                Button(action: onSendAnyway) {
-                    Text("Send Anyway")
+            if let actionLabel, let onAction {
+                Button(action: onAction) {
+                    Text(actionLabel)
                         .font(VFont.captionMedium)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on VColor.error banner
+                        .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on solid accent background
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Send message anyway")
-            } else if isRetryableError || (isConnectionError && hasRetryPayload) {
-                Button(action: onRetryError) {
-                    Text("Retry")
-                        .font(VFont.captionMedium)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on VColor.error banner
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Retry sending message")
+                .accessibilityLabel(actionLabel)
             }
 
-            Button {
-                onDismissError()
-            } label: {
-                VIconView(.x, size: 14)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
-        }
-        .foregroundColor(.white) // Intentional: always white on VColor.error background
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.error)
-    }
-}
-
-// MARK: - Session Error Toast
-
-/// Structured error toast for session-level errors with category-based styling.
-struct ChatSessionErrorToast: View {
-    let error: SessionError
-    let onRetry: () -> Void
-    let onCopyDebugInfo: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(iconForCategory(error.category), size: 14)
-                .foregroundColor(accentColor(for: error.category))
-
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text(error.message)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-
-                Text(error.recoverySuggestion)
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textSecondary)
-                    .lineLimit(1)
-                    .textSelection(.enabled)
-            }
-
-            Spacer()
-
-            if error.isRetryable {
-                Button(action: onRetry) {
-                    Text(actionLabel(for: error.category))
-                        .font(VFont.captionMedium)
-                        .foregroundColor(.white) // Intentional: always white on accent background
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(accentColor(for: error.category))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(actionLabel(for: error.category))
-            }
-
-            if error.debugDetails != nil {
+            if showCopyDebug, let onCopyDebugInfo {
                 Button(action: onCopyDebugInfo) {
                     VIconView(.clipboard, size: 11)
-                        .foregroundColor(VColor.textSecondary)
+                        .opacity(0.8)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy debug info")
@@ -128,28 +112,24 @@ struct ChatSessionErrorToast: View {
             Button {
                 onDismiss()
             } label: {
-                VIconView(.x, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                VIconView(.x, size: 14)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss error")
         }
-        .padding(.horizontal, VSpacing.lg)
+        .foregroundColor(.white) // Intentional: always white on solid accent background
+        .padding(.leading, VSpacing.md)
+        .padding(.trailing, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(accentColor(for: error.category).opacity(0.1))
-        .overlay(
-            Rectangle()
-                .fill(accentColor(for: error.category))
-                .frame(width: 3),
-            alignment: .leading
-        )
+        .background(accent)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     // MARK: - Category Helpers
 
     /// VIcon appropriate for each error category.
-    private func iconForCategory(_ category: SessionErrorCategory) -> VIcon {
+    private static func iconForCategory(_ category: SessionErrorCategory) -> VIcon {
         switch category {
         case .providerNetwork:
             return .wifiOff
@@ -176,7 +156,7 @@ struct ChatSessionErrorToast: View {
 
     /// Accent color for each error category — warm for transient/retryable,
     /// red for hard failures.
-    private func accentColor(for category: SessionErrorCategory) -> Color {
+    private static func accentColor(for category: SessionErrorCategory) -> Color {
         switch category {
         case .rateLimit, .queueFull:
             return VColor.warning
@@ -192,7 +172,7 @@ struct ChatSessionErrorToast: View {
     }
 
     /// Action button label tailored to the error category.
-    private func actionLabel(for category: SessionErrorCategory) -> String {
+    private static func actionLabel(for category: SessionErrorCategory) -> String {
         switch category {
         case .rateLimit:
             return "Retry"

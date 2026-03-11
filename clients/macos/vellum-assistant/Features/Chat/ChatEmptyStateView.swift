@@ -87,17 +87,10 @@ struct ChatEmptyStateView: View {
 
             VStack(spacing: 0) {
                 if let errorText {
-                    ChatErrorBanner(
-                        text: errorText,
-                        isSecretBlockError: false,
-                        onSendAnyway: {},
-                        isRetryableError: false,
-                        onRetryError: {},
-                        isConnectionError: false,
-
-                        onDismissError: onDismissError
+                    ChatSessionErrorToast(
+                        message: errorText,
+                        onDismiss: onDismissError
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.xs)
                 }
@@ -200,17 +193,10 @@ struct ChatTemporaryChatEmptyStateView: View {
 
             VStack(spacing: 0) {
                 if let errorText {
-                    ChatErrorBanner(
-                        text: errorText,
-                        isSecretBlockError: false,
-                        onSendAnyway: {},
-                        isRetryableError: false,
-                        onRetryError: {},
-                        isConnectionError: false,
-
-                        onDismissError: onDismissError
+                    ChatSessionErrorToast(
+                        message: errorText,
+                        onDismiss: onDismissError
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.xs)
                 }
