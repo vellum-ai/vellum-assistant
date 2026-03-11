@@ -203,8 +203,8 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
     // MARK: - History hydration preserves URLs as plain text
 
     func testPopulateFromHistoryWithMediaURLsHasNoEmbeds() {
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
                 id: nil,
                 role: "assistant",
                 text: "Check out https://www.youtube.com/watch?v=abc and https://vimeo.com/123",

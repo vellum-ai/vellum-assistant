@@ -64,10 +64,10 @@ final class SharedAppsLoaderTests: XCTestCase {
         }
 
         await Task.yield()
-        client.emit(.sharedAppsListResponse(IPCSharedAppsListResponse(
+        client.emit(.sharedAppsListResponse(SharedAppsListResponse(
             type: "shared_apps_list_response",
             apps: [
-                IPCSharedAppsListResponseApp(
+                SharedAppsListResponseApp(
                     uuid: "shared-1",
                     name: "Shared Things",
                     description: "Shared app",
@@ -102,10 +102,10 @@ final class SharedAppsLoaderTests: XCTestCase {
         }
 
         await Task.yield()
-        client.emit(.appsListResponse(IPCAppsListResponse(
+        client.emit(.appsListResponse(AppsListResponse(
             type: "apps_list_response",
             apps: [
-                IPCAppsListResponseApp(
+                AppsListResponseApp(
                     id: "local-1",
                     name: "Local Things",
                     description: nil,
@@ -115,10 +115,10 @@ final class SharedAppsLoaderTests: XCTestCase {
                 )
             ]
         )))
-        client.emit(.sharedAppsListResponse(IPCSharedAppsListResponse(
+        client.emit(.sharedAppsListResponse(SharedAppsListResponse(
             type: "shared_apps_list_response",
             apps: [
-                IPCSharedAppsListResponseApp(
+                SharedAppsListResponseApp(
                     uuid: "shared-2",
                     name: "Shared Followup",
                     description: nil,
