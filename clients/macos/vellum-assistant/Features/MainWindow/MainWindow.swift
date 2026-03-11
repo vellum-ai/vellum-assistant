@@ -211,6 +211,45 @@ private class NonDraggableContainerView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
+/// Draws a macOS-style diagonal resize grip in the bottom-right corner of the window.
+/// With `fullSizeContentView` the system's built-in resize indicator is hidden behind
+/// the content view; this lightweight overlay restores the visual affordance.
+@MainActor
+private class ResizeGripView: NSView {
+    private let lineCount = 3
+    private let lineSpacing: CGFloat = 3
+    private let lineThickness: CGFloat = 1
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Pass all mouse events through so the window frame handles resize.
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let color = NSColor.tertiaryLabelColor.withAlphaComponent(0.5)
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(lineThickness)
+        context.setLineCap(.round)
+
+        let inset: CGFloat = 3
+        for i in 0..<lineCount {
+            let offset = CGFloat(i) * lineSpacing
+            let startX = bounds.maxX - inset - offset
+            let startY = inset
+            let endX = bounds.maxX - inset
+            let endY = inset + offset
+            context.move(to: CGPoint(x: startX, y: startY))
+            context.addLine(to: CGPoint(x: endX, y: endY))
+        }
+        context.strokePath()
+    }
+}
+
 @MainActor
 public final class MainWindow {
     private let services: AppServices
@@ -406,6 +445,7 @@ public final class MainWindow {
         window.setFrameAutosaveName("MainWindow")
 
         configureTrafficLightPadding(window)
+        installResizeGrip(window)
         window.observeAppActivation()
 
         window.makeKeyAndOrderFront(nil)
@@ -440,6 +480,22 @@ public final class MainWindow {
             x: origin.x + 2,
             y: origin.y - 2.5
         ))
+    }
+
+    // MARK: - Resize Grip
+
+    private func installResizeGrip(_ window: NSWindow) {
+        guard let contentView = window.contentView else { return }
+        let gripSize: CGFloat = 14
+        let grip = ResizeGripView(frame: NSRect(
+            x: contentView.bounds.maxX - gripSize,
+            y: 0,
+            width: gripSize,
+            height: gripSize
+        ))
+        grip.autoresizingMask = [.minXMargin, .maxYMargin]
+        grip.wantsLayer = true
+        contentView.addSubview(grip)
     }
 
     /// Hide the window without destroying it (can be restored with `show()`).
