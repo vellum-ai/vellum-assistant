@@ -5,7 +5,7 @@ import VellumAssistantShared
 // MARK: - Markdown Table Support
 
 /// A segment of message content — either plain text or a parsed table.
-struct ListItem: Hashable {
+struct MarkdownListItem: Hashable {
     let indent: Int
     let ordered: Bool
     let number: Int      // meaningful only when ordered == true
@@ -19,7 +19,7 @@ enum MarkdownSegment: Hashable {
     case heading(level: Int, text: String)
     case codeBlock(language: String?, code: String)
     case horizontalRule
-    case list(items: [ListItem])
+    case list(items: [MarkdownListItem])
 }
 
 /// Returns true if `line` is a markdown heading (1-6 `#` chars followed by a space).
@@ -42,8 +42,8 @@ func isHorizontalRule(_ line: String) -> Bool {
     return stripped.allSatisfy { $0 == ch }
 }
 
-/// Returns a `ListItem` if the line looks like a list entry, otherwise nil.
-func parseListLine(_ line: String) -> ListItem? {
+/// Returns a `MarkdownListItem` if the line looks like a list entry, otherwise nil.
+func parseListLine(_ line: String) -> MarkdownListItem? {
     // Measure indent (count leading spaces, tabs count as 4)
     var indent = 0
     for ch in line {
@@ -55,14 +55,14 @@ func parseListLine(_ line: String) -> ListItem? {
 
     // Unordered: `- `, `* `, `+ `
     if (trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ")) {
-        return ListItem(indent: indent, ordered: false, number: 0, text: String(trimmed.dropFirst(2)))
+        return MarkdownListItem(indent: indent, ordered: false, number: 0, text: String(trimmed.dropFirst(2)))
     }
     // Ordered: `1. `, `2. `, etc.
     let digits = trimmed.prefix(while: { $0.isNumber })
     if !digits.isEmpty {
         let rest = trimmed.dropFirst(digits.count)
         if rest.hasPrefix(". ") {
-            return ListItem(indent: indent, ordered: true, number: Int(digits) ?? 1,
+            return MarkdownListItem(indent: indent, ordered: true, number: Int(digits) ?? 1,
                             text: String(rest.dropFirst(2)))
         }
     }
@@ -160,7 +160,7 @@ func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
         // --- List detection (consecutive list lines) ---
         if parseListLine(lines[i]) != nil {
             flushText()
-            var items: [ListItem] = []
+            var items: [MarkdownListItem] = []
             while i < lines.count, let item = parseListLine(lines[i]) {
                 items.append(item)
                 i += 1
