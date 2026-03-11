@@ -319,18 +319,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "skill-authoring",
-      "name": "skill-authoring",
-      "description": "Create, test, and manage custom skills when no existing tool or skill satisfies a request.",
-      "metadata": {
-        "emoji": "🛠️",
-        "vellum": {
-          "display-name": "Skill Authoring"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "skills-catalog",
       "name": "skills-catalog",
       "description": "Discover bundled skills and search/install community skills from Clawhub",
