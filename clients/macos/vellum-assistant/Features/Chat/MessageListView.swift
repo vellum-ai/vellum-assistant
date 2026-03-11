@@ -100,8 +100,6 @@ struct MessageListView: View {
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
-    @State private var avatarBreathing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
     @State private var scrollDebounceTask: Task<Void, Never>?
@@ -303,55 +301,25 @@ struct MessageListView: View {
 
     @ViewBuilder
     private func thinkingIndicatorRow(displayMessages: [ChatMessage]) -> some View {
-        RunningIndicator(
-            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                ? "Waking up..."
-                : assistantStatusText ?? "Thinking",
-            showIcon: false
-        )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-        .id("thinking-indicator")
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-    }
-
-    @ViewBuilder
-    private var assistantAvatarFooter: some View {
-        HStack {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
             Image(nsImage: appearance.chatAvatarImage)
+                .interpolation(.none)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: 28, height: 28)
                 .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
-                )
-                .scaleEffect(reduceMotion ? 1.0 : (avatarBreathing ? 1.0 : 0.92))
-                .opacity(reduceMotion ? 1.0 : (avatarBreathing ? 1.0 : 0.85))
-                .animation(
-                    reduceMotion
-                        ? nil
-                        : Animation.easeInOut(duration: 2.5).repeatForever(autoreverses: true),
-                    value: avatarBreathing
-                )
-                .onAppear {
-                    if !reduceMotion {
-                        avatarBreathing = true
-                    }
-                }
-                .onDisappear {
-                    avatarBreathing = false
-                }
-                .onChange(of: reduceMotion) { _, newValue in
-                    if newValue {
-                        avatarBreathing = false
-                    } else {
-                        avatarBreathing = true
-                    }
-                }
-            Spacer()
+                .padding(.top, 2)
+
+            RunningIndicator(
+                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                    ? "Waking up..."
+                    : assistantStatusText ?? "Thinking",
+                showIcon: false
+            )
         }
-        .padding(.top, VSpacing.xs)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .id("thinking-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     var body: some View {
@@ -488,24 +456,13 @@ struct MessageListView: View {
                             onTap: { onSubagentTap?(subagent.id) }
                         )
                             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                            .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
                     if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
                         thinkingIndicatorRow(displayMessages: displayMessages)
-                    }
-
-                    // Floating avatar — anchored at bottom of conversation, Claude-style.
-                    // Shown when the assistant has spoken or is actively thinking,
-                    // but not on user-only threads before the assistant has replied.
-                    // Uses displayMessages (the filtered/visible set) not raw messages,
-                    // since subagent notifications and other hidden items are excluded
-                    // from the rendered list.
-                    if displayMessages.contains(where: { $0.role == .assistant }) || shouldShowThinkingIndicator {
-                        assistantAvatarFooter
-                            .id("avatar-footer")
-                            .transition(.opacity)
                     }
 
                     Color.clear.frame(height: 1)
@@ -968,6 +925,7 @@ private struct MessageCellView: View {
     let configuredProviders: Set<String>
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
+    @State private var appearance = AvatarAppearanceManager.shared
 
     private func modelPickerView(for msg: ChatMessage) -> some View {
         ModelPickerBubble(
@@ -987,12 +945,22 @@ private struct MessageCellView: View {
 
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
-        RunningIndicator(
-            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                ? "Waking up..."
-                : assistantStatusText ?? "Thinking",
-            showIcon: false
-        )
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(nsImage: appearance.chatAvatarImage)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .padding(.top, 2)
+
+            RunningIndicator(
+                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                    ? "Waking up..."
+                    : assistantStatusText ?? "Thinking",
+                showIcon: false
+            )
+        }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
     }
@@ -1055,6 +1023,8 @@ private struct MessageCellView: View {
                 return conf
             }()
 
+            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
+
             ChatBubble(
                 message: message,
                 decidedConfirmation: nextDecidedConfirmation,
@@ -1068,6 +1038,7 @@ private struct MessageCellView: View {
                 onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
                 resolveHttpPort: resolveHttpPort,
+                showAvatar: !previousIsAssistant,
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
@@ -1084,6 +1055,7 @@ private struct MessageCellView: View {
                 onTap: { onSubagentTap?(subagent.id) }
             )
                 .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                .padding(.leading, 36)
                 .id("subagent-\(subagent.id)")
         }
 
