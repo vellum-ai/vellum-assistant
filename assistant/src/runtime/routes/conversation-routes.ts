@@ -646,7 +646,15 @@ export async function handleSendMessage(
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
-  session.updateClient(onEvent, !isInteractiveInterface);
+  // When proxies are preserved during an active turn (non-desktop request while
+  // processing), skip updating proxy senders to avoid degrading them.
+  const preservingProxies =
+    session.isProcessing() &&
+    sourceInterface !== "macos" &&
+    sourceInterface !== "ios";
+  session.updateClient(onEvent, !isInteractiveInterface, {
+    skipProxySenderUpdate: preservingProxies,
+  });
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
