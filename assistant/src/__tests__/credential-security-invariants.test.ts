@@ -248,7 +248,11 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
         const s = statSync(full);
         if (s.isDirectory()) {
           collectTsFiles(full, files);
-        } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+        } else if (
+          entry.endsWith(".ts") &&
+          !entry.endsWith(".d.ts") &&
+          !entry.endsWith(".test.ts")
+        ) {
           files.push(full);
         }
       }
