@@ -58,6 +58,7 @@ import * as computerUseWait from "./bundled-skills/computer-use/tools/computer-u
 import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js";
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
 import * as contactUpsert from "./bundled-skills/contacts/tools/contact-upsert.js";
+import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
 // ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
 import * as documentUpdate from "./bundled-skills/document/tools/document-update.js";
@@ -68,7 +69,6 @@ import * as followupResolve from "./bundled-skills/followups/tools/followup-reso
 // ── gmail ──────────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
 import * as gmailAttachments from "./bundled-skills/gmail/tools/gmail-attachments.js";
-import * as gmailBatchLabel from "./bundled-skills/gmail/tools/gmail-batch-label.js";
 import * as gmailDraft from "./bundled-skills/gmail/tools/gmail-draft.js";
 import * as gmailFilters from "./bundled-skills/gmail/tools/gmail-filters.js";
 import * as gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js";
@@ -82,7 +82,6 @@ import * as gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
 import * as gmailTriage from "./bundled-skills/gmail/tools/gmail-triage.js";
 import * as gmailUnsubscribe from "./bundled-skills/gmail/tools/gmail-unsubscribe.js";
 import * as gmailVacation from "./bundled-skills/gmail/tools/gmail-vacation.js";
-import * as googleContacts from "./bundled-skills/gmail/tools/google-contacts.js";
 // ── google-calendar ────────────────────────────────────────────────────────────
 import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
 import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
@@ -244,6 +243,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["contacts:tools/contact-upsert.ts", contactUpsert],
   ["contacts:tools/contact-search.ts", contactSearch],
   ["contacts:tools/contact-merge.ts", contactMerge],
+  ["contacts:tools/google-contacts.ts", googleContacts],
 
   // document
   ["document:tools/document-create.ts", documentCreate],
@@ -281,7 +281,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   // gmail
   ["gmail:tools/gmail-archive.ts", gmailArchive],
   ["gmail:tools/gmail-label.ts", gmailLabel],
-  ["gmail:tools/gmail-batch-label.ts", gmailBatchLabel],
   ["gmail:tools/gmail-trash.ts", gmailTrash],
   ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
   ["gmail:tools/gmail-draft.ts", gmailDraft],

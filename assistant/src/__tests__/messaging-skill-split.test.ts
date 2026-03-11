@@ -38,7 +38,6 @@ describe("Messaging skill split", () => {
   const expectedGmailToolNames = [
     "gmail_archive",
     "gmail_label",
-    "gmail_batch_label",
     "gmail_trash",
     "gmail_unsubscribe",
     "gmail_draft",
