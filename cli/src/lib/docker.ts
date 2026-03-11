@@ -61,7 +61,7 @@ function findDockerRoot(developmentMode: boolean = false): DockerRoot {
   if (developmentMode) {
     let execDir = dirname(process.execPath);
     while (true) {
-      if (existsSync(join(execDir, "meta", "Dockerfile"))) {
+      if (existsSync(join(execDir, "meta", "Dockerfile.development"))) {
         return { root: execDir, dockerfileDir: "meta" };
       }
       const parent = dirname(execDir);
