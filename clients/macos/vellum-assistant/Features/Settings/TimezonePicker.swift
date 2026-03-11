@@ -111,8 +111,7 @@ struct TimezonePicker: View {
             .background(Color.clear)
             .pointerCursor()
 
-            Divider()
-                .background(VColor.surfaceBorder)
+            SettingsDivider()
                 .padding(.horizontal, VSpacing.md)
 
             // Scrollable timezone list

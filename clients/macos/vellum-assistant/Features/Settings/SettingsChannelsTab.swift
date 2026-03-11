@@ -127,16 +127,7 @@ struct SettingsChannelsTab: View {
     // MARK: - Email Channel Card
 
     private var emailCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Email")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Send and receive emails as your assistant")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Email", subtitle: "Send and receive emails as your assistant") {
             if let email = store.assistantEmail {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 14)
@@ -174,25 +165,12 @@ struct SettingsChannelsTab: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Telegram Channel Card
 
     private var telegramCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Telegram")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Message your assistant from Telegram")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Telegram", subtitle: "Message your assistant from Telegram") {
             // Bot credential row
             if store.telegramHasBotToken {
                 HStack(spacing: VSpacing.sm) {
@@ -219,20 +197,16 @@ struct SettingsChannelsTab: View {
 
             // Verification row (only when credentials exist)
             if store.telegramHasBotToken {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 channelVerificationView(channel: "telegram")
             }
 
             // Approved users (only when bot token exists and verification is complete)
             if store.telegramHasBotToken && store.telegramVerificationVerified {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 telegramApprovedUsersSection
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Telegram Approved Users
@@ -333,16 +307,7 @@ struct SettingsChannelsTab: View {
     // MARK: - Slack Channel Card
 
     private var slackChannelCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Slack")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Message your assistant from Slack")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Slack", subtitle: "Message your assistant from Slack") {
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
                 HStack(spacing: VSpacing.sm) {
                     VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
@@ -369,17 +334,13 @@ struct SettingsChannelsTab: View {
 
             // Verification row (only when bot token and app token are configured)
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 channelVerificationView(channel: "slack")
 
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 slackApprovedUsersSection
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Slack Approved Users
@@ -496,16 +457,7 @@ struct SettingsChannelsTab: View {
     // MARK: - SMS (Twilio) Channel Card
 
     private var twilioCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("SMS")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Text your assistant using Twilio as the SMS provider")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "SMS", subtitle: "Text your assistant using Twilio as the SMS provider") {
             // Credentials row
             if store.twilioHasCredentials {
                 HStack(spacing: VSpacing.sm) {
@@ -524,7 +476,7 @@ struct SettingsChannelsTab: View {
 
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
@@ -558,29 +510,16 @@ struct SettingsChannelsTab: View {
 
             // Verification row (only when credentials exist)
             if store.twilioHasCredentials {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 channelVerificationView(channel: "sms")
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Phone Calling Card
 
     private var voiceCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Phone Calling")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Receive and make phone calls via Twilio")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Phone Calling", subtitle: "Receive and make phone calls via Twilio") {
             // Credentials row
             if store.twilioHasCredentials {
                 HStack(spacing: VSpacing.sm) {
@@ -599,7 +538,7 @@ struct SettingsChannelsTab: View {
 
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
@@ -634,14 +573,10 @@ struct SettingsChannelsTab: View {
             // Verification row (only when credentials and a phone number are assigned —
             // voice verification initiates an outbound call which requires a valid caller number)
             if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
                 channelVerificationView(channel: "phone")
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Twilio Credential Entry
@@ -845,16 +780,7 @@ struct SettingsChannelsTab: View {
     // MARK: - Mobile Card (Pairing + Approved Devices)
 
     private var mobileCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Mobile (iOS)")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Connect your phone to your assistant through the iOS app")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Mobile (iOS)", subtitle: "Connect your phone to your assistant through the iOS app") {
             // Connected devices
             if !store.approvedDevices.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -888,10 +814,6 @@ struct SettingsChannelsTab: View {
             // Device pairing row — mirrors Channel Verification row layout
             mobilePairingRow
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

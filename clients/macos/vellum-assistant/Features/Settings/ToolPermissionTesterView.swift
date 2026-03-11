@@ -6,26 +6,13 @@ struct ToolPermissionTesterView: View {
     @ObservedObject var model: ToolPermissionTesterModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Permission Simulator")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text("Test how a tool invocation would be evaluated by the permission system.")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Permission Simulator", subtitle: "Test how a tool invocation would be evaluated by the permission system.") {
             formFields
 
             simulateButton
 
             resultSection
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
         .onAppear {
             model.fetchToolNames()
         }
@@ -221,7 +208,7 @@ struct ToolPermissionTesterView: View {
 
         if let result = model.lastResult {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
 
                 // Decision badge row
                 HStack(spacing: VSpacing.sm) {

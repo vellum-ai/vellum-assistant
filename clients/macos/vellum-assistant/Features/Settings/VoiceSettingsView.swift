@@ -53,24 +53,9 @@ struct VoiceSettingsView: View {
     // MARK: - Push to Talk Card
 
     private var pttCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Push to Talk")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Hold the activation key to dictate text or start a voice conversation. Uses on-device speech recognition.")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Enable Push to Talk")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-                Spacer()
-                VToggle(isOn: Binding(
+        SettingsCard(title: "Push to Talk", subtitle: "Hold the activation key to dictate text or start a voice conversation. Uses on-device speech recognition.") {
+            VToggle(
+                isOn: Binding(
                     get: { pttEnabled },
                     set: { enabled in
                         if enabled {
@@ -81,9 +66,9 @@ struct VoiceSettingsView: View {
                             selectActivator(.off)
                         }
                     }
-                ))
-                .accessibilityLabel("Enable Push to Talk")
-            }
+                ),
+                label: "Enable Push to Talk"
+            )
 
             if pttEnabled {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -165,10 +150,6 @@ struct VoiceSettingsView: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Custom Key Recording
@@ -276,30 +257,12 @@ struct VoiceSettingsView: View {
     // MARK: - Wake Word Card
 
     private var wakeWordCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Talk to Vellum, hands free")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Wake word lets you start a conversation by speaking a keyword aloud \u{2014} no need to click or press anything. It uses on-device speech recognition, so nothing you say ever leaves your Mac.")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-                    .lineSpacing(2)
-            }
-
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Enable wake word listening")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Activate the assistant by speaking instead of using a keyboard shortcut.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                Spacer()
-                VToggle(isOn: $wakeWordEnabled)
-                    .accessibilityLabel("Enable wake word listening")
-            }
+        SettingsCard(title: "Talk to Vellum, hands free", subtitle: "Wake word lets you start a conversation by speaking a keyword aloud \u{2014} no need to click or press anything. It uses on-device speech recognition, so nothing you say ever leaves your Mac.") {
+            VToggle(
+                isOn: $wakeWordEnabled,
+                label: "Enable Wake Word Listening",
+                helperText: "Activate the assistant by speaking instead of using a keyboard shortcut."
+            )
 
             if wakeWordEnabled {
                 // How it works steps
@@ -364,10 +327,6 @@ struct VoiceSettingsView: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func wakeWordStepCard(number: String, title: String, description: String) -> some View {
@@ -405,16 +364,7 @@ struct VoiceSettingsView: View {
     // MARK: - Text-to-Speech Card
 
     private var ttsCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Text-to-Speech")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
                     VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
@@ -461,9 +411,5 @@ struct VoiceSettingsView: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

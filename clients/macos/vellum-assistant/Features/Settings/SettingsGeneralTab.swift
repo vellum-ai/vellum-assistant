@@ -9,23 +9,62 @@ struct SettingsGeneralTab: View {
     var authManager: AuthManager
     var onClose: () -> Void
 
-    // -- Account / Vellum section state --
-    @State private var platformUrlText: String = ""
-    @FocusState private var isPlatformUrlFocused: Bool
+    @State private var showingPairingQR: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
-            SettingsAppearanceTab(store: store)
+            SettingsAppearanceTab(store: store, afterTimezone: AnyView(mobilePairingCard))
         }
         .onAppear {
             Task { await authManager.checkSession() }
-            store.refreshPlatformConfig()
-            platformUrlText = store.platformBaseUrl
         }
-        .onChange(of: store.platformBaseUrl) { _, newValue in
-            if !isPlatformUrlFocused {
-                platformUrlText = newValue
+        .sheet(isPresented: $showingPairingQR) {
+            PairingQRCodeSheet(
+                gatewayUrl: store.resolvedIosGatewayUrl,
+                daemonClient: daemonClient
+            )
+        }
+    }
+
+    // MARK: - Mobile Pairing
+
+    private var mobilePairingCard: some View {
+        SettingsCard(title: "Mobile (iOS)", subtitle: "Connect your phone to your assistant through the iOS app") {
+            if !store.approvedDevices.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Devices")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
+
+                    ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.smartphone, size: 12)
+                                .foregroundColor(VColor.success)
+                            Text(device.deviceName)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            VIconButton(label: "Remove \(device.deviceName)", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
+                                store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                            }
+                        }
+                    }
+                }
+            }
+
+            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
+            if !hasGateway {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.triangleAlert, size: 12)
+                        .foregroundColor(VColor.warning)
+                    Text("Configure a gateway URL to enable pairing")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.warning)
+                }
+            } else {
+                VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary, size: .medium) {
+                    showingPairingQR = true
+                }
             }
         }
     }
@@ -33,34 +72,7 @@ struct SettingsGeneralTab: View {
     // MARK: - Account Section
 
     private var accountSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Account & Platform")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Platform URL")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
-
-            HStack(spacing: VSpacing.sm) {
-                TextField("https://platform.vellum.ai", text: $platformUrlText)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .focused($isPlatformUrlFocused)
-
-                VButton(label: "Save", style: .primary, size: .medium, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                    store.savePlatformBaseUrl(platformUrlText)
-                    isPlatformUrlFocused = false
-                }
-            }
-
-            Divider().background(VColor.surfaceBorder)
-
-            Text("Sign in to Your Account")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
-
+        SettingsCard(title: "Account", subtitle: "Sign in to Your Account") {
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
@@ -90,9 +102,5 @@ struct SettingsGeneralTab: View {
                     .foregroundColor(VColor.error)
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

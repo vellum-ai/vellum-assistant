@@ -46,8 +46,13 @@ struct SettingsDeveloperTab: View {
 
     private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
+    @State private var platformUrlText: String = ""
+    @FocusState private var isPlatformUrlFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Platform URL
+            platformUrlSection
             // Assistant Info
             assistantInfoSection
             // Switch Assistant
@@ -146,14 +151,38 @@ struct SettingsDeveloperTab: View {
         }
     }
 
+    // MARK: - Platform URL
+
+    private var platformUrlSection: some View {
+        SettingsCard(title: "Platform URL") {
+            HStack(spacing: VSpacing.sm) {
+                TextField("https://platform.vellum.ai", text: $platformUrlText)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .focused($isPlatformUrlFocused)
+
+                VButton(label: "Save", style: .primary, size: .medium, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    store.savePlatformBaseUrl(platformUrlText)
+                    isPlatformUrlFocused = false
+                }
+            }
+        }
+        .onAppear {
+            store.refreshPlatformConfig()
+            platformUrlText = store.platformBaseUrl
+        }
+        .onChange(of: store.platformBaseUrl) { _, newValue in
+            if !isPlatformUrlFocused {
+                platformUrlText = newValue
+            }
+        }
+    }
+
     // MARK: - Assistant Info
 
     private var assistantInfoSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Assistant Info")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
+        SettingsCard(title: "Assistant Info") {
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
                 infoRow(label: "Assistant ID", value: assistant.assistantId, mono: true)
                     .onTapGesture {
@@ -186,10 +215,6 @@ struct SettingsDeveloperTab: View {
                 DeveloperDaemonStatusRows(daemonClient: daemonClient)
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
@@ -243,11 +268,7 @@ struct SettingsDeveloperTab: View {
     @ViewBuilder
     private var switchAssistantSection: some View {
         if lockfileAssistants.count > 1 {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Assistants")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
+            SettingsCard(title: "Assistants") {
                 ForEach(lockfileAssistants, id: \.assistantId) { assistant in
                     HStack(spacing: VSpacing.sm) {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -276,7 +297,7 @@ struct SettingsDeveloperTab: View {
                     .padding(.vertical, VSpacing.xs)
                 }
 
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
 
                 HStack {
                     Text("Active")
@@ -291,10 +312,6 @@ struct SettingsDeveloperTab: View {
                     .frame(maxWidth: 200)
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: selectedAssistantId) { oldValue, newValue in
                 let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
                 guard newValue != currentId, newValue != oldValue else { return }
@@ -378,35 +395,16 @@ struct SettingsDeveloperTab: View {
     // MARK: - Retire Assistant
 
     private var retireAssistantSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Retire Assistant")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Retire this assistant")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
-                    if lockfileAssistants.count > 1 {
-                        Text("Stops the current assistant and switches to another.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    } else {
-                        Text("Stops the daemon, removes local data, and returns to initial setup.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                }
-                VButton(label: "Retire", style: .danger, size: .medium) {
-                    showingRetireConfirmation = true
-                }
+        SettingsCard(
+            title: "Retire Assistant",
+            subtitle: lockfileAssistants.count > 1
+                ? "Stops the current assistant and switches to another."
+                : "Stops the daemon, removes local data, and returns to initial setup."
+        ) {
+            VButton(label: "Retire", style: .danger, size: .medium) {
+                showingRetireConfirmation = true
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Hatch New Assistant
@@ -438,38 +436,20 @@ struct SettingsDeveloperTab: View {
     @ViewBuilder
     private var hatchNewAssistantSection: some View {
         if isHatchFlagEnabled {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Hatch New Assistant")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Hatch a new assistant")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("Starts the initial setup flow to create a new assistant.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+            SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
+                VButton(label: "Hatch...", style: .primary, size: .medium) {
+                    showingHatchConfirmation = true
+                }
+                .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Continue") {
+                        AppDelegate.shared?.hatchNewAssistant()
+                        onClose()
                     }
-                    VButton(label: "Hatch...", style: .primary, size: .medium) {
-                        showingHatchConfirmation = true
-                    }
-                    .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
-                        Button("Cancel", role: .cancel) {}
-                        Button("Continue") {
-                            AppDelegate.shared?.hatchNewAssistant()
-                            onClose()
-                        }
-                    } message: {
-                        Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
-                    }
+                } message: {
+                    Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -488,22 +468,15 @@ struct SettingsDeveloperTab: View {
     }
 
     private var assistantFeatureFlagSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack {
-                Text("Assistant Feature Flags")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                if isLoadingAssistantFlags {
+        SettingsCard(title: "Assistant Feature Flags", subtitle: "Sourced from the gateway API. Changes are synced remotely.") {
+            if isLoadingAssistantFlags {
+                HStack {
+                    Spacer()
                     ProgressView()
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                 }
             }
-
-            Text("Sourced from the gateway API. Changes are synced remotely.")
-                .font(VFont.sectionDescription)
-                .foregroundColor(VColor.textMuted)
 
             if let error = assistantFlagsError {
                 HStack(spacing: VSpacing.xs) {
@@ -523,10 +496,6 @@ struct SettingsDeveloperTab: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
@@ -593,17 +562,7 @@ struct SettingsDeveloperTab: View {
     // MARK: - macOS Feature Flags
 
     private var macOSFeatureFlagSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("macOS Feature Flags")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text("Local-only flags stored in UserDefaults on this Mac.")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "macOS Feature Flags", subtitle: "Local-only flags stored in UserDefaults on this Mac.") {
             if macOSFlagStates.isEmpty {
                 Text("No macOS feature flags available.")
                     .font(VFont.body)
@@ -614,10 +573,6 @@ struct SettingsDeveloperTab: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func macOSFlagRow(index: Int, entry: MacOSFeatureFlagState) -> some View {
@@ -657,21 +612,8 @@ struct SettingsDeveloperTab: View {
     @ViewBuilder
     private var environmentVariablesSection: some View {
         if daemonClient != nil {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Environment Variables")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Environment Variables")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("View env vars for both the app and daemon processes")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "View", style: .secondary, size: .medium) {
+            SettingsCard(title: "Environment Variables", subtitle: "View env vars for both the app and daemon processes") {
+                VButton(label: "View", style: .secondary, size: .medium) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
@@ -685,30 +627,15 @@ struct SettingsDeveloperTab: View {
                         }
                         try? daemonClient?.sendEnvVarsRequest()
                         showingEnvVars = true
-                    }
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     // MARK: - Sentry Testing
 
     private var sentryTestingSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("Sentry Testing")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text("Trigger test events to validate that Sentry is receiving reports from this app.")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
+        SettingsCard(title: "Sentry Testing", subtitle: "Trigger test events to validate that Sentry is receiving reports from this app.") {
             if !isSentryEnabled {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
@@ -740,7 +667,7 @@ struct SettingsDeveloperTab: View {
                         .foregroundColor(VColor.textMuted)
                 }
 
-                Divider().foregroundColor(VColor.divider)
+                SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Send Test Error", style: .secondary, size: .medium) {
@@ -751,7 +678,7 @@ struct SettingsDeveloperTab: View {
                         .foregroundColor(VColor.textMuted)
                 }
 
-                Divider().foregroundColor(VColor.divider)
+                SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Send Test Warning", style: .secondary, size: .medium) {
@@ -762,7 +689,7 @@ struct SettingsDeveloperTab: View {
                         .foregroundColor(VColor.textMuted)
                 }
 
-                Divider().foregroundColor(VColor.divider)
+                SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Send Test Message", style: .secondary, size: .medium) {
@@ -773,7 +700,7 @@ struct SettingsDeveloperTab: View {
                         .foregroundColor(VColor.textMuted)
                 }
 
-                Divider().foregroundColor(VColor.divider)
+                SettingsDivider()
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     VButton(label: "Test Performance Transaction", style: .secondary, size: .medium) {
@@ -802,10 +729,6 @@ struct SettingsDeveloperTab: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func sendSentryTestEvent(level: SentryLevel, label: String) {

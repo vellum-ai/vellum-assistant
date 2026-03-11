@@ -3,6 +3,7 @@ import SwiftUI
 public struct VToggle: View {
     @Binding public var isOn: Bool
     public var label: String? = nil
+    public var helperText: String? = nil
     @Environment(\.isEnabled) private var isEnabled
 
     private let trackWidth: CGFloat = 36
@@ -10,19 +11,30 @@ public struct VToggle: View {
     private let knobSize: CGFloat = 18
     private let knobPadding: CGFloat = 3
 
-    public init(isOn: Binding<Bool>, label: String? = nil) {
+    public init(isOn: Binding<Bool>, label: String? = nil, helperText: String? = nil) {
         self._isOn = isOn
         self.label = label
+        self.helperText = helperText
     }
 
     public var body: some View {
-        HStack(spacing: VSpacing.sm) {
+        HStack(alignment: helperText != nil ? .top : .center, spacing: 10) {
             toggleTrack
+                .padding(.top, helperText != nil ? 2 : 0)
 
-            if let label = label {
-                Text(label)
-                    .font(VFont.body)
-                    .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
+            if label != nil || helperText != nil {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    if let label {
+                        Text(label)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
+                    }
+                    if let helperText {
+                        Text(helperText)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
             }
         }
         .contentShape(Rectangle())

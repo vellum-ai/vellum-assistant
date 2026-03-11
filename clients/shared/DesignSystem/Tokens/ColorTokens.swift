@@ -169,6 +169,7 @@ public enum VColor {
     public static let chatBackground = adaptiveColor(light: Moss._100, dark: Moss._900)
     public static let surface = adaptiveColor(light: .white, dark: Moss._700)
     public static let surfaceBorder = adaptiveColor(light: Moss._100, dark: Moss._600)
+    public static let cardBorder = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Color(hex: 0x4A4A46))
     public static let surfaceSubtle = adaptiveColor(light: Moss._50, dark: Moss._900)
     public static let inputBackground = adaptiveColor(light: Moss._100, dark: Moss._700)
 
@@ -216,7 +217,7 @@ public enum VColor {
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
-    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._700)
+    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._600)
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
     public static let toggleOn = adaptiveColor(light: Color(hex: 0x2A3825), dark: Color(hex: 0x2A3825))
     public static let toggleOff = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Color(hex: 0xE8E6DA))

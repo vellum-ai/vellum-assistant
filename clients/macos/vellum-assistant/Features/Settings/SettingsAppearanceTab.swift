@@ -6,6 +6,7 @@ struct SettingsAppearanceTab: View {
     private static let knownTimezones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
 
     @ObservedObject var store: SettingsStore
+    var afterTimezone: AnyView? = nil
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
     @State private var isRecordingGlobalHotkey = false
@@ -15,57 +16,126 @@ struct SettingsAppearanceTab: View {
     @State private var recordingDisplayString: String?
     @State private var shortcutConflictWarning: String?
     @State private var selectedTimezone: String = ""
+    @State private var timezoneSearchText: String = ""
+    @State private var isTimezoneDropdownOpen: Bool = false
+    @FocusState private var isTimezoneSearchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // DISPLAY section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Display")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+            // THEME section
+            SettingsCard(title: "Theme") {
+                VSegmentedControl(
+                    items: [
+                        (label: "System", tag: "system"),
+                        (label: "Light", tag: "light"),
+                        (label: "Dark", tag: "dark"),
+                    ],
+                    selection: Binding(
+                        get: { themePreference },
+                        set: { newValue in
+                            themePreference = newValue
+                            AppDelegate.shared?.applyThemePreference()
+                        }
+                    ),
+                    style: .pill
+                )
+                .fixedSize()
+            }
 
-                HStack(alignment: .center, spacing: VSpacing.lg) {
-                    Text("Theme")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    VSegmentedControl(
-                        items: [
-                            (label: "System", tag: "system"),
-                            (label: "Light", tag: "light"),
-                            (label: "Dark", tag: "dark"),
-                        ],
-                        selection: Binding(
-                            get: { themePreference },
-                            set: { newValue in
-                                themePreference = newValue
-                                AppDelegate.shared?.applyThemePreference()
-                            }
-                        ),
-                        style: .pill
-                    )
-                    .fixedSize()
-                }
-
-                Divider().background(VColor.surfaceBorder)
-
-                HStack(alignment: .top, spacing: VSpacing.lg) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("User timezone")
-                            .font(VFont.inputLabel)
+            // TIMEZONE section
+            SettingsCard(title: "Timezone") {
+                // Searchable timezone picker
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Closest city")
+                            .font(VFont.body)
                             .foregroundColor(VColor.textSecondary)
-                        Text("Timezone used for time-aware responses.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                        Spacer()
+                        HStack(spacing: VSpacing.md) {
+                            VIconView(.search, size: 13)
+                                .foregroundColor(VColor.textMuted)
+                            TextField(selectedCityPlaceholder, text: $timezoneSearchText)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .textFieldStyle(.plain)
+                                .focused($isTimezoneSearchFocused)
+                            if !timezoneSearchText.isEmpty {
+                                Button {
+                                    timezoneSearchText = ""
+                                    isTimezoneDropdownOpen = false
+                                } label: {
+                                    VIconView(.x, size: 11)
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                .buttonStyle(.plain)
+                                .pointerCursor()
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .frame(width: 280, height: 28)
+                        .background(VColor.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
                     }
-                    Spacer()
-                    VDropdown(
-                        placeholder: "Not Set",
-                        selection: $selectedTimezone,
-                        options: [(label: "Not Set", value: "")] + Self.knownTimezones.map { (label: $0, value: $0) },
-                        emptyValue: ""
-                    )
-                    .frame(width: 200)
+                    .onChange(of: timezoneSearchText) { _, newValue in
+                        isTimezoneDropdownOpen = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    }
+                    .onChange(of: isTimezoneSearchFocused) { _, focused in
+                        if focused && timezoneSearchText.isEmpty {
+                            // Show all when focused with empty search
+                            isTimezoneDropdownOpen = true
+                        }
+                    }
+
+                    if isTimezoneDropdownOpen {
+                        let filtered = filteredTimezones
+                        if !filtered.isEmpty {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(filtered, id: \.identifier) { entry in
+                                        Button {
+                                            selectedTimezone = entry.identifier
+                                            timezoneSearchText = ""
+                                            isTimezoneDropdownOpen = false
+                                            isTimezoneSearchFocused = false
+                                        } label: {
+                                            HStack {
+                                                Text(entry.displayLabel)
+                                                    .font(VFont.body)
+                                                    .foregroundColor(VColor.textPrimary)
+                                                Spacer()
+                                                Text(entry.currentTime)
+                                                    .font(VFont.caption)
+                                                    .foregroundColor(VColor.textMuted)
+                                            }
+                                            .padding(.horizontal, VSpacing.md)
+                                            .padding(.vertical, VSpacing.sm)
+                                            .background(
+                                                entry.identifier == selectedTimezone
+                                                    ? VColor.navActive
+                                                    : Color.clear
+                                            )
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .pointerCursor()
+                                    }
+                                }
+                            }
+                            .scrollIndicators(.hidden)
+                            .frame(maxHeight: 200)
+                            .background(VColor.inputBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .strokeBorder(VColor.cardBorder, lineWidth: 2)
+                            )
+                            .padding(.top, VSpacing.xs)
+                        }
+                    }
                 }
                 .onChange(of: selectedTimezone) { oldValue, newValue in
                     guard oldValue != newValue else { return }
@@ -76,10 +146,18 @@ struct SettingsAppearanceTab: View {
                     }
                 }
 
+                SettingsDivider()
+
+                HStack {
+                    Text("Time zone")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Text(timezoneDisplayName)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
             .onAppear {
                 selectedTimezone = store.userTimezone ?? ""
             }
@@ -90,12 +168,11 @@ struct SettingsAppearanceTab: View {
                 }
             }
 
+            if let afterTimezone { afterTimezone }
+
             // KEYBOARD SHORTCUTS section
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Keyboard Shortcuts")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(.bottom, VSpacing.md)
+            SettingsCard(title: "Keyboard Shortcuts") {
+                VStack(alignment: .leading, spacing: 0) {
 
                 // Open Vellum (configurable)
                 HStack {
@@ -135,7 +212,7 @@ struct SettingsAppearanceTab: View {
                         .padding(.bottom, VSpacing.xs)
                 }
 
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
 
                 // Quick Input (configurable)
                 HStack {
@@ -169,77 +246,61 @@ struct SettingsAppearanceTab: View {
                 }
                 .padding(.vertical, VSpacing.md)
 
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
 
                 ShortcutRow(label: "Start voice input", shortcut: PTTActivator.fromStored().kind != .none ? "Hold \(PTTActivator.fromStored().displayName)" : "Disabled")
 
-                Divider().background(VColor.surfaceBorder)
+                SettingsDivider()
 
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Send with ⌘Enter")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("When enabled, Enter inserts a new line and ⌘Enter sends.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    Spacer()
-                    VToggle(isOn: Binding(
+                VToggle(
+                    isOn: Binding(
                         get: { store.cmdEnterToSend },
                         set: { store.cmdEnterToSend = $0 }
-                    ))
-                }
+                    ),
+                    label: "Send with Cmd+Enter",
+                    helperText: "When enabled, Enter inserts a new line and cmd+enter sends."
+                )
                 .padding(.vertical, VSpacing.md)
+                }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
             .onDisappear {
                 stopRecording()
             }
 
             // MEDIA EMBEDS section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Media Embeds")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    Text("Auto media embeds")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    VToggle(isOn: Binding(
+            SettingsCard(title: "Media Embeds", subtitle: "Automatically embed images, videos, and other media shared in chat messages.") {
+                VToggle(
+                    isOn: Binding(
                         get: { store.mediaEmbedsEnabled },
                         set: { store.setMediaEmbedsEnabled($0) }
-                    ))
-                }
-
-                Text("Automatically embed images, videos, and other media shared in chat messages.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .textSelection(.enabled)
+                    ),
+                    label: "Auto Media Embeds"
+                )
 
                 if store.mediaEmbedsEnabled {
-                    Divider()
-                        .background(VColor.surfaceBorder)
+                    SettingsDivider()
 
                     Text("Video Domain Allowlist")
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.textPrimary)
 
-                    HStack(spacing: VSpacing.sm) {
-                        TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .onSubmit {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Add Domain")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+
+                        HStack(spacing: VSpacing.sm) {
+                            TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
+                                .vInputStyle()
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .onSubmit {
+                                    addAllowlistDomain()
+                                }
+
+                            VButton(label: "Add", style: .primary, size: .medium, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                                 addAllowlistDomain()
                             }
-
-                        VButton(label: "Add", style: .primary, size: .medium, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            addAllowlistDomain()
                         }
                     }
 
@@ -247,7 +308,7 @@ struct SettingsAppearanceTab: View {
                         HStack {
                             Text(domain)
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.textPrimary)
                                 .textSelection(.enabled)
                             Spacer()
                             VIconButton(label: "Remove domain", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
@@ -256,18 +317,15 @@ struct SettingsAppearanceTab: View {
                                 store.setMediaEmbedVideoAllowlistDomains(domains)
                             }
                         }
-                        .padding(.vertical, VSpacing.xs)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.lg)
+                                .strokeBorder(VColor.cardBorder, lineWidth: 1)
+                        )
                     }
-
-                    VButton(label: "Reset to Defaults", style: .secondary, size: .medium) {
-                        store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
         }
     }
 
@@ -280,6 +338,71 @@ struct SettingsAppearanceTab: View {
         domains.append(domain)
         store.setMediaEmbedVideoAllowlistDomains(domains)
         newAllowlistDomain = ""
+    }
+
+    // MARK: - Timezone Helpers
+
+    private struct TimezoneEntry {
+        let identifier: String
+        let city: String
+        let region: String
+        let displayLabel: String
+        let currentTime: String
+        let utcOffset: String
+    }
+
+    private var selectedCityPlaceholder: String {
+        guard !selectedTimezone.isEmpty,
+              let tz = TimeZone(identifier: selectedTimezone) else {
+            return "Search city or country..."
+        }
+        let parts = selectedTimezone.components(separatedBy: "/")
+        let city = (parts.last ?? selectedTimezone).replacingOccurrences(of: "_", with: " ")
+        return city
+    }
+
+    private var timezoneDisplayName: String {
+        guard !selectedTimezone.isEmpty else { return "Not Set" }
+        let tz = TimeZone(identifier: selectedTimezone) ?? .current
+        return tz.localizedName(for: .standard, locale: .current) ?? selectedTimezone
+    }
+
+    private var filteredTimezones: [TimezoneEntry] {
+        let entries = Self.knownTimezones.compactMap { id -> TimezoneEntry? in
+            guard let tz = TimeZone(identifier: id) else { return nil }
+            let parts = id.components(separatedBy: "/")
+            let city = (parts.last ?? id).replacingOccurrences(of: "_", with: " ")
+            let region = parts.count > 1 ? parts[0].replacingOccurrences(of: "_", with: " ") : ""
+
+            let seconds = tz.secondsFromGMT()
+            let hours = seconds / 3600
+            let minutes = abs(seconds % 3600) / 60
+            let offsetStr = minutes > 0
+                ? String(format: "GMT%+d:%02d", hours, minutes)
+                : String(format: "GMT%+d", hours)
+
+            let formatter = DateFormatter()
+            formatter.timeZone = tz
+            formatter.dateFormat = "h:mm a"
+            let timeStr = formatter.string(from: Date())
+
+            let label = "\(offsetStr) — \(city)"
+            return TimezoneEntry(
+                identifier: id, city: city, region: region,
+                displayLabel: label, currentTime: timeStr, utcOffset: offsetStr
+            )
+        }
+        .sorted { $0.identifier < $1.identifier }
+
+        let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return entries }
+
+        return entries.filter {
+            $0.city.lowercased().contains(query)
+            || $0.region.lowercased().contains(query)
+            || $0.utcOffset.lowercased().contains(query)
+            || $0.identifier.lowercased().contains(query)
+        }
     }
 
     // MARK: - Shortcut Recording
