@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// Reusable avatar image that adapts its clip shape based on image transparency.
@@ -95,4 +96,5 @@ public struct VAvatarImage: View {
     }
     .frame(width: 300, height: 100)
 }
+#endif
 #endif
