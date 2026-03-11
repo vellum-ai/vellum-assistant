@@ -88,15 +88,14 @@ import * as queryMediaEvents from "./bundled-skills/media-processing/tools/query
 // ── messaging ──────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/messaging/tools/gmail-archive.js";
 import * as gmailArchiveByQuery from "./bundled-skills/messaging/tools/gmail-archive-by-query.js";
+import * as gmailAttachments from "./bundled-skills/messaging/tools/gmail-attachments.js";
 import * as gmailBatchArchive from "./bundled-skills/messaging/tools/gmail-batch-archive.js";
 import * as gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-label.js";
-import * as gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
 import * as gmailDraft from "./bundled-skills/messaging/tools/gmail-draft.js";
 import * as gmailFilters from "./bundled-skills/messaging/tools/gmail-filters.js";
 import * as gmailFollowUp from "./bundled-skills/messaging/tools/gmail-follow-up.js";
 import * as gmailForward from "./bundled-skills/messaging/tools/gmail-forward.js";
 import * as gmailLabel from "./bundled-skills/messaging/tools/gmail-label.js";
-import * as gmailListAttachments from "./bundled-skills/messaging/tools/gmail-list-attachments.js";
 import * as gmailOutreachScan from "./bundled-skills/messaging/tools/gmail-outreach-scan.js";
 import * as gmailSendDraft from "./bundled-skills/messaging/tools/gmail-send-draft.js";
 import * as gmailSendWithAttachments from "./bundled-skills/messaging/tools/gmail-send-with-attachments.js";
@@ -320,8 +319,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
   ["messaging:tools/gmail-draft.ts", gmailDraft],
   ["messaging:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["messaging:tools/gmail-list-attachments.ts", gmailListAttachments],
-  ["messaging:tools/gmail-download-attachment.ts", gmailDownloadAttachment],
+  ["messaging:tools/gmail-attachments.ts", gmailAttachments],
   ["messaging:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
   ["messaging:tools/gmail-forward.ts", gmailForward],
   ["messaging:tools/gmail-follow-up.ts", gmailFollowUp],

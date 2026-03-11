@@ -601,55 +601,38 @@
       "execution_target": "host"
     },
     {
-      "name": "gmail_list_attachments",
-      "description": "List attachments on a Gmail message with filename, MIME type, size, and attachment ID.",
+      "name": "gmail_attachments",
+      "description": "List or download Gmail attachments. Use action 'list' to enumerate attachments on a message, then 'download' to save a specific attachment to disk.",
       "category": "messaging",
       "risk": "low",
       "input_schema": {
         "type": "object",
         "properties": {
-          "message_id": {
+          "action": {
             "type": "string",
-            "description": "Gmail message ID to list attachments for"
+            "enum": ["list", "download"],
+            "description": "List attachments on a message, or download a specific attachment"
           },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["message_id"]
-      },
-      "executor": "tools/gmail-list-attachments.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "gmail_download_attachment",
-      "description": "Download a Gmail attachment to the working directory.",
-      "category": "messaging",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
           "message_id": {
             "type": "string",
             "description": "Gmail message ID"
           },
           "attachment_id": {
             "type": "string",
-            "description": "Attachment ID from gmail_list_attachments"
+            "description": "Attachment ID (required for download, from a prior list call)"
           },
           "filename": {
             "type": "string",
-            "description": "Filename to save as"
+            "description": "Filename to save as (required for download)"
           },
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["message_id", "attachment_id", "filename"]
+        "required": ["action", "message_id"]
       },
-      "executor": "tools/gmail-download-attachment.ts",
+      "executor": "tools/gmail-attachments.ts",
       "execution_target": "host"
     },
     {

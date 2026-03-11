@@ -61,11 +61,10 @@ When a Gmail tool fails with a token or authorization error:
 
 ### Attachments
 
-- **List Attachments**: `gmail_list_attachments` — list all attachments on a message with filename, MIME type, size, and attachment ID
-- **Download Attachment**: `gmail_download_attachment` — download an attachment to the working directory by message ID + attachment ID
+- **Attachments**: `gmail_attachments` — list or download Gmail attachments. Use `action: "list"` to enumerate attachments on a message (returns filename, MIME type, size, and attachment ID), then `action: "download"` with `attachment_id` and `filename` to save a specific attachment to disk.
 - **Send with Attachments**: `gmail_send_with_attachments` — send an email with file attachments (reads files from disk, builds multipart MIME)
 
-Workflow: use `gmail_list_attachments` to discover attachments, then `gmail_download_attachment` to save them locally.
+Workflow: use `gmail_attachments` with `action: "list"` to discover attachments, then `gmail_attachments` with `action: "download"` to save them locally.
 
 ### Forward & Thread Operations
 
