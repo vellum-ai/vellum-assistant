@@ -642,16 +642,16 @@ export class DaemonServer {
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (!session.isProcessing() || !session.hostBashProxy) {
-      if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+    if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+      if (!session.isProcessing() || !session.hostBashProxy) {
         session.setHostBashProxy(
           new HostBashProxy(session.getCurrentSender(), (requestId) => {
             pendingInteractions.resolve(requestId);
           }),
         );
-      } else {
-        session.setHostBashProxy(undefined);
       }
+    } else {
+      session.setHostBashProxy(undefined);
     }
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
