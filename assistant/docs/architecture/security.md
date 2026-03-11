@@ -179,7 +179,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
 | `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
-| `assistant/src/permissions/prompter.ts`       | HTTP prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                   |
+| `assistant/src/permissions/prompter.ts`       | HTTP prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                  |
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
@@ -233,7 +233,7 @@ sequenceDiagram
         UI->>HTTP: secret_response {requestId, value, delivery: "store"}
         HTTP->>Prompter: resolve(value, "store")
         Prompter->>Vault: {value, delivery: "store"}
-        Vault->>Keychain: setSecureKey("credential:svc:field", value)
+        Vault->>Keychain: setSecureKey("credential/svc/field", value)
         Vault->>Model: "Credential stored securely" (no value in output)
     else One-Time Send (if enabled)
         UI->>HTTP: secret_response {requestId, value, delivery: "transient_send"}
@@ -272,7 +272,7 @@ graph TB
     TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
     BROKER --> POLICY{"Check policy:<br/>allowedTools + allowedDomains"}
     POLICY -->|denied| REJECT["PolicyDenied error"]
-    POLICY -->|allowed| FETCH["getSecureKey(credential:svc:field)"]
+    POLICY -->|allowed| FETCH["getSecureKey(credential/svc/field)"]
     FETCH --> INJECT["Inject value into tool execution<br/>(never returned to model)"]
 ```
 
@@ -290,7 +290,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 | Component           | Location                                             | What it stores                                                                                                                                               |
 | ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Secret values       | macOS Keychain (primary) or encrypted file fallback  | Encrypted credential values keyed as `credential:{service}:{field}`. Falls back to encrypted file backend on Linux/headless or when Keychain is unavailable. |
+| Secret values       | macOS Keychain (primary) or encrypted file fallback  | Encrypted credential values keyed as `credential/{service}/{field}`. Falls back to encrypted file backend on Linux/headless or when Keychain is unavailable. |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                     |
 | Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend                                                                              |
 
@@ -303,7 +303,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
 | `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
-| `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                               |
+| `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                              |
 | `assistant/src/security/secret-scanner.ts`           | Regex + entropy-based secret detection                                |
 | `assistant/src/security/secret-ingress.ts`           | Inbound message secret blocking                                       |
 | `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                         |

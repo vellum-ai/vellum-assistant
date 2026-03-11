@@ -347,8 +347,8 @@ Both tokens are stored in the secure key store (macOS Keychain with encrypted fi
 
 | Secure key                           | Content                                                                    |
 | ------------------------------------ | -------------------------------------------------------------------------- |
-| `credential:slack_channel:bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
-| `credential:slack_channel:app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
+| `credential/slack_channel/bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
+| `credential/slack_channel/app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
 
 Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
 
@@ -669,7 +669,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
     end
 
     subgraph "UserDefaults (plist)"
