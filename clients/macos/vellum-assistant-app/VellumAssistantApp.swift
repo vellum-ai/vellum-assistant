@@ -25,6 +25,10 @@ struct VellumAssistantApp: App {
                 Button("Send Logs to Vellum") {
                     appDelegate.sendLogsToSentry()
                 }
+                Divider()
+                Button("Uninstall Vellum...") {
+                    appDelegate.performUninstall()
+                }
             }
             // Replace the default Settings menu item (which opens the SwiftUI
             // Settings scene window) with one that opens the in-app panel.

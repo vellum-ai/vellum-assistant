@@ -495,6 +495,61 @@ extension AppDelegate {
         return true
     }
 
+    // MARK: - Uninstall
+
+    /// Retires all local assistants registered in the lockfile, then moves
+    /// the application bundle to the Trash and terminates.
+    ///
+    /// Shows a confirmation alert before proceeding. Each local assistant is
+    /// retired sequentially via the CLI; failures are logged but do not block
+    /// subsequent retires or the final app removal.
+    func performUninstall() {
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Vellum"
+        alert.informativeText = "This will retire all local assistants and move Vellum to the Trash. This action cannot be undone."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        Task {
+            let allAssistants = LockfileAssistant.loadAll()
+            let localAssistants = allAssistants.filter { !$0.isRemote }
+
+            // Retire each local assistant so cloud/daemon resources are cleaned up.
+            for assistant in localAssistants {
+                do {
+                    log.info("Retiring local assistant '\(assistant.assistantId, privacy: .private)' as part of uninstall")
+                    try await assistantCli.retire(name: assistant.assistantId)
+                } catch {
+                    log.error("Failed to retire '\(assistant.assistantId, privacy: .private)' during uninstall: \(error.localizedDescription)")
+                }
+            }
+
+            // Stop any remaining daemon processes.
+            daemonClient.disconnect()
+            assistantCli.stop()
+
+            // Move the app bundle to the Trash.
+            let bundleURL = Bundle.main.bundleURL
+            do {
+                try FileManager.default.trashItem(at: bundleURL, resultingItemURL: nil)
+                log.info("Moved app bundle to Trash")
+            } catch {
+                log.error("Failed to move app to Trash: \(error.localizedDescription)")
+                let failAlert = NSAlert()
+                failAlert.messageText = "Could Not Remove Vellum"
+                failAlert.informativeText = "All assistants have been retired, but the app could not be moved to the Trash: \(error.localizedDescription)\n\nYou can manually drag Vellum to the Trash."
+                failAlert.alertStyle = .warning
+                failAlert.addButton(withTitle: "OK")
+                failAlert.runModal()
+            }
+
+            NSApp.terminate(nil)
+        }
+    }
+
     // MARK: - Shared teardown helpers
 
     /// Resets hotkey registration state so hotkeys are properly re-registered
