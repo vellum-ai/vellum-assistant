@@ -196,8 +196,8 @@ struct SettingsChannelsTab: View {
             // Bot credential row
             if store.telegramHasBotToken {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
@@ -206,7 +206,7 @@ struct SettingsChannelsTab: View {
             } else if telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     telegramSetupExpanded = true
                 }
             }
@@ -274,10 +274,9 @@ struct SettingsChannelsTab: View {
                             }
                         }
                         Spacer()
-                        VButton(label: "Revoke", style: .secondary) {
+                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.telegramRevokingMemberIds.contains(member.id)) {
                             store.revokeTelegramApprovedMember(memberId: member.id)
                         }
-                        .disabled(store.telegramRevokingMemberIds.contains(member.id))
                     }
                 }
             }
@@ -317,13 +316,12 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary) {
+                    VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
                     }
-                    .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    VButton(label: "Cancel", style: .tertiary) {
+                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         telegramSetupExpanded = false
                         telegramBotTokenText = ""
                     }
@@ -347,8 +345,8 @@ struct SettingsChannelsTab: View {
 
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -358,7 +356,7 @@ struct SettingsChannelsTab: View {
             } else if slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     slackChannelSetupExpanded = true
                 }
             }
@@ -423,10 +421,9 @@ struct SettingsChannelsTab: View {
                             }
                         }
                         Spacer()
-                        VButton(label: "Revoke", style: .secondary) {
+                        VButton(label: "Revoke", style: .secondary, size: .medium, isDisabled: store.slackRevokingMemberIds.contains(member.id)) {
                             store.revokeSlackApprovedMember(memberId: member.id)
                         }
-                        .disabled(store.slackRevokingMemberIds.contains(member.id))
                     }
                 }
             }
@@ -471,7 +468,13 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary) {
+                    VButton(
+                        label: "Connect",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
                         store.saveSlackChannelConfig(
                             botToken: slackChannelBotTokenInput,
                             appToken: slackChannelAppTokenInput
@@ -480,11 +483,7 @@ struct SettingsChannelsTab: View {
                         slackChannelAppTokenInput = ""
                         slackChannelSetupExpanded = false
                     }
-                    .disabled(
-                        slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                    VButton(label: "Cancel", style: .tertiary) {
+                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         slackChannelSetupExpanded = false
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
@@ -510,15 +509,15 @@ struct SettingsChannelsTab: View {
             // Credentials row
             if store.twilioHasCredentials {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
                 }
             } else if twilioSetupExpanded {
                 twilioCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     twilioSetupExpanded = true
                 }
             }
@@ -585,15 +584,15 @@ struct SettingsChannelsTab: View {
             // Credentials row
             if store.twilioHasCredentials {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                    VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
                 }
             } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                VButton(label: "Set Up", style: .secondary) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     voiceSetupExpanded = true
                 }
             }
@@ -673,7 +672,13 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary) {
+                    VButton(
+                        label: "Connect",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
                         store.saveTwilioCredentials(
                             accountSid: twilioAccountSidText,
                             authToken: twilioAuthTokenText
@@ -682,11 +687,7 @@ struct SettingsChannelsTab: View {
                         twilioAuthTokenText = ""
                         twilioSetupExpanded = false
                     }
-                    .disabled(
-                        twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                    VButton(label: "Cancel", style: .tertiary) {
+                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         twilioSetupExpanded = false
                         twilioAccountSidText = ""
                         twilioAuthTokenText = ""
@@ -724,7 +725,13 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connect", style: .secondary) {
+                    VButton(
+                        label: "Connect",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ) {
                         store.saveTwilioCredentials(
                             accountSid: voiceAccountSidText,
                             authToken: voiceAuthTokenText
@@ -733,11 +740,7 @@ struct SettingsChannelsTab: View {
                         voiceAuthTokenText = ""
                         voiceSetupExpanded = false
                     }
-                    .disabled(
-                        voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                    VButton(label: "Cancel", style: .tertiary) {
+                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         voiceSetupExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
@@ -793,8 +796,7 @@ struct SettingsChannelsTab: View {
             }
 
             if let action {
-                VButton(label: action.label, style: action.style, action: action.action)
-                    .disabled(action.disabled)
+                VButton(label: action.label, style: action.style, size: .medium, isDisabled: action.disabled, action: action.action)
             }
         }
     }
@@ -905,7 +907,7 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.warning)
             }
         } else {
-            VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
+            VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary, size: .medium) {
                 showingPairingQR = true
             }
         }

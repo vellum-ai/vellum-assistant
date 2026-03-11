@@ -218,8 +218,11 @@ public enum VColor {
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
     public static let divider = adaptiveColor(light: Stone._300, dark: Moss._700)
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
-    public static let toggleOff = adaptiveColor(light: Stone._200, dark: Moss._600)
+    public static let toggleOn = adaptiveColor(light: Color(hex: 0x2A3825), dark: Color(hex: 0x2A3825))
+    public static let toggleOff = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Color(hex: 0xE8E6DA))
     public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
+    public static let toggleKnob = adaptiveColor(light: Stone._50, dark: Color.white)
+    public static let toggleKnobDisabled = adaptiveColor(light: Color(hex: 0xBDB9A9), dark: Color(hex: 0xBDB9A9))
 
     // Slash command highlight — green tint for /command tokens in composer and chat
     public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)

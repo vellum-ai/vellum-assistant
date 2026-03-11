@@ -398,7 +398,7 @@ struct SettingsDeveloperTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                VButton(label: "Retire", style: .danger) {
+                VButton(label: "Retire", style: .danger, size: .medium) {
                     showingRetireConfirmation = true
                 }
             }
@@ -452,7 +452,7 @@ struct SettingsDeveloperTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "Hatch...", style: .primary) {
+                    VButton(label: "Hatch...", style: .primary, size: .medium) {
                         showingHatchConfirmation = true
                     }
                     .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
@@ -671,7 +671,7 @@ struct SettingsDeveloperTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "View", style: .secondary) {
+                    VButton(label: "View", style: .secondary, size: .medium) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
@@ -732,7 +732,7 @@ struct SettingsDeveloperTab: View {
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Trigger Fatal Crash", style: .danger) {
+                    VButton(label: "Trigger Fatal Crash", style: .danger, size: .medium) {
                         fatalError("Sentry test crash")
                     }
                     Text("Calls fatalError() — will terminate the app immediately.")
@@ -743,7 +743,7 @@ struct SettingsDeveloperTab: View {
                 Divider().foregroundColor(VColor.divider)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Error", style: .secondary) {
+                    VButton(label: "Send Test Error", style: .secondary, size: .medium) {
                         sendSentryTestEvent(level: .error, label: "error")
                     }
                     Text("Captures a Sentry event with level .error")
@@ -754,7 +754,7 @@ struct SettingsDeveloperTab: View {
                 Divider().foregroundColor(VColor.divider)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Warning", style: .secondary) {
+                    VButton(label: "Send Test Warning", style: .secondary, size: .medium) {
                         sendSentryTestEvent(level: .warning, label: "warning")
                     }
                     Text("Captures a Sentry event with level .warning")
@@ -765,7 +765,7 @@ struct SettingsDeveloperTab: View {
                 Divider().foregroundColor(VColor.divider)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Send Test Message", style: .secondary) {
+                    VButton(label: "Send Test Message", style: .secondary, size: .medium) {
                         sendSentryTestEvent(level: .info, label: "info message")
                     }
                     Text("Captures a Sentry event with level .info")
@@ -776,7 +776,7 @@ struct SettingsDeveloperTab: View {
                 Divider().foregroundColor(VColor.divider)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VButton(label: "Test Performance Transaction", style: .secondary) {
+                    VButton(label: "Test Performance Transaction", style: .secondary, size: .medium) {
                         guard isSentryEnabled else {
                             showSentryStatus("Sentry is disabled — transaction not sent.")
                             return

@@ -417,8 +417,8 @@ struct VoiceSettingsView: View {
 
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                    VButton(label: "Disconnect", style: .danger) {
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
@@ -444,19 +444,19 @@ struct VoiceSettingsView: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .secondary, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        VButton(label: "Cancel", style: .tertiary) {
+                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
                         }
                     }
                 }
             } else {
-                VButton(label: "Set Up", style: .secondary) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     ttsSetupExpanded = true
                 }
             }

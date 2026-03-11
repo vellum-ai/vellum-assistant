@@ -110,16 +110,16 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Record", style: .outlined, size: .medium) {
                                 startRecording()
                             }
                             if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Unbind", style: .outlined, size: .medium) {
                                     store.globalHotkeyShortcut = ""
                                 }
                             }
@@ -150,16 +150,16 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
                             stopRecording()
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Record", style: .outlined, size: .medium) {
                                 startRecordingQuickInput()
                             }
                             if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Unbind", style: .outlined, size: .medium) {
                                     store.quickInputHotkeyShortcut = ""
                                     store.quickInputHotkeyKeyCode = 0
                                 }
@@ -229,14 +229,18 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.bodyBold)
                         .foregroundColor(VColor.textSecondary)
 
-                    VInlineActionField(text: $newAllowlistDomain, placeholder: "Add domain (e.g. example.com)", actionLabel: "Add") {
-                        let domain = newAllowlistDomain
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !domain.isEmpty else { return }
-                        var domains = store.mediaEmbedVideoAllowlistDomains
-                        domains.append(domain)
-                        store.setMediaEmbedVideoAllowlistDomains(domains)
-                        newAllowlistDomain = ""
+                    HStack(spacing: VSpacing.sm) {
+                        TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .onSubmit {
+                                addAllowlistDomain()
+                            }
+
+                        VButton(label: "Add", style: .primary, size: .medium, isDisabled: newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                            addAllowlistDomain()
+                        }
                     }
 
                     ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
@@ -246,21 +250,16 @@ struct SettingsAppearanceTab: View {
                                 .foregroundColor(VColor.textSecondary)
                                 .textSelection(.enabled)
                             Spacer()
-                            Button {
+                            VIconButton(label: "Remove domain", icon: VIcon.trash.rawValue, iconOnly: true, variant: .danger) {
                                 var domains = store.mediaEmbedVideoAllowlistDomains
                                 domains.removeAll { $0 == domain }
                                 store.setMediaEmbedVideoAllowlistDomains(domains)
-                            } label: {
-                                VIconView(.trash, size: 14)
-                                    .foregroundColor(VColor.error)
                             }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
                         }
                         .padding(.vertical, VSpacing.xs)
                     }
 
-                    VButton(label: "Reset to Defaults", style: .secondary) {
+                    VButton(label: "Reset to Defaults", style: .secondary, size: .medium) {
                         store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -270,6 +269,17 @@ struct SettingsAppearanceTab: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
+    }
+
+    // MARK: - Allowlist
+
+    private func addAllowlistDomain() {
+        let domain = newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !domain.isEmpty else { return }
+        var domains = store.mediaEmbedVideoAllowlistDomains
+        domains.append(domain)
+        store.setMediaEmbedVideoAllowlistDomains(domains)
+        newAllowlistDomain = ""
     }
 
     // MARK: - Shortcut Recording

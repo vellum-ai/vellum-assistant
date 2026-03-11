@@ -42,17 +42,18 @@ struct SettingsGeneralTab: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
-            TextField("https://platform.vellum.ai", text: $platformUrlText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .focused($isPlatformUrlFocused)
+            HStack(spacing: VSpacing.sm) {
+                TextField("https://platform.vellum.ai", text: $platformUrlText)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .focused($isPlatformUrlFocused)
 
-            VButton(label: "Save", style: .primary) {
-                store.savePlatformBaseUrl(platformUrlText)
-                isPlatformUrlFocused = false
+                VButton(label: "Save", style: .primary, size: .medium, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                    store.savePlatformBaseUrl(platformUrlText)
+                    isPlatformUrlFocused = false
+                }
             }
-            .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             Divider().background(VColor.surfaceBorder)
 
@@ -69,17 +70,18 @@ struct SettingsGeneralTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if authManager.currentUser != nil {
-                VButton(label: "Log Out", style: .danger) {
+                VButton(label: "Log Out", style: .danger, size: .medium) {
                     Task { await authManager.logout() }
                 }
             } else {
                 VButton(
                     label: authManager.isSubmitting ? "Signing in..." : "Sign In",
-                    style: .primary
+                    style: .primary,
+                    size: .medium,
+                    isDisabled: authManager.isSubmitting
                 ) {
                     Task { await authManager.startWorkOSLogin() }
                 }
-                .disabled(authManager.isSubmitting)
             }
 
             if let error = authManager.errorMessage {
