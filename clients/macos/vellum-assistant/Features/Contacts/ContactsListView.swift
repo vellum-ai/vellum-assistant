@@ -11,6 +11,7 @@ struct ContactsListView: View {
 
     @State private var hoveredContactId: String?
     @State private var isAssistantHovered = false
+    @State private var cachedAssistantDisplayName: String = AssistantDisplayName.placeholder
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -25,6 +26,9 @@ struct ContactsListView: View {
         }
         .onAppear {
             viewModel.loadContacts()
+        }
+        .task {
+            cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }
     }
 
@@ -89,7 +93,7 @@ struct ContactsListView: View {
                 HStack(spacing: VSpacing.md) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         HStack(spacing: VSpacing.sm) {
-                            Text(assistantDisplayName)
+                            Text(cachedAssistantDisplayName)
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.textPrimary)
                                 .lineLimit(1)
@@ -122,12 +126,6 @@ struct ContactsListView: View {
             }
             .vCard(background: VColor.surfaceSubtle)
         }
-    }
-
-    /// The assistant's display name, loaded from the identity file or falling
-    /// back to "Assistant".
-    private var assistantDisplayName: String {
-        AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
     }
 
     /// Summarizes which assistant channels are configured.

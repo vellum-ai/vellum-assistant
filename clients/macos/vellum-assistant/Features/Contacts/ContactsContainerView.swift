@@ -60,6 +60,16 @@ struct ContactsContainerView: View {
                     if let store {
                         AssistantChannelsDetailView(store: store, daemonClient: daemonClient)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    } else {
+                        VStack(spacing: VSpacing.md) {
+                            ProgressView()
+                                .controlSize(.regular)
+                            Text("Loading assistant channels...")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(VColor.background)
                     }
                 case .contact(let contactId):
                     if let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
