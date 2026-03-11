@@ -157,8 +157,9 @@ Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` tha
 
 ## Batch Operations
 
-- Gmail batch tools (`gmail_archive`, `gmail_label`) support `scan_id` + `sender_ids` (preferred) or raw `message_ids`.
-- First scan to get a `scan_id`, then apply batch actions using it.
+- `gmail_archive` supports `scan_id` + `sender_ids` (preferred for declutter workflows) or raw `message_ids`.
+- `gmail_label` supports `message_id` or `message_ids` only — it does not accept `scan_id`.
+- First scan to get a `scan_id`, then use `gmail_archive` to batch-archive by sender.
 - Always confirm with the user before batch operations on large numbers of messages.
 
 ## Date Verification
