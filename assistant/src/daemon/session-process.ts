@@ -428,17 +428,19 @@ export async function drainQueue(
     // Deterministic [STARTER_TASK:<task_id>] messages load the
     // onboarding-starter-tasks skill instead of relying on the
     // playbook being embedded in the global system prompt.
-    const starterIntent = resolveStarterTaskIntent(resolvedContent);
-    if (starterIntent.kind === "starter_task") {
-      log.info(
-        {
-          conversationId: session.conversationId,
-          taskId: starterIntent.taskId,
-        },
-        "Starter task intent intercepted in queue — forcing skill flow",
-      );
-      agentLoopContent = starterIntent.rewrittenContent;
-      session.preactivatedSkillIds = ["onboarding-starter-tasks"];
+    else {
+      const starterIntent = resolveStarterTaskIntent(resolvedContent);
+      if (starterIntent.kind === "starter_task") {
+        log.info(
+          {
+            conversationId: session.conversationId,
+            taskId: starterIntent.taskId,
+          },
+          "Starter task intent intercepted in queue — forcing skill flow",
+        );
+        agentLoopContent = starterIntent.rewrittenContent;
+        session.preactivatedSkillIds = ["onboarding-starter-tasks"];
+      }
     }
   }
 
@@ -770,17 +772,19 @@ export async function processMessage(
     // Starter task intent interception — deterministic [STARTER_TASK:<task_id>]
     // messages load the onboarding-starter-tasks skill instead of relying on
     // the playbook being embedded in the global system prompt.
-    const starterIntent = resolveStarterTaskIntent(resolvedContent);
-    if (starterIntent.kind === "starter_task") {
-      log.info(
-        {
-          conversationId: session.conversationId,
-          taskId: starterIntent.taskId,
-        },
-        "Starter task intent intercepted — forcing skill flow",
-      );
-      agentLoopContent = starterIntent.rewrittenContent;
-      session.preactivatedSkillIds = ["onboarding-starter-tasks"];
+    else {
+      const starterIntent = resolveStarterTaskIntent(resolvedContent);
+      if (starterIntent.kind === "starter_task") {
+        log.info(
+          {
+            conversationId: session.conversationId,
+            taskId: starterIntent.taskId,
+          },
+          "Starter task intent intercepted — forcing skill flow",
+        );
+        agentLoopContent = starterIntent.rewrittenContent;
+        session.preactivatedSkillIds = ["onboarding-starter-tasks"];
+      }
     }
   }
 
