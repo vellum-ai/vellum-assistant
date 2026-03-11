@@ -59,9 +59,6 @@ describe("Messaging skill split", () => {
     "sequence_delete",
     "sequence_enroll",
     "sequence_enrollment_list",
-    "sequence_pause",
-    "sequence_resume",
-    "sequence_cancel",
     "sequence_import",
     "sequence_analytics",
   ];
@@ -101,6 +98,7 @@ describe("Messaging skill split", () => {
     const names: string[] = sequencesManifest.tools.map(
       (t: { name: string }) => t.name,
     );
+    expect(names).toHaveLength(expectedSequenceToolNames.length);
     for (const name of expectedSequenceToolNames) {
       expect(names).toContain(name);
     }

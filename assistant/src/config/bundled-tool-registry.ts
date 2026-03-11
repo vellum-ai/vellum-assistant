@@ -287,7 +287,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["gmail:tools/gmail-vacation.ts", gmailVacation],
   ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
   ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
-  ["gmail:tools/google-contacts.ts", googleContacts],
 
   // messaging
   ["messaging:tools/messaging-auth-test.ts", messagingAuthTest],
