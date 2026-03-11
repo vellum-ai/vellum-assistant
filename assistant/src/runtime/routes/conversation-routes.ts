@@ -361,9 +361,9 @@ export function handleListMessages(
  * Build an `onEvent` callback that publishes every outbound event to the
  * assistant event hub, maintaining ordered delivery through a serial chain.
  *
- * Also registers pending interactions when confirmation_request or
- * secret_request events flow through, so standalone approval endpoints
- * can look up the session by requestId.
+ * Also registers pending interactions when confirmation_request,
+ * secret_request, or host_bash_request events flow through, so
+ * standalone approval/result endpoints can look up the session by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
@@ -433,6 +433,12 @@ function makeHubPublisher(
         session,
         conversationId,
         kind: "secret",
+      });
+    } else if (msg.type === "host_bash_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
       });
     }
 
