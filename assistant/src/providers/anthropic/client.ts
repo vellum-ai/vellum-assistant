@@ -679,6 +679,16 @@ export class AnthropicProvider implements Provider {
               toolName: event.content_block.name,
             });
           }
+          if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "server_tool_use"
+          ) {
+            onEvent?.({
+              type: "server_tool_start",
+              name: event.content_block.name,
+              toolUseId: event.content_block.id,
+            });
+          }
           if (event.type === "content_block_stop") {
             if (pendingInputJsonFlush) {
               clearTimeout(pendingInputJsonFlush);

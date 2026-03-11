@@ -817,6 +817,20 @@ export async function dispatchAgentEvent(
     case "tool_result":
       handleToolResult(state, deps, event);
       break;
+    case "server_tool_start": {
+      const friendlyNames: Record<string, string> = {
+        web_search: "Searching the web",
+      };
+      const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
+      deps.ctx.emitActivityState(
+        "tool_running",
+        "tool_use_start",
+        "assistant_turn",
+        deps.reqId,
+        statusText,
+      );
+      break;
+    }
     case "error":
       handleError(state, deps, event);
       break;
