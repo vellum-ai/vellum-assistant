@@ -20,7 +20,13 @@ export function migrateScheduleOneShotRouting(database: DrizzleDb): void {
     .all() as Array<{ name: string }>;
   const hasStatusColumn = tableInfo.some((col) => col.name === "status");
   if (hasStatusColumn) {
-    // Ensure the composite index exists even if the column migration already ran
+    // Ensure all indexes exist even if the column migration already ran
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next_run ON cron_jobs(enabled, next_run_at)`,
+    );
+    raw.exec(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_jobs_syntax_enabled_next_run ON cron_jobs(schedule_syntax, enabled, next_run_at)`,
+    );
     raw.exec(
       /*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next_run_at ON cron_jobs(status, next_run_at)`,
     );
