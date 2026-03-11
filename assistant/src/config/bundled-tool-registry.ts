@@ -65,7 +65,7 @@ import * as documentUpdate from "./bundled-skills/document/tools/document-update
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
-// ── gmail ────────────────────────────────────────────────────────────────────
+// ── gmail ──────────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
 import * as gmailArchiveByQuery from "./bundled-skills/gmail/tools/gmail-archive-by-query.js";
 import * as gmailBatchArchive from "./bundled-skills/gmail/tools/gmail-batch-archive.js";
@@ -136,15 +136,18 @@ import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update
 // ── screen-watch ───────────────────────────────────────────────────────────────
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── sequences ──────────────────────────────────────────────────────────────────
-import * as sequences_sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
-import * as sequences_sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
-import * as sequences_sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
-import * as sequences_sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
-import * as sequences_sequenceEnrollmentList from "./bundled-skills/sequences/tools/sequence-enrollment-list.js";
-import * as sequences_sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
-import * as sequences_sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
-import * as sequences_sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
-import * as sequences_sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
+import * as sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
+import * as sequenceCancel from "./bundled-skills/sequences/tools/sequence-cancel.js";
+import * as sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
+import * as sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
+import * as sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
+import * as sequenceEnrollmentList from "./bundled-skills/sequences/tools/sequence-enrollment-list.js";
+import * as sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
+import * as sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
+import * as sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
+import * as sequencePause from "./bundled-skills/sequences/tools/sequence-pause.js";
+import * as sequenceResume from "./bundled-skills/sequences/tools/sequence-resume.js";
+import * as sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
 // ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
@@ -254,6 +257,28 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["followups:tools/followup-list.ts", followupList],
   ["followups:tools/followup-resolve.ts", followupResolve],
 
+  // gmail
+  ["gmail:tools/gmail-archive.ts", gmailArchive],
+  ["gmail:tools/gmail-batch-archive.ts", gmailBatchArchive],
+  ["gmail:tools/gmail-archive-by-query.ts", gmailArchiveByQuery],
+  ["gmail:tools/gmail-label.ts", gmailLabel],
+  ["gmail:tools/gmail-batch-label.ts", gmailBatchLabel],
+  ["gmail:tools/gmail-trash.ts", gmailTrash],
+  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
+  ["gmail:tools/gmail-draft.ts", gmailDraft],
+  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
+  ["gmail:tools/gmail-list-attachments.ts", gmailListAttachments],
+  ["gmail:tools/gmail-download-attachment.ts", gmailDownloadAttachment],
+  ["gmail:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
+  ["gmail:tools/gmail-forward.ts", gmailForward],
+  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
+  ["gmail:tools/gmail-triage.ts", gmailTriage],
+  ["gmail:tools/gmail-filters.ts", gmailFilters],
+  ["gmail:tools/gmail-vacation.ts", gmailVacation],
+  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
+  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
+  ["gmail:tools/google-contacts.ts", googleContacts],
+
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
   ["google-calendar:tools/calendar-get-event.ts", calendarGetEvent],
@@ -277,28 +302,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["media-processing:tools/analyze-keyframes.ts", analyzeKeyframes],
   ["media-processing:tools/query-media-events.ts", queryMediaEvents],
   ["media-processing:tools/generate-clip.ts", generateClip],
-
-  // gmail
-  ["gmail:tools/gmail-archive.ts", gmailArchive],
-  ["gmail:tools/gmail-batch-archive.ts", gmailBatchArchive],
-  ["gmail:tools/gmail-archive-by-query.ts", gmailArchiveByQuery],
-  ["gmail:tools/gmail-label.ts", gmailLabel],
-  ["gmail:tools/gmail-batch-label.ts", gmailBatchLabel],
-  ["gmail:tools/gmail-trash.ts", gmailTrash],
-  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
-  ["gmail:tools/gmail-draft.ts", gmailDraft],
-  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["gmail:tools/gmail-list-attachments.ts", gmailListAttachments],
-  ["gmail:tools/gmail-download-attachment.ts", gmailDownloadAttachment],
-  ["gmail:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
-  ["gmail:tools/gmail-forward.ts", gmailForward],
-  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
-  ["gmail:tools/gmail-triage.ts", gmailTriage],
-  ["gmail:tools/gmail-filters.ts", gmailFilters],
-  ["gmail:tools/gmail-vacation.ts", gmailVacation],
-  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
-  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
-  ["gmail:tools/google-contacts.ts", googleContacts],
 
   // messaging
   ["messaging:tools/messaging-auth-test.ts", messagingAuthTest],
@@ -343,18 +346,18 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
 
   // sequences
-  ["sequences:tools/sequence-create.ts", sequences_sequenceCreate],
-  ["sequences:tools/sequence-list.ts", sequences_sequenceList],
-  ["sequences:tools/sequence-get.ts", sequences_sequenceGet],
-  ["sequences:tools/sequence-update.ts", sequences_sequenceUpdate],
-  ["sequences:tools/sequence-delete.ts", sequences_sequenceDelete],
-  ["sequences:tools/sequence-enroll.ts", sequences_sequenceEnroll],
-  [
-    "sequences:tools/sequence-enrollment-list.ts",
-    sequences_sequenceEnrollmentList,
-  ],
-  ["sequences:tools/sequence-import.ts", sequences_sequenceImport],
-  ["sequences:tools/sequence-analytics.ts", sequences_sequenceAnalytics],
+  ["sequences:tools/sequence-create.ts", sequenceCreate],
+  ["sequences:tools/sequence-list.ts", sequenceList],
+  ["sequences:tools/sequence-get.ts", sequenceGet],
+  ["sequences:tools/sequence-update.ts", sequenceUpdate],
+  ["sequences:tools/sequence-delete.ts", sequenceDelete],
+  ["sequences:tools/sequence-enroll.ts", sequenceEnroll],
+  ["sequences:tools/sequence-enrollment-list.ts", sequenceEnrollmentList],
+  ["sequences:tools/sequence-import.ts", sequenceImport],
+  ["sequences:tools/sequence-analytics.ts", sequenceAnalytics],
+  ["sequences:tools/sequence-pause.ts", sequencePause],
+  ["sequences:tools/sequence-resume.ts", sequenceResume],
+  ["sequences:tools/sequence-cancel.ts", sequenceCancel],
 
   // settings
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
