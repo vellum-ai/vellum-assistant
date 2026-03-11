@@ -267,17 +267,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     }),
   );
 
-  // view_image is a read-only sandbox tool — always allow without prompting.
-  // Candidates contain "/" (absolute paths), so use "/**" globstar.
-  const viewImageRule: DefaultRuleTemplate = {
-    id: "default:allow-view_image-global",
-    tool: "view_image",
-    pattern: "view_image:/**",
-    scope: "everywhere",
-    decision: "allow",
-    priority: 100,
-  };
-
   // memory_recall is a read-only tool — always allow without prompting.
   const memoryRecallRule: DefaultRuleTemplate = {
     id: "default:allow-memory_recall-global",
@@ -302,7 +291,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     browserNavigateRule,
     ...browserToolRules,
     ...uiSurfaceRules,
-    viewImageRule,
     memoryRecallRule,
   ];
 }
