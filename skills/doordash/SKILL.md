@@ -9,7 +9,7 @@ metadata:
     user-invocable: true
     cli:
       command: "doordash"
-      entry: "doordash-entry.ts"
+      entry: "scripts/doordash-entry.ts"
 ---
 
 You can order food from DoorDash for the user using the `doordash` CLI.

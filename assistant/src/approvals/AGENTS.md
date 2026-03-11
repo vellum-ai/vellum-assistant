@@ -3,7 +3,7 @@
 ## Approval Flow Resilience
 
 - **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
-- **Non-rich channels** (SMS, http-api) receive plain-text approval prompts. The conversational approval engine handles free-text responses.
+- **Non-rich channels** (http-api) receive plain-text approval prompts. The conversational approval engine handles free-text responses.
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
 - **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, requester self-cancel) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (approve_always downgrade, approval record updates, grant minting) at individual callsites.

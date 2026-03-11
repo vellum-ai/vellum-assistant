@@ -80,6 +80,23 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "doordash",
+      "name": "doordash",
+      "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
+      "metadata": {
+        "emoji": "🍕",
+        "vellum": {
+          "display-name": "DoorDash",
+          "user-invocable": "true",
+          "cli": {
+            "command": "doordash",
+            "entry": "scripts/doordash-entry.ts"
+          }
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "elevenlabs-voice",
       "name": "elevenlabs-voice",
       "description": "Select and tune an ElevenLabs TTS voice — curated voice list, custom/cloned voices via API key, and tuning parameters",

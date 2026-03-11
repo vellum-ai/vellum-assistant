@@ -396,7 +396,7 @@ struct ChannelVerificationFlowView: View {
                     .buttonStyle(.plain)
                     .pointerCursor()
                 }
-            } else if state.channel == "phone" || state.channel == "sms" {
+            } else if state.channel == "phone" {
                 Text("This is your personal phone number")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)

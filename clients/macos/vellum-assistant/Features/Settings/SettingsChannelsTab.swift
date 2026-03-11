@@ -9,19 +9,12 @@ import VellumAssistantShared
 struct SettingsChannelsTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
-    private static let smsFeatureFlagKey = "feature_flags.sms.enabled"
 
     @State private var showingPairingQR: Bool = false
-    @State private var isSmsFeatureEnabled: Bool = true
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
     @State private var telegramSetupExpanded = false
-
-    // Twilio credential entry (SMS card)
-    @State private var twilioAccountSidText = ""
-    @State private var twilioAuthTokenText = ""
-    @State private var twilioSetupExpanded = false
 
     // Twilio credential entry (Voice card)
     @State private var voiceAccountSidText = ""
@@ -52,7 +45,6 @@ struct SettingsChannelsTab: View {
     /// that needs the 1-second countdown timer for expiry/resend cooldown display.
     private var hasAnyOutboundSession: Bool {
         store.telegramOutboundSessionId != nil ||
-        store.smsOutboundSessionId != nil ||
         store.voiceOutboundSessionId != nil ||
         store.slackOutboundSessionId != nil
     }
@@ -73,12 +65,6 @@ struct SettingsChannelsTab: View {
             if store.twilioHasCredentials {
                 store.refreshTwilioNumbers()
             }
-            Task {
-                await loadSmsFeatureFlag()
-                if isSmsFeatureEnabled {
-                    store.refreshChannelVerificationStatus(channel: "sms")
-                }
-            }
             if hasAnyOutboundSession {
                 startCountdownTimer()
             }
@@ -95,7 +81,6 @@ struct SettingsChannelsTab: View {
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
             if !hasCredentials {
-                twilioSetupExpanded = false
                 voiceSetupExpanded = false
             } else {
                 store.refreshTwilioNumbers()
@@ -117,9 +102,6 @@ struct SettingsChannelsTab: View {
             telegramCard
             slackChannelCard
             voiceCard
-            if isSmsFeatureEnabled {
-                twilioCard
-            }
             emailCard
         }
     }
@@ -454,68 +436,6 @@ struct SettingsChannelsTab: View {
         }
     }
 
-    // MARK: - SMS (Twilio) Channel Card
-
-    private var twilioCard: some View {
-        SettingsCard(title: "SMS", subtitle: "Text your assistant using Twilio as the SMS provider") {
-            // Credentials row
-            if store.twilioHasCredentials {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
-                        store.clearTwilioCredentials()
-                    }
-                }
-            } else if twilioSetupExpanded {
-                twilioCredentialEntry
-            } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
-                    twilioSetupExpanded = true
-                }
-            }
-
-            // Phone number row (only when credentials exist)
-            if store.twilioHasCredentials {
-                SettingsDivider()
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Phone Number")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
-                    VDropdown(
-                        placeholder: "Not Set",
-                        selection: Binding(
-                            get: { store.twilioPhoneNumber ?? "" },
-                            set: { newValue in
-                                store.assignTwilioNumber(phoneNumber: newValue)
-                            }
-                        ),
-                        options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
-                        emptyValue: ""
-                    )
-                    .frame(maxWidth: 360)
-                }
-            }
-
-            if let warning = store.twilioWarning {
-                Text(warning)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
-            }
-
-            if let error = store.twilioError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
-
-            // Verification row (only when credentials exist)
-            if store.twilioHasCredentials {
-                SettingsDivider()
-                channelVerificationView(channel: "sms")
-            }
-        }
-    }
-
     // MARK: - Phone Calling Card
 
     private var voiceCard: some View {
@@ -575,59 +495,6 @@ struct SettingsChannelsTab: View {
             if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
                 SettingsDivider()
                 channelVerificationView(channel: "phone")
-            }
-        }
-    }
-
-    // MARK: - Twilio Credential Entry
-
-    private var twilioCredentialEntry: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Account SID and Auth Token")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
-
-            TextField("Account SID", text: $twilioAccountSidText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-
-            SecureField("Auth Token", text: $twilioAuthTokenText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-
-            if store.twilioSaveInProgress {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Saving...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(
-                        label: "Connect",
-                        style: .secondary,
-                        size: .medium,
-                        isDisabled: twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                            twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ) {
-                        store.saveTwilioCredentials(
-                            accountSid: twilioAccountSidText,
-                            authToken: twilioAuthTokenText
-                        )
-                        twilioAccountSidText = ""
-                        twilioAuthTokenText = ""
-                        twilioSetupExpanded = false
-                    }
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                        twilioSetupExpanded = false
-                        twilioAccountSidText = ""
-                        twilioAuthTokenText = ""
-                    }
-                }
             }
         }
     }
@@ -835,33 +702,5 @@ struct SettingsChannelsTab: View {
         }
     }
 
-
-    // MARK: - Feature Flags
-
-    private func loadSmsFeatureFlag() async {
-        // Primary source: gateway feature-flags API.
-        if let daemonClient {
-            do {
-                let flags = try await daemonClient.getFeatureFlags()
-                if let smsFlag = flags.first(where: { $0.key == Self.smsFeatureFlagKey }) {
-                    isSmsFeatureEnabled = smsFlag.enabled
-                    return
-                }
-            } catch {
-                // Fall through to local config fallback.
-            }
-        }
-
-        // Fallback: local workspace config values.
-        let config = WorkspaceConfigIO.read()
-        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
-           let enabled = canonicalFlags[Self.smsFeatureFlagKey] {
-            isSmsFeatureEnabled = enabled
-            return
-        }
-
-        // No legacy `skills.*` fallback in new production code. If canonical
-        // values are absent, keep the default enabled behavior.
-    }
 
 }

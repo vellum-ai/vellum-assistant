@@ -94,7 +94,7 @@ func inferCategory(_ skill: SkillInfo) -> SkillCategory {
         || text.contains("chat") || text.contains("phone") || text.contains("phone call")
         || text.contains("voice call") || text.contains("video call")
         || text.contains("contact") || text.contains("notification") || text.contains("followup")
-        || text.contains("sms") || text.contains("slack") || text.contains("telegram") {
+        || text.contains("slack") || text.contains("telegram") {
         return .communication
     }
 

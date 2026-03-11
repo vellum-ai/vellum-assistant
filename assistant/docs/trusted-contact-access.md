@@ -12,7 +12,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
 ## User Journey
 
-1. **Unknown user messages the assistant** on Telegram (or SMS, or any channel).
+1. **Unknown user messages the assistant** on Telegram (or any channel).
 2. **Assistant rejects the message** via the ingress ACL in `inbound-message-handler.ts`. The user has no matching `contact_channels` record, so the handler replies: _"Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."_ and returns `{ denied: true, reason: 'not_a_member' }`.
 3. **Notification pipeline alerts the guardian.** The rejection triggers `notifyGuardianOfAccessRequest()` which creates a canonical access request and calls `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`. The notification routes through the decision engine to all connected channels (vellum macOS app, Telegram, etc.). The guardian sees who is requesting access, including a request code for approve/reject and an `open invite flow` option to start the Trusted Contacts invite flow.
 
@@ -32,7 +32,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
    This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
 
 4. **Guardian approves the request.** The guardian responds to the notification (via Telegram inline button, macOS app, or local app). On approval, the assistant creates a verification session via `createOutboundSession()` and generates a 6-digit verification code.
-5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, SMS, etc.).
+5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, etc.).
 6. **Guardian gives the code to the requester out-of-band** (in person, text message, phone call, etc.). This out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The inbound message handler intercepts bare 6-digit codes when a pending verification session exists for that channel.
 8. **Assistant verifies the code and activates the user.** `validateAndConsumeVerification()` hashes the code, matches it against the pending session, verifies identity binding (the code must come from the expected channel identity), consumes the session, and calls `upsertContactChannel()` with `status: 'active'` and `policy: 'allow'`.
@@ -60,8 +60,7 @@ Identity binding ensures the verification code can only be consumed by the inten
 | Channel  | Identity fields                                                                  | Binding behavior                                                                                                                                                                                                                          |
 | -------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Telegram | `expectedExternalUserId` = Telegram user ID, `expectedChatId` = Telegram chat ID | Both are set when the guardian provides the requester's Telegram identity (from the original rejected message metadata). The `identityBindingStatus` is `'bound'`. Verification requires `actorExternalUserId` or `actorChatId` to match. |
-| SMS      | `expectedPhoneE164` = phone number in E.164 format                               | Set from the requester's phone number. Verification requires `actorExternalUserId` to match the expected phone.                                                                                                                           |
-| Voice    | `expectedPhoneE164` = phone number in E.164 format                               | Same as SMS: phone-based identity binding.                                                                                                                                                                                                |
+| Voice    | `expectedPhoneE164` = phone number in E.164 format                               | Phone-based identity binding. Verification requires `actorExternalUserId` to match the expected phone.                                                                                                                                    |
 | HTTP API | `expectedExternalUserId` = API caller identity                                   | Bound to whatever external user ID the API client provides.                                                                                                                                                                               |
 
 **Anti-oracle invariant:** When identity verification fails, the error message is identical to the "invalid or expired code" message. This prevents attackers from distinguishing between a wrong code and a wrong identity, which would leak information about which identities have pending sessions.
@@ -151,13 +150,13 @@ sequenceDiagram
     participant G as Guardian
     participant N as Notification Pipeline
 
-    U->>A: Send message on Telegram/SMS
+    U->>A: Send message on Telegram
     A->>A: findMember() → null
     A-->>U: "You haven't been approved. Ask the Guardian."
 
     A->>N: emitNotificationSignal('ingress.access_request')
     N->>N: evaluateSignal() → shouldNotify: true
-    N->>G: Deliver notification (Telegram/vellum/SMS)
+    N->>G: Deliver notification (Telegram/vellum)
 
     Note over G: Guardian sees access request<br/>with requester identity
 

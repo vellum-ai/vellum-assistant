@@ -124,7 +124,6 @@ export async function searchAvailableNumbers(
   areaCode?: string,
 ): Promise<AvailablePhoneNumber[]> {
   const params = new URLSearchParams({
-    SmsEnabled: "true",
     VoiceEnabled: "true",
   });
   if (areaCode) params.set("AreaCode", areaCode);

@@ -263,7 +263,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
          |
          | (conversation engine classifies intent)
          v
- call_back / message_back / decline
+ call_back / decline
          |                        |
          v                        v
  [dispatching]              [declined] (terminal)
