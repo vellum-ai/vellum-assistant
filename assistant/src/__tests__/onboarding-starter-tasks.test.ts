@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const TEST_DIR = join(
@@ -57,88 +57,130 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const { buildStarterTaskPlaybookSection, buildSystemPrompt } =
-  await import("../prompts/system-prompt.js");
+const { resolveStarterTaskIntent } = await import(
+  "../daemon/starter-task-intent.js"
+);
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
-describe("buildStarterTaskPlaybookSection", () => {
-  test("returns a string with the section heading", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("## Starter Task Playbooks");
+// ---------------------------------------------------------------------------
+// resolveStarterTaskIntent
+// ---------------------------------------------------------------------------
+
+describe("resolveStarterTaskIntent", () => {
+  test("detects [STARTER_TASK:make_it_yours] and rewrites to skill load", () => {
+    const result = resolveStarterTaskIntent("[STARTER_TASK:make_it_yours]");
+    expect(result.kind).toBe("starter_task");
+    if (result.kind === "starter_task") {
+      expect(result.taskId).toBe("make_it_yours");
+      expect(result.rewrittenContent).toContain("onboarding-starter-tasks");
+      expect(result.rewrittenContent).toContain("skill_load");
+      expect(result.rewrittenContent).toContain("make_it_yours");
+    }
   });
 
-  test("documents all three kickoff intents", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("[STARTER_TASK:make_it_yours]");
-    expect(section).toContain("[STARTER_TASK:research_topic]");
-    expect(section).toContain("[STARTER_TASK:research_to_ui]");
+  test("detects [STARTER_TASK:research_topic]", () => {
+    const result = resolveStarterTaskIntent("[STARTER_TASK:research_topic]");
+    expect(result.kind).toBe("starter_task");
+    if (result.kind === "starter_task") {
+      expect(result.taskId).toBe("research_topic");
+      expect(result.rewrittenContent).toContain("research_topic");
+    }
   });
 
-  test("includes the make_it_yours playbook", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("### Playbook: make_it_yours");
-    expect(section).toContain("accent color");
-    expect(section).toContain("Dashboard Color Preference");
-    expect(section).toContain("user_selected");
+  test("detects [STARTER_TASK:research_to_ui]", () => {
+    const result = resolveStarterTaskIntent("[STARTER_TASK:research_to_ui]");
+    expect(result.kind).toBe("starter_task");
+    if (result.kind === "starter_task") {
+      expect(result.taskId).toBe("research_to_ui");
+      expect(result.rewrittenContent).toContain("research_to_ui");
+    }
   });
 
-  test("make_it_yours uses app_file_edit instead of invalid ui_show config_update", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("app_file_edit");
-    expect(section).not.toContain("config_update");
-    expect(section).not.toContain('surface_type: "config_update"');
+  test("returns none for ordinary messages", () => {
+    const result = resolveStarterTaskIntent("Hello, how are you?");
+    expect(result.kind).toBe("none");
   });
 
-  test("includes the research_topic playbook", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("### Playbook: research_topic");
-    expect(section).toContain("web search");
+  test("returns none for partial matches", () => {
+    const result = resolveStarterTaskIntent(
+      "Can you do [STARTER_TASK:make_it_yours] for me?",
+    );
+    expect(result.kind).toBe("none");
   });
 
-  test("includes the research_to_ui playbook", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("### Playbook: research_to_ui");
-    expect(section).toContain("app_create");
+  test("returns none for empty string", () => {
+    const result = resolveStarterTaskIntent("");
+    expect(result.kind).toBe("none");
   });
 
-  test("includes general rules section", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("### General rules for all starter tasks");
-  });
-
-  test("enforces trust gating in general rules", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("trust gating");
-    expect(section).toContain("do NOT ask for elevated permissions");
-  });
-
-  test("references USER.md onboarding tasks for status tracking", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("## Onboarding Tasks");
-    expect(section).toContain("in_progress");
-    expect(section).toContain("done");
-    expect(section).toContain("deferred_to_dashboard");
-  });
-
-  test("make_it_yours playbook handles locale confirmation", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("locale");
-    expect(section).toContain("confidence: low");
-  });
-
-  test("make_it_yours playbook includes confirmation step", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("Confirm the selection");
-    expect(section).toContain("Sound good?");
-  });
-
-  test("research_to_ui playbook references dynamic UI quality standards", () => {
-    const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain("Dynamic UI quality standards");
-    expect(section).toContain("anti-AI-slop");
+  test("handles whitespace around the kickoff message", () => {
+    const result = resolveStarterTaskIntent(
+      "  [STARTER_TASK:make_it_yours]  ",
+    );
+    expect(result.kind).toBe("starter_task");
   });
 });
 
-describe("starter task playbook integration with buildSystemPrompt", () => {
+// ---------------------------------------------------------------------------
+// SKILL.md existence and content
+// ---------------------------------------------------------------------------
+
+describe("onboarding-starter-tasks SKILL.md", () => {
+  const skillPath = resolve(
+    import.meta.dirname ?? __dirname,
+    "../../../skills/onboarding-starter-tasks/SKILL.md",
+  );
+
+  test("SKILL.md file exists", () => {
+    expect(existsSync(skillPath)).toBe(true);
+  });
+
+  test("SKILL.md contains all three playbooks", () => {
+    const content = readFileSync(skillPath, "utf-8");
+    expect(content).toContain("## Playbook: make_it_yours");
+    expect(content).toContain("## Playbook: research_topic");
+    expect(content).toContain("## Playbook: research_to_ui");
+  });
+
+  test("SKILL.md covers USER.md status updates", () => {
+    const content = readFileSync(skillPath, "utf-8");
+    expect(content).toContain("## Onboarding Tasks");
+    expect(content).toContain("in_progress");
+    expect(content).toContain("done");
+    expect(content).toContain("deferred_to_dashboard");
+  });
+
+  test("SKILL.md covers trust gating", () => {
+    const content = readFileSync(skillPath, "utf-8");
+    expect(content).toContain("trust gating");
+    expect(content).toContain("do NOT ask for elevated permissions");
+  });
+
+  test("SKILL.md covers locale confirmation for make_it_yours", () => {
+    const content = readFileSync(skillPath, "utf-8");
+    expect(content).toContain("locale");
+    expect(content).toContain("confidence: low");
+  });
+
+  test("SKILL.md covers Dynamic UI quality for research_to_ui", () => {
+    const content = readFileSync(skillPath, "utf-8");
+    expect(content).toContain("Dynamic UI quality standards");
+    expect(content).toContain("anti-AI-slop");
+  });
+
+  test("SKILL.md includes kickoff intent contract", () => {
+    const content = readFileSync(skillPath, "utf-8");
+    expect(content).toContain("[STARTER_TASK:make_it_yours]");
+    expect(content).toContain("[STARTER_TASK:research_topic]");
+    expect(content).toContain("[STARTER_TASK:research_to_ui]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// System prompt no longer embeds full playbooks
+// ---------------------------------------------------------------------------
+
+describe("system prompt starter task routing", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -149,37 +191,23 @@ describe("starter task playbook integration with buildSystemPrompt", () => {
     }
   });
 
-  test("buildSystemPrompt includes the starter task playbook section when BOOTSTRAP.md exists", () => {
+  test("system prompt contains routing section, not full playbooks", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
     const result = buildSystemPrompt();
-    expect(result).toContain("## Starter Task Playbooks");
-  });
-
-  test("buildSystemPrompt omits starter task playbooks after onboarding is complete", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    // No BOOTSTRAP.md → onboarding complete
-    const result = buildSystemPrompt();
+    expect(result).toContain("## Routing: Starter Tasks");
     expect(result).not.toContain("## Starter Task Playbooks");
+    expect(result).not.toContain("### Playbook: make_it_yours");
+    expect(result).not.toContain("### Playbook: research_topic");
+    expect(result).not.toContain("### Playbook: research_to_ui");
   });
 
-  test("starter task playbook and channel awareness both present during onboarding", () => {
+  test("system prompt routing section is present regardless of onboarding state", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
     const result = buildSystemPrompt();
-    const starterIdx = result.indexOf("## Starter Task Playbooks");
-    const channelIdx = result.indexOf("## Channel Awareness & Trust Gating");
-    expect(starterIdx).toBeGreaterThan(-1);
-    expect(channelIdx).toBeGreaterThan(-1);
-  });
-
-  test("all three kickoff intents present in full system prompt during onboarding", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
-    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
-    const result = buildSystemPrompt();
-    expect(result).toContain("[STARTER_TASK:make_it_yours]");
-    expect(result).toContain("[STARTER_TASK:research_topic]");
-    expect(result).toContain("[STARTER_TASK:research_to_ui]");
+    expect(result).toContain("## Routing: Starter Tasks");
+    // Full playbooks are NOT in the system prompt even during onboarding
+    expect(result).not.toContain("### Playbook: make_it_yours");
   });
 
   test("system prompt does not contain invalid config_update surface type (bare)", () => {
