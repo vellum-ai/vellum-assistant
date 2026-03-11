@@ -82,6 +82,15 @@ struct ChatView: View {
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
 
+    // MARK: - BTW Side-Chain
+
+    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
+    var btwResponse: String? = nil
+    /// True while a /btw request is in flight.
+    var btwLoading: Bool = false
+    /// Called to dismiss the btw overlay.
+    var onDismissBtw: (() -> Void)?
+
     // MARK: - Pagination
 
     var displayedMessageCount: Int = .max
@@ -278,6 +287,9 @@ struct ChatView: View {
                 }
             )
             .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+            .overlay(alignment: .bottom) {
+                btwOverlay
+            }
 
             // Drop target overlay
             if isDropTargeted {
@@ -304,6 +316,13 @@ struct ChatView: View {
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
+        .onKeyPress(.escape) {
+            if btwResponse != nil {
+                onDismissBtw?()
+                return .handled
+            }
+            return .ignored
+        }
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -311,6 +330,45 @@ struct ChatView: View {
     @ViewBuilder
     private var chatBackground: some View {
         EmptyView()
+    }
+
+    @ViewBuilder
+    private var btwOverlay: some View {
+        if let btwText = btwResponse {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack {
+                    Text("/btw")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    Button(action: { onDismissBtw?() }) {
+                        VIconView(.x, size: 12)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss btw response")
+                }
+
+                Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+
+                if !btwLoading {
+                    Text("Press Escape to dismiss")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .padding(VSpacing.md)
+            .background(VColor.surface)
+            .cornerRadius(VRadius.md)
+            .vShadow(.sm)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, 80)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .animation(VAnimation.fast, value: btwResponse != nil)
+        }
     }
 
     /// Handle dropped items — supports both file URLs and raw image data.
