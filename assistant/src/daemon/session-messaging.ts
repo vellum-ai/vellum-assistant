@@ -446,7 +446,9 @@ export function redirectToSecurePrompt(
           "Ingress redirect: transient credential injected",
         );
       } else {
-        const key = `credential:${target.service}:${target.field}`;
+        const { credentialKey: credKey } =
+          await import("../security/credential-key.js");
+        const key = credKey(target.service, target.field);
         const stored = await setSecureKeyAsync(key, result.value);
         if (stored) {
           try {

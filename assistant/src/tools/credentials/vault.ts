@@ -7,7 +7,7 @@ import {
 } from "../../oauth/provider-profiles.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { credentialKey } from "../../security/credential-key.js";
+import { credentialKey, migrateKeys } from "../../security/credential-key.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
@@ -239,6 +239,7 @@ class CredentialStoreTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    migrateKeys();
     const action = input.action as string;
 
     switch (action) {

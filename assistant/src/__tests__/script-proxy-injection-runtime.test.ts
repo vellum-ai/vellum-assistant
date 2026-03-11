@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { credentialKey } from "../security/credential-key.js";
 import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import type { ResolvedCredential } from "../tools/credentials/resolve.js";
@@ -82,7 +83,7 @@ function makeResolved(
     credentialId,
     service,
     field,
-    storageKey: `credential:${service}:${field}`,
+    storageKey: credentialKey(service, field),
     injectionTemplates: templates,
     metadata: {
       credentialId,
@@ -154,7 +155,7 @@ describe("policyCallback credential injection", () => {
       resolveByIdResults.set("cred-local", resolved);
       credentialMetadataList.push(resolved.metadata);
       secureKeyValues.set(
-        "credential:test-service:api-key",
+        credentialKey("test-service", "api-key"),
         "fal_secretvalue123",
       );
 
@@ -194,7 +195,10 @@ describe("policyCallback credential injection", () => {
       const resolved = makeResolved("cred-bearer", [tpl]);
       resolveByIdResults.set("cred-bearer", resolved);
       credentialMetadataList.push(resolved.metadata);
-      secureKeyValues.set("credential:test-service:api-key", "tok_abc123");
+      secureKeyValues.set(
+        credentialKey("test-service", "api-key"),
+        "tok_abc123",
+      );
 
       const session = createSession(
         CONV_ID,
@@ -311,7 +315,7 @@ describe("MITM rewriteCallback credential injection", () => {
     const tpl = makeTemplate("*.fal.ai", "authorization", "Key ");
     const resolved = makeResolved("cred-fal", [tpl]);
     resolveByIdResults.set("cred-fal", resolved);
-    secureKeyValues.set("credential:test-service:api-key", "fal_secret");
+    secureKeyValues.set(credentialKey("test-service", "api-key"), "fal_secret");
 
     const templates = new Map([["cred-fal", [tpl]]]);
     const headers: Record<string, string> = {
@@ -350,7 +354,7 @@ describe("MITM rewriteCallback credential injection", () => {
 
     const tpl = makeTemplate("*.fal.ai", "authorization", "Key ");
     resolveByIdResults.set("cred-fal", makeResolved("cred-fal", [tpl]));
-    secureKeyValues.set("credential:test-service:api-key", "fal_secret");
+    secureKeyValues.set(credentialKey("test-service", "api-key"), "fal_secret");
 
     const templates = new Map([["cred-fal", [tpl]]]);
     const headers: Record<string, string> = {
@@ -479,8 +483,8 @@ describe("composeWith injection", () => {
       );
       resolveByServiceFieldResults.set("twilio:auth_token", composedResolved);
 
-      secureKeyValues.set("credential:twilio:account_sid", "ACtest123");
-      secureKeyValues.set("credential:twilio:auth_token", "secret456");
+      secureKeyValues.set(credentialKey("twilio", "account_sid"), "ACtest123");
+      secureKeyValues.set(credentialKey("twilio", "auth_token"), "secret456");
 
       const session = createSession(
         CONV_ID,
@@ -531,7 +535,7 @@ describe("composeWith injection", () => {
       );
       resolveByIdResults.set("cred-primary", primaryResolved);
       credentialMetadataList.push(primaryResolved.metadata);
-      secureKeyValues.set("credential:twilio:account_sid", "ACtest123");
+      secureKeyValues.set(credentialKey("twilio", "account_sid"), "ACtest123");
 
       // Do NOT register the composed credential in resolveByServiceFieldResults
 
@@ -578,7 +582,10 @@ describe("composeWith injection", () => {
       const resolved = makeResolved("cred-b64", [tpl]);
       resolveByIdResults.set("cred-b64", resolved);
       credentialMetadataList.push(resolved.metadata);
-      secureKeyValues.set("credential:test-service:api-key", "plaintext");
+      secureKeyValues.set(
+        credentialKey("test-service", "api-key"),
+        "plaintext",
+      );
 
       const session = createSession(CONV_ID, ["cred-b64"], undefined, DATA_DIR);
       const started = await startSession(session.id);
@@ -624,7 +631,7 @@ describe("composeWith injection", () => {
       );
       resolveByIdResults.set("cred-primary", primaryResolved);
       credentialMetadataList.push(primaryResolved.metadata);
-      secureKeyValues.set("credential:twilio:account_sid", "ACtest123");
+      secureKeyValues.set(credentialKey("twilio", "account_sid"), "ACtest123");
 
       // Composed credential metadata resolves, but no secret value stored
       const composedResolved = makeResolved(
@@ -634,7 +641,7 @@ describe("composeWith injection", () => {
         "auth_token",
       );
       resolveByServiceFieldResults.set("twilio:auth_token", composedResolved);
-      // Do NOT set secureKeyValues for "credential:twilio:auth_token"
+      // Do NOT set secureKeyValues for credentialKey("twilio", "auth_token")
 
       const session = createSession(
         CONV_ID,
@@ -700,8 +707,11 @@ describe("composeWith injection", () => {
         composedResolved,
       );
 
-      secureKeyValues.set("credential:my-service:primary-key", "value1");
-      secureKeyValues.set("credential:my-service:secondary-key", "value2");
+      secureKeyValues.set(credentialKey("my-service", "primary-key"), "value1");
+      secureKeyValues.set(
+        credentialKey("my-service", "secondary-key"),
+        "value2",
+      );
 
       const session = createSession(
         CONV_ID,

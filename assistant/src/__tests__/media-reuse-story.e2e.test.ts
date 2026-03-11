@@ -62,6 +62,7 @@ mock.module("../config/loader.js", () => ({
 
 // Credential resolver and secure key mocks — must be set up before
 // session-manager is imported so the proxy uses our test data.
+import { credentialKey } from "../security/credential-key.js";
 import type { ResolvedCredential } from "../tools/credentials/resolve.js";
 
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
@@ -154,7 +155,7 @@ function makeResolved(
     credentialId,
     service,
     field,
-    storageKey: `credential:${service}:${field}`,
+    storageKey: credentialKey(service, field),
     injectionTemplates: templates,
     metadata: {
       credentialId,
@@ -357,7 +358,10 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
       };
       const resolved = makeResolved("cred-story", [tpl]);
       resolveByIdResults.set("cred-story", resolved);
-      secureKeyValues.set("credential:test-service:api-key", "fal_test_secret");
+      secureKeyValues.set(
+        credentialKey("test-service", "api-key"),
+        "fal_test_secret",
+      );
 
       // Drive the proxy step through the bash tool — the actual integration path.
       // -x "$HTTP_PROXY" forces curl to use the proxy explicitly (macOS curl
@@ -381,7 +385,7 @@ describe("Story E2E: selfie yesterday -> generated image today", () => {
 
       await stopAllSessions();
       resolveByIdResults.delete("cred-story");
-      secureKeyValues.delete("credential:test-service:api-key");
+      secureKeyValues.delete(credentialKey("test-service", "api-key"));
     } finally {
       echo.server.close();
     }
