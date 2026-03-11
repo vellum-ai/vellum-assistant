@@ -812,7 +812,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
-            flushPartialOutputBuffer()
+            discardPartialOutputBuffer()
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
