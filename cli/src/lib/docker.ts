@@ -19,6 +19,41 @@ import {
 
 const _require = createRequire(import.meta.url);
 
+/**
+ * Checks whether the `docker` CLI is available on the system.
+ * If not, attempts to install Colima and Docker via Homebrew.
+ */
+async function ensureDockerInstalled(): Promise<void> {
+  try {
+    await execOutput("docker", ["--version"]);
+    return;
+  } catch {
+    // docker not found — try to install
+  }
+
+  console.log("🐳 Docker not found. Installing via Homebrew...");
+  try {
+    await exec("brew", ["install", "colima", "docker"]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
+    );
+  }
+
+  // Verify docker is now available after installation
+  try {
+    await execOutput("docker", ["--version"]);
+  } catch {
+    throw new Error(
+      "Docker was installed but is still not available on PATH. " +
+        "You may need to restart your terminal or start Colima with: colima start",
+    );
+  }
+
+  console.log("✅ Docker installed successfully.");
+}
+
 interface DockerRoot {
   /** Directory to use as the Docker build context */
   root: string;
@@ -179,6 +214,8 @@ export async function hatchDocker(
   watch: boolean,
 ): Promise<void> {
   resetLogFile("hatch.log");
+
+  await ensureDockerInstalled();
 
   let repoRoot: string;
   let dockerfileDir: string;
