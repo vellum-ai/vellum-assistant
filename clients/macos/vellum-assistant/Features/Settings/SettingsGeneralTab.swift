@@ -18,6 +18,7 @@ struct SettingsGeneralTab: View {
         }
         .onAppear {
             Task { await authManager.checkSession() }
+            store.refreshApprovedDevices()
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(

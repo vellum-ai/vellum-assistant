@@ -26,7 +26,7 @@ public struct VToggle: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     if let label {
                         Text(label)
-                            .font(VFont.bodyBold)
+                            .font(VFont.bodyMedium)
                             .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
                     }
                     if let helperText {

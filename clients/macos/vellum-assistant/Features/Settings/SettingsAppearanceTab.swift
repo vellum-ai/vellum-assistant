@@ -125,8 +125,10 @@ struct SettingsAppearanceTab: View {
                                     }
                                 }
                             }
-                            .scrollIndicators(.hidden)
                             .frame(maxHeight: 200)
+                            .background {
+                                OverlayScrollerStyle()
+                            }
                             .background(VColor.inputBackground)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                             .overlay(
@@ -181,9 +183,9 @@ struct SettingsAppearanceTab: View {
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
                     if isRecordingGlobalHotkey, let display = recordingDisplayString, !display.isEmpty {
-                        shortcutKeyPill(display)
+                        VShortcutTag(display)
                     } else {
-                        shortcutKeyPill(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
+                        VShortcutTag(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
                     }
 
                     if isRecordingGlobalHotkey {
@@ -221,9 +223,9 @@ struct SettingsAppearanceTab: View {
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
                     if isRecordingQuickInputHotkey, let display = recordingDisplayString, !display.isEmpty {
-                        shortcutKeyPill(display)
+                        VShortcutTag(display)
                     } else {
-                        shortcutKeyPill(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
+                        VShortcutTag(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
                     }
 
                     if isRecordingQuickInputHotkey {
@@ -367,8 +369,13 @@ struct SettingsAppearanceTab: View {
         return tz.localizedName(for: .standard, locale: .current) ?? selectedTimezone
     }
 
-    private var filteredTimezones: [TimezoneEntry] {
-        let entries = Self.knownTimezones.compactMap { id -> TimezoneEntry? in
+    /// Pre-computed timezone entries (DateFormatter is expensive to create per-item).
+    private static let allTimezoneEntries: [TimezoneEntry] = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        let now = Date()
+
+        return knownTimezones.compactMap { id -> TimezoneEntry? in
             guard let tz = TimeZone(identifier: id) else { return nil }
             let parts = id.components(separatedBy: "/")
             let city = (parts.last ?? id).replacingOccurrences(of: "_", with: " ")
@@ -381,10 +388,8 @@ struct SettingsAppearanceTab: View {
                 ? String(format: "GMT%+d:%02d", hours, minutes)
                 : String(format: "GMT%+d", hours)
 
-            let formatter = DateFormatter()
             formatter.timeZone = tz
-            formatter.dateFormat = "h:mm a"
-            let timeStr = formatter.string(from: Date())
+            let timeStr = formatter.string(from: now)
 
             let label = "\(offsetStr) — \(city)"
             return TimezoneEntry(
@@ -393,11 +398,13 @@ struct SettingsAppearanceTab: View {
             )
         }
         .sorted { $0.identifier < $1.identifier }
+    }()
 
+    private var filteredTimezones: [TimezoneEntry] {
         let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return entries }
+        guard !query.isEmpty else { return Self.allTimezoneEntries }
 
-        return entries.filter {
+        return Self.allTimezoneEntries.filter {
             $0.city.lowercased().contains(query)
             || $0.region.lowercased().contains(query)
             || $0.utcOffset.lowercased().contains(query)
@@ -475,26 +482,6 @@ struct SettingsAppearanceTab: View {
         }
     }
 
-    // MARK: - Pill helper
-
-    @ViewBuilder
-    private func shortcutKeyPill(_ text: String) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(text.components(separatedBy: " "), id: \.self) { token in
-                Text(token)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.xs)
-        .background(VColor.surfaceSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-    }
 }
 
 /// A read-only row displaying a keyboard shortcut and its description.
@@ -508,21 +495,7 @@ private struct ShortcutRow: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
             Spacer()
-            HStack(spacing: VSpacing.sm) {
-                ForEach(shortcut.components(separatedBy: " "), id: \.self) { token in
-                    Text(token)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.surfaceSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
+            VShortcutTag(shortcut)
         }
         .padding(.vertical, VSpacing.md)
     }

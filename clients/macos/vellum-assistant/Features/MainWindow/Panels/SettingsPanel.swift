@@ -841,13 +841,13 @@ struct SettingsPanelEnvVarsSheet: View {
 }
 
 /// Sets the enclosing NSScrollView to overlay style — thin scroller, no track background.
-private struct OverlayScrollerStyle: NSViewRepresentable {
+struct OverlayScrollerStyle: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
             guard let scrollView = view.enclosingScrollView else { return }
             scrollView.scrollerStyle = .overlay
-            scrollView.scrollerKnobStyle = .dark
+            scrollView.scrollerKnobStyle = .default
             scrollView.hasHorizontalScroller = false
         }
         return view
