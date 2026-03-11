@@ -1326,9 +1326,10 @@ public final class HTTPTransport {
         setSSEConnected(false)
     }
 
-    /// Update the conversation key and reconnect the SSE stream so subsequent
-    /// messages and events target the new conversation. Called when the user
-    /// switches threads.
+    /// Update the conversation key so subsequent messages target the new
+    /// conversation. Called when the user switches threads.
+    /// Does NOT reconnect SSE — the caller (switchSession) reconnects after
+    /// the backend has registered the key mapping via POST /v1/conversations/switch.
     func switchConversationKey(_ newKey: String) {
         guard newKey != conversationKey else { return }
         log.info("Switching conversationKey from \(self.conversationKey, privacy: .public) to \(newKey, privacy: .public)")
@@ -1336,14 +1337,6 @@ public final class HTTPTransport {
         // Reset session ID mappings — the new conversation will have its own IDs.
         activeLocalSessionId = nil
         remoteSessionId = nil
-        // Reconnect SSE to the new conversation's event stream.
-        // Reset backoff so the reconnect is immediate.
-        sseReconnectDelay = 1.0
-        sseReconnectTask?.cancel()
-        sseReconnectTask = nil
-        if sseTask != nil {
-            startSSEStream()
-        }
     }
 
     private func startSSEStream() {
@@ -3170,8 +3163,16 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 200 {
-                // Successful switch — session_info will arrive via SSE
+                // Successful switch — the backend has mapped our conversationKey
+                // to this conversation. Now reconnect SSE so events stream for
+                // the correct conversation.
                 log.info("Session switch to \(conversationId) succeeded")
+                sseReconnectDelay = 1.0
+                sseReconnectTask?.cancel()
+                sseReconnectTask = nil
+                if sseTask != nil {
+                    startSSEStream()
+                }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {

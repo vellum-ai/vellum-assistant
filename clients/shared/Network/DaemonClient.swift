@@ -654,6 +654,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
+        currentConversationKey = nil
         cuObservationSequenceBySession.removeAll()
     }
 
