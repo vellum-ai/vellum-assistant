@@ -1522,8 +1522,8 @@ public struct HostBashRequest: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case type
-        case requestId = "request_id"
-        case sessionId = "session_id"
+        case requestId
+        case sessionId
         case command
         case workingDir = "working_dir"
         case timeoutSeconds = "timeout_seconds"
@@ -1547,11 +1547,11 @@ public struct HostBashResultPayload: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case requestId = "request_id"
+        case requestId
         case stdout
         case stderr
-        case exitCode = "exit_code"
-        case timedOut = "timed_out"
+        case exitCode
+        case timedOut
     }
 }
 
