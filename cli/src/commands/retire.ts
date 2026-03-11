@@ -18,7 +18,12 @@ import {
 } from "../lib/process";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
-import { openLogFile, closeLogFile, writeToLogFile } from "../lib/xdg-log";
+import {
+  openLogFile,
+  closeLogFile,
+  resetLogFile,
+  writeToLogFile,
+} from "../lib/xdg-log";
 
 function resolveCloud(entry: AssistantEntry): string {
   if (entry.cloud) {
@@ -213,6 +218,9 @@ function teeConsoleToLogFile(fd: number | "ignore"): void {
 }
 
 export async function retire(): Promise<void> {
+  if (process.env.VELLUM_DESKTOP_APP) {
+    resetLogFile("retire.log");
+  }
   const logFd = process.env.VELLUM_DESKTOP_APP
     ? openLogFile("retire.log")
     : "ignore";
@@ -281,6 +289,8 @@ async function retireInner(): Promise<void> {
     await retireLocal(name, entry);
   } else if (cloud === "custom") {
     await retireCustom(entry);
+  } else if (cloud === "vellum") {
+    console.log("Platform-hosted instance — local config will be removed.");
   } else {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);
