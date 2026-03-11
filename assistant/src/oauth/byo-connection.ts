@@ -62,7 +62,7 @@ export class BYOOAuthConnection implements OAuthConnection {
       const resp = await fetch(fullUrl, {
         method: req.method,
         headers: {
-          "Content-Type": "application/json",
+          ...(req.body ? { "Content-Type": "application/json" } : {}),
           ...req.headers,
           Authorization: `Bearer ${token}`,
         },
