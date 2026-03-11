@@ -594,7 +594,7 @@ extension AppDelegate {
 
     /// Opens the settings panel and navigates to a specific tab.
     public func showSettingsTab(_ tab: String) {
-        if let settingsTab = SettingsTab.fromLegacyRawValue(tab, isDevMode: services.settingsStore.isDevMode) {
+        if let settingsTab = SettingsTab.fromRawValue(tab) {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)
