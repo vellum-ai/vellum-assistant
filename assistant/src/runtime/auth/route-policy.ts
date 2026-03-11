@@ -145,6 +145,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "confirm", scopes: ["approval.write"] },
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "host-bash-result", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
 
   // Guardian actions
