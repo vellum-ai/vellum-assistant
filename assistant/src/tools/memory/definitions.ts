@@ -76,19 +76,6 @@ export const memoryManageDefinition: ToolDefinition = {
   input_schema: {
     type: "object",
     properties: memoryManageProperties,
-    anyOf: [
-      {
-        properties: { op: { const: "save" } },
-        required: ["op", "statement", "kind"],
-      },
-      {
-        properties: { op: { const: "update" } },
-        required: ["op", "memory_id", "statement"],
-      },
-      {
-        properties: { op: { const: "delete" } },
-        required: ["op", "memory_id"],
-      },
-    ],
+    required: ["op"],
   },
 };
