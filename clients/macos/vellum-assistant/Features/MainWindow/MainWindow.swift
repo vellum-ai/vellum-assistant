@@ -231,14 +231,14 @@ private class ResizeGripView: NSView {
         super.draw(dirtyRect)
 
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let color = NSColor.tertiaryLabelColor.withAlphaComponent(0.5)
+        let color = NSColor(VColor.textMuted).withAlphaComponent(0.5)
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(lineThickness)
         context.setLineCap(.round)
 
         let inset: CGFloat = 3
         for i in 0..<lineCount {
-            let offset = CGFloat(i) * lineSpacing
+            let offset = CGFloat(i + 1) * lineSpacing
             let startX = bounds.maxX - inset - offset
             let startY = inset
             let endX = bounds.maxX - inset
