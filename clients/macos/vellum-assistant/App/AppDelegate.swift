@@ -155,10 +155,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // replacement process and should proceed normally.
         let restartSentinel = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".vellum/restart-in-progress")
-        let isRestart = FileManager.default.fileExists(atPath: restartSentinel.path)
-        if isRestart {
-            try? FileManager.default.removeItem(at: restartSentinel)
-        }
+        let isRestart: Bool = {
+            guard let data = try? Data(contentsOf: restartSentinel),
+                  let stamp = String(data: data, encoding: .utf8),
+                  let written = TimeInterval(stamp) else {
+                // No file or unreadable — not a restart.
+                return false
+            }
+            // Honor the sentinel only if it was written within the last
+            // 30 seconds.  Stale sentinels (e.g. from a crash between
+            // writing and the new instance reading it) are ignored so
+            // the single-instance guard stays effective.
+            return Date().timeIntervalSince1970 - written < 30
+        }()
+        // Always remove the sentinel regardless of freshness so it
+        // doesn't accumulate on disk.
+        try? FileManager.default.removeItem(at: restartSentinel)
 
         if !isRestart, let bundleId = Bundle.main.bundleIdentifier {
             let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
