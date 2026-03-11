@@ -275,9 +275,15 @@ export async function drainQueue(
   if (next.isInteractive === false) {
     session.clearProxyAvailability();
   } else {
-    // Restore proxy availability for interactive messages in case a prior
-    // non-interactive drain disabled it.
-    session.restoreProxyAvailability();
+    // Restore proxy availability only for desktop-originating turns (macos/ios)
+    // in case a prior non-interactive drain disabled it. Non-desktop interactive
+    // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
+    const interfaceCtx =
+      queuedInterfaceCtx ?? session.getTurnInterfaceContext();
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    if (sourceInterface === "macos" || sourceInterface === "ios") {
+      session.restoreProxyAvailability();
+    }
   }
 
   // Resolve slash commands for queued messages
