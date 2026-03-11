@@ -675,7 +675,7 @@ private struct StepDetailRow: View {
 
             // Live output: shown while tool is running, and also as fallback
             // when the tool completed without a final result (cancel/error).
-            if !toolCall.partialOutput.isEmpty && (!toolCall.isComplete || toolCall.result == nil) {
+            if !toolCall.partialOutput.isEmpty && (!toolCall.isComplete || (toolCall.result ?? "").isEmpty) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(toolCall.isComplete ? "Output" : "Live output")
                         .font(VFont.small)
