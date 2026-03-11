@@ -3462,9 +3462,21 @@ public final class HTTPTransport {
                 }
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
+                onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: sessionId,
+                    code: .regenerateFailed,
+                    userMessage: "Unable to regenerate response. Try sending your message again.",
+                    retryable: true
+                )))
             }
         } catch {
             log.error("Regenerate error: \(error.localizedDescription)")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: sessionId,
+                code: .regenerateFailed,
+                userMessage: "Unable to regenerate response. Try sending your message again.",
+                retryable: true
+            )))
         }
     }
 

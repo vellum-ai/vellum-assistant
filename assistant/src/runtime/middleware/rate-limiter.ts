@@ -8,7 +8,7 @@ import { isPrivateAddress } from "./auth.js";
 
 const log = getLogger("rate-limiter");
 
-const DEFAULT_MAX_REQUESTS = 60;
+const DEFAULT_MAX_REQUESTS = 300;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
 const MAX_TRACKED_TOKENS = 10_000;
 

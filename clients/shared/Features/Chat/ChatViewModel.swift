@@ -1929,7 +1929,34 @@ public final class ChatViewModel: ObservableObject {
             }
         }
         dismissSessionError()
-        regenerateLastMessage()
+
+        // When the last message is from the user (i.e. the assistant never
+        // responded — e.g. because the send was rate-limited with 429), resend
+        // the original message instead of regenerating. A /regenerate request
+        // would fail with 404 because the daemon never received the message.
+        if let lastMsg = messages.last, lastMsg.role == .user {
+            lastFailedMessageText = lastMsg.text
+            lastFailedMessageDisplayText = nil
+            // Preserve attachments so they are resent with the retry.
+            // ChatAttachment.data may already be cleared for older messages,
+            // but for a just-sent 429'd message it is still populated.
+            lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
+                guard !att.data.isEmpty else { return nil }
+                return UserMessageAttachment(
+                    id: att.id,
+                    filename: att.filename,
+                    mimeType: att.mimeType,
+                    data: att.data,
+                    extractedText: nil,
+                    sizeBytes: nil,
+                    thumbnailData: nil,
+                    filePath: att.filePath
+                )
+            }
+            retryLastMessage()
+        } else {
+            regenerateLastMessage()
+        }
     }
 
     /// Whether the current error has a failed user message that can be retried.
