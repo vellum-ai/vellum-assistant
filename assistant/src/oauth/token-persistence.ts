@@ -121,7 +121,6 @@ export async function storeOAuth2Tokens(
     grantedScopes,
     oauth2TokenUrl: tokenUrl,
     oauth2ClientId: clientId,
-    oauth2ClientSecret: clientSecret ?? null,
     ...(tokenEndpointAuthMethod
       ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod }
       : {}),

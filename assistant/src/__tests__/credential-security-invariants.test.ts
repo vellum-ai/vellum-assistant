@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,10 +64,11 @@ mock.module("../tools/registry.js", () => ({
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { redactSensitiveFields } from "../security/redaction.js";
-import { setSecureKey } from "../security/secure-keys.js";
+import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
+  getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 
@@ -467,6 +468,91 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
     expect(!result.authorized && result.reason).toContain(
       "No tools are currently allowed",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant 6 — oauth2ClientSecret never in plaintext metadata
+// ---------------------------------------------------------------------------
+
+describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, "metadata.json"));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  test("upsertCredentialMetadata does not accept oauth2ClientSecret", () => {
+    const record = upsertCredentialMetadata(
+      "integration:gmail",
+      "access_token",
+      {
+        oauth2TokenUrl: "https://oauth2.googleapis.com/token",
+        oauth2ClientId: "test-client-id",
+      },
+    );
+    expect("oauth2ClientSecret" in record).toBe(false);
+  });
+
+  test("client secret is read from secure store, not metadata", () => {
+    setSecureKey("credential:integration:gmail:client_secret", "my-secret");
+    upsertCredentialMetadata("integration:gmail", "access_token", {
+      oauth2TokenUrl: "https://oauth2.googleapis.com/token",
+      oauth2ClientId: "test-client-id",
+    });
+
+    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    expect(meta).toBeDefined();
+    expect("oauth2ClientSecret" in meta!).toBe(false);
+
+    // Secret is in secure store
+    expect(getSecureKey("credential:integration:gmail:client_secret")).toBe(
+      "my-secret",
+    );
+  });
+
+  test("v2 metadata with oauth2ClientSecret is stripped on migration", () => {
+    const v2Data = {
+      version: 2,
+      credentials: [
+        {
+          credentialId: "cred-v2-secret",
+          service: "integration:gmail",
+          field: "access_token",
+          allowedTools: [],
+          allowedDomains: [],
+          oauth2TokenUrl: "https://oauth2.googleapis.com/token",
+          oauth2ClientId: "test-client-id",
+          oauth2ClientSecret: "plaintext-secret-should-be-stripped",
+          createdAt: 1700000000000,
+          updatedAt: 1700000000000,
+        },
+      ],
+    };
+    writeFileSync(
+      join(TEST_DIR, "metadata.json"),
+      JSON.stringify(v2Data, null, 2),
+      "utf-8",
+    );
+
+    const meta = getCredentialMetadata("integration:gmail", "access_token");
+    expect(meta).toBeDefined();
+    expect("oauth2ClientSecret" in meta!).toBe(false);
+
+    // Verify on-disk file no longer contains the secret
+    const raw = JSON.parse(
+      readFileSync(join(TEST_DIR, "metadata.json"), "utf-8"),
+    );
+    expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
+    expect(raw.version).toBe(3);
   });
 });
 

@@ -175,7 +175,7 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  const clientSecret = meta?.oauth2ClientSecret as string | undefined;
+  const clientSecret = getSecureKey(`credential:${service}:client_secret`);
   const authMethod = meta?.oauth2TokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
     | undefined;

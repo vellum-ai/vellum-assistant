@@ -371,7 +371,7 @@ describe("credential metadata store", () => {
       expect(record!.credentialId).toBe("cred-stable-id");
     });
 
-    test("v2 file is loaded without migration", () => {
+    test("v2 file is migrated to v3 (strips oauth2ClientSecret)", () => {
       const v2Data = {
         version: 2,
         credentials: [
@@ -382,6 +382,7 @@ describe("credential metadata store", () => {
             allowedTools: ["api_request"],
             allowedDomains: ["fal.ai"],
             alias: "fal-primary",
+            oauth2ClientSecret: "should-be-stripped",
             injectionTemplates: [
               {
                 hostPattern: "*.fal.ai",
@@ -402,9 +403,49 @@ describe("credential metadata store", () => {
       expect(record!.alias).toBe("fal-primary");
       expect(record!.injectionTemplates).toHaveLength(1);
       expect(record!.injectionTemplates![0].hostPattern).toBe("*.fal.ai");
+      // oauth2ClientSecret must be stripped by v2→v3 migration
+      expect("oauth2ClientSecret" in record!).toBe(false);
+
+      // On-disk file should be upgraded to v3
+      const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
+      expect(raw.version).toBe(3);
+      expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
     });
 
-    test("future version (v3+) returns unknown version and refuses writes", () => {
+    test("v3 file is loaded without migration", () => {
+      const v3Data = {
+        version: 3,
+        credentials: [
+          {
+            credentialId: "cred-v3-001",
+            service: "fal-ai",
+            field: "api_key",
+            allowedTools: ["api_request"],
+            allowedDomains: ["fal.ai"],
+            alias: "fal-primary",
+            injectionTemplates: [
+              {
+                hostPattern: "*.fal.ai",
+                injectionType: "header",
+                headerName: "Authorization",
+                valuePrefix: "Key ",
+              },
+            ],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v3Data, null, 2), "utf-8");
+
+      const record = getCredentialMetadata("fal-ai", "api_key");
+      expect(record).toBeDefined();
+      expect(record!.alias).toBe("fal-primary");
+      expect(record!.injectionTemplates).toHaveLength(1);
+      expect(record!.injectionTemplates![0].hostPattern).toBe("*.fal.ai");
+    });
+
+    test("future version (v4+) returns unknown version and refuses writes", () => {
       const futureData = {
         version: 99,
         credentials: [],
@@ -439,7 +480,7 @@ describe("credential metadata store", () => {
       },
     );
 
-    test("upsert on migrated v1 file saves as v2", () => {
+    test("upsert on migrated v1 file saves as v3", () => {
       const v1Data = {
         version: 1,
         credentials: [
@@ -459,13 +500,13 @@ describe("credential metadata store", () => {
       // Upsert triggers load (migration) + save (at current version)
       upsertCredentialMetadata("github", "token", { alias: "gh-main" });
 
-      // Verify on-disk file is now v2
+      // Verify on-disk file is now v3
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(3);
       expect(raw.credentials[0].alias).toBe("gh-main");
     });
 
-    test("v1 load auto-persists as v2 on disk without requiring a write", () => {
+    test("v1 load auto-persists as v3 on disk without requiring a write", () => {
       const v1Data = {
         version: 1,
         credentials: [
@@ -482,11 +523,11 @@ describe("credential metadata store", () => {
       };
       writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), "utf-8");
 
-      // A read-only operation should still persist the v2 upgrade
+      // A read-only operation should still persist the v3 upgrade
       listCredentialMetadata();
 
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(3);
       expect(raw.credentials[0].credentialId).toBe("cred-autopersist");
     });
 
@@ -586,20 +627,20 @@ describe("credential metadata store", () => {
     test("file with non-array credentials field is treated as empty list", () => {
       writeFileSync(
         META_PATH,
-        JSON.stringify({ version: 2, credentials: "not-an-array" }),
+        JSON.stringify({ version: 3, credentials: "not-an-array" }),
         "utf-8",
       );
       expect(listCredentialMetadata()).toEqual([]);
     });
 
     test("file with missing credentials field is treated as empty list", () => {
-      writeFileSync(META_PATH, JSON.stringify({ version: 2 }), "utf-8");
+      writeFileSync(META_PATH, JSON.stringify({ version: 3 }), "utf-8");
       expect(listCredentialMetadata()).toEqual([]);
     });
 
     test("malformed records within credentials array are filtered out", () => {
       const data = {
-        version: 2,
+        version: 3,
         credentials: [
           // Valid record
           {
@@ -709,7 +750,7 @@ describe("credential metadata store", () => {
 
       const raw = readFileSync(META_PATH, "utf-8");
       const parsed = JSON.parse(raw);
-      expect(parsed.version).toBe(2);
+      expect(parsed.version).toBe(3);
       expect(parsed.credentials).toHaveLength(1);
       expect(parsed.credentials[0].service).toBe("slack");
     });
@@ -717,23 +758,23 @@ describe("credential metadata store", () => {
     test("file written by saveFile has version field", () => {
       upsertCredentialMetadata("test", "key");
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(3);
     });
   });
 
   // ── Empty credential lists ────────────────────────────────────────
 
   describe("empty credential lists", () => {
-    test("empty v2 file returns empty array", () => {
+    test("empty v3 file returns empty array", () => {
       writeFileSync(
         META_PATH,
-        JSON.stringify({ version: 2, credentials: [] }, null, 2),
+        JSON.stringify({ version: 3, credentials: [] }, null, 2),
         "utf-8",
       );
       expect(listCredentialMetadata()).toEqual([]);
     });
 
-    test("empty v1 file is migrated to v2 with empty credentials", () => {
+    test("empty v1 file is migrated to v3 with empty credentials", () => {
       writeFileSync(
         META_PATH,
         JSON.stringify({ version: 1, credentials: [] }, null, 2),
@@ -741,9 +782,9 @@ describe("credential metadata store", () => {
       );
       expect(listCredentialMetadata()).toEqual([]);
 
-      // Should be persisted as v2
+      // Should be persisted as v3
       const raw = JSON.parse(readFileSync(META_PATH, "utf-8"));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(3);
       expect(raw.credentials).toEqual([]);
     });
 

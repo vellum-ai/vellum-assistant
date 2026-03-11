@@ -27,8 +27,6 @@ export interface CredentialMetadata {
   oauth2TokenUrl?: string;
   /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
   oauth2ClientId?: string;
-  /** OAuth2 client secret — for providers that require it (e.g. Slack). Stored in metadata for autonomous refresh. */
-  oauth2ClientSecret?: string;
   /** How the client authenticates at the token endpoint (client_secret_basic or client_secret_post). */
   oauth2TokenEndpointAuthMethod?: string;
   /** Human-friendly name for this credential (e.g. "fal-primary"). */
@@ -40,7 +38,7 @@ export interface CredentialMetadata {
 }
 
 /** Current on-disk schema version. */
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 interface MetadataFile {
   version: typeof CURRENT_VERSION;
@@ -120,10 +118,6 @@ function migrateRecordV1toV2(
       typeof record.oauth2ClientId === "string"
         ? record.oauth2ClientId
         : undefined,
-    oauth2ClientSecret:
-      typeof record.oauth2ClientSecret === "string"
-        ? record.oauth2ClientSecret
-        : undefined,
     oauth2TokenEndpointAuthMethod:
       typeof record.oauth2TokenEndpointAuthMethod === "string"
         ? record.oauth2TokenEndpointAuthMethod
@@ -137,6 +131,16 @@ function migrateRecordV1toV2(
   };
 }
 
+/**
+ * Migrate a v2 record to v3 by stripping the oauth2ClientSecret field.
+ * Client secrets are now read exclusively from the secure key store.
+ */
+function migrateRecordV2toV3(record: CredentialMetadata): CredentialMetadata {
+  const { oauth2ClientSecret: _removed, ...rest } =
+    record as CredentialMetadata & { oauth2ClientSecret?: string };
+  return rest;
+}
+
 function loadFile(): LoadResult {
   const raw = readTextFileSync(getMetadataPath());
   if (raw == null) {
@@ -148,7 +152,7 @@ function loadFile(): LoadResult {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === "number" ? data.version : 1;
-    if (fileVersion !== 1 && fileVersion !== 2) {
+    if (fileVersion !== 1 && fileVersion !== 2 && fileVersion !== 3) {
       // Unrecognized version (future, fractional, negative, zero) — refuse to touch it
       return { unknownVersion: true };
     }
@@ -159,8 +163,18 @@ function loadFile(): LoadResult {
     const validRecords = rawCredentials.filter(isValidCredentialRecord);
 
     if (fileVersion < CURRENT_VERSION) {
-      // Migrate from v1 to v2 and persist the upgrade so we don't re-migrate on every read
-      const credentials = validRecords.map(migrateRecordV1toV2);
+      // Apply migrations in sequence: v1→v2→v3
+      let credentials: CredentialMetadata[];
+      if (fileVersion === 1) {
+        credentials = validRecords
+          .map(migrateRecordV1toV2)
+          .map(migrateRecordV2toV3);
+      } else {
+        // fileVersion === 2
+        credentials = (validRecords as unknown as CredentialMetadata[]).map(
+          migrateRecordV2toV3,
+        );
+      }
       const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
       try {
         saveFile(migrated);
@@ -219,8 +233,6 @@ export function upsertCredentialMetadata(
     grantedScopes?: string[];
     oauth2TokenUrl?: string;
     oauth2ClientId?: string;
-    /** Pass `null` to explicitly clear a previously-set client secret. */
-    oauth2ClientSecret?: string | null;
     oauth2TokenEndpointAuthMethod?: string;
     /** Pass `null` to explicitly clear a previously-set alias. */
     alias?: string | null;
@@ -261,13 +273,6 @@ export function upsertCredentialMetadata(
       existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined)
       existing.oauth2ClientId = policy.oauth2ClientId;
-    if (policy?.oauth2ClientSecret !== undefined) {
-      if (policy.oauth2ClientSecret == null) {
-        delete existing.oauth2ClientSecret;
-      } else {
-        existing.oauth2ClientSecret = policy.oauth2ClientSecret;
-      }
-    }
     if (policy?.oauth2TokenEndpointAuthMethod !== undefined)
       existing.oauth2TokenEndpointAuthMethod =
         policy.oauth2TokenEndpointAuthMethod;
@@ -301,7 +306,6 @@ export function upsertCredentialMetadata(
     grantedScopes: policy?.grantedScopes,
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
-    oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,
     oauth2TokenEndpointAuthMethod: policy?.oauth2TokenEndpointAuthMethod,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
