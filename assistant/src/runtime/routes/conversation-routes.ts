@@ -363,8 +363,9 @@ export function handleListMessages(
  * assistant event hub, maintaining ordered delivery through a serial chain.
  *
  * Also registers pending interactions when confirmation_request,
- * secret_request, or host_bash_request events flow through, so
- * standalone approval/result endpoints can look up the session by requestId.
+ * secret_request, host_bash_request, or host_file_request events flow
+ * through, so standalone approval/result endpoints can look up the session
+ * by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
@@ -440,6 +441,12 @@ function makeHubPublisher(
         session,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (msg.type === "host_file_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_file",
       });
     }
 
