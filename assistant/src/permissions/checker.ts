@@ -139,6 +139,7 @@ const LOW_RISK_PROGRAMS = new Set([
   "tree",
   "du",
   "df",
+  "assistant",
 ]);
 
 // High-risk shell programs / patterns
