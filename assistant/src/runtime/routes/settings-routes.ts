@@ -203,6 +203,17 @@ async function handleOAuthConnectStart(body: {
       openUrl: (url: string) => {
         authUrl = url;
       },
+      onDeferredComplete: (deferredResult) => {
+        if (!deferredResult.success) {
+          log.warn(
+            {
+              service: deferredResult.service,
+              err: deferredResult.error,
+            },
+            "Deferred OAuth connect failed",
+          );
+        }
+      },
     });
 
     if (!result.success) {

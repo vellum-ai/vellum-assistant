@@ -867,6 +867,25 @@ class CredentialStoreTool implements Tool {
           userinfoUrl:
             (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
           tokenEndpointAuthMethod,
+          onDeferredComplete: (deferredResult) => {
+            if (deferredResult.success) {
+              log.info(
+                {
+                  service: deferredResult.service,
+                  accountInfo: deferredResult.accountInfo,
+                },
+                "Deferred OAuth connect completed successfully",
+              );
+            } else {
+              log.warn(
+                {
+                  service: deferredResult.service,
+                  err: deferredResult.error,
+                },
+                "Deferred OAuth connect failed",
+              );
+            }
+          },
         });
 
         if (!result.success) {
