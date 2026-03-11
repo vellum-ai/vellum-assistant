@@ -3,7 +3,6 @@ import VellumAssistantShared
 
 enum SettingsTab: String {
     case general = "General"
-    case channels = "Channels"
     case modelsAndServices = "Models & Services"
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
@@ -13,7 +12,7 @@ enum SettingsTab: String {
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(contactsEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
-            .general, .channels, .modelsAndServices, .voice,
+            .general, .modelsAndServices, .voice,
             .permissionsAndPrivacy
         ]
         if contactsEnabled {
@@ -225,8 +224,6 @@ struct SettingsPanel: View {
         switch selectedTab {
         case .general:
             SettingsGeneralTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
-        case .channels:
-            SettingsChannelsTab(store: store, daemonClient: daemonClient)
         case .modelsAndServices:
             integrationsContent
         case .voice:
