@@ -199,8 +199,8 @@ describe("Slack channel config handler", () => {
   });
 
   test("GET returns connected: true when both tokens are set", () => {
-    secureKeyStore["credential:slack_channel:bot_token"] = "xoxb-test";
-    secureKeyStore["credential:slack_channel:app_token"] = "xapp-test";
+    secureKeyStore["credential/slack_channel/bot_token"] = "xoxb-test";
+    secureKeyStore["credential/slack_channel/app_token"] = "xapp-test";
 
     const result = getSlackChannelConfig();
     expect(result.success).toBe(true);
@@ -210,7 +210,7 @@ describe("Slack channel config handler", () => {
   });
 
   test("GET returns metadata from config when available", () => {
-    secureKeyStore["credential:slack_channel:bot_token"] = "xoxb-test";
+    secureKeyStore["credential/slack_channel/bot_token"] = "xoxb-test";
     configStore = {
       slack: {
         teamId: "T123",
@@ -240,7 +240,7 @@ describe("Slack channel config handler", () => {
     );
     expect(result.success).toBe(true);
     expect(result.hasAppToken).toBe(true);
-    expect(secureKeyStore["credential:slack_channel:app_token"]).toBe(
+    expect(secureKeyStore["credential/slack_channel/app_token"]).toBe(
       "xapp-valid-token-123",
     );
   });
@@ -296,8 +296,8 @@ describe("Slack channel config handler", () => {
   });
 
   test("DELETE clears credentials and config", async () => {
-    secureKeyStore["credential:slack_channel:bot_token"] = "xoxb-test";
-    secureKeyStore["credential:slack_channel:app_token"] = "xapp-test";
+    secureKeyStore["credential/slack_channel/bot_token"] = "xoxb-test";
+    secureKeyStore["credential/slack_channel/app_token"] = "xapp-test";
     credentialMetadataStore.push({
       service: "slack_channel",
       field: "bot_token",
@@ -322,10 +322,10 @@ describe("Slack channel config handler", () => {
     expect(result.connected).toBe(false);
 
     expect(
-      secureKeyStore["credential:slack_channel:bot_token"],
+      secureKeyStore["credential/slack_channel/bot_token"],
     ).toBeUndefined();
     expect(
-      secureKeyStore["credential:slack_channel:app_token"],
+      secureKeyStore["credential/slack_channel/app_token"],
     ).toBeUndefined();
     expect(credentialMetadataStore).toHaveLength(0);
 

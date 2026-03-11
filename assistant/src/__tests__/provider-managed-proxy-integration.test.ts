@@ -16,7 +16,7 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => {
-    if (key === "credential:vellum:assistant_api_key") {
+    if (key === "credential/vellum/assistant_api_key") {
       return mockAssistantApiKey;
     }
     return null;

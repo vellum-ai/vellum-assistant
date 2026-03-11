@@ -125,7 +125,7 @@ describe("CredentialBroker", () => {
 
       const result = broker.consume(auth.token.tokenId);
       expect(result.success).toBe(true);
-      expect(result.storageKey).toBe("credential:github:token");
+      expect(result.storageKey).toBe("credential/github/token");
     });
 
     test("rejects double consumption", () => {

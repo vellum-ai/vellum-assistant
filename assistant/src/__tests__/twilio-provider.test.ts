@@ -40,8 +40,8 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => {
-    if (key === "credential:twilio:auth_token") return mockAuthToken;
-    if (key === "credential:twilio:account_sid") return mockAccountSid;
+    if (key === "credential/twilio/auth_token") return mockAuthToken;
+    if (key === "credential/twilio/account_sid") return mockAccountSid;
     return undefined;
   },
 }));

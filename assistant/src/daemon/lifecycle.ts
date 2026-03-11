@@ -54,6 +54,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
+import { migrateKeys } from "../security/credential-key.js";
 import { watchSessions } from "../tools/watch/watch-state.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -136,6 +137,11 @@ export async function runDaemon(): Promise<void> {
 
     ensureDataDir();
 
+    // Migrate legacy colon-delimited credential keys to the new
+    // slash-delimited format. Must run after ensureDataDir() so the
+    // secure key store is available, and before any credential reads.
+    migrateKeys();
+
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
     // protected directory.
@@ -193,7 +199,9 @@ export async function runDaemon(): Promise<void> {
       const httpTokenPath = join(getRootDir(), "http-token");
       writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);
-      log.info("Daemon startup: CLI edge token written to credential store and http-token");
+      log.info(
+        "Daemon startup: CLI edge token written to credential store and http-token",
+      );
     } else {
       log.warn("No guardian principal available — CLI edge token not written");
     }
