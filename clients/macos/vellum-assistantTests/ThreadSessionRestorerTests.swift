@@ -75,7 +75,7 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     }
 
     func mergeAssistantAttention(
-        from session: IPCSessionListResponseSession,
+        from session: SessionListResponseSession,
         intoThreadAt index: Int
     ) {
         threads[index].hasUnseenLatestAssistantMessage =

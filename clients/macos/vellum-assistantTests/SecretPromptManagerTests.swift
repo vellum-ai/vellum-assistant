@@ -35,8 +35,8 @@ final class SecretPromptManagerTests: XCTestCase {
         allowedTools: [String]? = nil,
         allowedDomains: [String]? = nil,
         allowOneTimeSend: Bool? = nil
-    ) -> IPCSecretRequest {
-        IPCSecretRequest(
+    ) -> SecretRequest {
+        SecretRequest(
             type: "secret_request",
             requestId: requestId,
             service: "github",

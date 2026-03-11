@@ -427,7 +427,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
                 "subtitle": "v3"
             ] as [String: Any])
         ]
-        let historySurface = IPCHistoryResponseSurface(
+        let historySurface = HistoryResponseSurface(
             surfaceId: "hist-surface-1",
             surfaceType: "dynamic_page",
             title: "History App",
@@ -435,8 +435,8 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             actions: nil,
             display: nil
         )
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
                 id: nil,
                 role: "assistant",
                 text: "Here is your restored app",
@@ -472,7 +472,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             ] as [String: Any]),
             "appId": AnyCodable("app-light-1")
         ]
-        let historySurface = IPCHistoryResponseSurface(
+        let historySurface = HistoryResponseSurface(
             surfaceId: "hist-light-surface",
             surfaceType: "dynamic_page",
             title: "Light Mode App",
@@ -480,8 +480,8 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             actions: nil,
             display: nil
         )
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
                 id: nil,
                 role: "assistant",
                 text: "Here are your slides",
