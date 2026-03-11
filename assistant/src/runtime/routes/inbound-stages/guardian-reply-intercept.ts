@@ -156,9 +156,9 @@ export async function handleGuardianReplyIntercept(
       };
       // On Slack, send guardian management replies (disambiguation, pending
       // request lists, etc.) as ephemeral so only the guardian sees them.
-      if (sourceChannel === "slack" && rawSenderId) {
+      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
         routerReplyPayload.ephemeral = true;
-        routerReplyPayload.user = rawSenderId;
+        routerReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
       }
       try {
         await deliverChannelReply(
