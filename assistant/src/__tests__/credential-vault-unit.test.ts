@@ -595,15 +595,14 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("client_id is required");
   });
 
-  test("uses stored client_id from secure storage", async () => {
-    // Store both client_id and client_secret for the service — the
-    // requiresClientSecret guardrail will short-circuit if client_secret
-    // is missing, so we need both to validate that stored client_id
-    // is resolved correctly.
-    setSecureKey(
-      "credential:integration:gmail:client_id",
-      "stored-client-id-123",
-    );
+  test("uses stored client_id from metadata", async () => {
+    // Store client_id in metadata (the canonical source) and client_secret
+    // in the secure store — the requiresClientSecret guardrail will
+    // short-circuit if client_secret is missing, so we need both to
+    // validate that stored client_id is resolved correctly.
+    upsertCredentialMetadata("integration:gmail", "access_token", {
+      oauth2ClientId: "stored-client-id-123",
+    });
     setSecureKey("credential:integration:gmail:client_secret", "test-secret");
 
     const result = await credentialStoreTool.execute(
@@ -624,12 +623,11 @@ describe("credential_store tool — oauth2_connect error paths", () => {
   });
 
   test("rejects when client_secret is missing for service that requires it", async () => {
-    // Store only client_id — client_secret is intentionally absent to
-    // validate the requiresClientSecret guardrail.
-    setSecureKey(
-      "credential:integration:gmail:client_id",
-      "stored-client-id-456",
-    );
+    // Store only client_id in metadata — client_secret is intentionally
+    // absent to validate the requiresClientSecret guardrail.
+    upsertCredentialMetadata("integration:gmail", "access_token", {
+      oauth2ClientId: "stored-client-id-456",
+    });
 
     const result = await credentialStoreTool.execute(
       {
