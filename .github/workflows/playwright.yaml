@@ -241,12 +241,14 @@ jobs:
         with:
           secrets: |-
             ANTHROPIC_API_KEY:vellum-nonprod/ANTHROPIC_API_KEY
+            E2E_GMAIL_TEST_USER_PASSWORD:vellum-nonprod/E2E_GMAIL_TEST_USER_PASSWORD
             TWILIO_AUTH_TOKEN:vellum-nonprod/TWILIO_AUTH_TOKEN
             NGROK_AUTH_TOKEN:vellum-nonprod/NGROK_AUTH_TOKEN
 
       - name: Set API keys in env
         run: |
           echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+          echo "E2E_GMAIL_TEST_USER_PASSWORD=${{ steps.secrets.outputs.E2E_GMAIL_TEST_USER_PASSWORD }}" >> "$GITHUB_ENV"
           echo "TWILIO_AUTH_TOKEN=${{ steps.secrets.outputs.TWILIO_AUTH_TOKEN }}" >> "$GITHUB_ENV"
           echo "TWILIO_ACCOUNT_SID=${{ vars.TWILIO_ACCOUNT_SID }}" >> "$GITHUB_ENV"
           echo "NGROK_AUTH_TOKEN=${{ steps.secrets.outputs.NGROK_AUTH_TOKEN }}" >> "$GITHUB_ENV"
