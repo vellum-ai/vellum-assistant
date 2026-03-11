@@ -2,7 +2,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
+import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -14,13 +14,12 @@ export async function run(
 
   try {
     const provider = resolveProvider(platform);
-    return withProviderToken(provider, async (token) => {
-      const conversations = await provider.listConversations(token, {
-        types: types as Array<"channel" | "dm" | "group" | "inbox"> | undefined,
-        limit,
-      });
-      return ok(JSON.stringify(conversations, null, 2));
+    const conn = getProviderConnection(provider);
+    const conversations = await provider.listConversations(conn, {
+      types: types as Array<"channel" | "dm" | "group" | "inbox"> | undefined,
+      limit,
     });
+    return ok(JSON.stringify(conversations, null, 2));
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

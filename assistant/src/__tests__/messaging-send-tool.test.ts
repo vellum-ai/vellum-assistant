@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MessagingProvider } from "../messaging/provider.js";
 import type { SendOptions } from "../messaging/provider-types.js";
+import type { OAuthConnection } from "../oauth/connection.js";
 
 const sendMessageMock = mock(async (..._args: unknown[]) => ({
   id: "msg-1",
@@ -23,19 +24,16 @@ const provider: MessagingProvider = {
   getHistory: async () => [],
   search: async () => ({ total: 0, messages: [], hasMore: false }),
   sendMessage: (
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     text: string,
     options?: SendOptions,
-  ) => sendMessageMock(token, conversationId, text, options),
+  ) => sendMessageMock(connectionOrToken, conversationId, text, options),
 };
 
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
   resolveProvider: () => provider,
-  withProviderToken: async (
-    _provider: MessagingProvider,
-    fn: (token: string) => Promise<unknown>,
-  ) => fn("provider-token"),
+  getProviderConnection: () => "provider-token",
   ok: (content: string) => ({ content, isError: false }),
   err: (content: string) => ({ content, isError: true }),
   extractHeader: () => "",

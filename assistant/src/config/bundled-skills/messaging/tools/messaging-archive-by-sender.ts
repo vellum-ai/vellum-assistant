@@ -2,7 +2,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
+import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -30,21 +30,20 @@ export async function run(
       );
     }
 
-    return withProviderToken(provider, async (token) => {
-      const result = await provider.archiveByQuery!(token, query);
+    const conn = getProviderConnection(provider);
+    const result = await provider.archiveByQuery!(conn, query);
 
-      if (result.archived === 0) {
-        return ok("No messages matched the query. Nothing archived.");
-      }
+    if (result.archived === 0) {
+      return ok("No messages matched the query. Nothing archived.");
+    }
 
-      const summary = `Archived ${result.archived} message(s) matching query: ${query}`;
-      if (result.truncated) {
-        return ok(
-          `${summary}\n\nNote: this operation was capped at 5000 messages. Additional messages matching the query may remain in the inbox. Run the command again to archive more.`,
-        );
-      }
-      return ok(summary);
-    });
+    const summary = `Archived ${result.archived} message(s) matching query: ${query}`;
+    if (result.truncated) {
+      return ok(
+        `${summary}\n\nNote: this operation was capped at 5000 messages. Additional messages matching the query may remain in the inbox. Run the command again to archive more.`,
+      );
+    }
+    return ok(summary);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

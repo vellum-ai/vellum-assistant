@@ -12,7 +12,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { truncate } from "../../../../util/truncate.js";
-import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
+import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 function upsertMemoryItem(opts: {
   kind: string;
@@ -91,76 +91,75 @@ export async function run(
 
   try {
     const provider = resolveProvider(platform);
-    return withProviderToken(provider, async (token) => {
-      // Search for sent messages using the platform's search
-      const query =
-        queryFilter ?? (provider.id === "gmail" ? "in:sent" : "from:me");
-      const searchResult = await provider.search(token, query, {
-        count: maxMessages,
-      });
-
-      if (searchResult.messages.length === 0) {
-        return err(
-          "No sent messages found. Send some messages first, then try again.",
-        );
-      }
-
-      const result = await extractStylePatterns(searchResult.messages);
-
-      if (result.stylePatterns.length === 0) {
-        return err("No style patterns were extracted. Try with more messages.");
-      }
-
-      const scopeId = context.memoryScopeId ?? "default";
-      let savedCount = 0;
-
-      for (const pattern of result.stylePatterns) {
-        const subject = `${provider.id} writing style: ${pattern.aspect}`;
-        const importance = clampUnitInterval(
-          Math.min(0.85, Math.max(0.55, pattern.importance ?? 0.65)),
-        );
-        upsertMemoryItem({
-          kind: "style",
-          subject,
-          statement: pattern.summary,
-          importance,
-          scopeId,
-        });
-        savedCount++;
-      }
-
-      for (const contact of result.contactObservations) {
-        if (!contact.name || !contact.toneNote) continue;
-        const subject = `${provider.id} relationship: ${contact.name}`;
-        upsertMemoryItem({
-          kind: "relationship",
-          subject,
-          statement: truncate(
-            `${contact.name} (${contact.email}): ${contact.toneNote}`,
-            500,
-            "",
-          ),
-          importance: 0.6,
-          scopeId,
-        });
-        savedCount++;
-      }
-
-      const aspects = result.stylePatterns.map((p) => p.aspect).join(", ");
-      const contactCount = result.contactObservations.length;
-      const summary = [
-        `Analyzed ${searchResult.messages.length} messages on ${provider.displayName}.`,
-        `Extracted ${result.stylePatterns.length} style patterns (${aspects}).`,
-        contactCount > 0
-          ? `Noted ${contactCount} recurring contact relationship(s).`
-          : "",
-        `Saved ${savedCount} memory items. Future drafts will automatically reflect your writing style.`,
-      ]
-        .filter(Boolean)
-        .join(" ");
-
-      return ok(summary);
+    const conn = getProviderConnection(provider);
+    // Search for sent messages using the platform's search
+    const query =
+      queryFilter ?? (provider.id === "gmail" ? "in:sent" : "from:me");
+    const searchResult = await provider.search(conn, query, {
+      count: maxMessages,
     });
+
+    if (searchResult.messages.length === 0) {
+      return err(
+        "No sent messages found. Send some messages first, then try again.",
+      );
+    }
+
+    const result = await extractStylePatterns(searchResult.messages);
+
+    if (result.stylePatterns.length === 0) {
+      return err("No style patterns were extracted. Try with more messages.");
+    }
+
+    const scopeId = context.memoryScopeId ?? "default";
+    let savedCount = 0;
+
+    for (const pattern of result.stylePatterns) {
+      const subject = `${provider.id} writing style: ${pattern.aspect}`;
+      const importance = clampUnitInterval(
+        Math.min(0.85, Math.max(0.55, pattern.importance ?? 0.65)),
+      );
+      upsertMemoryItem({
+        kind: "style",
+        subject,
+        statement: pattern.summary,
+        importance,
+        scopeId,
+      });
+      savedCount++;
+    }
+
+    for (const contact of result.contactObservations) {
+      if (!contact.name || !contact.toneNote) continue;
+      const subject = `${provider.id} relationship: ${contact.name}`;
+      upsertMemoryItem({
+        kind: "relationship",
+        subject,
+        statement: truncate(
+          `${contact.name} (${contact.email}): ${contact.toneNote}`,
+          500,
+          "",
+        ),
+        importance: 0.6,
+        scopeId,
+      });
+      savedCount++;
+    }
+
+    const aspects = result.stylePatterns.map((p) => p.aspect).join(", ");
+    const contactCount = result.contactObservations.length;
+    const summary = [
+      `Analyzed ${searchResult.messages.length} messages on ${provider.displayName}.`,
+      `Extracted ${result.stylePatterns.length} style patterns (${aspects}).`,
+      contactCount > 0
+        ? `Noted ${contactCount} recurring contact relationship(s).`
+        : "",
+      `Saved ${savedCount} memory items. Future drafts will automatically reflect your writing style.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    return ok(summary);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
