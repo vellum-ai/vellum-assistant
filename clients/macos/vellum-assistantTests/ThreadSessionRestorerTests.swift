@@ -136,14 +136,14 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, upda
     makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, nil, nil) })
 }
 
-/// Build a HistoryResponseMessage via JSON round-trip.
-private func makeHistoryResponse(sessionId: String, messages: [(role: String, text: String)], hasMore: Bool = false) -> HistoryResponseMessage {
+/// Build a HistoryResponse via JSON round-trip.
+private func makeHistoryResponse(sessionId: String, messages: [(role: String, text: String)], hasMore: Bool = false) -> HistoryResponse {
     let msgDicts = messages.map { msg -> [String: Any] in
         ["role": msg.role, "text": msg.text, "timestamp": 1000.0]
     }
     let dict: [String: Any] = ["type": "history_response", "sessionId": sessionId, "messages": msgDicts, "hasMore": hasMore]
     let data = try! JSONSerialization.data(withJSONObject: dict)
-    return try! JSONDecoder().decode(HistoryResponseMessage.self, from: data)
+    return try! JSONDecoder().decode(HistoryResponse.self, from: data)
 }
 
 /// Build a SessionTitleUpdatedMessage via JSON round-trip.

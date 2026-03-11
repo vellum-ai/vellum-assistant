@@ -273,7 +273,7 @@ final class ThreadSessionRestorer {
         delegate.restoreLastActiveThread()
     }
 
-    func handleHistoryResponse(_ response: HistoryResponseMessage) {
+    func handleHistoryResponse(_ response: HistoryResponse) {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
 

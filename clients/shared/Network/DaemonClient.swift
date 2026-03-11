@@ -431,7 +431,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onSessionTitleUpdated: ((SessionTitleUpdatedMessage) -> Void)?
 
     /// Called when the daemon sends a `history_response` message.
-    public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
+    public var onHistoryResponse: ((HistoryResponse) -> Void)?
 
     /// Called when the daemon sends a `message_content_response` with full (untruncated) content.
     public var onMessageContentResponse: ((MessageContentResponse) -> Void)?

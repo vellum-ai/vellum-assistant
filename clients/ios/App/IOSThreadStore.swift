@@ -628,7 +628,7 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private func handleHistoryResponse(_ response: HistoryResponseMessage) {
+    private func handleHistoryResponse(_ response: HistoryResponse) {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let vm = viewModels[threadId] else { return }
 

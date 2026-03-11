@@ -1258,11 +1258,6 @@ public typealias SkillsInspectResponseMessage = SkillsInspectResponse
 /// Backed by generated `SessionListResponse`.
 public typealias SessionListResponseMessage = SessionListResponse
 
-/// Response containing message history for a session.
-/// Backed by generated `HistoryResponse`.
-public typealias HistoryResponseMessage = HistoryResponse
-
-
 /// A single scheduled task item returned from the daemon.
 /// Backed by generated `SchedulesListResponseSchedule`.
 public typealias ScheduleItem = SchedulesListResponseSchedule
@@ -2139,7 +2134,7 @@ public enum ServerMessage: Decodable, Sendable {
     case sessionInfo(SessionInfoMessage)
     case sessionTitleUpdated(SessionTitleUpdatedMessage)
     case sessionListResponse(SessionListResponseMessage)
-    case historyResponse(HistoryResponseMessage)
+    case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
@@ -2323,7 +2318,7 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try SessionListResponseMessage(from: decoder)
             self = .sessionListResponse(message)
         case "history_response":
-            let message = try HistoryResponseMessage(from: decoder)
+            let message = try HistoryResponse(from: decoder)
             self = .historyResponse(message)
         case "memory_status":
             let message = try MemoryStatusMessage(from: decoder)
