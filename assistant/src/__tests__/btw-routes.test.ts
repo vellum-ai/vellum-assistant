@@ -35,7 +35,11 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 const MOCK_TOOLS = [
-  { name: "test_tool", description: "A test tool", input_schema: { type: "object", properties: {} } },
+  {
+    name: "test_tool",
+    description: "A test tool",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 mock.module("../daemon/session-tool-setup.js", () => ({
@@ -46,7 +50,10 @@ mock.module("../daemon/session-tool-setup.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { ProviderResponse, SendMessageOptions } from "../providers/types.js";
+import type {
+  ProviderResponse,
+  SendMessageOptions,
+} from "../providers/types.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import type { SendMessageDeps } from "../runtime/http-types.js";
 import { btwRouteDefinitions } from "../runtime/routes/btw-routes.js";
@@ -93,23 +100,35 @@ function makeMockProvider(
   };
 }
 
-function makeMockSession(providerOverride?: ReturnType<typeof makeMockProvider>) {
+function makeMockSession(
+  providerOverride?: ReturnType<typeof makeMockProvider>,
+) {
   const provider = providerOverride ?? makeMockProvider();
   return {
     provider,
     systemPrompt: "You are a helpful assistant.",
     processing: false,
     getMessages: () => [
-      { role: "user" as const, content: [{ type: "text" as const, text: "prior message" }] },
-      { role: "assistant" as const, content: [{ type: "text" as const, text: "prior response" }] },
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "prior message" }],
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "prior response" }],
+      },
     ],
   };
 }
 
-function makeSendMessageDeps(session?: ReturnType<typeof makeMockSession>): SendMessageDeps {
+function makeSendMessageDeps(
+  session?: ReturnType<typeof makeMockSession>,
+): SendMessageDeps {
   const s = session ?? makeMockSession();
   return {
-    getOrCreateSession: mock(async (_conversationId: string) => s) as unknown as SendMessageDeps["getOrCreateSession"],
+    getOrCreateSession: mock(
+      async (_conversationId: string) => s,
+    ) as unknown as SendMessageDeps["getOrCreateSession"],
     assistantEventHub: {} as never,
     resolveAttachments: () => [],
   };
@@ -158,7 +177,9 @@ describe("POST /v1/btw", () => {
       { sendMessageDeps: makeSendMessageDeps() },
     );
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toContain("conversationKey");
   });
@@ -169,7 +190,9 @@ describe("POST /v1/btw", () => {
       { sendMessageDeps: makeSendMessageDeps() },
     );
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toContain("content");
   });
@@ -180,7 +203,9 @@ describe("POST /v1/btw", () => {
       { sendMessageDeps: makeSendMessageDeps() },
     );
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toContain("content");
   });
@@ -193,7 +218,9 @@ describe("POST /v1/btw", () => {
       { sendMessageDeps: undefined },
     );
     expect(res.status).toBe(503);
-    const body = await res.json() as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
   });
 
@@ -236,7 +263,8 @@ describe("POST /v1/btw", () => {
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
 
-    const [messages, tools, systemPrompt, options] = provider.sendMessage.mock.calls[0];
+    const [messages, tools, systemPrompt, options] =
+      provider.sendMessage.mock.calls[0];
 
     // Messages should be session messages + the new user message (trimmed)
     expect(messages).toHaveLength(3);
@@ -260,7 +288,7 @@ describe("POST /v1/btw", () => {
     expect(systemPrompt).toBe("You are a helpful assistant.");
 
     // Options: tool_choice must be "none"
-    expect(options.config.tool_choice).toEqual({ type: "none" });
+    expect(options!.config!.tool_choice).toEqual({ type: "none" });
   });
 
   // -- No persistence --
