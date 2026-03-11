@@ -19,13 +19,18 @@ interface PendingRequest {
 export class HostBashProxy {
   private pending = new Map<string, PendingRequest>();
   private sendToClient: (msg: ServerMessage) => void;
+  private clientConnected = false;
 
   constructor(sendToClient: (msg: ServerMessage) => void) {
     this.sendToClient = sendToClient;
   }
 
-  updateSender(sendToClient: (msg: ServerMessage) => void): void {
+  updateSender(
+    sendToClient: (msg: ServerMessage) => void,
+    clientConnected: boolean,
+  ): void {
     this.sendToClient = sendToClient;
+    this.clientConnected = clientConnected;
   }
 
   request(
@@ -69,9 +74,7 @@ export class HostBashProxy {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
-            resolve(
-              formatShellOutput("", "Aborted", null, false, 0),
-            );
+            resolve(formatShellOutput("", "Aborted", null, false, 0));
           }
         };
         signal.addEventListener("abort", onAbort, { once: true });
@@ -119,7 +122,7 @@ export class HostBashProxy {
   }
 
   isAvailable(): boolean {
-    return true;
+    return this.clientConnected;
   }
 
   dispose(): void {

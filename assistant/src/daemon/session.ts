@@ -374,7 +374,7 @@ export class Session {
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
-    this.hostBashProxy?.updateSender(sendToClient);
+    this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
@@ -583,10 +583,6 @@ export class Session {
 
   hasPendingHostBash(requestId: string): boolean {
     return this.hostBashProxy?.hasPendingRequest(requestId) ?? false;
-  }
-
-  setHostBashProxy(proxy: HostBashProxy | undefined): void {
-    this.hostBashProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
