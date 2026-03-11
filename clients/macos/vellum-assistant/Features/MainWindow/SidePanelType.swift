@@ -22,6 +22,8 @@ enum SidePanelType: Hashable, CaseIterable {
         case "identity", "agent": self = .intelligence
         // Legacy Home Base panel — map to apps as a reasonable fallback
         case "directory": self = .apps
+        // Legacy Task Queue panel — removed, fall back to settings
+        case "taskQueue": self = .settings
         default: return nil
         }
     }
