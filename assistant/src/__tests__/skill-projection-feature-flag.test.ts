@@ -338,7 +338,10 @@ describe("projectSkillTools feature flag enforcement", () => {
       previouslyActiveSkillIds: prevActive,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    // Tool definitions are no longer returned (dispatched via skill_execute),
+    // but allowedToolNames should contain the registered tool names.
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(2);
     expect(result.allowedToolNames.has("browser_navigate")).toBe(true);
     expect(result.allowedToolNames.has("browser_click")).toBe(true);
   });
@@ -357,7 +360,8 @@ describe("projectSkillTools feature flag enforcement", () => {
       previouslyActiveSkillIds: prevActive,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(1);
     expect(result.allowedToolNames.has("browser_navigate")).toBe(true);
   });
 
@@ -427,8 +431,8 @@ describe("projectSkillTools feature flag enforcement", () => {
       previouslyActiveSkillIds: prevActive,
     });
 
-    const toolNames = result.toolDefinitions.map((t) => t.name);
-    expect(toolNames).toContain("plain_action");
-    expect(toolNames).not.toContain("browser_navigate");
+    // Tool definitions are no longer returned; check allowedToolNames instead
+    expect(result.allowedToolNames.has("plain_action")).toBe(true);
+    expect(result.allowedToolNames.has("browser_navigate")).toBe(false);
   });
 });
