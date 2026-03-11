@@ -104,7 +104,6 @@ import * as analyzeKeyframes from "./bundled-skills/media-processing/tools/analy
 import * as extractKeyframes from "./bundled-skills/media-processing/tools/extract-keyframes.js";
 import * as generateClip from "./bundled-skills/media-processing/tools/generate-clip.js";
 import * as ingestMedia from "./bundled-skills/media-processing/tools/ingest-media.js";
-import * as mediaDiagnostics from "./bundled-skills/media-processing/tools/media-diagnostics.js";
 import * as mediaStatus from "./bundled-skills/media-processing/tools/media-status.js";
 import * as queryMediaEvents from "./bundled-skills/media-processing/tools/query-media-events.js";
 // ── messaging ──────────────────────────────────────────────────────────────────
@@ -338,7 +337,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["media-processing:tools/analyze-keyframes.ts", analyzeKeyframes],
   ["media-processing:tools/query-media-events.ts", queryMediaEvents],
   ["media-processing:tools/generate-clip.ts", generateClip],
-  ["media-processing:tools/media-diagnostics.ts", mediaDiagnostics],
 
   // messaging
   ["messaging:tools/messaging-auth-test.ts", messagingAuthTest],

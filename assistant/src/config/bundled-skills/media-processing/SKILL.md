@@ -83,15 +83,6 @@ Parameters:
 
 Extract a video clip from a media asset using ffmpeg. Applies configurable pre/post-roll padding (clamped to file boundaries), outputs the clip as a temporary file.
 
-### media_diagnostics
-
-Get a diagnostic report for a media asset. Returns:
-
-- **Processing stats**: total keyframes extracted.
-- **Per-stage status and timing**: which stages (preprocess, map, reduce) have run, how long each took, current progress.
-- **Failure reasons**: last error from any failed stage.
-- **Cost estimation**: based on segment count and current Gemini pricing.
-
 ## Services
 
 ### Processing Pipeline (services/processing-pipeline.ts)
@@ -243,7 +234,7 @@ The response includes per-stage progress (0-100%) so you can see exactly where p
 
 ### Diagnosing Failures
 
-Use `media_diagnostics` to get a full diagnostic report:
+Use `media_status` to check processing stages:
 
 1. Check the `stages` array for any stage with `status: "failed"`.
 2. Read the `lastError` field for that stage to understand what went wrong.
@@ -257,7 +248,7 @@ After fixing the root cause, re-run the failed stage. The pipeline is resumable 
 
 ### Cost Expectations
 
-Use `media_diagnostics` to get per-asset cost estimates. The Map phase (Gemini) is the primary cost driver — it scales with video duration and keyframe interval. The Q&A phase (Claude) is negligible per query.
+The Map phase (Gemini) is the primary cost driver — it scales with video duration and keyframe interval. The Q&A phase (Claude) is negligible per query.
 
 ### Known Limitations
 
@@ -275,7 +266,7 @@ Use `media_diagnostics` to get per-asset cost estimates. The Map phase (Gemini) 
 | "No LLM provider available"    | API key not configured                | Add one in Settings                                                    |
 | Map phase slow                 | Large video, small interval           | Increase interval_seconds or reduce concurrency                        |
 | Gemini returns errors          | Rate limits or schema issues          | Check max_retries setting; simplify output_schema if needed            |
-| Pipeline stuck at "processing" | Stage crashed without updating status | Use `media_diagnostics` to find the stuck stage; re-run manually       |
+| Pipeline stuck at "processing" | Stage crashed without updating status | Use `media_status` to check stage progress; re-run manually            |
 
 ## Usage Notes
 

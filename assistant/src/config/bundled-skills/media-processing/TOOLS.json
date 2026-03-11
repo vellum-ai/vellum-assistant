@@ -249,28 +249,6 @@
       },
       "executor": "tools/generate-clip.ts",
       "execution_target": "host"
-    },
-    {
-      "name": "media_diagnostics",
-      "description": "Get a diagnostic report for a media asset including processing stats, per-stage timing (preprocess/map/reduce), failure reasons, and Gemini-based cost estimation.",
-      "category": "media",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "asset_id": {
-            "type": "string",
-            "description": "ID of the media asset to diagnose"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["asset_id"]
-      },
-      "executor": "tools/media-diagnostics.ts",
-      "execution_target": "host"
     }
   ]
 }
