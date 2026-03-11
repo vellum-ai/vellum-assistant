@@ -62,7 +62,7 @@ describe("PlatformOAuthConnection", () => {
           { status: 200 },
         );
       },
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
 
     const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
     const result = await conn.request({
@@ -89,7 +89,7 @@ describe("PlatformOAuthConnection", () => {
           { status: 200 },
         );
       },
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
 
     const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
     await conn.request({
@@ -110,7 +110,7 @@ describe("PlatformOAuthConnection", () => {
           { status: 200 },
         );
       },
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
 
     const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
     await conn.request({ method: "GET", path: "/some/path" });
@@ -119,7 +119,7 @@ describe("PlatformOAuthConnection", () => {
   test("424 response throws CredentialRequiredError", async () => {
     globalThis.fetch = mock(async () => {
       return new Response("", { status: 424 });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
     await expect(
@@ -130,7 +130,7 @@ describe("PlatformOAuthConnection", () => {
   test("502 response throws ProviderUnreachableError", async () => {
     globalThis.fetch = mock(async () => {
       return new Response("", { status: 502 });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const conn = new PlatformOAuthConnection(DEFAULT_OPTIONS);
     await expect(
@@ -152,7 +152,7 @@ describe("PlatformOAuthConnection", () => {
         JSON.stringify({ status: 200, headers: {}, body: null }),
         { status: 200 },
       );
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const conn = new PlatformOAuthConnection({
       ...DEFAULT_OPTIONS,
