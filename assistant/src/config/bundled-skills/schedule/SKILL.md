@@ -147,7 +147,6 @@ Before confirming a schedule to the user, you MUST verify that you have the capa
 When `schedule_create` returns, it includes an integration status summary. Cross-reference the scheduled task's requirements against the available integrations:
 
 - If the task involves **email** (reading, sending, OTP verification): an email integration must be connected (check the "email" category)
-- If the task involves **tweeting or reading Twitter**: Twitter must be connected
 - If the task involves **sending SMS or making calls**: SMS/Twilio must be connected
 - If the task involves **web browsing or form-filling**: browser automation must be available (check client type)
 - If the task involves a **multi-step workflow** (e.g., book appointment → read confirmation email), trace the full dependency chain

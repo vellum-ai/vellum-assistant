@@ -2,14 +2,13 @@
 
 OAuth, messaging adapters, script proxy, and asset-tool architecture.
 
-## Integrations — OAuth2 + Unified Messaging + Twitter
+## Integrations — OAuth2 + Unified Messaging
 
 The integration framework lets Vellum connect to third-party services via OAuth2. The architecture follows these principles:
 
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
-- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh. Twitter uses PKCE with an optional client secret in `local_byo` mode.
+- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh.
 - **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
-- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow via the shared connect orchestrator, plus a managed mode that routes through the platform proxy. It sits outside the unified messaging layer.
 - **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
 
 ### Unified Messaging Architecture
@@ -137,167 +136,45 @@ sequenceDiagram
     end
 ```
 
-### Twitter Integration Architecture
-
-Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports a two-mode operation architecture determined by the `twitter.integrationMode` config field: **managed** mode routes all API calls through the Vellum platform proxy (which holds the OAuth credentials), while **OAuth** mode uses locally-stored OAuth2 tokens to call X API v2 directly. A mode router (`router.ts`) selects the appropriate path based on the caller-provided mode.
-
-#### Twitter OAuth2 Flow
-
-Twitter's OAuth2 flow delegates to the shared **connect orchestrator** (`oauth/connect-orchestrator.ts`). The Twitter provider profile in the registry defines auth/token URLs, default scopes, and an identity verifier. The daemon handler (`daemon/handlers/oauth-connect.ts`) resolves credentials from the keychain using canonical names (`client_id`, `client_secret`), then calls `orchestrateOAuthConnect()`.
-
-```mermaid
-sequenceDiagram
-    participant UI as Settings UI (Swift)
-    participant HTTP as HTTP Transport
-    participant Handler as oauth-connect handler
-    participant Orchestrator as ConnectOrchestrator
-    participant ScopePolicy as Scope Policy
-    participant OAuth as OAuth2 PKCE Flow
-    participant Browser as System Browser
-    participant Twitter as Twitter OAuth Server
-    participant Vault as Credential Vault
-    participant API as X API (v2)
-
-    Note over UI,API: Connection Flow (via generic orchestrator)
-    UI->>HTTP: oauth_connect_start {service: "twitter"}
-    HTTP->>Handler: dispatch
-    Handler->>Handler: resolve client_id / client_secret from keychain
-    Handler->>Orchestrator: orchestrateOAuthConnect(options)
-    Orchestrator->>Orchestrator: resolveService("twitter") → "integration:twitter"
-    Orchestrator->>Orchestrator: getProviderProfile("integration:twitter")
-    Orchestrator->>ScopePolicy: resolveScopes(profile, requestedScopes)
-    ScopePolicy-->>Orchestrator: {ok: true, scopes}
-    Orchestrator->>OAuth: startOAuth2Flow(config)
-    OAuth->>OAuth: generate code_verifier + code_challenge (S256)
-    OAuth->>HTTP: open_url (twitter.com/i/oauth2/authorize)
-    HTTP->>Browser: open URL
-    Browser->>Twitter: user authorizes
-    Twitter->>OAuth: callback with auth code
-    OAuth->>Twitter: exchange code + code_verifier at api.x.com/2/oauth2/token
-    Twitter-->>OAuth: access + refresh tokens
-    OAuth-->>Orchestrator: tokens + grantedScopes
-    Orchestrator->>API: identityVerifier → GET /2/users/me
-    API-->>Orchestrator: username
-    Orchestrator->>Vault: storeOAuth2Tokens (access + refresh + metadata)
-    Orchestrator-->>Handler: {success, grantedScopes, accountInfo: "@username"}
-    Handler->>HTTP: oauth_connect_result {success, accountInfo}
-    HTTP->>UI: show connected state
-```
-
-#### Two-Mode Operation Architecture
-
-The mode router (`router.ts`) determines whether to use the managed or OAuth path for each operation. The mode is determined by the `twitter.integrationMode` config field: `"managed"` routes through the platform proxy, everything else uses OAuth directly.
-
-```mermaid
-flowchart TD
-    CLI["assistant x post / reply / timeline / search"] --> Router["Mode Router (router.ts)"]
-    Router --> ModeCheck{Integration mode?}
-
-    ModeCheck -->|managed| ManagedPath["Platform Proxy Client (platform-proxy-client.ts)"]
-    ManagedPath --> PlatformAPI["Platform → X API v2"]
-
-    ModeCheck -->|oauth| OAuthPath["OAuth Client (oauth-client.ts)"]
-    OAuthPath --> XAPI["X API v2 POST /tweets"]
-```
-
-- **`managed`**: Routes all API calls through the Vellum platform proxy. The platform holds the OAuth credentials and forwards requests on behalf of the assistant. Supports both write operations (post, reply) and read operations (timeline, tweet detail, search, user lookup). This is the default when the user has a managed assistant.
-- **`oauth`**: Uses locally-stored OAuth2 Bearer tokens to call X API v2 directly. Supports only write operations (post, reply). Read operations throw an error directing the user to use managed mode.
-
-#### Twitter OAuth2 Specifics
-
-| Aspect                | Detail                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| Auth URL              | `https://twitter.com/i/oauth2/authorize` (from provider profile)                           |
-| Token URL             | `https://api.x.com/2/oauth2/token` (from provider profile)                                 |
-| Flow                  | PKCE (S256), optional client secret, via connect orchestrator                              |
-| Default scopes        | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile)        |
-| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token |
-| Credential names      | `client_id`, `client_secret`                                                               |
-| HTTP endpoints        | `oauth_connect_start` / `oauth_connect_result` (generic)                                   |
-
-#### Twitter Credential Metadata Structure
-
-When the OAuth2 flow completes, the handler stores credential metadata at `integration:twitter` / `access_token`:
-
-```
-{
-  accountInfo: "@username",
-  allowedTools: ["twitter_post"],
-  allowedDomains: [],
-  oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
-  oauth2ClientId: "<user's client ID>",
-  oauth2ClientSecret: "<optional>",
-  grantedScopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
-  expiresAt: <epoch ms>
-}
-```
-
-#### Twitter Operation Paths
-
-**Managed path** (`platform-proxy-client.ts`): Routes API calls through the Vellum platform proxy at `${platformBaseUrl}/api/v1/assistants/${assistantId}/integrations/twitter/proxy/*`. The platform holds the OAuth credentials and forwards requests to X API v2 on behalf of the assistant. Supports all operations: post, reply, user lookup, user tweets, tweet detail, and search. Errors from the proxy surface as `TwitterProxyError` with structured error codes and retryability hints.
-
-**OAuth path** (`oauth-client.ts`): The `oauthPostTweet` function calls X API v2 (`POST https://api.x.com/2/tweets`) with a Bearer token provided by the caller. Supports `post` and `reply` (by including `reply.in_reply_to_tweet_id` in the request body). Read operations are not supported via this path and will throw an error directing the user to use managed mode.
-
-#### Available Twitter Tools
-
-| Tool / Command         | Mechanism                      | Description                                                                                |
-| ---------------------- | ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `assistant x post`     | Mode router (OAuth or managed) | Post a tweet. Defaults to OAuth; pass `--managed` to route through the platform proxy.     |
-| `assistant x reply`    | Mode router (OAuth or managed) | Reply to a tweet. Defaults to OAuth; pass `--managed` to route through the platform proxy. |
-| `assistant x timeline` | Managed only                   | Fetch a user's recent tweets. Resolves screen name to user ID, then fetches timeline.      |
-| `assistant x tweet`    | Managed only                   | Fetch a single tweet and its reply thread via conversation ID search.                      |
-| `assistant x search`   | Managed only                   | Search tweets. Supports `Top`, `Latest`, `People`, and `Media` product types.              |
-| `assistant x status`   | HTTP (daemon)                  | Check OAuth connection and managed mode availability.                                      |
-
-Note: Write operations (post, reply) support both OAuth and managed modes. Read operations (timeline, tweet, search) require managed mode because the OAuth path only supports `post` and `reply`.
-
 ### Key Design Decisions
 
-| Decision                                           | Rationale                                                                                                                                                                                                                                                                              |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PKCE by default, optional client_secret            | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                                                       |
-| Shared connect orchestrator                        | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                                       |
-| Canonical credential naming                        | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                                                          |
-| Gateway callback transport                         | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                                                      |
-| Unified `MessagingProvider` interface              | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                                                            |
-| Twitter outside unified messaging                  | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract                                                                                                                                                                    |
-| Two-mode Twitter architecture (managed + OAuth)    | Managed mode delegates to the platform proxy which holds credentials — no local browser or session management needed. OAuth mode provides direct API access for users with their own developer credentials. Read operations require managed mode since OAuth only supports post/reply. |
-| Provider auto-selection                            | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX                                                                                                                                                                                   |
-| Token expiry in credential metadata                | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer                                                                                                                                                                               |
-| Confidence scores on medium-risk tools             | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution                                                                                                                                                                                         |
-| Platform-specific extension tools                  | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface                                                                                                                                                       |
-| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials                                                                                                                                                    |
+| Decision                                   | Rationale                                                                                                                                                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                 |
+| Shared connect orchestrator                | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
+| Canonical credential naming                | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                    |
+| Gateway callback transport                 | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                |
+| Unified `MessagingProvider` interface      | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                      |
+| Provider auto-selection                    | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX                                                                                                                                             |
+| Token expiry in credential metadata        | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer                                                                                                                                         |
+| Confidence scores on medium-risk tools     | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution                                                                                                                                                   |
+| Platform-specific extension tools          | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface                                                                                                                 |
+| Identity verification before token storage | OAuth2 tokens are only persisted after a successful identity verification call, preventing storage of invalid or mismatched credentials                                                                                                          |
 
 ### Source Files
 
-| File                                                   | Role                                                                                               |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/oauth2.ts`                     | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                             |
-| `assistant/src/security/token-manager.ts`              | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                        |
-| `assistant/src/messaging/provider.ts`                  | `MessagingProvider` interface                                                                      |
-| `assistant/src/messaging/provider-types.ts`            | Platform-agnostic types (Conversation, Message, SearchResult)                                      |
-| `assistant/src/messaging/registry.ts`                  | Provider registry: register, lookup, list connected                                                |
-| `assistant/src/messaging/activity-analyzer.ts`         | Activity classification for conversations                                                          |
-| `assistant/src/messaging/style-analyzer.ts`            | Writing style extraction from message corpus                                                       |
-| `assistant/src/messaging/draft-store.ts`               | Local draft storage (platform/id JSON files)                                                       |
-| `assistant/src/messaging/providers/slack/`             | Slack adapter, client, types                                                                       |
-| `assistant/src/messaging/providers/gmail/`             | Gmail adapter, client, types                                                                       |
-| `assistant/src/config/bundled-skills/messaging/`       | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                             |
-| `assistant/src/watcher/providers/gmail.ts`             | Gmail watcher using History API                                                                    |
-| `assistant/src/watcher/providers/github.ts`            | GitHub watcher for PRs, issues, review requests, and mentions                                      |
-| `assistant/src/watcher/providers/linear.ts`            | Linear watcher for assigned issues, status changes, and @mentions                                  |
-| `assistant/src/oauth/provider-profiles.ts`             | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers             |
-| `assistant/src/oauth/connect-orchestrator.ts`          | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
-| `assistant/src/oauth/scope-policy.ts`                  | Deterministic scope resolution and policy enforcement                                              |
-| `assistant/src/oauth/connect-types.ts`                 | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                     |
-| `assistant/src/oauth/token-persistence.ts`             | Token storage helper: persists tokens, metadata, and runs post-connect hooks                       |
-| `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                     |
-| `assistant/src/cli/commands/twitter/oauth-client.ts`   | OAuth-backed Twitter client: X API v2 post/reply via Bearer token                                  |
-| `assistant/src/cli/commands/twitter/router.ts`         | Mode router: selects managed or OAuth path based on caller-provided `TwitterMode`                  |
-| `assistant/src/cli/commands/twitter/types.ts`          | Shared types: `PostTweetResult`, `UserInfo`, `TweetEntry`, `NotificationEntry`                     |
-| `assistant/src/cli/commands/twitter/index.ts`          | `assistant x` CLI command group (post, reply, timeline, tweet, search, status)                     |
-| `assistant/src/twitter/platform-proxy-client.ts`       | Platform-managed Twitter proxy client: routes API calls through the Vellum platform                |
-| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions                                                             |
+| File                                             | Role                                                                                               |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/oauth2.ts`               | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                             |
+| `assistant/src/security/token-manager.ts`        | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                        |
+| `assistant/src/messaging/provider.ts`            | `MessagingProvider` interface                                                                      |
+| `assistant/src/messaging/provider-types.ts`      | Platform-agnostic types (Conversation, Message, SearchResult)                                      |
+| `assistant/src/messaging/registry.ts`            | Provider registry: register, lookup, list connected                                                |
+| `assistant/src/messaging/activity-analyzer.ts`   | Activity classification for conversations                                                          |
+| `assistant/src/messaging/style-analyzer.ts`      | Writing style extraction from message corpus                                                       |
+| `assistant/src/messaging/draft-store.ts`         | Local draft storage (platform/id JSON files)                                                       |
+| `assistant/src/messaging/providers/slack/`       | Slack adapter, client, types                                                                       |
+| `assistant/src/messaging/providers/gmail/`       | Gmail adapter, client, types                                                                       |
+| `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                             |
+| `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                    |
+| `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                      |
+| `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                  |
+| `assistant/src/oauth/provider-profiles.ts`       | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers             |
+| `assistant/src/oauth/connect-orchestrator.ts`    | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
+| `assistant/src/oauth/scope-policy.ts`            | Deterministic scope resolution and policy enforcement                                              |
+| `assistant/src/oauth/connect-types.ts`           | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                     |
+| `assistant/src/oauth/token-persistence.ts`       | Token storage helper: persists tokens, metadata, and runs post-connect hooks                       |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                     |
 
 ---
 
@@ -319,7 +196,7 @@ The OAuth extensibility layer makes adding a new OAuth provider a declarative op
 | `setup`                | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type)            |
 | `injectionTemplates`   | Auto-applied credential injection rules for the script proxy                                           |
 
-Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`, `integration:twitter`. Short aliases (e.g. `gmail`, `twitter`) are resolved via `SERVICE_ALIASES`.
+Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `SERVICE_ALIASES`.
 
 ### Scope Policy Engine
 

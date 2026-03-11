@@ -37,7 +37,7 @@ export interface StoreOAuth2TokensParams {
   userinfoUrl?: string;
   allowedTools?: string[];
   wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
-  /** Fallback account info from an identity verifier (e.g. Twitter @username). */
+  /** Fallback account info from an identity verifier (e.g. @username, email). */
   identityAccountInfo?: string;
 }
 
