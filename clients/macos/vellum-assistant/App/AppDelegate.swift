@@ -208,6 +208,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
             options.releaseName = "vellum-macos@\(appVersion)"
             options.dist = buildNumber
+            options.environment = SentryDeviceInfo.sentryEnvironment
             options.debug = false
             options.tracesSampleRate = 0.1
             options.configureProfiling = { profilingOptions in
@@ -215,6 +216,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
             options.sendDefaultPii = false
         }
+        SentryDeviceInfo.configureSentryScope()
 
         // Surface any crash log from the previous session so the user can send
         // it. Also records this launch timestamp for the next session's check.

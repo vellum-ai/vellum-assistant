@@ -68,12 +68,14 @@ import os
                     options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                     options.releaseName = "vellum-macos@\(version)"
                     options.dist = build
+                    options.environment = SentryDeviceInfo.sentryEnvironment
                     options.sendDefaultPii = false
                     // Disable crash capture and session tracking so the temporary
                     // restart only sends the explicit event, not incidental crashes.
                     options.enableCrashHandler = false
                     options.enableAutoSessionTracking = false
                 }
+                SentryDeviceInfo.configureSentryScope()
             }
 
             // Attach files to the scope before capturing the event.
@@ -142,6 +144,7 @@ import os
                 options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                 options.releaseName = "vellum-macos@\(version)"
                 options.dist = build
+                options.environment = SentryDeviceInfo.sentryEnvironment
                 options.debug = false
                 options.tracesSampleRate = 0.1
                 options.configureProfiling = { profilingOptions in
@@ -149,6 +152,7 @@ import os
                 }
                 options.sendDefaultPii = false
             }
+            SentryDeviceInfo.configureSentryScope()
         }
     }
 }
