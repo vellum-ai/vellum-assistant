@@ -97,6 +97,7 @@ import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
@@ -922,6 +923,10 @@ export class RuntimeHttpServer {
           }
         },
       },
+
+      ...btwRouteDefinitions({
+        sendMessageDeps: this.sendMessageDeps,
+      }),
 
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
