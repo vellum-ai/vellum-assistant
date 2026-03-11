@@ -203,7 +203,7 @@ describe("handleRecordingStart", () => {
     mockFileSize = 1024;
   });
 
-  test("sends recording_start IPC and returns a UUID", () => {
+  test("sends recording_start event and returns a UUID", () => {
     const { ctx, sent } = createCtx();
     const conversationId = "conv-1";
 

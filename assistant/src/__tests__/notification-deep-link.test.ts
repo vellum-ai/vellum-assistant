@@ -224,7 +224,7 @@ describe("notification deep-link metadata", () => {
 
     test("returns success: false when broadcast throws", async () => {
       const adapter = new VellumAdapter(() => {
-        throw new Error("IPC connection lost");
+        throw new Error("connection lost");
       });
 
       const result = await adapter.send(
@@ -236,10 +236,10 @@ describe("notification deep-link metadata", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("IPC connection lost");
+      expect(result.error).toContain("connection lost");
     });
 
-    test("sourceEventName is included in the IPC payload", async () => {
+    test("sourceEventName is included in the event payload", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 

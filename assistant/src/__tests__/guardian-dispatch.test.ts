@@ -272,7 +272,7 @@ describe("guardian-dispatch", () => {
           channel: "vellum",
           destination: "vellum",
           status: "failed",
-          errorMessage: "IPC unavailable",
+          errorMessage: "delivery unavailable",
           conversationId: "conv-vellum-3",
         },
       ],

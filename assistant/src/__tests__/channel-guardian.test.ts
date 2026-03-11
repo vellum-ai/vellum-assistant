@@ -1292,7 +1292,7 @@ describe("assistant-scoped approval request lookups", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 10. IPC handler — channel-aware guardian status response
+// 10. HTTP handler — channel-aware guardian status response
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -1326,7 +1326,7 @@ function createMockCtx(): {
   return { ctx, lastResponse: () => captured };
 }
 
-describe("IPC handler channel-aware guardian status", () => {
+describe("HTTP handler channel-aware guardian status", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -1952,10 +1952,10 @@ describe("pending challenge lookup", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 16. IPC handler — voice guardian verification
+// 16. HTTP handler — voice guardian verification
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("IPC handler voice guardian verification", () => {
+describe("HTTP handler voice guardian verification", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -2538,7 +2538,7 @@ describe("outbound verification sessions", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 18. Outbound Voice Verification (IPC Handlers)
+// 18. Outbound Voice Verification (HTTP Handlers)
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("outbound voice verification", () => {

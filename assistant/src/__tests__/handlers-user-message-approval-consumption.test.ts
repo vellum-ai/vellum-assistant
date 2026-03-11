@@ -1,5 +1,5 @@
 /**
- * Tests for IPC confirmation response handling (handleConfirmationResponse).
+ * Tests for confirmation response handling (handleConfirmationResponse).
  *
  * The legacy handleUserMessage tests that previously lived here were removed
  * when session-user-message.ts was deleted. The approval-reply behavior they
@@ -240,7 +240,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
     ).__approvalConsumptionUseMockCanonicalStore = false;
   });
 
-  test("syncs canonical status to approved for IPC allow decisions", () => {
+  test("syncs canonical status to approved for allow decisions", () => {
     const session = {
       hasPendingConfirmation: (requestId: string) =>
         requestId === "req-confirm-allow",
@@ -278,7 +278,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
     expect(resolveMock).toHaveBeenCalledWith("req-confirm-allow");
   });
 
-  test("syncs canonical status to denied for IPC deny decisions in CU sessions", () => {
+  test("syncs canonical status to denied for deny decisions in CU sessions", () => {
     const cuSession = {
       hasPendingConfirmation: (requestId: string) =>
         requestId === "req-confirm-deny",
