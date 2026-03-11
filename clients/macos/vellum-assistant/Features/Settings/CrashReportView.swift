@@ -216,7 +216,8 @@ extension AppDelegate {
         }
         crashReportWindow?.close()
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        // Activation-policy revert is handled by the global
+        // willCloseNotification observer in setupWindowObserver().
     }
 
     private func handleCrashReportWindowWillClose() {
@@ -225,7 +226,8 @@ extension AppDelegate {
             crashReportWindowObserver = nil
         }
         crashReportWindow = nil
-        scheduleActivationPolicyRevert()
+        // Activation-policy revert is handled by the global
+        // willCloseNotification observer in setupWindowObserver().
     }
 }
 

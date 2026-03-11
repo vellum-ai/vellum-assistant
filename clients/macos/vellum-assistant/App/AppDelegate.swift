@@ -100,6 +100,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var keychainBroker: KeychainBrokerServer?
     #endif
     var windowObserver: Any?
+    /// Timestamp of the last `showMainWindow` call that performed work.
+    /// Used by the debounce guard in `showMainWindow()`.
+    var lastShowMainWindowTime: CFAbsoluteTime = 0
     weak var recordingViewModel: ChatViewModel?
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.

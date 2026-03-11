@@ -31,8 +31,11 @@ extension NSApplication {
         for window in windows where window.title.contains("Settings") {
             // Only target the SwiftUI-managed Settings window, not any
             // app-created window that happens to include "Settings".
-            guard type(of: window) == NSWindow.self else { continue }
-            if window.contentView is NSHostingView<AnyView> || window.contentView?.subviews.isEmpty == true {
+            // SwiftUI uses private NSWindow subclasses and generic
+            // NSHostingView specializations, so we match by class name
+            // rather than exact type identity.
+            let contentClassName = window.contentView.map { NSStringFromClass(type(of: $0)) } ?? ""
+            if contentClassName.contains("NSHostingView") || window.contentView?.subviews.isEmpty == true {
                 window.orderOut(nil)
             }
         }
@@ -506,13 +509,9 @@ extension AppDelegate {
         return main
     }
 
-    /// Timestamp of the last `showMainWindow` invocation that performed
-    /// an activation-policy transition.  Used to debounce rapid calls from
-    /// concurrent daemon callbacks (tool confirmations, surface shows,
-    /// notification handlers) that would otherwise cycle the policy and
-    /// risk producing duplicate dock tiles.
+    /// Debounce interval for `showMainWindow`.  Rapid calls within this
+    /// window are skipped when the main window is already visible.
     private static let showMainWindowDebounceInterval: TimeInterval = 0.5
-    private var lastShowMainWindowTime: CFAbsoluteTime = 0
 
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
         // Centralized bootstrap guard: non-first-launch callers (dock reopen,
