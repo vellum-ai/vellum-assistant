@@ -109,7 +109,7 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   return cloneDefaultConfig();
 }
 
-export function deleteNestedKey(
+function deleteNestedKey(
   obj: Record<string, unknown>,
   path: (string | number)[],
 ): void {

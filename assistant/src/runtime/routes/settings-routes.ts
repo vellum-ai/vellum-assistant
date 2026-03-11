@@ -40,6 +40,9 @@ import { setAvatarTool } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
@@ -215,6 +218,25 @@ async function handleOAuthConnectStart(body: {
         authUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
+        // Emit oauth_connect_result to all connected SSE clients so the
+        // UI can update immediately when the deferred browser flow completes.
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "oauth_connect_result",
+              success: deferredResult.success,
+              service: deferredResult.service,
+              accountInfo: deferredResult.accountInfo,
+              error: deferredResult.error,
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err, service: deferredResult.service },
+              "Failed to publish oauth_connect_result event",
+            );
+          });
+
         if (!deferredResult.success) {
           log.warn(
             {

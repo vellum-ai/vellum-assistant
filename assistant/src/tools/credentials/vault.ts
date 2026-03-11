@@ -7,6 +7,9 @@ import {
 } from "../../oauth/provider-profiles.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { buildAssistantEvent } from "../../runtime/assistant-event.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { credentialKey } from "../../security/credential-key.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
@@ -886,6 +889,25 @@ class CredentialStoreTool implements Tool {
             (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
           tokenEndpointAuthMethod,
           onDeferredComplete: (deferredResult) => {
+            // Emit oauth_connect_result to all connected SSE clients so the
+            // UI can update immediately when the deferred browser flow completes.
+            assistantEventHub
+              .publish(
+                buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                  type: "oauth_connect_result",
+                  success: deferredResult.success,
+                  service: deferredResult.service,
+                  accountInfo: deferredResult.accountInfo,
+                  error: deferredResult.error,
+                }),
+              )
+              .catch((err) => {
+                log.warn(
+                  { err, service: deferredResult.service },
+                  "Failed to publish oauth_connect_result event",
+                );
+              });
+
             if (deferredResult.success) {
               log.info(
                 {

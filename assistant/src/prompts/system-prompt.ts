@@ -635,12 +635,10 @@ function buildIntegrationSection(): string {
   const raw = loadRawConfig();
   const lines = ["## Connected Services", ""];
   for (const cred of oauthCreds) {
-    const acctInfo = (getNestedValue(
+    const acctInfo = getNestedValue(
       raw,
       `integrations.${cred.service}.accountInfo`,
-    ) ?? getNestedValue(raw, `integrations.accountInfo.${cred.service}`)) as
-      | string
-      | undefined;
+    ) as string | undefined;
     const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
     lines.push(`- **${cred.service}**: ${state}`);
   }
