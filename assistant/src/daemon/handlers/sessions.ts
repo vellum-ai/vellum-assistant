@@ -78,7 +78,7 @@ function parseBindingSourceChannel(
   return null;
 }
 
-export function syncCanonicalStatusFromIpcConfirmationDecision(
+export function syncCanonicalStatusFromConfirmationDecision(
   requestId: string,
   decision: ConfirmationResponse["decision"],
 ): void {
@@ -99,7 +99,7 @@ export function syncCanonicalStatusFromIpcConfirmationDecision(
   }
 }
 
-export function makeIpcEventSender(params: {
+export function makeEventSender(params: {
   ctx: HandlerContext;
   session: Session;
   conversationId: string;
@@ -175,7 +175,7 @@ export function handleConfirmationResponse(
         undefined,
         { source: "button" },
       );
-      syncCanonicalStatusFromIpcConfirmationDecision(
+      syncCanonicalStatusFromConfirmationDecision(
         msg.requestId,
         msg.decision,
       );
@@ -193,7 +193,7 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
-      syncCanonicalStatusFromIpcConfirmationDecision(
+      syncCanonicalStatusFromConfirmationDecision(
         msg.requestId,
         msg.decision,
       );
@@ -395,7 +395,7 @@ export async function handleSessionCreate(
     const requestId = uuid();
     const transportChannel =
       parseChannelId(msg.transport?.channelId) ?? "vellum";
-    const sendEvent = makeIpcEventSender({
+    const sendEvent = makeEventSender({
       ctx,
       session,
       conversationId: conversation.id,
@@ -649,7 +649,7 @@ export async function handleRegenerate(
   const regenerateChannel =
     parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
     "vellum";
-  const sendEvent = makeIpcEventSender({
+  const sendEvent = makeEventSender({
     ctx,
     session,
     conversationId: msg.sessionId,
