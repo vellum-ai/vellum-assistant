@@ -108,9 +108,3 @@ assistant/src/config/bundled-skills/guardian-verify-setup/ @noanflaherty
 assistant/src/config/bundled-skills/contacts/ @noanflaherty
 assistant/src/notifications/guardian-question-mode.ts @noanflaherty
 gateway/src/http/routes/channel-verification-session-proxy.ts @noanflaherty
-
-# CLI
-/cli/ @dvargas92495
-
-# CI/CD workflows
-.github/workflows/ @dvargas92495
