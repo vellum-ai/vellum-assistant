@@ -2,7 +2,10 @@
 name: knowledge-graph
 description: Query the entity knowledge graph to explore relationships between people, projects, tools, and other entities tracked in memory
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🕸️","vellum":{"display-name":"Knowledge Graph"}}
+metadata:
+  emoji: "🕸️"
+  vellum:
+    display-name: "Knowledge Graph"
 ---
 
 # Knowledge Graph

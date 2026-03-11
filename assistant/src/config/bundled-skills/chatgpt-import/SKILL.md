@@ -2,7 +2,11 @@
 name: chatgpt-import
 description: Import conversation history from ChatGPT into Vellum
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📥","vellum":{"display-name":"ChatGPT Import","user-invocable":true}}
+metadata:
+  emoji: "📥"
+  vellum:
+    display-name: "ChatGPT Import"
+    user-invocable: true
 ---
 
 Import ChatGPT conversation history into Vellum so users can keep their conversation context and memory when switching from ChatGPT.

@@ -2,7 +2,10 @@
 name: playbooks
 description: Trigger-action automation rules for handling incoming messages
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📖","vellum":{"display-name":"Playbooks"}}
+metadata:
+  emoji: "📖"
+  vellum:
+    display-name: "Playbooks"
 ---
 
 Playbooks are trigger-action automation rules that tell the assistant how to handle incoming messages matching a pattern.

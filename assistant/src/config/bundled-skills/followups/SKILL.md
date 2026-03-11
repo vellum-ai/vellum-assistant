@@ -2,7 +2,10 @@
 name: followups
 description: Track sent messages awaiting responses across communication channels
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📨","vellum":{"display-name":"Followups"}}
+metadata:
+  emoji: "📨"
+  vellum:
+    display-name: "Followups"
 ---
 
 Track messages sent on external channels (email, Slack, WhatsApp, etc.) that are awaiting a response.

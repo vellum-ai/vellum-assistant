@@ -2,7 +2,10 @@
 name: subagent
 description: Spawn and manage autonomous background agents for parallel work
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"🤖","vellum":{"display-name":"Subagent"}}
+metadata:
+  emoji: "🤖"
+  vellum:
+    display-name: "Subagent"
 ---
 
 Subagent orchestration -- spawn background agents to work on tasks in parallel.

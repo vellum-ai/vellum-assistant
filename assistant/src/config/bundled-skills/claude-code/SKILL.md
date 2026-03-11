@@ -2,7 +2,11 @@
 name: claude-code
 description: Delegate coding tasks to Claude Code, an AI-powered coding agent
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"💻","vellum":{"display-name":"Claude Code","user-invocable":true}}
+metadata:
+  emoji: "💻"
+  vellum:
+    display-name: "Claude Code"
+    user-invocable: true
 ---
 
 You are delegating a coding task to Claude Code, an autonomous AI coding agent. Use this skill when the user needs hands-on software engineering work done.
