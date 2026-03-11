@@ -819,28 +819,6 @@ New settings sections brought to iOS for feature parity with macOS:
 
 ---
 
-## macOS Task Queue (M10)
-
-The Task Queue panel is a macOS side panel for managing one-shot work items.
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| `TaskQueuePanel` | `macos/.../Panels/TaskQueuePanel.swift` | Side panel with filter strip, task list, output/preflight sheet presentation |
-| `TaskQueueRow` | (private in TaskQueuePanel.swift) | Individual task row with status badge, priority menu, run/stop/result actions |
-| `TaskQueueViewModel` | `macos/.../Panels/TaskQueueViewModel.swift` | Centralized state: items, filters, run/cancel/timeout tracking, daemon callbacks |
-| `TaskPreflightView` | `macos/.../Panels/TaskPreflightView.swift` | Permission approval sheet with toggleable tool permissions and risk badges |
-| `TaskOutputView` | `macos/.../Panels/TaskOutputView.swift` | Output detail sheet with status, summary, highlights, and copy-to-clipboard |
-
-### Task Queue Data Flow
-
-1. `TaskQueueViewModel` sets up daemon callbacks in `init` and fetches the initial item list
-2. Filter strip controls which status subset is displayed (`All`, `Active`, `Completed`, `Failed`)
-3. Running a task triggers a preflight check; if permissions are needed, `TaskPreflightView` is presented
-4. Run requests include a timeout (10s); if the daemon doesn't respond, the task shows a "No response" warning
-5. Status changes from the daemon trigger debounced list refreshes (300ms)
-
----
-
 ## macOS Deep-Link Send (M11)
 
 The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.
