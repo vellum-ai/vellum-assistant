@@ -289,8 +289,8 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("gemini", "user-key");
   } else {
-    // No user Gemini key — try managed proxy fallback
-    const managedBaseUrl = buildManagedBaseUrl("gemini");
+    // No user Gemini key — route through Vertex managed proxy
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "gemini");

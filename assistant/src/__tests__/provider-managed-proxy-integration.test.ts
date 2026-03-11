@@ -173,6 +173,31 @@ describe("managed proxy integration — credential precedence", () => {
       expect(baseURL).toContain("/v1/runtime-proxy/vertex");
       expect(baseURL).not.toContain("/v1/runtime-proxy/anthropic");
     });
+
+    test("managed gemini uses vertex proxy path instead of gemini proxy path", () => {
+      enableManagedProxy();
+      initializeProviders({
+        apiKeys: {},
+        provider: "anthropic",
+        model: "test-model",
+      });
+
+      const provider = getProvider("gemini");
+
+      // Unwrap RetryProvider → LogfireProvider → GeminiProvider to inspect
+      // the GoogleGenAI client's configured base URL.
+      const retryInner = (provider as any).inner;
+      const logfireInner = (retryInner as any).inner ?? retryInner;
+      const geminiClient = (logfireInner as any).client;
+
+      expect(geminiClient).toBeDefined();
+      // GoogleGenAI exposes a protected `apiClient` with getBaseUrl()
+      const apiClient = (geminiClient as any).apiClient;
+      const baseUrl: string =
+        apiClient?.getCustomBaseUrl?.() ?? apiClient?.getBaseUrl?.() ?? "";
+      expect(baseUrl).toContain("/v1/runtime-proxy/vertex");
+      expect(baseUrl).not.toContain("/v1/runtime-proxy/gemini");
+    });
   });
 
   describe("neither user keys nor managed context → providers not initialized", () => {
