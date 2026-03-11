@@ -43,7 +43,7 @@ Host file allows the assistant to perform file operations (read, write, edit) on
   - `POST /v1/host-file-result` — `{ requestId, content, isError }`
 - **Tracking**: Uses the same `pending-interactions` tracker as approvals and host bash, with `kind: "host_file"`. The endpoint validates the interaction kind before resolving.
 
-### Channel approvals (Telegram, SMS)
+### Channel approvals (Telegram, Slack)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
