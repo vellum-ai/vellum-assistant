@@ -116,7 +116,8 @@ export type ProviderEvent =
       toolName: string;
       toolUseId: string;
       accumulatedJson: string;
-    };
+    }
+  | { type: "server_tool_start"; name: string; toolUseId: string };
 
 export interface SendMessageConfig {
   model?: string;

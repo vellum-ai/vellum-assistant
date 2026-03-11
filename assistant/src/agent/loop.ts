@@ -71,6 +71,7 @@ export type AgentEvent =
       toolUseId: string;
       accumulatedJson: string;
     }
+  | { type: "server_tool_start"; name: string; toolUseId: string }
   | { type: "error"; error: Error }
   | {
       type: "usage";
@@ -312,6 +313,12 @@ export class AgentLoop {
                   toolName: event.toolName,
                   toolUseId: event.toolUseId,
                   accumulatedJson: event.accumulatedJson,
+                });
+              } else if (event.type === "server_tool_start") {
+                onEvent({
+                  type: "server_tool_start",
+                  name: event.name,
+                  toolUseId: event.toolUseId,
                 });
               }
             },
