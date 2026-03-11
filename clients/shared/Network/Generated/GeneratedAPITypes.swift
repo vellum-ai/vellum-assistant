@@ -631,36 +631,6 @@ public struct CancelRequest: Codable, Sendable {
     }
 }
 
-public struct CardSurfaceData: Codable, Sendable {
-    public let title: String
-    public let subtitle: String?
-    public let body: String
-    public let metadata: [CardSurfaceDataMetadata]?
-    /// Optional template name for specialized rendering (e.g. "weather_forecast").
-    public let template: String?
-    /// Arbitrary data consumed by the template renderer. Shape depends on template.
-    public let templateData: [String: AnyCodable]?
-
-    public init(title: String, subtitle: String? = nil, body: String, metadata: [CardSurfaceDataMetadata]? = nil, template: String? = nil, templateData: [String: AnyCodable]? = nil) {
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.metadata = metadata
-        self.template = template
-        self.templateData = templateData
-    }
-}
-
-public struct CardSurfaceDataMetadata: Codable, Sendable {
-    public let label: String
-    public let value: String
-
-    public init(label: String, value: String) {
-        self.label = label
-        self.value = value
-    }
-}
-
 /// Channel binding metadata exposed in session/conversation list APIs.
 public struct ChannelBinding: Codable, Sendable {
     public let sourceChannel: String
@@ -904,24 +874,6 @@ public struct ConfirmationStateChanged: Codable, Sendable {
         self.causedByRequestId = causedByRequestId
         self.decisionText = decisionText
         self.toolUseId = toolUseId
-    }
-}
-
-public struct ConfirmationSurfaceData: Codable, Sendable {
-    public let message: String
-    public let detail: String?
-    public let confirmLabel: String?
-    public let confirmedLabel: String?
-    public let cancelLabel: String?
-    public let destructive: Bool?
-
-    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, confirmedLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
-        self.message = message
-        self.detail = detail
-        self.confirmLabel = confirmLabel
-        self.confirmedLabel = confirmedLabel
-        self.cancelLabel = cancelLabel
-        self.destructive = destructive
     }
 }
 
@@ -1586,18 +1538,6 @@ public struct DocumentLoadResponse: Codable, Sendable {
     }
 }
 
-public struct DocumentPreviewSurfaceData: Codable, Sendable {
-    public let title: String
-    public let surfaceId: String
-    public let subtitle: String?
-
-    public init(title: String, surfaceId: String, subtitle: String? = nil) {
-        self.title = title
-        self.surfaceId = surfaceId
-        self.subtitle = subtitle
-    }
-}
-
 public struct DocumentSaveRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
@@ -1627,56 +1567,6 @@ public struct DocumentSaveResponse: Codable, Sendable {
         self.surfaceId = surfaceId
         self.success = success
         self.error = error
-    }
-}
-
-public struct DynamicPagePreview: Codable, Sendable {
-    public let title: String
-    public let subtitle: String?
-    public let description: String?
-    public let icon: String?
-    public let metrics: [DynamicPagePreviewMetric]?
-    public let context: String?
-    public let previewImage: String?
-
-    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [DynamicPagePreviewMetric]? = nil, context: String? = nil, previewImage: String? = nil) {
-        self.title = title
-        self.subtitle = subtitle
-        self.description = description
-        self.icon = icon
-        self.metrics = metrics
-        self.context = context
-        self.previewImage = previewImage
-    }
-}
-
-public struct DynamicPagePreviewMetric: Codable, Sendable {
-    public let label: String
-    public let value: String
-
-    public init(label: String, value: String) {
-        self.label = label
-        self.value = value
-    }
-}
-
-public struct DynamicPageSurfaceData: Codable, Sendable {
-    public let html: String
-    public let width: Int?
-    public let height: Int?
-    public let appId: String?
-    public let reloadGeneration: Double?
-    public let status: String?
-    public let preview: DynamicPagePreview?
-
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: DynamicPagePreview? = nil) {
-        self.html = html
-        self.width = width
-        self.height = height
-        self.appId = appId
-        self.reloadGeneration = reloadGeneration
-        self.status = status
-        self.preview = preview
     }
 }
 
@@ -1711,20 +1601,6 @@ public struct ErrorMessage: Codable, Sendable {
     }
 }
 
-public struct FileUploadSurfaceData: Codable, Sendable {
-    public let prompt: String
-    public let acceptedTypes: [String]?
-    public let maxFiles: Int?
-    public let maxSizeBytes: Int?
-
-    public init(prompt: String, acceptedTypes: [String]? = nil, maxFiles: Int? = nil, maxSizeBytes: Int? = nil) {
-        self.prompt = prompt
-        self.acceptedTypes = acceptedTypes
-        self.maxFiles = maxFiles
-        self.maxSizeBytes = maxSizeBytes
-    }
-}
-
 public struct ForkSharedAppRequest: Codable, Sendable {
     public let type: String
     public let uuid: String
@@ -1748,78 +1624,6 @@ public struct ForkSharedAppResponse: Codable, Sendable {
         self.appId = appId
         self.name = name
         self.error = error
-    }
-}
-
-public struct FormField: Codable, Sendable {
-    public let id: String
-    public let type: String
-    public let label: String
-    public let placeholder: String?
-    public let required: Bool?
-    public let defaultValue: AnyCodable?
-    public let options: [FormFieldOption]?
-
-    public init(id: String, type: String, label: String, placeholder: String? = nil, required: Bool? = nil, defaultValue: AnyCodable? = nil, options: [FormFieldOption]? = nil) {
-        self.id = id
-        self.type = type
-        self.label = label
-        self.placeholder = placeholder
-        self.required = required
-        self.defaultValue = defaultValue
-        self.options = options
-    }
-}
-
-public struct FormFieldOption: Codable, Sendable {
-    public let label: String
-    public let value: String
-
-    public init(label: String, value: String) {
-        self.label = label
-        self.value = value
-    }
-}
-
-public struct FormPage: Codable, Sendable {
-    public let id: String
-    public let title: String
-    public let description: String?
-    public let fields: [FormField]
-
-    public init(id: String, title: String, description: String? = nil, fields: [FormField]) {
-        self.id = id
-        self.title = title
-        self.description = description
-        self.fields = fields
-    }
-}
-
-public struct FormSurfaceData: Codable, Sendable {
-    public let description: String?
-    public let fields: [FormField]
-    public let submitLabel: String?
-    public let pages: [FormPage]?
-    public let pageLabels: FormSurfaceDataPageLabels?
-
-    public init(description: String? = nil, fields: [FormField], submitLabel: String? = nil, pages: [FormPage]? = nil, pageLabels: FormSurfaceDataPageLabels? = nil) {
-        self.description = description
-        self.fields = fields
-        self.submitLabel = submitLabel
-        self.pages = pages
-        self.pageLabels = pageLabels
-    }
-}
-
-public struct FormSurfaceDataPageLabels: Codable, Sendable {
-    public let next: String?
-    public let back: String?
-    public let submit: String?
-
-    public init(next: String? = nil, back: String? = nil, submit: String? = nil) {
-        self.next = next
-        self.back = back
-        self.submit = submit
     }
 }
 
@@ -2725,16 +2529,6 @@ public struct ListItem: Codable, Sendable {
         self.subtitle = subtitle
         self.icon = icon
         self.selected = selected
-    }
-}
-
-public struct ListSurfaceData: Codable, Sendable {
-    public let items: [ListItem]
-    public let selectionMode: String
-
-    public init(items: [ListItem], selectionMode: String) {
-        self.items = items
-        self.selectionMode = selectionMode
     }
 }
 
@@ -4579,58 +4373,6 @@ public struct SurfaceAction: Codable, Sendable {
     }
 }
 
-public struct TableCellValue: Codable, Sendable {
-    public let text: String
-    public let icon: String?
-    public let iconColor: String?
-
-    public init(text: String, icon: String? = nil, iconColor: String? = nil) {
-        self.text = text
-        self.icon = icon
-        self.iconColor = iconColor
-    }
-}
-
-public struct TableColumn: Codable, Sendable {
-    public let id: String
-    public let label: String
-    public let width: Int?
-
-    public init(id: String, label: String, width: Int? = nil) {
-        self.id = id
-        self.label = label
-        self.width = width
-    }
-}
-
-public struct TableRow: Codable, Sendable {
-    public let id: String
-    public let cells: [String: AnyCodable]
-    public let selectable: Bool?
-    public let selected: Bool?
-
-    public init(id: String, cells: [String: AnyCodable], selectable: Bool? = nil, selected: Bool? = nil) {
-        self.id = id
-        self.cells = cells
-        self.selectable = selectable
-        self.selected = selected
-    }
-}
-
-public struct TableSurfaceData: Codable, Sendable {
-    public let columns: [TableColumn]
-    public let rows: [TableRow]
-    public let selectionMode: String?
-    public let caption: String?
-
-    public init(columns: [TableColumn], rows: [TableRow], selectionMode: String? = nil, caption: String? = nil) {
-        self.columns = columns
-        self.rows = rows
-        self.selectionMode = selectionMode
-        self.caption = caption
-    }
-}
-
 public struct TaskRouted: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -5157,205 +4899,7 @@ public struct UiSurfaceDismiss: Codable, Sendable {
     }
 }
 
-public struct UiSurfaceShowCard: Codable, Sendable {
-    public let surfaceType: String
-    public let data: CardSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
 
-    public init(surfaceType: String, data: CardSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowConfirmation: Codable, Sendable {
-    public let surfaceType: String
-    public let data: ConfirmationSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: ConfirmationSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowDocumentPreview: Codable, Sendable {
-    public let surfaceType: String
-    public let data: DocumentPreviewSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: DocumentPreviewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowDynamicPage: Codable, Sendable {
-    public let surfaceType: String
-    public let data: DynamicPageSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: DynamicPageSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowFileUpload: Codable, Sendable {
-    public let surfaceType: String
-    public let data: FileUploadSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: FileUploadSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowForm: Codable, Sendable {
-    public let surfaceType: String
-    public let data: FormSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: FormSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowList: Codable, Sendable {
-    public let surfaceType: String
-    public let data: ListSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: ListSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
-
-public struct UiSurfaceShowTable: Codable, Sendable {
-    public let surfaceType: String
-    public let data: TableSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [SurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: TableSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
-    }
-}
 
 public struct UiSurfaceUndoRequest: Codable, Sendable {
     public let type: String
