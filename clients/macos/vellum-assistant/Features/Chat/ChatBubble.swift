@@ -156,9 +156,6 @@ struct ChatBubble: View {
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
 
-            // Content group with absolutely-positioned avatar so text alignment
-            // stays consistent whether or not the avatar is visible.
-            // Assistant messages reserve left space (28pt avatar + 8pt gap) for the overlay avatar.
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                     if !isUser && hasInterleavedContent {
                         interleavedContent
