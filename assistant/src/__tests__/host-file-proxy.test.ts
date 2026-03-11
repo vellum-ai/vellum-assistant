@@ -23,9 +23,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },
@@ -61,9 +58,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/nonexistent",
         },
@@ -88,9 +82,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "write",
           path: "/tmp/output.txt",
           content: "new content",
@@ -117,9 +108,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "edit",
           path: "/tmp/file.txt",
           old_string: "foo",
@@ -150,9 +138,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/slow.txt",
         },
@@ -180,9 +165,6 @@ describe("HostFileProxy", () => {
       const controller = new AbortController();
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },
@@ -210,9 +192,6 @@ describe("HostFileProxy", () => {
 
       const result = await proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },
@@ -253,9 +232,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },
@@ -282,9 +258,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },
@@ -323,9 +296,6 @@ describe("HostFileProxy", () => {
       const controller = new AbortController();
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },
@@ -349,9 +319,6 @@ describe("HostFileProxy", () => {
       // Create two pending requests and catch rejections from dispose
       const p1 = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/a.txt",
         },
@@ -359,9 +326,6 @@ describe("HostFileProxy", () => {
       );
       const p2 = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/b.txt",
         },
@@ -388,9 +352,6 @@ describe("HostFileProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          type: "host_file_request",
-          requestId: "",
-          sessionId: "",
           operation: "read",
           path: "/tmp/test.txt",
         },

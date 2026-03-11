@@ -6,8 +6,13 @@ import { getLogger } from "../util/logger.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type { HostFileRequest } from "./message-types/host-file.js";
 
+/** Distributive omit that preserves union variant fields. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
 /** Clean input type for callers — transport envelope fields are added by the proxy. */
-export type HostFileInput = Omit<
+export type HostFileInput = DistributiveOmit<
   HostFileRequest,
   "type" | "requestId" | "sessionId"
 >;
