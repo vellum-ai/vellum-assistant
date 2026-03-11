@@ -182,7 +182,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "anyOf": [
+        "oneOf": [
           { "required": ["id"] },
           { "required": ["enrollment_id", "enrollment_action"] }
         ]
