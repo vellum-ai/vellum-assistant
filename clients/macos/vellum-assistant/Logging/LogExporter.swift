@@ -113,8 +113,9 @@ enum LogExporter {
             return LockfileAssistant.loadByName(id)?.isManaged == true
         }()
 
-        if isManagedAssistant {
-            await fetchPlatformLogs(into: tempDir)
+        if isManagedAssistant, let assistantId = connectedId,
+           let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+            await fetchPlatformLogs(into: tempDir, assistantId: assistantId, organizationId: orgId)
         } else {
             await fetchDaemonExports(into: tempDir)
         }
@@ -285,25 +286,17 @@ enum LogExporter {
     /// Fetches logs from the platform API for managed assistants, downloads
     /// the tar.gz response, extracts it into `directory/platform-logs/`.
     /// Silently skips on any failure (non-fatal, mirrors `fetchDaemonExports`).
-    private nonisolated static func fetchPlatformLogs(into directory: URL) async {
-        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") else {
-            return
-        }
-
-        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
-            return
-        }
-
-        guard LockfileAssistant.loadByName(assistantId)?.isManaged == true else {
-            return
-        }
-
+    private nonisolated static func fetchPlatformLogs(
+        into directory: URL,
+        assistantId: String,
+        organizationId: String
+    ) async {
         guard let token = SessionTokenManager.getToken() else {
             log.warning("No session token available — skipping platform log export")
             return
         }
 
-        let baseURL = AuthService.shared.baseURL
+        let baseURL = await MainActor.run { AuthService.shared.baseURL }
 
         guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
             log.warning("Failed to construct platform log export URL")
@@ -314,7 +307,7 @@ enum LogExporter {
         request.httpMethod = "POST"
         request.timeoutInterval = 60
         request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-        request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        request.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
