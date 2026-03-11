@@ -47,7 +47,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // causing ownership checks (e.g. subagent abort) to fail.
                 if let sessionId = activeViewModel?.sessionId {
                     do {
-                        try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+                        try daemonClient.send(SessionSwitchRequest(sessionId: sessionId))
                     } catch {
                         log.error("Failed to send session switch request: \(error)")
                     }
@@ -963,7 +963,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// unpinned threads without explicit ordering, sends nil so they sort by recency.
     private func sendReorderThreads() {
         let visible = visibleThreads
-        var updates: [IPCReorderThreadsRequestUpdate] = []
+        var updates: [ReorderThreadsRequestUpdate] = []
         for thread in visible {
             guard let sessionId = thread.sessionId else { continue }
             let order: Double?
@@ -974,7 +974,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             } else {
                 order = thread.displayOrder.map { Double($0) }
             }
-            updates.append(IPCReorderThreadsRequestUpdate(
+            updates.append(ReorderThreadsRequestUpdate(
                 sessionId: sessionId,
                 displayOrder: order,
                 isPinned: thread.isPinned
@@ -982,7 +982,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         guard !updates.isEmpty else { return }
         do {
-            try daemonClient.send(IPCReorderThreadsRequest(
+            try daemonClient.send(ReorderThreadsRequest(
                 type: "reorder_threads",
                 updates: updates
             ))
@@ -1053,7 +1053,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         threads[index].title = trimmed
         if let sessionId = threads[index].sessionId {
-            try? daemonClient.send(IPCSessionRenameRequest(
+            try? daemonClient.send(SessionRenameRequest(
                 type: "session_rename",
                 sessionId: sessionId,
                 title: trimmed
@@ -1359,7 +1359,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     /// Send a `conversation_seen_signal` message to the daemon.
     private func emitConversationSeenSignal(conversationId: String) {
-        let signal = IPCConversationSeenSignal(
+        let signal = ConversationSeenSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: "macos_conversation_opened",
@@ -1375,7 +1375,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     private func emitConversationUnreadSignal(conversationId: String) async throws {
-        let signal = IPCConversationUnreadSignal(
+        let signal = ConversationUnreadSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: "macos_conversation_opened",
@@ -1470,7 +1470,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         sendReorderThreads()
         // Flush any rename that was queued before the session ID was assigned.
         if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {
-            try? daemonClient.send(IPCSessionRenameRequest(
+            try? daemonClient.send(SessionRenameRequest(
                 type: "session_rename",
                 sessionId: sessionId,
                 title: pendingTitle
@@ -1479,7 +1479,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func mergeAssistantAttention(
-        from session: IPCSessionListResponseSession,
+        from session: SessionListResponseSession,
         intoThreadAt index: Int
     ) {
         threads[index].hasUnseenLatestAssistantMessage =

@@ -85,7 +85,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var twitterMode: String = "local_byo"
     @Published var twitterManagedAvailable: Bool = false
-    @Published var twitterManagedPrerequisites: IPCManagedPrerequisites?
+    @Published var twitterManagedPrerequisites: ManagedPrerequisites?
     @Published var twitterLocalClientConfigured: Bool = false
     @Published var twitterConnected: Bool = false
     @Published var twitterAccountInfo: String?

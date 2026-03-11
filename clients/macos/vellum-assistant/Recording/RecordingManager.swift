@@ -73,7 +73,7 @@ final class RecordingManager: ObservableObject {
     ///   - attachToConversationId: Optional conversation ID to attach the recording to.
     /// - Returns: `true` if the recording started successfully, `false` otherwise.
     @discardableResult
-    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false, operationToken: String? = nil) async -> Bool {
+    func start(sessionId: String, options: RecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false, operationToken: String? = nil) async -> Bool {
         guard !state.isActive else {
             log.warning("Cannot start recording — already active (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
             sendStatus(sessionId: sessionId, status: "failed", error: "Another recording is already active")
@@ -321,7 +321,7 @@ final class RecordingManager: ObservableObject {
             return
         }
 
-        let message = IPCRecordingStatus(
+        let message = RecordingStatus(
             type: "recording_status",
             sessionId: sessionId,
             status: status,

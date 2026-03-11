@@ -23,7 +23,7 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
     /// - Parameters:
     ///   - onStart: Called with the selected recording options when the user clicks Start.
     ///   - onCancel: Called when the user dismisses the picker.
-    func show(onStart: @escaping (IPCRecordingOptions) -> Void, onCancel: @escaping () -> Void) {
+    func show(onStart: @escaping (RecordingOptions) -> Void, onCancel: @escaping () -> Void) {
         // Dismiss any existing picker window
         dismiss()
 

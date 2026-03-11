@@ -8,7 +8,7 @@ struct SimulationResult: Equatable {
     let riskLevel: String
     let reason: String
     let matchedRuleId: String?
-    let promptPayload: IPCToolPermissionSimulateResponsePromptPayload?
+    let promptPayload: ToolPermissionSimulateResponsePromptPayload?
     /// Transient display state set by local-only actions (allowOnce / denyOnce).
     var localOverrideLabel: String?
 
