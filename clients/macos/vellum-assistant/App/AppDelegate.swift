@@ -154,8 +154,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // lifecycle.ts (init at top, close after config load if flag disabled).
         let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
         let perfOptIn = collectUsageData && UserDefaults.standard.bool(forKey: "sendPerformanceReports")
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         SentrySDK.start { options in
             options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+            options.releaseName = "vellum-macos@\(appVersion)"
+            options.dist = buildNumber
             options.debug = false
             options.tracesSampleRate = 0.1
             options.configureProfiling = { profilingOptions in

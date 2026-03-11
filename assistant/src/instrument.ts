@@ -1,7 +1,9 @@
 import * as Sentry from "@sentry/node";
 
+import { arch, platform, release } from "node:os";
+
 import { getSentryDsn } from "./config/env.js";
-import { APP_VERSION } from "./version.js";
+import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [
@@ -42,8 +44,19 @@ export function initSentry(): void {
   Sentry.init({
     dsn: getSentryDsn(),
     release: `vellum-assistant@${APP_VERSION}`,
+    dist: COMMIT_SHA,
     environment: APP_VERSION === "0.0.0-dev" ? "development" : "production",
     sendDefaultPii: false,
+    initialScope: {
+      tags: {
+        commit: COMMIT_SHA,
+        os_platform: platform(),
+        os_release: release(),
+        os_arch: arch(),
+        runtime: "bun",
+        runtime_version: typeof Bun !== "undefined" ? Bun.version : process.version,
+      },
+    },
     beforeSend(event) {
       if (event.exception?.values) {
         event.exception.values = event.exception.values.map((ex) => ({

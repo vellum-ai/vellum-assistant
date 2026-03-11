@@ -32,3 +32,13 @@ function resolveVersion(): string {
 // Falls back to "0.0.0-dev" for local development, or resolves the dev
 // placeholder to package.json version when explicitly set in CI.
 export const APP_VERSION: string = resolveVersion();
+
+// Commit SHA is embedded at compile time via --define in CI.
+// Falls back to "unknown" for local development.
+function resolveCommitSha(): string {
+  const sha = process.env.COMMIT_SHA;
+  if (!sha || sha === "unknown") return "unknown";
+  return sha;
+}
+
+export const COMMIT_SHA: string = resolveCommitSha();
