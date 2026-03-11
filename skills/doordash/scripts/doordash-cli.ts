@@ -211,7 +211,9 @@ export function registerDoordashCommand(program: Command): void {
 
         const result = await startLearnSession(duration);
         if (result.recordingId) {
-          const session = await importFromCredentialStore("doordash.com");
+          const session = await importFromCredentialStore("doordash.com", {
+            recordingId: result.recordingId,
+          });
 
           // Also extract and save captured queries for self-healing
           let queriesCaptured = 0;
@@ -1009,7 +1011,6 @@ export function registerDoordashCommand(program: Command): void {
 
 interface LearnResult {
   recordingId?: string;
-  recordingPath?: string;
 }
 
 async function startLearnSession(
@@ -1109,7 +1110,6 @@ async function startLearnSession(
             if (status.savedRecordingPath && status.recordingId) {
               resolve({
                 recordingId: status.recordingId,
-                recordingPath: status.savedRecordingPath,
               });
               return;
             }
@@ -1126,7 +1126,6 @@ async function startLearnSession(
                 statSync(expectedPath);
                 resolve({
                   recordingId: status.recordingId,
-                  recordingPath: expectedPath,
                 });
                 return;
               } catch {

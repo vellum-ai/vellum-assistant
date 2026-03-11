@@ -59,9 +59,15 @@ export function clearSession(): void {
 /**
  * Import cookies that the daemon saved to the credential store under the
  * target domain key. Copies them into the local DoorDash session file.
+ *
+ * NOTE: This depends on the daemon having already written cookies to the
+ * credential store before this function is called. The daemon writes cookies
+ * asynchronously during the learn session, so callers should only invoke this
+ * after the learn session has completed (status === "completed").
  */
 export async function importFromCredentialStore(
   targetDomain: string,
+  opts?: { recordingId?: string },
 ): Promise<DoorDashSession> {
   const { stdout } = await execFileAsync("assistant", [
     "credentials",
@@ -76,6 +82,7 @@ export async function importFromCredentialStore(
   const session: DoorDashSession = {
     cookies,
     importedAt: new Date().toISOString(),
+    recordingId: opts?.recordingId,
   };
   saveSession(session);
   return session;
