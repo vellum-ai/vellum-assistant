@@ -195,6 +195,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                 placeholderText: "Ask anything...",
                 threadId: threadId
             )
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 
             Spacer()
             Spacer()
