@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import os
 @preconcurrency import Sentry
-import UniformTypeIdentifiers
 import VellumAssistantShared
 
 private let log = Logger(
