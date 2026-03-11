@@ -14,10 +14,7 @@ import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+import { upsertCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 
@@ -168,14 +165,18 @@ export async function storeOAuth2Tokens(
       tokens.refreshToken,
     );
     if (refreshStored) {
-      upsertCredentialMetadata(service, "refresh_token", {});
+      upsertCredentialMetadata(service, "access_token", {
+        hasRefreshToken: true,
+      });
     }
   } else {
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
     await deleteSecureKeyAsync(`credential:${service}:refresh_token`);
-    deleteCredentialMetadata(service, "refresh_token");
+    upsertCredentialMetadata(service, "access_token", {
+      hasRefreshToken: false,
+    });
   }
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
