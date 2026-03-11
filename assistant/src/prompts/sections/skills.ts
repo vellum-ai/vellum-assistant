@@ -18,27 +18,18 @@ export function appendSkillsCatalog(basePrompt: string): string {
   const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildDynamicSkillWorkflowSection(config, flagFiltered));
+  sections.push(buildSkillFallbackSection(flagFiltered));
 
   return sections.join("\n\n");
 }
 
-function buildDynamicSkillWorkflowSection(
-  _config: import("../../config/schema.js").AssistantConfig,
+function buildSkillFallbackSection(
   activeSkills: SkillSummary[],
 ): string {
   const lines = [
-    "## Dynamic Skill Authoring Workflow",
+    "## Skill Authoring",
     "",
-    "When no existing tool or skill can satisfy a request:",
-    "1. Validate the gap — confirm no existing tool/skill covers it.",
-    "2. Draft a TypeScript snippet exporting a `default` or `run` function (`(input: unknown) => unknown | Promise<unknown>`).",
-    '3. Test the snippet by writing it to a temp file with `bash` (e.g., `bash command="mkdir -p /tmp/vellum-eval && cat > /tmp/vellum-eval/snippet.ts << \'SNIPPET_EOF\'\\n...\\nSNIPPET_EOF"`) and running it with `bash command="bun run /tmp/vellum-eval/snippet.ts"`. Do not use `file_write` for temp files outside the working directory. Iterate until it passes (max 3 attempts, then ask the user). Clean up temp files after.',
-    "4. Persist with `scaffold_managed_skill` only after user consent.",
-    "5. Load with `skill_load` before use.",
-    "",
-    "**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.",
-    "After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.",
+    "When no existing tool or skill can satisfy a request, load the `skill-authoring` skill for the full scaffold/test/persist workflow. Never persist or delete skills without explicit user confirmation.",
   ];
 
   const activeSkillIds = new Set(activeSkills.map((s) => s.id));
@@ -116,15 +107,10 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
 
   return [
     "## Available Skills",
-    "The following skills are available. Before executing one, call the `skill_load` tool with its `id` to load the full instructions.",
-    "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
+    "Call `skill_load` with a skill's `id` to load its full instructions, then use `skill_execute` to invoke the skill's tools. When a credential is missing, check for a skill with a matching `credential-setup-for` attribute.",
     "",
     lines.join("\n"),
     "",
-    "### Installing additional skills",
-    "If `skill_load` fails because a skill is not found, additional first-party skills may be available in the Vellum catalog.",
-    "Use `bash` to discover and install them:",
-    "- `assistant skills list` — list all available catalog skills",
-    "- `assistant skills install <skill-id>` — install a skill, then retry `skill_load`",
+    "Additional first-party skills: `assistant skills list` / `assistant skills install <id>`.",
   ].join("\n");
 }

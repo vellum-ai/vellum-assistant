@@ -19,12 +19,7 @@ import {
   buildSystemPermissionSection,
   buildToolPermissionSection,
 } from "./sections/operations.js";
-import {
-  buildLearningMemorySection,
-  buildMemoryPersistenceSection,
-  buildMemoryRecallSection,
-  buildWorkspaceReflectionSection,
-} from "./sections/persistence.js";
+import { buildPersistenceSection } from "./sections/persistence.js";
 import {
   buildChannelAwarenessSection,
   buildChannelCommandIntentSection,
@@ -40,7 +35,6 @@ import { appendSkillsCatalog } from "./sections/skills.js";
 // Preserve the public API so existing importers continue to work.
 
 export {
-  _resetCliHelpCache,
   buildCliReferenceSection,
   buildConfigSection,
   buildContainerizedSection,
@@ -59,12 +53,7 @@ export {
   buildSystemPermissionSection,
   buildToolPermissionSection,
 } from "./sections/operations.js";
-export {
-  buildLearningMemorySection,
-  buildMemoryPersistenceSection,
-  buildMemoryRecallSection,
-  buildWorkspaceReflectionSection,
-} from "./sections/persistence.js";
+export { buildPersistenceSection } from "./sections/persistence.js";
 export {
   buildChannelAwarenessSection,
   buildChannelCommandIntentSection,
@@ -160,10 +149,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildAccessPreferenceSection());
   parts.push(buildIntegrationSection());
-  parts.push(buildMemoryPersistenceSection());
-  parts.push(buildMemoryRecallSection());
-  parts.push(buildWorkspaceReflectionSection());
-  parts.push(buildLearningMemorySection());
+  parts.push(buildPersistenceSection());
 
   return appendSkillsCatalog(parts.join("\n\n"));
 }

@@ -191,9 +191,8 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain('id="release-checklist"');
     expect(result).toContain('name="Release Checklist"');
     expect(result).toContain('description="Deployment checks."');
-    expect(result).toContain(
-      "call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
-    );
+    expect(result).toContain("skill_load");
+    expect(result).toContain("skill_execute");
   });
 
   test("keeps SOUL.md and IDENTITY.md additive with skills", () => {
@@ -265,18 +264,16 @@ describe("buildSystemPrompt", () => {
     expect(section).toContain("Do NOT improvise Twilio setup instructions");
   });
 
-  test("includes memory persistence section", () => {
+  test("includes compact persistence section", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain("## Memory Persistence");
+    expect(result).toContain("## Memory & Workspace Persistence");
     expect(result).toContain("memory_manage");
-    expect(result).toContain("Saved > unsaved. Always.");
+    expect(result).toContain("memory_recall");
   });
 
   test("config section uses workspace directory from platform util", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain(
-      `Your configuration directory is \`${TEST_DIR}/\`.`,
-    );
+    expect(result).toContain(`\`${TEST_DIR}/\``);
   });
 
   test("omits user skills from catalog when none are configured", () => {
@@ -364,7 +361,7 @@ describe("buildSystemPrompt", () => {
   test("config section lists UPDATES.md", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("`UPDATES.md`");
-    expect(result).toContain("Release update notes");
+    expect(result).toContain("Release notes");
   });
 
   test("strips comment lines starting with _ from prompt files", () => {

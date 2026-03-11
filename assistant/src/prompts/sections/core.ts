@@ -1,7 +1,6 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { CLI_HELP_REFERENCE } from "../../cli/reference.js";
 import { getBaseDataDir } from "../../config/env-registry.js";
 import { getConfig } from "../../config/loader.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
@@ -14,13 +13,6 @@ import {
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
-
-let cachedCliHelp: string | undefined;
-
-/** @internal Reset the CLI help cache — exposed for testing only. */
-export function _resetCliHelpCache(): void {
-  cachedCliHelp = undefined;
-}
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -160,72 +152,32 @@ export function buildConfigSection(): string {
   const hostWorkspaceDir = getWorkspaceDir();
 
   const config = getConfig();
-  const configPreamble = `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
 
   return [
     "## Configuration",
     `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
-    `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`,
+    `- **Workspace**: \`${hostWorkspaceDir}/\`. **Always use \`file_read\` / \`file_edit\`** (not \`host_file_*\`) for these files — they are inside your sandbox and do not require host approval.`,
     "",
-    "- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.",
-    "- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.",
-    "- `USER.md` — Profile of your user. Update as you learn about them over time.",
-    "- `HEARTBEAT.md` — Checklist for periodic heartbeat runs. When heartbeat is enabled, the assistant runs this checklist on a timer and flags anything that needs attention. Edit this file to control what gets checked each run.",
-    "- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).",
-    "- `UPDATES.md` — Release update notes (created automatically on new releases; delete when updates are actioned).",
-    "- `skills/` — Directory of installed skills (loaded automatically at startup).",
+    "Workspace files:",
+    "- `IDENTITY.md` — Name, personality, emoji. `SOUL.md` — Behavioral foundation. `USER.md` — User profile.",
+    "- `HEARTBEAT.md` — Periodic checklist (enable via `heartbeat.enabled` in `config.json`). `BOOTSTRAP.md` — First-run ritual (delete when done).",
+    "- `UPDATES.md` — Release notes (delete when actioned). `skills/` — Installed skills.",
     "",
-    "### Heartbeat",
-    "",
-    "The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background thread. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.json`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.",
-    "",
-    "### Proactive Workspace Editing",
-    "",
-    `You MUST actively update your workspace files as you learn. You don't need to ask your user whether it's okay — just briefly explain what you're updating, then use \`file_edit\` to make targeted edits.`,
-    "",
-    "**USER.md** — update when you learn:",
-    "- Their name or what they prefer to be called",
-    "- Projects they're working on, tools they use, languages they code in",
-    "- Communication preferences (concise vs detailed, formal vs casual)",
-    "- Interests, hobbies, or context that helps you assist them better",
-    "- Anything else about your user that will help you serve them better",
-    "",
-    "**SOUL.md** — update when you notice:",
-    "- They prefer a different tone or interaction style (add to Personality or User-Specific Behavior)",
-    '- A behavioral pattern worth codifying (e.g. "always explain before acting", "skip preamble")',
-    "- You've adapted in a way that's working well and should persist",
-    "- You decide to change your personality to better serve your user",
-    "",
-    "**IDENTITY.md** — update when:",
-    "- They rename you or change your role",
-    "- Your avatar appearance changes (update the `## Avatar` section with a description of the new look)",
-    "",
-    "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
-    "",
-    "When updating, read the file first, then make a targeted edit. Include all useful information, but don't bloat the files over time",
+    "Update workspace files proactively as you learn -- explain briefly what you are updating, then use `file_edit`. Read first, edit targeted, don't bloat.",
   ].join("\n");
 }
 
 export function buildCliReferenceSection(): string {
-  if (cachedCliHelp === undefined) {
-    cachedCliHelp = CLI_HELP_REFERENCE.trim();
-  }
-
   return [
     "## Assistant CLI",
     "",
-    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
-    "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
-    "- Use `assistant credentials ...` for stored secrets and credential metadata.",
-    "- Use `assistant oauth token <service>` for connected integration tokens.",
-    "- Use `assistant mcp auth <name>` when an MCP server needs OAuth login.",
-    "- Use `assistant platform status` for platform-linked deployment and auth context.",
-    "- If a bundled skill documents a service-specific `assistant <service>` auth or session flow, follow that CLI exactly.",
+    "The `assistant` CLI is available via `bash`. Prefer it for account, auth, and integration work:",
+    "- `assistant credentials ...` — stored secrets and credential metadata",
+    "- `assistant oauth token <service>` — connected integration tokens",
+    "- `assistant mcp auth <name>` — MCP server OAuth login",
+    "- `assistant platform status` — platform deployment and auth context",
+    "- If a bundled skill documents a service-specific `assistant <service>` flow, follow that CLI exactly.",
     "",
-    "```",
-    cachedCliHelp,
-    "```",
-    "",
-    "Run `assistant <command> --help` for detailed help on any subcommand.",
+    "Run `assistant --help` for the full command list and `assistant <command> --help` for subcommand details.",
   ].join("\n");
 }
