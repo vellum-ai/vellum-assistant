@@ -1655,10 +1655,11 @@ public final class HTTPTransport {
     }
 
     /// Send a /btw side-chain question and stream the response text.
-    /// Returns an AsyncThrowingStream that yields text deltas from SSE btw_text_delta events.
-    func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
+    /// Returns an AsyncThrowingStream that yields text deltas from SSE `btw_text_delta` events.
+    /// Throws on `btw_error` events and handles 401 authentication retry.
+    func sendBtwMessage(content: String, conversationKey: String, isRetry: Bool = false) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
-            Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
@@ -1686,20 +1687,64 @@ public final class HTTPTransport {
 
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    guard let http = response as? HTTPURLResponse else {
+                        throw URLError(.badServerResponse)
+                    }
+
+                    if http.statusCode == 401 && !isRetry {
+                        // Collect response body for auth refresh
+                        var bodyChunks: [UInt8] = []
+                        for try await byte in bytes {
+                            bodyChunks.append(byte)
+                        }
+                        let responseData = Data(bodyChunks)
+                        let refreshResult = await self.handleAuthenticationFailureAsync(responseData: responseData)
+                        switch refreshResult {
+                        case .success:
+                            // Retry with refreshed auth — pipe the retry stream into this continuation
+                            let retryStream = self.sendBtwMessage(content: content, conversationKey: conversationKey, isRetry: true)
+                            do {
+                                for try await text in retryStream {
+                                    if Task.isCancelled { break }
+                                    continuation.yield(text)
+                                }
+                                continuation.finish()
+                            } catch {
+                                continuation.finish(throwing: error)
+                            }
+                            return
+                        case .terminalFailure:
+                            continuation.finish()
+                            return
+                        case .transientFailure:
+                            throw URLError(.userAuthenticationRequired, userInfo: [
+                                NSLocalizedDescriptionKey: "Authentication failed — please try again."
+                            ])
+                        }
+                    }
+
+                    guard http.statusCode == 200 else {
                         throw URLError(.badServerResponse, userInfo: [
-                            NSLocalizedDescriptionKey: "HTTP \(statusCode)"
+                            NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"
                         ])
                     }
 
+                    var currentEventType: String?
                     for try await line in bytes.lines {
                         if Task.isCancelled { break }
 
-                        if line.hasPrefix("data: ") {
+                        if line.hasPrefix("event: ") {
+                            currentEventType = String(line.dropFirst(7))
+                        } else if line.hasPrefix("data: ") {
                             let jsonString = String(line.dropFirst(6))
                             if let data = jsonString.data(using: .utf8),
                                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                if currentEventType == "btw_error" {
+                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
+                                    throw URLError(.badServerResponse, userInfo: [
+                                        NSLocalizedDescriptionKey: errorMessage
+                                    ])
+                                }
                                 if let text = parsed["text"] as? String {
                                     continuation.yield(text)
                                 }
@@ -1707,6 +1752,9 @@ public final class HTTPTransport {
                                     break
                                 }
                             }
+                            currentEventType = nil
+                        } else if line.isEmpty {
+                            currentEventType = nil
                         }
                     }
                     continuation.finish()
@@ -1714,6 +1762,7 @@ public final class HTTPTransport {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
