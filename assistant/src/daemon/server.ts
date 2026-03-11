@@ -199,6 +199,12 @@ function makePendingInteractionRegistrar(
         conversationId,
         kind: "secret",
       });
+    } else if (msg.type === "host_bash_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
+      });
     }
   };
 }

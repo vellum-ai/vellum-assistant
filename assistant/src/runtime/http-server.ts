@@ -95,6 +95,7 @@ import { appManagementRouteDefinitions } from "./routes/app-management-routes.js
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
+import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
@@ -931,6 +932,7 @@ export class RuntimeHttpServer {
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
+      ...hostBashRouteDefinitions(),
       ...(this.getSkillContext
         ? skillRouteDefinitions({
             getSkillContext: this.getSkillContext,
