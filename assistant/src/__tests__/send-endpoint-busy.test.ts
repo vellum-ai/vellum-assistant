@@ -52,6 +52,7 @@ mock.module("../config/loader.js", () => ({
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
@@ -112,6 +113,7 @@ function makeCompletingSession(): Session {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -165,6 +167,7 @@ function makeHangingSession(): Session {
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -246,6 +249,7 @@ function makePendingApprovalSession(
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
     ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
