@@ -22,7 +22,7 @@ export async function run(
   if (messageIds && messageIds.length > 0) {
     try {
       const provider = getMessagingProvider("gmail");
-      return withValidToken(provider.credentialService, async (token) => {
+      return await withValidToken(provider.credentialService, async (token) => {
         await batchModifyMessages(token, messageIds, {
           addLabelIds,
           removeLabelIds,
@@ -37,7 +37,7 @@ export async function run(
   if (messageId) {
     try {
       const provider = getMessagingProvider("gmail");
-      return withValidToken(provider.credentialService, async (token) => {
+      return await withValidToken(provider.credentialService, async (token) => {
         await modifyMessage(token, messageId, { addLabelIds, removeLabelIds });
         return ok("Labels updated.");
       });

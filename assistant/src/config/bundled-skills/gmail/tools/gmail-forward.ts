@@ -77,7 +77,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       const message = await getMessage(token, messageId, "full");
       const headers = message.payload?.headers ?? [];
       const originalFrom = extractHeader(headers, "From");

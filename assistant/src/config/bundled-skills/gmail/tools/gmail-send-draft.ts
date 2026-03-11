@@ -16,7 +16,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       const msg = await sendDraft(token, draftId);
       return ok(`Draft sent (Message ID: ${msg.id}).`);
     });

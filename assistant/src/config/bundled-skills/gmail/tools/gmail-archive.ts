@@ -36,7 +36,7 @@ export async function run(
 
     try {
       const provider = getMessagingProvider("gmail");
-      return withValidToken(provider.credentialService, async (token) => {
+      return await withValidToken(provider.credentialService, async (token) => {
         const allMessageIds: string[] = [];
         let pageToken: string | undefined;
         let truncated = false;
@@ -107,7 +107,7 @@ export async function run(
     // Single message path
     try {
       const provider = getMessagingProvider("gmail");
-      return withValidToken(provider.credentialService, async (token) => {
+      return await withValidToken(provider.credentialService, async (token) => {
         await modifyMessage(token, messageId, { removeLabelIds: ["INBOX"] });
         return ok("Message archived.");
       });
@@ -127,7 +127,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       if (messageIds.length === 1) {
         await modifyMessage(token, messageIds[0], {
           removeLabelIds: ["INBOX"],
