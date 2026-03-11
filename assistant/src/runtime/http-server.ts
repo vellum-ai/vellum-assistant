@@ -532,11 +532,16 @@ export class RuntimeHttpServer {
     if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
-      const result = token
-        ? apiRateLimiter.check(clientIp)
-        : ipRateLimiter.check(clientIp);
+      const limiter = token ? apiRateLimiter : ipRateLimiter;
+      const limiterKind = token ? "authenticated" : "unauthenticated";
+      const result = limiter.check(clientIp, path);
       if (!result.allowed) {
-        return rateLimitResponse(result);
+        return rateLimitResponse(result, {
+          clientIp,
+          deniedPath: path,
+          limiterKind: limiterKind as "authenticated" | "unauthenticated",
+          pathCounts: limiter.getRecentPathCounts(clientIp),
+        });
       }
       const routerResponse = await this.router.dispatch(
         endpoint,

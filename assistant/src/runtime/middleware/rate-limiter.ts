@@ -3,7 +3,10 @@
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
 import type { HttpErrorResponse } from "../http-errors.js";
+import { getLogger } from "../../util/logger.js";
 import { isPrivateAddress } from "./auth.js";
+
+const log = getLogger("rate-limiter");
 
 const DEFAULT_MAX_REQUESTS = 60;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
@@ -14,8 +17,13 @@ const DEFAULT_IP_MAX_REQUESTS = 20;
 const DEFAULT_IP_WINDOW_MS = 60_000;
 const MAX_TRACKED_IPS = 50_000;
 
+interface RequestEntry {
+  timestamp: number;
+  path: string;
+}
+
 export class TokenRateLimiter {
-  private requests = new Map<string, number[]>();
+  private requests = new Map<string, RequestEntry[]>();
   private readonly maxRequests: number;
   private readonly windowMs: number;
   private readonly maxTrackedKeys: number;
@@ -34,11 +42,11 @@ export class TokenRateLimiter {
    * Check whether the request should be allowed and record it.
    * Returns rate limit metadata for response headers.
    */
-  check(key: string): RateLimitResult {
+  check(key: string, path?: string): RateLimitResult {
     const now = Date.now();
-    let timestamps = this.requests.get(key);
+    let entries = this.requests.get(key);
 
-    if (!timestamps) {
+    if (!entries) {
       if (this.requests.size >= this.maxTrackedKeys) {
         this.evictStale(now);
         if (this.requests.size >= this.maxTrackedKeys) {
@@ -46,24 +54,24 @@ export class TokenRateLimiter {
           if (oldest !== undefined) this.requests.delete(oldest);
         }
       }
-      timestamps = [];
-      this.requests.set(key, timestamps);
+      entries = [];
+      this.requests.set(key, entries);
     }
 
     const cutoff = now - this.windowMs;
 
-    // Remove expired timestamps from the front
-    while (timestamps.length > 0 && timestamps[0] <= cutoff) {
-      timestamps.shift();
+    // Remove expired entries from the front
+    while (entries.length > 0 && entries[0].timestamp <= cutoff) {
+      entries.shift();
     }
 
-    const remaining = Math.max(0, this.maxRequests - timestamps.length);
+    const remaining = Math.max(0, this.maxRequests - entries.length);
     const resetAt =
-      timestamps.length > 0
-        ? Math.ceil((timestamps[0] + this.windowMs) / 1000)
+      entries.length > 0
+        ? Math.ceil((entries[0].timestamp + this.windowMs) / 1000)
         : Math.ceil((now + this.windowMs) / 1000);
 
-    if (timestamps.length >= this.maxRequests) {
+    if (entries.length >= this.maxRequests) {
       return {
         allowed: false,
         limit: this.maxRequests,
@@ -72,7 +80,7 @@ export class TokenRateLimiter {
       };
     }
 
-    timestamps.push(now);
+    entries.push({ timestamp: now, path: path ?? "unknown" });
 
     return {
       allowed: true,
@@ -82,13 +90,36 @@ export class TokenRateLimiter {
     };
   }
 
+  /**
+   * Return a count of recent requests grouped by path for the given key.
+   * Sorted descending by count. Useful for diagnosing which endpoints
+   * are consuming the rate limit budget.
+   */
+  getRecentPathCounts(key: string): Array<{ path: string; count: number }> {
+    const entries = this.requests.get(key);
+    if (!entries || entries.length === 0) return [];
+
+    const now = Date.now();
+    const cutoff = now - this.windowMs;
+    const counts = new Map<string, number>();
+    for (const entry of entries) {
+      if (entry.timestamp > cutoff) {
+        counts.set(entry.path, (counts.get(entry.path) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(counts.entries())
+      .map(([path, count]) => ({ path, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
   private evictStale(now: number): void {
     const cutoff = now - this.windowMs;
-    for (const [key, timestamps] of this.requests) {
-      while (timestamps.length > 0 && timestamps[0] <= cutoff) {
-        timestamps.shift();
+    for (const [key, entries] of this.requests) {
+      while (entries.length > 0 && entries[0].timestamp <= cutoff) {
+        entries.shift();
       }
-      if (timestamps.length === 0) {
+      if (entries.length === 0) {
         this.requests.delete(key);
       }
     }
@@ -115,8 +146,31 @@ export function rateLimitHeaders(
 }
 
 /** Return a 429 response with rate limit headers and a Retry-After hint. */
-export function rateLimitResponse(result: RateLimitResult): Response {
+export function rateLimitResponse(
+  result: RateLimitResult,
+  diagnostics?: {
+    clientIp: string;
+    deniedPath: string;
+    limiterKind: "authenticated" | "unauthenticated";
+    pathCounts: Array<{ path: string; count: number }>;
+  },
+): Response {
   const retryAfter = Math.max(1, result.resetAt - Math.ceil(Date.now() / 1000));
+
+  if (diagnostics) {
+    log.warn(
+      {
+        clientIp: diagnostics.clientIp,
+        deniedPath: diagnostics.deniedPath,
+        limiterKind: diagnostics.limiterKind,
+        limit: result.limit,
+        retryAfterSec: retryAfter,
+        recentRequests: diagnostics.pathCounts,
+      },
+      `Rate limited ${diagnostics.limiterKind} request: ${diagnostics.deniedPath} (${result.limit} req/min exceeded)`,
+    );
+  }
+
   const body: HttpErrorResponse = {
     error: { code: "RATE_LIMITED", message: "Too Many Requests" },
   };
