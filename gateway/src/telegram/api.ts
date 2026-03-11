@@ -1,5 +1,6 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
@@ -173,7 +174,9 @@ export async function callTelegramApi<T>(
 ): Promise<T> {
   let botToken: string | undefined;
   if (opts?.credentials) {
-    botToken = await opts.credentials.get("credential:telegram:bot_token");
+    botToken = await opts.credentials.get(
+      credentialKey("telegram", "bot_token"),
+    );
   }
 
   if (!botToken) {
@@ -205,7 +208,9 @@ export async function callTelegramApiMultipart<T>(
 ): Promise<T> {
   let botToken: string | undefined;
   if (opts?.credentials) {
-    botToken = await opts.credentials.get("credential:telegram:bot_token");
+    botToken = await opts.credentials.get(
+      credentialKey("telegram", "bot_token"),
+    );
   }
 
   if (!botToken) {

@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -147,7 +148,7 @@ function makeCaches(
   const { authToken = AUTH_TOKEN, ingressUrl } = opts;
   const credentials = {
     get: async (key: string, _opts?: { force?: boolean }) => {
-      if (key === "credential:twilio:auth_token") return authToken;
+      if (key === credentialKey("twilio", "auth_token")) return authToken;
       return undefined;
     },
     invalidate: () => {},

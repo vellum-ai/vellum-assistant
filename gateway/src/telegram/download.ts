@@ -1,6 +1,7 @@
 import { fileTypeFromBuffer } from "file-type";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
 import { callTelegramApi } from "./api.js";
 
@@ -39,7 +40,7 @@ export async function downloadTelegramFile(
   }
 
   const botToken = opts?.credentials
-    ? await opts.credentials.get("credential:telegram:bot_token")
+    ? await opts.credentials.get(credentialKey("telegram", "bot_token"))
     : undefined;
 
   const apiBaseUrl =

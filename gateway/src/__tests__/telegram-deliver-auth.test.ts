@@ -2,6 +2,7 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
@@ -95,7 +96,8 @@ afterEach(() => {
 function makeCaches(configFile?: ConfigFileCache) {
   const credentials = {
     get: async (key: string) => {
-      if (key === "credential:telegram:bot_token") return "test-bot-token";
+      if (key === credentialKey("telegram", "bot_token"))
+        return "test-bot-token";
       return undefined;
     },
     invalidate: () => {},
