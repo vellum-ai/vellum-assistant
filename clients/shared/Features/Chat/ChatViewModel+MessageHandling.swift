@@ -1431,6 +1431,7 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
+            flushPartialOutputBuffer()
             // Find the matching tool call.
             // Prefer matching by toolUseId (stable identifier) over positional heuristics.
             var targetMsgIndex: Int?
