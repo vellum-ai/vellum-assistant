@@ -16,7 +16,7 @@ You are helping your user set up Google Cloud OAuth credentials so Gmail and Goo
 
 "I'll be there every step of the way — with guidance, and always ready to get you unstuck."
 
-This is a **collaborative guided flow**: you open the right pages in the user's default browser and coach them through each action, screenshotting along the way to stay in sync with what the user actually sees. The user keeps control — no anxiety about what the assistant is doing behind the scenes. Failures become conversations, not silent breakage.
+This is a **collaborative guided flow**: you open the right pages in the user's default browser and coach them through each action. The user keeps control — no anxiety about what the assistant is doing behind the scenes. Failures become conversations, not silent breakage.
 
 ## Client Check
 
@@ -29,12 +29,12 @@ Determine which path applies before taking action:
 
 # Path A: Collaborative Browser Setup (macOS Desktop App)
 
-You open pages via the `open` command (launches in the user's default browser — no Chrome dependency). The user does the clicking and form-filling. You tell them exactly what to look for and click at each step. You take screenshots to stay in sync.
+You open pages via the `open` command (launches in the user's default browser — no Chrome dependency). The user does the clicking and form-filling. You tell them exactly what to look for and click at each step.
 
 ## Path A Rules
 
 1. **Navigation is your job.** Use `host_bash` with `open "URL"` to open every URL. The user should never have to type a URL.
-2. **Screenshot after every action.** Take a screenshot once a page loads to confirm state. Take another after the user acts to verify the result.
+2. **Screenshots are a tool, not a routine.** Don't screenshot after every step. Give clear landmark-based instructions and let the user tell you how it's going. If the user reports something doesn't match or they're stuck, offer to take a screenshot: "Want me to take a look? I can screenshot your screen to see what you're seeing." Then adapt based on what you see.
 3. **Never auto-advance.** Wait for user confirmation ("done", "ok", "next", etc.) before proceeding to the next step.
 4. **Use landmarks, not coordinates.** Don't say "click the third item in the left sidebar." Say "Look for **APIs & Services** — it might be in the left sidebar, or you might need to click the hamburger menu first."
 5. **Confirm after, not before.** Don't show what the page _should_ look like before the user acts. Confirm what they _should see after_ they act — this catches divergence without overloading them.
@@ -59,20 +59,18 @@ Replace `TARGET_URL` with the actual URL for each step. The `open` command launc
 Every step follows this rhythm:
 
 1. **Open the URL** via `open "https://..."`
-2. **Take a screenshot** once the page loads
-3. **Analyze the screenshot** to confirm the page state
-4. **Give a landmark-based instruction** — what to look for, not pixel-precise coordinates
-5. **User acts**
-6. **Screenshot again** to verify the result (checkpoint)
-7. **Repeat or adapt**
+2. **Give a landmark-based instruction** — tell the user what to look for, not pixel-precise coordinates
+3. **User acts** and confirms
+4. **If the user reports a mismatch or is stuck** — offer to screenshot to see what they're seeing, then adapt
+5. **Move on** once confirmed
 
 ---
 
-## Pre-Flow: Permissions Prompt
+## Pre-Flow
 
 Before beginning, tell the user:
 
-> I'm going to open a few pages in your browser and take screenshots to guide you through Google Cloud setup. Your Mac may ask for permissions — I'd suggest clicking **Accept All** and setting it to **10 minutes** so you don't have to approve every single step. You can always revoke this later in System Settings → Privacy & Security → Automation.
+> I'm going to open a few pages in your browser and walk you through Google Cloud setup. Your Mac may ask for permissions along the way — if you see an option to allow for a longer duration (like 10 minutes), that'll save you from approving every single step.
 
 ## Step 0: Prerequisite Check
 
@@ -86,13 +84,7 @@ If no Google account → guide them to create one (or defer).
 
 ## Step 1: Open Google Cloud Console
 
-Open: `https://console.cloud.google.com`
-
-**Screenshot → Analyze:**
-
-- If sign-in page → instruct user to sign in
-- If console dashboard → proceed
-- If project selector is showing → note which project is selected
+Open: `https://console.cloud.google.com`.
 
 Tell the user:
 
@@ -106,33 +98,27 @@ Wait for confirmation.
 
 **Goal:** Use an existing GCP project or create a new one.
 
-Open: `https://console.cloud.google.com/cloud-resource-manager`
+Open: `https://console.cloud.google.com/cloud-resource-manager`.
 
-**Screenshot → Analyze:**
+Tell the user:
 
-- If the page shows one or more existing projects → offer the user a choice
-- If the page shows no projects (empty state) → skip straight to project creation
+> I've opened your project list. If you see an existing project you'd like to use, let me know its name. Otherwise I'll walk you through creating a new one.
 
 ### Branch A — Existing projects found
 
 > It looks like you already have some projects in your Google Cloud account. We can either reuse one of these or create a fresh one. Which would you prefer?
 
-List the project names visible in the screenshot. If the user picks an existing project, confirm its name, verify it's active (not pending deletion) from the screenshot, and skip to Step 3. Record the project ID for all subsequent URL substitutions.
-
-If the user chose an existing project, verify the correct project is selected in the console's project dropdown before proceeding to subsequent steps.
+If the user picks an existing project, confirm its name and skip to Step 3. Record the project ID for all subsequent URL substitutions.
 
 ### Branch B — No existing projects (or user wants new)
 
-Open: `https://console.cloud.google.com/projectcreate`
+Open: `https://console.cloud.google.com/projectcreate`.
 
 > I've opened the Create Project page. You should see a field for **Project name**. Type something like `vellum-assistant` (the exact name doesn't matter). Then click **Create**.
 
-**Checkpoint:** Screenshot after user says they clicked Create.
+After the user clicks Create, ask them to confirm the project was created and send you the **project ID** (shown in the URL or project settings, looks like `my-project-123456`).
 
-- Look for a notification banner or redirect to the new project's dashboard
-- If there's an org selector or billing prompt, guide through it
-
-**Known issue:** Some Google Workspace accounts require org selection. If the screenshot shows an "Organization" or "Location" dropdown, tell the user to leave it as-is or select their org.
+**Known issue:** Some Google Workspace accounts require org selection. If the user mentions an "Organization" or "Location" dropdown, tell them to leave it as-is or select their org.
 
 ### Project limit reached
 
@@ -148,7 +134,7 @@ Wait for confirmation. Record the project ID for all subsequent URL substitution
 
 ## Step 3: Enable Gmail API
 
-Open: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
+Open: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`.
 
 > You should see the Gmail API page. Look for a blue **Enable** button and click it.
 
@@ -162,11 +148,11 @@ Wait for confirmation.
 
 ## Step 4: Enable Google Calendar API
 
-Open: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
+Open: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`.
 
 > Same thing here — click **Enable** for the Google Calendar API.
 
-**Checkpoint:** Confirm "Manage" state via screenshot.
+**Checkpoint:** Ask the user to confirm it says "Manage" (meaning it's enabled).
 
 **Milestone acknowledgment:**
 
@@ -192,11 +178,15 @@ This is the most variable step. Google has been actively redesigning this flow. 
 
 ### Step 5a: Branding / Initial setup
 
-Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
+Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`.
 
-**Screenshot → Analyze:** If the consent screen is already configured (app name, emails visible), recognize this and skip ahead.
+The Branding page has App name, User support email, Developer contact email, and optionally logo/links. It does **not** have a User Type selector — that's on the Audience page (Step 5b).
 
-> This is the OAuth consent screen setup. Look for an option to set the user type — choose **External** (unless you're setting this up for a Google Workspace org and only want internal users). Then fill in:
+If the consent screen is already configured (app name and emails already filled in), recognize this and skip ahead.
+
+If it needs setup:
+
+> This is the Branding page. Fill in:
 >
 > 1. **App name:** `Vellum Assistant`
 > 2. **User support email:** select your email from the dropdown
@@ -207,7 +197,7 @@ Wait for confirmation. If already configured, skip directly to Step 5b.
 
 ### Step 5b: Audience and test users
 
-Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
+Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`.
 
 > I've opened the **Audience** page. Two things to check here:
 >
@@ -242,7 +232,7 @@ Wait for confirmation.
 
 ## Step 6: Create OAuth Client Credentials
 
-Open: `https://console.cloud.google.com/apis/credentials/oauthclient?project=PROJECT_ID`
+Open: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`.
 
 > On this page, you should see a dropdown for **Application type**. Select **Desktop app**. You can leave the name as-is or change it to "Vellum Assistant". Then click **Create**.
 
@@ -329,179 +319,15 @@ messaging_auth_test:
 
 # Path B: Manual Channel Setup (Telegram, SMS, Slack, etc.)
 
-When the user is on a non-interactive channel, walk them through a text-based setup. The channel path uses **Web application** credentials because the OAuth callback goes through the public gateway URL.
-
-## Path B Step 1: Confirm and Explain
-
-Tell the user:
-
-> **Setting up Gmail & Calendar from chat**
->
-> Since I can't open pages in your browser from here, I'll walk you through each step with direct links. You'll need:
->
-> 1. A Google account with access to Google Cloud Console
-> 2. About 5 minutes
->
-> Ready to start?
-
-If the user declines, stop.
-
-## Path B Step 2: Create or Select a Project
-
-Tell the user:
-
-> **Step 1: Select or create a Google Cloud project**
->
-> Open this link to see your existing projects:
-> `https://console.cloud.google.com/cloud-resource-manager`
->
-> If you have a project you'd like to use, send me the **project ID** (second column in the table, looks like `my-project-123456`).
->
-> If you want to create a new one, open:
-> `https://console.cloud.google.com/projectcreate`
->
-> Set the name to **Vellum Assistant** and click **Create**. Then send me the project ID.
-
-Wait for confirmation. Record the project ID for subsequent steps.
-
-## Path B Step 3: Enable APIs
-
-Tell the user:
-
-> **Step 2: Enable Gmail and Calendar APIs**
->
-> Open each link below and click **Enable**:
->
-> 1. Gmail API: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
-> 2. Calendar API: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
->
-> Let me know when both are enabled.
-
-## Path B Step 4: Configure OAuth Consent Screen
-
-Tell the user:
-
-> **Step 3: Configure the OAuth consent screen**
->
-> This has a few parts. Work through them in order:
->
-> **3a. Branding** — Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
->
-> If the page is empty or shows **Get Started**, fill in:
->
-> - App name: **Vellum Assistant**
-> - User support email: **your email**
-> - Developer contact email: **your email**
-> - Click **Save**
->
-> If branding is already configured, skip to the next part.
->
-> **3b. Audience** — Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
->
-> - Set user type to **External** if not already set
-> - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
->
-> **3c. Scopes** — Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
->
-> - Click **Add or Remove Scopes**
-> - Find the **"Manually add scopes"** text box and paste these (comma-separated):
->   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
-> - Click **Add to Table**, then **Save**
->
-> Let me know when all three parts are done.
-
-## Path B Step 5: Create Web Application Credentials
-
-Before sending the next step, resolve the concrete callback URL:
-
-- Read the configured public gateway URL from `ingress.publicBaseUrl`.
-- If it is missing, load and run the `public-ingress` skill first: call `skill_load` with `skill: "public-ingress"`, then follow its instructions.
-- Build `oauthCallbackUrl` as `<public gateway URL>/webhooks/oauth/callback`.
-- Replace `OAUTH_CALLBACK_URL` below with that concrete value. Never send the placeholder literally.
-
-Tell the user:
-
-> **Step 4: Create OAuth credentials**
->
-> Open: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`
->
-> Use this exact redirect URI:
-> `OAUTH_CALLBACK_URL`
->
-> 1. Application type: **Web application**
-> 2. Name: **Vellum Assistant**
-> 3. Under **Authorized redirect URIs**, click **Add URI** and paste the redirect URI shown above
-> 4. Click **Create**
->
-> When the dialog appears, copy the Client ID and Client Secret. You'll send them to me next.
-
-## Path B Step 6: Store Credentials
-
-### Path B Step 6a: Client ID
-
-Tell the user:
-
-> **Step 5a: Send your Client ID**
->
-> Send me the **Client ID** from the dialog. It looks like `123456789-xxxxx.apps.googleusercontent.com`.
-
-After the user sends it:
-
-```
-credential_store store:
-  service: "integration:gmail"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
-
-### Path B Step 6b: Client Secret Split Entry
-
-The Google client secret starts with `GOCSPX-`, which can trigger channel secret scanners. Ask for only the suffix.
-
-Tell the user:
-
-> **Step 5b: Send your Client Secret**
->
-> Your Client Secret starts with `GOCSPX-`. Please send me only the part **after** `GOCSPX-` as a standalone message with no other text.
-
-After the user sends the suffix, reconstruct and store the full secret:
-
-```
-credential_store store:
-  service: "integration:gmail"
-  field: "client_secret"
-  value: "GOCSPX-<the suffix the user sent>"
-```
-
-## Path B Step 7: Authorize
-
-Tell the user:
-
-> **Step 6: Authorize Gmail and Calendar**
->
-> I'll generate an authorization link for you now.
-
-```
-credential_store:
-  action: "oauth2_connect"
-  service: "integration:gmail"
-```
-
-Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.
-
-## Path B Step 8: Done
-
-After authorization:
-
-> **Gmail and Calendar are connected!**
+For non-interactive channels, see [references/path-b-manual-setup.md](references/path-b-manual-setup.md).
 
 ---
 
 ## Error Handling
 
-### Screenshot-Driven Adaptation
+### When Things Don't Match
 
-Screenshot after every user action and compare against expectations. When something doesn't match:
+When the user reports something doesn't look right, offer to take a screenshot to see what they're seeing. When something doesn't match:
 
 1. **Don't panic or apologize excessively** — "Okay, this looks a bit different than expected. Let me take a look..."
 2. **Describe what you see and reorient** — "It looks like you're on the project selector page. Let's pick the project we just created..."
@@ -511,7 +337,7 @@ Screenshot after every user action and compare against expectations. When someth
 
 | Situation                                    | Response                                                                  |
 | -------------------------------------------- | ------------------------------------------------------------------------- |
-| User lands on unexpected page                | Screenshot, identify where they are, navigate back                        |
+| User lands on unexpected page                | Offer to screenshot, identify where they are, navigate back               |
 | User not signed in to Google                 | Tell them to sign in, wait, continue                                      |
 | API already enabled                          | "Looks like this one's already enabled — great, let's skip ahead."        |
 | OAuth consent screen already configured      | "You've already set this up — let's go straight to creating credentials." |

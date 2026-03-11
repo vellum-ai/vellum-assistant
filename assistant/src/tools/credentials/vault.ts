@@ -67,9 +67,15 @@ function findStoredOAuthClientId(service: string): string | undefined {
     if (canonical === service) servicesToCheck.push(alias);
     if (alias === service) servicesToCheck.push(canonical);
   }
+  // Check metadata first (written by oauth2_connect after successful auth)
   for (const svc of servicesToCheck) {
     const meta = getCredentialMetadata(svc, "access_token");
     if (meta?.oauth2ClientId) return meta.oauth2ClientId;
+  }
+  // Fall back to secure key store (written by credential_store prompt action)
+  for (const svc of servicesToCheck) {
+    const value = getSecureKey(credentialKey(svc, "client_id"));
+    if (value) return value;
   }
   return undefined;
 }
