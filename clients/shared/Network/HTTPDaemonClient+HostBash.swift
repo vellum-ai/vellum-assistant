@@ -49,9 +49,8 @@ extension HTTPTransport {
     /// timeout, and collects stdout/stderr.
     func executeHostBashRequest(_ request: HostBashRequest) {
         Task.detached {
-            let maxTimeout: Double = 600
             let defaultTimeout: Double = 120
-            let timeout = min(request.timeoutSeconds ?? defaultTimeout, maxTimeout)
+            let timeout = request.timeoutSeconds ?? defaultTimeout
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
