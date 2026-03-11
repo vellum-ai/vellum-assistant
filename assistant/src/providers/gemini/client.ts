@@ -306,6 +306,12 @@ export class GeminiProvider implements Provider {
           });
           break;
         }
+        case "server_tool_use":
+          parts.push({ text: `[Web search: ${block.name}]` });
+          break;
+        case "web_search_tool_result":
+          parts.push({ text: "[Web search results]" });
+          break;
         // thinking, redacted_thinking — not applicable for Gemini
       }
     }

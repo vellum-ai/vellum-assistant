@@ -65,16 +65,15 @@ import * as documentUpdate from "./bundled-skills/document/tools/document-update
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
-// ── gmail ────────────────────────────────────────────────────────────────────
+// ── gmail ──────────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
+import * as gmailAttachments from "./bundled-skills/gmail/tools/gmail-attachments.js";
 import * as gmailBatchLabel from "./bundled-skills/gmail/tools/gmail-batch-label.js";
-import * as gmailDownloadAttachment from "./bundled-skills/gmail/tools/gmail-download-attachment.js";
 import * as gmailDraft from "./bundled-skills/gmail/tools/gmail-draft.js";
 import * as gmailFilters from "./bundled-skills/gmail/tools/gmail-filters.js";
 import * as gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js";
 import * as gmailForward from "./bundled-skills/gmail/tools/gmail-forward.js";
 import * as gmailLabel from "./bundled-skills/gmail/tools/gmail-label.js";
-import * as gmailListAttachments from "./bundled-skills/gmail/tools/gmail-list-attachments.js";
 import * as gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-outreach-scan.js";
 import * as gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
 import * as gmailSendWithAttachments from "./bundled-skills/gmail/tools/gmail-send-with-attachments.js";
@@ -134,18 +133,18 @@ import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update
 // ── screen-watch ───────────────────────────────────────────────────────────────
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── sequences ──────────────────────────────────────────────────────────────────
-import * as sequences_sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
-import * as sequences_sequenceCancel from "./bundled-skills/sequences/tools/sequence-cancel.js";
-import * as sequences_sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
-import * as sequences_sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
-import * as sequences_sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
-import * as sequences_sequenceEnrollmentList from "./bundled-skills/sequences/tools/sequence-enrollment-list.js";
-import * as sequences_sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
-import * as sequences_sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
-import * as sequences_sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
-import * as sequences_sequencePause from "./bundled-skills/sequences/tools/sequence-pause.js";
-import * as sequences_sequenceResume from "./bundled-skills/sequences/tools/sequence-resume.js";
-import * as sequences_sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
+import * as sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
+import * as sequenceCancel from "./bundled-skills/sequences/tools/sequence-cancel.js";
+import * as sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
+import * as sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
+import * as sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
+import * as sequenceEnrollmentList from "./bundled-skills/sequences/tools/sequence-enrollment-list.js";
+import * as sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
+import * as sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
+import * as sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
+import * as sequencePause from "./bundled-skills/sequences/tools/sequence-pause.js";
+import * as sequenceResume from "./bundled-skills/sequences/tools/sequence-resume.js";
+import * as sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
 // ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
@@ -287,8 +286,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
   ["gmail:tools/gmail-draft.ts", gmailDraft],
   ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["gmail:tools/gmail-list-attachments.ts", gmailListAttachments],
-  ["gmail:tools/gmail-download-attachment.ts", gmailDownloadAttachment],
+  ["gmail:tools/gmail-attachments.ts", gmailAttachments],
   ["gmail:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
   ["gmail:tools/gmail-forward.ts", gmailForward],
   ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
@@ -342,21 +340,18 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
 
   // sequences
-  ["sequences:tools/sequence-create.ts", sequences_sequenceCreate],
-  ["sequences:tools/sequence-list.ts", sequences_sequenceList],
-  ["sequences:tools/sequence-get.ts", sequences_sequenceGet],
-  ["sequences:tools/sequence-update.ts", sequences_sequenceUpdate],
-  ["sequences:tools/sequence-delete.ts", sequences_sequenceDelete],
-  ["sequences:tools/sequence-enroll.ts", sequences_sequenceEnroll],
-  [
-    "sequences:tools/sequence-enrollment-list.ts",
-    sequences_sequenceEnrollmentList,
-  ],
-  ["sequences:tools/sequence-pause.ts", sequences_sequencePause],
-  ["sequences:tools/sequence-resume.ts", sequences_sequenceResume],
-  ["sequences:tools/sequence-cancel.ts", sequences_sequenceCancel],
-  ["sequences:tools/sequence-import.ts", sequences_sequenceImport],
-  ["sequences:tools/sequence-analytics.ts", sequences_sequenceAnalytics],
+  ["sequences:tools/sequence-create.ts", sequenceCreate],
+  ["sequences:tools/sequence-list.ts", sequenceList],
+  ["sequences:tools/sequence-get.ts", sequenceGet],
+  ["sequences:tools/sequence-update.ts", sequenceUpdate],
+  ["sequences:tools/sequence-delete.ts", sequenceDelete],
+  ["sequences:tools/sequence-enroll.ts", sequenceEnroll],
+  ["sequences:tools/sequence-enrollment-list.ts", sequenceEnrollmentList],
+  ["sequences:tools/sequence-import.ts", sequenceImport],
+  ["sequences:tools/sequence-analytics.ts", sequenceAnalytics],
+  ["sequences:tools/sequence-pause.ts", sequencePause],
+  ["sequences:tools/sequence-resume.ts", sequenceResume],
+  ["sequences:tools/sequence-cancel.ts", sequenceCancel],
 
   // settings
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
