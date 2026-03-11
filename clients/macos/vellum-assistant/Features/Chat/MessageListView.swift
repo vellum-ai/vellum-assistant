@@ -312,6 +312,23 @@ struct MessageListView: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
+    @ViewBuilder
+    private var assistantAvatarFooter: some View {
+        HStack {
+            Image(nsImage: appearance.chatAvatarImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
+                )
+            Spacer()
+        }
+        .padding(.top, VSpacing.xs)
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -452,6 +469,18 @@ struct MessageListView: View {
 
                     if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
                         thinkingIndicatorRow(displayMessages: displayMessages)
+                    }
+
+                    // Floating avatar — anchored at bottom of conversation, Claude-style.
+                    // Shown when the assistant has spoken or is actively thinking,
+                    // but not on user-only threads before the assistant has replied.
+                    // Uses displayMessages (the filtered/visible set) not raw messages,
+                    // since subagent notifications and other hidden items are excluded
+                    // from the rendered list.
+                    if displayMessages.contains(where: { $0.role == .assistant }) || shouldShowThinkingIndicator {
+                        assistantAvatarFooter
+                            .id("avatar-footer")
+                            .transition(.opacity)
                     }
 
                     Color.clear.frame(height: 1)
