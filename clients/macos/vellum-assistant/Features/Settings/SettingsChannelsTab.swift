@@ -52,7 +52,6 @@ struct SettingsChannelsTab: View {
     /// that needs the 1-second countdown timer for expiry/resend cooldown display.
     private var hasAnyOutboundSession: Bool {
         store.telegramOutboundSessionId != nil ||
-        store.smsOutboundSessionId != nil ||
         store.voiceOutboundSessionId != nil ||
         store.slackOutboundSessionId != nil
     }

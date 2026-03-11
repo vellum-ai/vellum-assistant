@@ -47,12 +47,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramVerificationInstruction)
         XCTAssertNil(store.telegramVerificationError)
 
-        XCTAssertNil(store.smsVerificationIdentity)
-        XCTAssertFalse(store.smsVerificationVerified)
-        XCTAssertFalse(store.smsVerificationInProgress)
-        XCTAssertNil(store.smsVerificationInstruction)
-        XCTAssertNil(store.smsVerificationError)
-
         XCTAssertNil(store.voiceVerificationIdentity)
         XCTAssertFalse(store.voiceVerificationVerified)
         XCTAssertFalse(store.voiceVerificationInProgress)
@@ -90,19 +84,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(sessionMessages.count, 1)
     }
 
-    // MARK: - startChannelVerification (SMS)
-
-    func testStartSmsVerificationSetsInProgressAndSendsSession() {
-        store.startChannelVerification(channel: "sms")
-
-        XCTAssertTrue(store.smsVerificationInProgress)
-        XCTAssertNil(store.smsVerificationError)
-
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
-        XCTAssertEqual(sessionMessages.count, 1)
-    }
-
     // MARK: - Successful status response
 
     func testSuccessfulStatusResponseUpdatesTelegramVerificationState() {
@@ -127,30 +108,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.telegramVerificationVerified)
         XCTAssertFalse(store.telegramVerificationInProgress)
         XCTAssertNil(store.telegramVerificationError)
-    }
-
-    func testSuccessfulStatusResponseUpdatesSmsVerificationState() {
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
-            type: "channel_verification_session_response",
-            success: true,
-            secret: nil,
-            instruction: nil,
-            bound: true,
-            guardianExternalUserId: "+15551234567",
-            channel: "sms",
-            assistantId: "self",
-            guardianDeliveryChatId: nil,
-            error: nil
-        ))
-
-        let predicate = NSPredicate { _, _ in self.store.smsVerificationVerified }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        wait(for: [expectation], timeout: 2.0)
-
-        XCTAssertEqual(store.smsVerificationIdentity, "+15551234567")
-        XCTAssertTrue(store.smsVerificationVerified)
-        XCTAssertFalse(store.smsVerificationInProgress)
-        XCTAssertNil(store.smsVerificationError)
     }
 
     // MARK: - Successful create_session response provides instruction
@@ -247,30 +204,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(store.telegramVerificationError, "Telegram bot not configured")
     }
 
-    func testFailedResponseSetsSmsError() {
-        store.smsVerificationInProgress = true
-
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
-            type: "channel_verification_session_response",
-            success: false,
-            secret: nil,
-            instruction: nil,
-            bound: nil,
-            guardianExternalUserId: nil,
-            channel: "sms",
-            assistantId: "self",
-            guardianDeliveryChatId: nil,
-            error: "Twilio credentials missing"
-        ))
-
-        let predicate = NSPredicate { _, _ in !self.store.smsVerificationInProgress }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        wait(for: [expectation], timeout: 2.0)
-
-        XCTAssertFalse(store.smsVerificationInProgress)
-        XCTAssertEqual(store.smsVerificationError, "Twilio credentials missing")
-    }
-
     // MARK: - Unknown channel is silently ignored
 
     func testResponseForUnknownChannelIsIgnored() {
@@ -287,11 +220,9 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             error: nil
         ))
 
-        // Neither telegram nor sms state should change
+        // Neither telegram nor voice state should change
         XCTAssertNil(store.telegramVerificationIdentity)
         XCTAssertFalse(store.telegramVerificationVerified)
-        XCTAssertNil(store.smsVerificationIdentity)
-        XCTAssertFalse(store.smsVerificationVerified)
     }
 
     func testResponseWithNilChannelAndNoPendingStateIsIgnored() {
@@ -310,8 +241,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         XCTAssertNil(store.telegramVerificationIdentity)
         XCTAssertFalse(store.telegramVerificationVerified)
-        XCTAssertNil(store.smsVerificationIdentity)
-        XCTAssertFalse(store.smsVerificationVerified)
     }
 
     func testResponseWithNilChannelUsesPendingVerificationChannel() {
@@ -453,14 +382,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(revokeMessages.count, 1)
     }
 
-    func testRevokeSmsVerificationSendsRevokeAction() {
-        store.revokeChannelVerification(channel: "sms")
-
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let revokeMessages = verificationMessages.filter { $0.action == "revoke" && $0.channel == "sms" }
-        XCTAssertEqual(revokeMessages.count, 1)
-    }
-
     // MARK: - No daemon client doesn't crash
 
     func testNoDaemonClientDoesNotCrash() {
@@ -468,13 +389,10 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         // None of these should crash
         orphanStore.refreshChannelVerificationStatus(channel: "telegram")
-        orphanStore.refreshChannelVerificationStatus(channel: "sms")
         orphanStore.refreshChannelVerificationStatus(channel: "phone")
         orphanStore.startChannelVerification(channel: "telegram")
-        orphanStore.startChannelVerification(channel: "sms")
         orphanStore.startChannelVerification(channel: "phone")
         orphanStore.revokeChannelVerification(channel: "telegram")
-        orphanStore.revokeChannelVerification(channel: "sms")
         orphanStore.revokeChannelVerification(channel: "phone")
     }
 
@@ -534,11 +452,9 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let statusMessages = verificationMessages.filter { $0.action == "status" }
 
         let telegramStatus = statusMessages.filter { $0.channel == "telegram" }
-        let smsStatus = statusMessages.filter { $0.channel == "sms" }
         let voiceStatus = statusMessages.filter { $0.channel == "phone" }
 
         XCTAssertEqual(telegramStatus.count, 1)
-        XCTAssertEqual(smsStatus.count, 1)
         XCTAssertEqual(voiceStatus.count, 1)
     }
 
@@ -588,14 +504,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramVerificationInstruction)
     }
 
-    func testRevokeSmsVerificationClearsInstruction() {
-        store.smsVerificationInstruction = "Send code abc123 via SMS"
-
-        store.revokeChannelVerification(channel: "sms")
-
-        XCTAssertNil(store.smsVerificationInstruction)
-    }
-
     // MARK: - Timeout clears instruction
 
     func testTimeoutClearsTelegramInstruction() {
@@ -624,74 +532,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertFalse(shortTimeoutStore.telegramVerificationInProgress)
     }
 
-    func testTimeoutClearsSmsInstruction() {
-        sentMessages.removeAll()
-        let shortTimeoutStore = SettingsStore(
-            daemonClient: daemonClient,
-            verificationSessionTimeoutDuration: 0.15,
-            verificationStatusPollInterval: 0.05,
-            verificationStatusPollWindow: 2.0
-        )
-
-        shortTimeoutStore.startChannelVerification(channel: "sms")
-
-        // Manually set instruction to simulate a previous session's stale text
-        shortTimeoutStore.smsVerificationInstruction = "Send code stale via SMS"
-
-        // Wait for the timeout to fire
-        let predicate = NSPredicate { _, _ in
-            shortTimeoutStore.smsVerificationError != nil
-        }
-        let timeoutExpectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        wait(for: [timeoutExpectation], timeout: 2.0)
-
-        XCTAssertNil(shortTimeoutStore.smsVerificationInstruction)
-        XCTAssertFalse(shortTimeoutStore.smsVerificationInProgress)
-    }
-
     // MARK: - Cross-channel timeout isolation
-
-    func testResponseForChannelADoesNotCancelTimeoutForChannelB() {
-        // Use a short timeout so the test completes quickly
-        sentMessages.removeAll()
-        let shortTimeoutStore = SettingsStore(
-            daemonClient: daemonClient,
-            verificationSessionTimeoutDuration: 0.3,
-            verificationStatusPollInterval: 0.05,
-            verificationStatusPollWindow: 2.0
-        )
-
-        // Start SMS verification — this arms the timeout for SMS
-        shortTimeoutStore.startChannelVerification(channel: "sms")
-        XCTAssertTrue(shortTimeoutStore.smsVerificationInProgress)
-
-        // A telegram response arrives — this must NOT cancel the SMS timeout
-        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
-            type: "channel_verification_session_response",
-            success: true,
-            secret: nil,
-            instruction: nil,
-            bound: true,
-            guardianExternalUserId: "tg_user_123",
-            channel: "telegram",
-            assistantId: testAssistantId,
-            guardianDeliveryChatId: "chat_456",
-            error: nil
-        ))
-
-        // SMS should still be in progress right after the telegram response
-        XCTAssertTrue(shortTimeoutStore.smsVerificationInProgress)
-        XCTAssertNil(shortTimeoutStore.smsVerificationError)
-
-        // Wait for the SMS timeout to fire (0.3s + buffer)
-        let predicate = NSPredicate { _, _ in !shortTimeoutStore.smsVerificationInProgress }
-        let timeoutExpectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        wait(for: [timeoutExpectation], timeout: 2.0)
-
-        // The SMS timeout should have fired, clearing the spinner and setting an error
-        XCTAssertFalse(shortTimeoutStore.smsVerificationInProgress)
-        XCTAssertEqual(shortTimeoutStore.smsVerificationError, "Timed out waiting for verification instructions. Try again.")
-    }
 
     // MARK: - Voice Channel Verification
 
@@ -793,7 +634,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertFalse(shortTimeoutStore.voiceVerificationInProgress)
     }
 
-    func testVoiceResponseDoesNotAffectTelegramOrSmsState() {
+    func testVoiceResponseDoesNotAffectTelegramState() {
         daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
@@ -811,36 +652,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        // Telegram and SMS should be unaffected
+        // Telegram should be unaffected
         XCTAssertNil(store.telegramVerificationIdentity)
         XCTAssertFalse(store.telegramVerificationVerified)
-        XCTAssertNil(store.smsVerificationIdentity)
-        XCTAssertFalse(store.smsVerificationVerified)
     }
 
     // MARK: - Outbound Verification: startOutboundVerification
-
-    func testStartOutboundVerificationSendsCorrectMessage() {
-        store.startOutboundVerification(channel: "sms", destination: "+15551234567")
-
-        let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let outboundMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
-        XCTAssertEqual(outboundMessages.count, 1)
-        XCTAssertEqual(outboundMessages.first?.destination, "+15551234567")
-        XCTAssertTrue(store.smsVerificationInProgress)
-    }
-
-    func testStartOutboundVerificationClearsExistingOutboundState() {
-        store.smsOutboundSessionId = "old-session"
-        store.smsOutboundExpiresAt = Date()
-        store.smsOutboundSendCount = 3
-
-        store.startOutboundVerification(channel: "sms", destination: "+15551234567")
-
-        XCTAssertNil(store.smsOutboundSessionId)
-        XCTAssertNil(store.smsOutboundExpiresAt)
-        XCTAssertEqual(store.smsOutboundSendCount, 0)
-    }
 
     func testStartOutboundTelegramVerificationSendsCorrectMessage() {
         store.startOutboundVerification(channel: "telegram", destination: "@guardian_user")
@@ -855,7 +672,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Outbound Verification: response populates session state
 
     func testOutboundResponsePopulatesSessionState() {
-        store.smsVerificationInProgress = true
+        store.telegramVerificationInProgress = true
 
         let expiresMs = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
         let nextResendMs = Int(Date().addingTimeInterval(30).timeIntervalSince1970 * 1000)
@@ -863,21 +680,21 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
-            channel: "sms",
+            channel: "telegram",
             verificationSessionId: "sess-123",
             expiresAt: expiresMs,
             nextResendAt: nextResendMs,
             sendCount: 1
         ))
 
-        let predicate = NSPredicate { _, _ in self.store.smsOutboundSessionId == "sess-123" }
+        let predicate = NSPredicate { _, _ in self.store.telegramOutboundSessionId == "sess-123" }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        XCTAssertEqual(store.smsOutboundSessionId, "sess-123")
-        XCTAssertNotNil(store.smsOutboundExpiresAt)
-        XCTAssertNotNil(store.smsOutboundNextResendAt)
-        XCTAssertEqual(store.smsOutboundSendCount, 1)
+        XCTAssertEqual(store.telegramOutboundSessionId, "sess-123")
+        XCTAssertNotNil(store.telegramOutboundExpiresAt)
+        XCTAssertNotNil(store.telegramOutboundNextResendAt)
+        XCTAssertEqual(store.telegramOutboundSendCount, 1)
     }
 
     // MARK: - Outbound Verification: Telegram bootstrap URL
@@ -911,31 +728,31 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let verificationMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let resendCountBefore = verificationMessagesBefore.filter { $0.action == "resend_session" }.count
 
-        store.resendOutboundVerification(channel: "sms")
+        store.resendOutboundVerification(channel: "telegram")
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let resendMessages = verificationMessages.filter { $0.action == "resend_session" && $0.channel == "sms" }
+        let resendMessages = verificationMessages.filter { $0.action == "resend_session" && $0.channel == "telegram" }
         XCTAssertEqual(resendMessages.count, resendCountBefore + 1)
     }
 
     // MARK: - Outbound Verification: cancel clears state
 
     func testCancelOutboundClearsState() {
-        store.smsOutboundSessionId = "sess-to-cancel"
-        store.smsOutboundExpiresAt = Date().addingTimeInterval(300)
-        store.smsOutboundSendCount = 2
-        store.smsVerificationInProgress = true
+        store.voiceOutboundSessionId = "sess-to-cancel"
+        store.voiceOutboundExpiresAt = Date().addingTimeInterval(300)
+        store.voiceOutboundSendCount = 2
+        store.voiceVerificationInProgress = true
 
-        store.cancelOutboundVerification(channel: "sms")
+        store.cancelOutboundVerification(channel: "phone")
 
-        XCTAssertNil(store.smsOutboundSessionId)
-        XCTAssertNil(store.smsOutboundExpiresAt)
-        XCTAssertNil(store.smsOutboundNextResendAt)
-        XCTAssertEqual(store.smsOutboundSendCount, 0)
-        XCTAssertFalse(store.smsVerificationInProgress)
+        XCTAssertNil(store.voiceOutboundSessionId)
+        XCTAssertNil(store.voiceOutboundExpiresAt)
+        XCTAssertNil(store.voiceOutboundNextResendAt)
+        XCTAssertEqual(store.voiceOutboundSendCount, 0)
+        XCTAssertFalse(store.voiceVerificationInProgress)
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let cancelMessages = verificationMessages.filter { $0.action == "cancel_session" && $0.channel == "sms" }
+        let cancelMessages = verificationMessages.filter { $0.action == "cancel_session" && $0.channel == "phone" }
         XCTAssertEqual(cancelMessages.count, 1)
     }
 
@@ -952,27 +769,27 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Outbound Verification: verified response clears outbound state
 
     func testVerifiedResponseClearsOutboundState() {
-        store.smsOutboundSessionId = "sess-pending"
-        store.smsOutboundExpiresAt = Date().addingTimeInterval(300)
-        store.smsOutboundSendCount = 1
+        store.voiceOutboundSessionId = "sess-pending"
+        store.voiceOutboundExpiresAt = Date().addingTimeInterval(300)
+        store.voiceOutboundSendCount = 1
 
         daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
             bound: true,
             guardianExternalUserId: "+15551234567",
-            channel: "sms",
+            channel: "phone",
             assistantId: "self"
         ))
 
-        let predicate = NSPredicate { _, _ in self.store.smsVerificationVerified }
+        let predicate = NSPredicate { _, _ in self.store.voiceVerificationVerified }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        XCTAssertNil(store.smsOutboundSessionId)
-        XCTAssertNil(store.smsOutboundExpiresAt)
-        XCTAssertEqual(store.smsOutboundSendCount, 0)
-        XCTAssertTrue(store.smsVerificationVerified)
+        XCTAssertNil(store.voiceOutboundSessionId)
+        XCTAssertNil(store.voiceOutboundExpiresAt)
+        XCTAssertEqual(store.voiceOutboundSendCount, 0)
+        XCTAssertTrue(store.voiceVerificationVerified)
     }
 
     // MARK: - Outbound Verification: initial state is nil
@@ -983,11 +800,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramOutboundNextResendAt)
         XCTAssertEqual(store.telegramOutboundSendCount, 0)
         XCTAssertNil(store.telegramBootstrapUrl)
-
-        XCTAssertNil(store.smsOutboundSessionId)
-        XCTAssertNil(store.smsOutboundExpiresAt)
-        XCTAssertNil(store.smsOutboundNextResendAt)
-        XCTAssertEqual(store.smsOutboundSendCount, 0)
 
         XCTAssertNil(store.voiceOutboundSessionId)
         XCTAssertNil(store.voiceOutboundExpiresAt)
