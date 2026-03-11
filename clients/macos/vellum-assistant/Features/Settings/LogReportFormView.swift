@@ -81,7 +81,7 @@ struct LogReportFormView: View {
     }
 
     private var privacyNote: some View {
-        Text("Your email is included only in the log archive for follow-up. It is not sent to any analytics service.")
+        Text("Your email is stored locally on this device for follow-up. It is not sent to any external service.")
             .font(VFont.caption)
             .foregroundColor(VColor.textMuted)
             .fixedSize(horizontal: false, vertical: true)
