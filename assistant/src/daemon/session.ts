@@ -363,6 +363,8 @@ export class Session {
     // Scan loaded history for attachment content blocks so that asset
     // tools are available when resuming a conversation that already had
     // attachments. One-way: once true it stays true for the session.
+    // Also picks up the hasAttachments flag set by loadFromDbImpl which
+    // scans compacted (sliced-off) messages that aren't in this.messages.
     if (!this.hasAttachments && messagesContainAttachments(this.messages)) {
       this.hasAttachments = true;
     }
