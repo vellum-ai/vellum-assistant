@@ -34,6 +34,7 @@ import * as externalConversationStore from "../../memory/external-conversation-s
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
+import type { HostBashResponse } from "../message-types/host-bash.js";
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -240,6 +241,29 @@ export function handleSecretResponse(
   log.warn(
     { requestId: msg.requestId },
     "No session found with pending secret prompt for requestId",
+  );
+}
+
+export function handleHostBashResponse(
+  msg: HostBashResponse,
+  ctx: HandlerContext,
+): void {
+  for (const [sessionId, session] of ctx.sessions) {
+    if (session.hasPendingHostBash(msg.requestId)) {
+      ctx.touchSession(sessionId);
+      session.resolveHostBash(msg.requestId, {
+        stdout: msg.stdout,
+        stderr: msg.stderr,
+        exitCode: msg.exitCode,
+        timedOut: msg.timedOut,
+      });
+      pendingInteractions.resolve(msg.requestId);
+      return;
+    }
+  }
+  log.warn(
+    { requestId: msg.requestId },
+    "No session found with pending host bash request for requestId",
   );
 }
 
