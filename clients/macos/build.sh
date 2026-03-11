@@ -947,12 +947,22 @@ if [ "$CMD" = "run" ]; then
     # bundle ID and show it in System Settings > Privacy & Security.
     open "$APP_DIR"
 
+    # Stream unified logs from the app in the background so errors are
+    # visible in the same terminal. Only start once (skip nested rebuilds).
+    if [ -z "${VELLUM_NO_WATCH:-}" ]; then
+        LOG_STREAM_PID=""
+        echo ""
+        echo "Streaming app logs (subsystem: $BUNDLE_ID)..."
+        log stream --predicate "subsystem == \"$BUNDLE_ID\"" --level debug &
+        LOG_STREAM_PID=$!
+    fi
+
     # Watch for file changes and auto-rebuild+relaunch (skip in nested invocations)
     if [ -z "${VELLUM_NO_WATCH:-}" ]; then
         WATCH_MARKER=$(mktemp)
         WATCH_MANIFEST=$(mktemp)
         touch "$WATCH_MARKER"
-        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"' EXIT
+        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"; [ -n "${LOG_STREAM_PID:-}" ] && kill "$LOG_STREAM_PID" 2>/dev/null || true' EXIT
 
         WATCH_DIRS=("$SCRIPT_DIR/vellum-assistant" "$SCRIPT_DIR/vellum-assistant-app")
         WATCH_FILES=("$SCRIPT_DIR/../Package.swift")
