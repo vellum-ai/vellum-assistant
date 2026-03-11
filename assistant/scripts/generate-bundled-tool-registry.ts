@@ -68,9 +68,12 @@ async function main() {
     let raw: string;
     try {
       raw = await readFile(toolsJsonPath, "utf-8");
-    } catch {
-      // No TOOLS.json — skip this skill.
-      continue;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        // No TOOLS.json — skip this skill.
+        continue;
+      }
+      throw err;
     }
 
     const toolsJson: ToolsJson = JSON.parse(raw);
