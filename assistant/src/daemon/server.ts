@@ -57,6 +57,7 @@ import type {
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostFileProxy } from "./host-file-proxy.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   DEFAULT_MEMORY_POLICY,
@@ -650,8 +651,16 @@ export class DaemonServer {
           }),
         );
       }
+      if (!session.isProcessing() || !session.hostFileProxy) {
+        session.setHostFileProxy(
+          new HostFileProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      }
     } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);
+      session.setHostFileProxy(undefined);
     }
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
