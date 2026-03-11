@@ -738,6 +738,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - Outbound Verification: cancel clears state
 
+
     func testCancelOutboundTelegramClearsBootstrapUrl() {
         store.telegramOutboundSessionId = "tg-sess-cancel"
         store.telegramBootstrapUrl = "https://t.me/MyBot?start=verify_abc"
