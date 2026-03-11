@@ -81,6 +81,9 @@ extension DaemonClient {
         case .hostBashRequest(let msg):
             onHostBashRequest?(msg)
             handleHostBashRequest(msg)
+        case .hostFileRequest(let msg):
+            onHostFileRequest?(msg)
+            handleHostFileRequest(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
@@ -345,6 +348,26 @@ extension DaemonClient {
         }
     }
     #endif
+
+    // MARK: - Host File Proxy
+
+    /// Handle a host_file_request by executing the file operation locally
+    /// and posting the result back to the daemon.
+    func handleHostFileRequest(_ msg: HostFileRequest) {
+        #if os(macOS)
+        httpTransport?.executeHostFileRequest(msg)
+        #else
+        log.warning("Received host_file_request on iOS — local file operations not supported")
+        Task {
+            let result = HostFileResultPayload(
+                requestId: msg.requestId,
+                content: "Host file operations are not supported on iOS",
+                isError: true
+            )
+            await httpTransport?.postHostFileResult(result)
+        }
+        #endif
+    }
 
     // MARK: - Host Bash Proxy
 

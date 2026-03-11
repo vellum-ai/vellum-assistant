@@ -352,6 +352,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `host_bash_request` message for proxy command execution.
     public var onHostBashRequest: ((HostBashRequest) -> Void)?
 
+    /// Called when the daemon sends a `host_file_request` message for proxy file operations.
+    public var onHostFileRequest: ((HostFileRequest) -> Void)?
+
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
     public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 

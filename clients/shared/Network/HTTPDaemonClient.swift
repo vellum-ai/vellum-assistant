@@ -417,6 +417,9 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case hostBashResult
 
+        // Host File Proxy
+        case hostFileResult
+
         // BTW side-chain
         case btw
 
@@ -817,6 +820,9 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case .hostBashResult:
             return ("/v1/host-bash-result", nil)
+        // Host File Proxy
+        case .hostFileResult:
+            return ("/v1/host-file-result", nil)
         // BTW side-chain
         case .btw:
             return ("/v1/btw", nil)
@@ -1200,6 +1206,9 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case .hostBashResult:
             return ("\(prefix)/host-bash-result/", nil)
+        // Host File Proxy
+        case .hostFileResult:
+            return ("\(prefix)/host-file-result/", nil)
         // BTW side-chain
         case .btw:
             return ("\(prefix)/btw/", nil)
