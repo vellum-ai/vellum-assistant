@@ -125,7 +125,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin assistant-cli-bin gateway-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true

@@ -212,10 +212,6 @@ build_binaries() {
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/cli-bin" "vellum-cli"
 
-    # Assistant CLI
-    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-cli-bin" "vellum-assistant-cli"
-
     # Gateway
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
@@ -424,30 +420,6 @@ if [ -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
     fi
 fi
 
-# Auto-build assistant CLI binary if missing or stale (source changed) and bun is available
-ASSISTANT_CLI_BIN_NEEDS_BUILD=false
-if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
-    if [ ! -f "$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli" ]; then
-        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
-    elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli" -print -quit 2>/dev/null)" ]; then
-        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
-    elif [ "$ASSISTANT_SRC_DIR/package.json" -nt "$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli" ] || \
-         [ "$ASSISTANT_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli" ]; then
-        ASSISTANT_CLI_BIN_NEEDS_BUILD=true
-    fi
-fi
-if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
-    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-cli-bin" "vellum-assistant-cli"
-fi
-
-# Also rebuild if assistant CLI binary changed or newly added
-if [ -f "$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli" ]; then
-    if [ ! -f "$MACOS_DIR/vellum-assistant-cli" ] || [ "$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli" -nt "$MACOS_DIR/vellum-assistant-cli" ]; then
-        NEEDS_REBUILD=true
-    fi
-fi
-
 # Auto-build gateway binary if missing or stale (source changed) and bun is available
 GATEWAY_BIN_NEEDS_BUILD=false
 if [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
@@ -508,16 +480,6 @@ if [ "$NEEDS_REBUILD" = true ]; then
         cp "$SCRIPT_DIR/../../meta/Dockerfile" "$RESOURCES_DIR/Dockerfile"
     else
         echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
-    fi
-
-    # Copy bundled assistant CLI binary (if available — built by CI or locally)
-    ASSISTANT_CLI_BIN="$SCRIPT_DIR/assistant-cli-bin/vellum-assistant-cli"
-    if [ -f "$ASSISTANT_CLI_BIN" ]; then
-        echo "Bundling assistant CLI binary..."
-        cp "$ASSISTANT_CLI_BIN" "$MACOS_DIR/vellum-assistant-cli"
-        chmod +x "$MACOS_DIR/vellum-assistant-cli"
-    else
-        echo "No assistant CLI binary at $ASSISTANT_CLI_BIN — skipping (dev mode)"
     fi
 
     # Copy bundled gateway binary (if available — built by CI or locally)
@@ -896,16 +858,6 @@ if [ -f "$MACOS_DIR/vellum-cli" ]; then
     echo "CLI binary signed"
 fi
 
-# Sign assistant CLI binary
-if [ -f "$MACOS_DIR/vellum-assistant-cli" ]; then
-    ACLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        ACLI_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
-    codesign "${ACLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-assistant-cli"
-    echo "Assistant CLI binary signed"
-fi
-
 # Sign gateway binary
 if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
@@ -929,7 +881,6 @@ if [ -d "$MACOS_DIR" ]; then
         ! -name "$BUNDLE_DISPLAY_NAME" \
         ! -name "vellum-daemon" \
         ! -name "vellum-cli" \
-        ! -name "vellum-assistant-cli" \
         ! -name "vellum-gateway" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
