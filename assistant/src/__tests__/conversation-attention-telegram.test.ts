@@ -269,6 +269,7 @@ describe("Telegram callback seen signals", () => {
     const handleConfirmationResponse = mock(() => {});
     const mockSession = {
       handleConfirmationResponse,
+      ensureActorScopedHistory: async () => {},
     } as unknown as import("../daemon/session.js").Session;
     pendingInteractions.register("req-cb-test", {
       session: mockSession,
