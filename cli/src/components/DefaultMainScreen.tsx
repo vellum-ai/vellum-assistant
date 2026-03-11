@@ -1481,6 +1481,15 @@ function ChatApp({
         return;
       }
 
+      // If a connection attempt is already in progress, don't silently drop input
+      if (connectingRef.current) {
+        h.addStatus(
+          "Still connecting — please wait a moment and try again.",
+          "yellow",
+        );
+        return;
+      }
+
       if (trimmed.startsWith("/btw ")) {
         const question = trimmed.slice(5).trim();
         if (!question) return;
