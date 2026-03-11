@@ -318,11 +318,11 @@ extension ChatViewModel {
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
     func mapMessageAttachments(_ attachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
-        attachments.compactMap { ipc in
-            let id = ipc.id ?? UUID().uuidString
-            let base64 = ipc.data
+        attachments.compactMap { attachment in
+            let id = attachment.id ?? UUID().uuidString
+            let base64 = attachment.data
             let dataLength = base64.count
-            let sizeBytes: Int? = ipc.sizeBytes.flatMap { Int(exactly: $0) }
+            let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
 
             var thumbnailData: Data?
             #if os(macOS)
@@ -333,14 +333,14 @@ extension ChatViewModel {
             #error("Unsupported platform")
             #endif
 
-            if ipc.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
+            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
                 thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
                 #if os(macOS)
                 thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
                 #elseif os(iOS)
                 thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
                 #endif
-            } else if let serverThumb = ipc.thumbnailData, !serverThumb.isEmpty,
+            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
                       let thumbData = Data(base64Encoded: serverThumb) {
                 thumbnailData = thumbData
                 #if os(macOS)
@@ -352,22 +352,22 @@ extension ChatViewModel {
 
             return ChatAttachment(
                 id: id,
-                filename: ipc.filename,
-                mimeType: ipc.mimeType,
+                filename: attachment.filename,
+                mimeType: attachment.mimeType,
                 data: base64,
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
                 sizeBytes: sizeBytes,
                 thumbnailImage: thumbnailImage,
-                filePath: ipc.filePath
+                filePath: attachment.filePath
             )
         }
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
-    func ingestAssistantAttachments(_ ipcAttachments: [IPCUserMessageAttachment]?) {
-        guard let ipcAttachments, !ipcAttachments.isEmpty else { return }
-        let chatAttachments = mapMessageAttachments(ipcAttachments)
+    func ingestAssistantAttachments(_ attachments: [IPCUserMessageAttachment]?) {
+        guard let attachments, !attachments.isEmpty else { return }
+        let chatAttachments = mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
 
         if let existingId = currentAssistantMessageId,
