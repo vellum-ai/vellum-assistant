@@ -8,6 +8,8 @@ import {
   getMessagingProvider,
   isPlatformEnabled,
 } from "../../../../messaging/registry.js";
+import type { OAuthConnection } from "../../../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import { withValidToken } from "../../../../security/token-manager.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
 
@@ -126,9 +128,25 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
 }
 
 /**
+ * Resolve an OAuthConnection (or empty string for non-OAuth providers)
+ * for the given messaging provider.
+ *
+ * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
+ * tokens — they receive an empty string which the string overload handles.
+ */
+export function getProviderConnection(
+  provider: MessagingProvider,
+): OAuthConnection | string {
+  if (provider.isConnected?.()) return "";
+  return resolveOAuthConnection(provider.credentialService);
+}
+
+/**
  * Execute a callback with a valid OAuth token for the given provider.
  * Providers that manage their own auth (e.g. Telegram with a bot token)
  * expose isConnected() and don't need an OAuth access_token lookup.
+ *
+ * @deprecated Prefer getProviderConnection() and passing the connection directly.
  */
 export async function withProviderToken<T>(
   provider: MessagingProvider,

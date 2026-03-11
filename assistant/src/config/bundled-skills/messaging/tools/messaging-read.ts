@@ -2,7 +2,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
+import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -19,20 +19,19 @@ export async function run(
 
   try {
     const provider = resolveProvider(platform);
-    return withProviderToken(provider, async (token) => {
-      let messages;
-      if (threadId && provider.getThreadReplies) {
-        messages = await provider.getThreadReplies(
-          token,
-          conversationId,
-          threadId,
-          { limit },
-        );
-      } else {
-        messages = await provider.getHistory(token, conversationId, { limit });
-      }
-      return ok(JSON.stringify(messages, null, 2));
-    });
+    const conn = getProviderConnection(provider);
+    let messages;
+    if (threadId && provider.getThreadReplies) {
+      messages = await provider.getThreadReplies(
+        conn,
+        conversationId,
+        threadId,
+        { limit },
+      );
+    } else {
+      messages = await provider.getHistory(conn, conversationId, { limit });
+    }
+    return ok(JSON.stringify(messages, null, 2));
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
