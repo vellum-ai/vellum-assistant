@@ -279,7 +279,7 @@ export function projectSkillTools(
     return { toolDefinitions: [], allowedToolNames: new Set() };
   }
 
-  const allToolDefinitions: ToolDefinition[] = [];
+  // Tool definitions are no longer sent to the LLM — tools are invoked via skill_execute dispatch.
   const allToolNames = new Set<string>();
   const successfulEntries = new Map<string, string>();
   // Track skills already unregistered in the version-change branch so the
@@ -375,7 +375,6 @@ export function projectSkillTools(
 
       successfulEntries.set(skillId, currentHash);
       for (const tool of accepted) {
-        allToolDefinitions.push(tool.getDefinition());
         allToolNames.add(tool.name);
       }
     }
@@ -407,7 +406,7 @@ export function projectSkillTools(
   }
 
   return {
-    toolDefinitions: allToolDefinitions,
+    toolDefinitions: [],
     allowedToolNames: allToolNames,
   };
 }

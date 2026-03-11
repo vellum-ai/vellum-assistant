@@ -323,7 +323,7 @@ describe("projectSkillTools", () => {
     expect(result.allowedToolNames.size).toBe(0);
   });
 
-  test("active skill with valid manifest returns tool definitions", () => {
+  test("active skill with valid manifest returns empty tool definitions but populates allowedToolNames", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run", "deploy_status"]) };
 
@@ -335,11 +335,8 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
-    expect(result.toolDefinitions.map((d) => d.name)).toEqual([
-      "deploy_run",
-      "deploy_status",
-    ]);
+    // Tool definitions are no longer sent to the LLM — tools are invoked via skill_execute dispatch.
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "deploy_status"]),
     );
@@ -361,7 +358,7 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "oncall_page"]),
     );
@@ -384,7 +381,7 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "oncall_page"]),
     );
@@ -472,8 +469,7 @@ describe("projectSkillTools", () => {
     const result2 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result2.toolDefinitions).toHaveLength(1);
-    expect(result2.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result2.toolDefinitions).toEqual([]);
     expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
     expect(sessionState.has("deploy")).toBe(true);
 
@@ -502,8 +498,8 @@ describe("projectSkillTools", () => {
     const result2 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result2.toolDefinitions).toHaveLength(1);
-    expect(result2.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result2.toolDefinitions).toEqual([]);
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
     expect(sessionState.has("deploy")).toBe(true);
     expect(mockRegisteredTools.has("deploy")).toBe(true);
   });
@@ -536,7 +532,8 @@ describe("projectSkillTools", () => {
     const result3 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result3.toolDefinitions).toHaveLength(1);
+    expect(result3.toolDefinitions).toEqual([]);
+    expect(result3.allowedToolNames.has("deploy_run")).toBe(true);
     expect(sessionState.has("deploy")).toBe(true);
     // Ref count should be exactly 1, not 2
     expect(mockSkillRefCount.get("deploy")).toBe(1);
@@ -563,8 +560,8 @@ describe("projectSkillTools", () => {
     const result2 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result2.toolDefinitions).toHaveLength(1);
-    expect(result2.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result2.toolDefinitions).toEqual([]);
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
     expect(sessionState.get("deploy")).toBe("v1:hash-bbb");
     // Unregister was called for the stale version
     expect(mockUnregisteredSkillIds).toContain("deploy");
@@ -590,7 +587,8 @@ describe("projectSkillTools", () => {
     const result2 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions).toEqual([]);
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
     expect(mockUnregisteredSkillIds).not.toContain("deploy");
     // Ref count should still be 1 (no additional registration)
     expect(mockSkillRefCount.get("deploy")).toBe(1);
@@ -610,7 +608,7 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(["deploy_run"]));
   });
 
@@ -623,7 +621,7 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(["oncall_page"]));
   });
 
@@ -721,8 +719,10 @@ describe("projectSkillTools", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveTools callback (session wiring)", () => {
-  // Simulates the resolveTools callback wired in the Session constructor:
-  //   (history) => [...baseToolDefs, ...projectSkillTools(history).toolDefinitions]
+  // Simulates the resolveTools callback wired in the Session constructor.
+  // Since skill tool definitions are no longer sent to the LLM (tools are
+  // invoked via skill_execute dispatch), the definitions array only contains
+  // base (core + MCP) tools. Skill tool names still appear in allowedToolNames.
   const baseToolDefs: ToolDefinition[] = [
     {
       name: "file_read",
@@ -743,6 +743,7 @@ describe("resolveTools callback (session wiring)", () => {
       const projection = projectSkillTools(history, {
         previouslyActiveSkillIds: sessionState,
       });
+      // projection.toolDefinitions is now always [] — skill tools are dispatched via skill_execute
       return [...base, ...projection.toolDefinitions];
     };
   }
@@ -767,7 +768,7 @@ describe("resolveTools callback (session wiring)", () => {
     expect(result.map((d) => d.name)).toEqual(["file_read", "bash"]);
   });
 
-  test("combines base tools with projected skill tools", () => {
+  test("skill tools are NOT appended to definitions — only base tools returned", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run", "deploy_status"]) };
 
@@ -778,16 +779,12 @@ describe("resolveTools callback (session wiring)", () => {
 
     const result = resolveTools(history);
 
-    expect(result).toHaveLength(4);
-    expect(result.map((d) => d.name)).toEqual([
-      "file_read",
-      "bash",
-      "deploy_run",
-      "deploy_status",
-    ]);
+    // Only base tools — skill tool definitions no longer sent to LLM
+    expect(result).toHaveLength(2);
+    expect(result.map((d) => d.name)).toEqual(["file_read", "bash"]);
   });
 
-  test("skill tools appear after base tools and do not replace them", () => {
+  test("base tools are unchanged even when skills are active", () => {
     mockCatalog = [makeSkill("oncall")];
     mockManifests = { oncall: makeManifest(["oncall_page"]) };
 
@@ -798,13 +795,13 @@ describe("resolveTools callback (session wiring)", () => {
 
     const result = resolveTools(history);
 
-    // Base tools come first, skill tools are appended
+    // Only base tools present
+    expect(result).toHaveLength(2);
     expect(result[0].name).toBe("file_read");
     expect(result[1].name).toBe("bash");
-    expect(result[2].name).toBe("oncall_page");
   });
 
-  test("multiple skills add all their tools alongside base tools", () => {
+  test("multiple active skills do not add tools to definitions array", () => {
     mockCatalog = [makeSkill("deploy"), makeSkill("oncall")];
     mockManifests = {
       deploy: makeManifest(["deploy_run"]),
@@ -819,13 +816,14 @@ describe("resolveTools callback (session wiring)", () => {
 
     const result = resolveTools(history);
 
-    expect(result).toHaveLength(5);
+    // Only base tools — skill tool definitions no longer in the API tools array
+    expect(result).toHaveLength(2);
     const names = result.map((d) => d.name);
     expect(names).toContain("file_read");
     expect(names).toContain("bash");
-    expect(names).toContain("deploy_run");
-    expect(names).toContain("oncall_page");
-    expect(names).toContain("oncall_ack");
+    expect(names).not.toContain("deploy_run");
+    expect(names).not.toContain("oncall_page");
+    expect(names).not.toContain("oncall_ack");
   });
 });
 
@@ -1036,8 +1034,7 @@ describe("skill activation requires loaded_skill marker (security invariant)", (
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.toolDefinitions[0].name).toBe("approved_action");
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames.has("approved_action")).toBe(true);
   });
 });
@@ -1091,7 +1088,7 @@ describe("mid-run skill tool activation (end-to-end)", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("Turn 1 calls skill_load → Turn 2 sees added tool", () => {
+  test("Turn 1 calls skill_load → Turn 2 skill is in allowedToolNames but NOT in tool definitions", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run"]) };
 
@@ -1140,10 +1137,10 @@ describe("mid-run skill tool activation (end-to-end)", () => {
     ];
 
     const turn2Result = resolveTools(historyTurn2);
+    // Tool definitions remain stable (only base tools) — skill tools dispatched via skill_execute
     expect(turn2Result.toolDefinitions.map((d) => d.name)).toEqual([
       "file_read",
       "bash",
-      "deploy_run",
     ]);
     expect(turn2Result.allowedToolNames.has("deploy_run")).toBe(true);
   });
@@ -1190,13 +1187,14 @@ describe("mid-run skill tool activation (end-to-end)", () => {
 
     const result = resolveTools(history);
 
-    // Skill tools appear without needing another user message
-    expect(result.toolDefinitions.map((d) => d.name)).toContain(
+    // Skill tools are NOT in the definitions array — dispatched via skill_execute
+    expect(result.toolDefinitions.map((d) => d.name)).not.toContain(
       "monitor_check",
     );
-    expect(result.toolDefinitions.map((d) => d.name)).toContain(
+    expect(result.toolDefinitions.map((d) => d.name)).not.toContain(
       "monitor_alert",
     );
+    // But they ARE in the allowed set (for skill_execute dispatch)
     expect(result.allowedToolNames.has("monitor_check")).toBe(true);
     expect(result.allowedToolNames.has("monitor_alert")).toBe(true);
 
@@ -1251,9 +1249,11 @@ describe("mid-run skill tool activation (end-to-end)", () => {
 
     const resultA = resolveTools(historyAfterA);
     const namesA = resultA.toolDefinitions.map((d) => d.name);
-    expect(namesA).toContain("deploy_run");
+    // Skill tools not in definitions — only in allowedToolNames
+    expect(namesA).not.toContain("deploy_run");
     expect(namesA).not.toContain("oncall_page");
     expect(namesA).not.toContain("metrics_query");
+    expect(resultA.allowedToolNames.has("deploy_run")).toBe(true);
 
     // Step 2: Load skill B (oncall) — deploy should remain active
     const historyAfterB: Message[] = [
@@ -1283,9 +1283,12 @@ describe("mid-run skill tool activation (end-to-end)", () => {
 
     const resultB = resolveTools(historyAfterB);
     const namesB = resultB.toolDefinitions.map((d) => d.name);
-    expect(namesB).toContain("deploy_run");
-    expect(namesB).toContain("oncall_page");
+    // Skill tools not in definitions
+    expect(namesB).not.toContain("deploy_run");
+    expect(namesB).not.toContain("oncall_page");
     expect(namesB).not.toContain("metrics_query");
+    expect(resultB.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(resultB.allowedToolNames.has("oncall_page")).toBe(true);
 
     // Step 3: Load skill C (metrics) — all three should be active
     const historyAfterC: Message[] = [
@@ -1315,10 +1318,12 @@ describe("mid-run skill tool activation (end-to-end)", () => {
 
     const resultC = resolveTools(historyAfterC);
     const namesC = resultC.toolDefinitions.map((d) => d.name);
-    expect(namesC).toContain("deploy_run");
-    expect(namesC).toContain("oncall_page");
-    expect(namesC).toContain("metrics_query");
-    expect(namesC).toContain("metrics_dashboard");
+    // Skill tools not in definitions — only base tools
+    expect(namesC).not.toContain("deploy_run");
+    expect(namesC).not.toContain("oncall_page");
+    expect(namesC).not.toContain("metrics_query");
+    expect(namesC).not.toContain("metrics_dashboard");
+    expect(namesC).toEqual(["file_read", "bash"]);
 
     // Verify allowed tool names include all skill tools plus core tools
     expect(resultC.allowedToolNames.has("deploy_run")).toBe(true);
@@ -1383,7 +1388,7 @@ describe("context-derived deactivation regression", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("tool definitions shrink when skill load marker is removed from history", () => {
+  test("tool definitions stay stable — only allowedToolNames changes when skills deactivate", () => {
     mockCatalog = [makeSkill("deploy"), makeSkill("oncall")];
     mockManifests = {
       deploy: makeManifest(["deploy_run"]),
@@ -1398,9 +1403,10 @@ describe("context-derived deactivation regression", () => {
       ...skillLoadMessages('<loaded_skill id="oncall" />'),
     ];
     const result1 = resolveTools(history1);
-    expect(result1.toolDefinitions).toHaveLength(5); // 2 base + 3 skill tools
-    expect(result1.toolDefinitions.map((d) => d.name)).toContain("oncall_page");
-    expect(result1.toolDefinitions.map((d) => d.name)).toContain("oncall_ack");
+    // Only base tools in definitions — skill tools dispatched via skill_execute
+    expect(result1.toolDefinitions).toHaveLength(2);
+    expect(result1.allowedToolNames.has("oncall_page")).toBe(true);
+    expect(result1.allowedToolNames.has("oncall_ack")).toBe(true);
 
     // Turn 2: oncall marker removed from history (truncated)
     const history2: Message[] = [
@@ -1408,15 +1414,16 @@ describe("context-derived deactivation regression", () => {
     ];
     const result2 = resolveTools(history2);
 
-    // Tool definitions should only have base + deploy tools
-    expect(result2.toolDefinitions).toHaveLength(3); // 2 base + 1 skill tool
-    expect(result2.toolDefinitions.map((d) => d.name)).not.toContain(
-      "oncall_page",
-    );
-    expect(result2.toolDefinitions.map((d) => d.name)).not.toContain(
-      "oncall_ack",
-    );
-    expect(result2.toolDefinitions.map((d) => d.name)).toContain("deploy_run");
+    // Tool definitions unchanged — still only base tools
+    expect(result2.toolDefinitions).toHaveLength(2);
+    expect(result2.toolDefinitions.map((d) => d.name)).toEqual([
+      "file_read",
+      "bash",
+    ]);
+    // allowedToolNames reflects deactivation
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result2.allowedToolNames.has("oncall_page")).toBe(false);
+    expect(result2.allowedToolNames.has("oncall_ack")).toBe(false);
   });
 
   test("executor blocks the tool after deactivation — allowedToolNames excludes it", () => {
@@ -1495,7 +1502,8 @@ describe("context-derived deactivation regression", () => {
       ...skillLoadMessages('<loaded_skill id="oncall" />'),
     ];
     const result1 = resolveTools(history1);
-    expect(result1.toolDefinitions).toHaveLength(4); // 2 base + 2 skill
+    // Only base tools in definitions — skill tools dispatched via skill_execute
+    expect(result1.toolDefinitions).toHaveLength(2);
 
     // Clear tracking before turn 2
     mockUnregisteredSkillIds = [];
@@ -1506,7 +1514,7 @@ describe("context-derived deactivation regression", () => {
     ];
     const result2 = resolveTools(history2);
 
-    // Only base tools remain
+    // Still only base tools (same as turn 1)
     expect(result2.toolDefinitions).toHaveLength(2);
     expect(result2.toolDefinitions.map((d) => d.name)).toEqual([
       "file_read",
@@ -1553,7 +1561,10 @@ describe("context-derived deactivation regression", () => {
     ];
     const result3 = resolveTools(history3);
     expect(result3.allowedToolNames.has("deploy_run")).toBe(true);
-    expect(result3.toolDefinitions.map((d) => d.name)).toContain("deploy_run");
+    // Skill tools not in definitions — dispatched via skill_execute
+    expect(result3.toolDefinitions.map((d) => d.name)).not.toContain(
+      "deploy_run",
+    );
   });
 });
 
@@ -1576,7 +1587,7 @@ describe("slash preactivation through session processing", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("slash-known skill has its tools available on first projection (turn-0)", () => {
+  test("slash-known skill has its tools in allowedToolNames on first projection (turn-0)", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run", "deploy_status"]) };
 
@@ -1589,11 +1600,8 @@ describe("slash preactivation through session processing", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
-    expect(result.toolDefinitions.map((d) => d.name)).toEqual([
-      "deploy_run",
-      "deploy_status",
-    ]);
+    // Tool definitions are no longer sent to the LLM
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "deploy_status"]),
     );
@@ -1608,7 +1616,7 @@ describe("slash preactivation through session processing", () => {
       preactivatedSkillIds: ["deploy"],
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result1.toolDefinitions).toHaveLength(1);
+    expect(result1.toolDefinitions).toEqual([]);
     expect(result1.allowedToolNames.has("deploy_run")).toBe(true);
 
     // Second request: no preactivation, no history markers.
@@ -1617,7 +1625,7 @@ describe("slash preactivation through session processing", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result2.toolDefinitions).toHaveLength(0);
+    expect(result2.toolDefinitions).toEqual([]);
     expect(result2.allowedToolNames.has("deploy_run")).toBe(false);
   });
 
@@ -1639,7 +1647,7 @@ describe("slash preactivation through session processing", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "oncall_page"]),
     );
@@ -1680,7 +1688,7 @@ describe("bundled skill: gmail", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("gmail skill activation via loaded_skill marker projects all 12 tool definitions", () => {
+  test("gmail skill activation via loaded_skill marker registers all 12 tools in allowedToolNames", () => {
     mockCatalog = [makeSkill("gmail", "/path/to/bundled-skills/gmail")];
     mockManifests = { gmail: makeManifest([...GMAIL_TOOL_NAMES]) };
 
@@ -1692,10 +1700,7 @@ describe("bundled skill: gmail", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(12);
-    expect(result.toolDefinitions.map((d) => d.name)).toEqual([
-      ...GMAIL_TOOL_NAMES,
-    ]);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(GMAIL_TOOL_NAMES));
   });
 
@@ -1735,7 +1740,7 @@ describe("bundled skill: claude-code", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("claude-code skill activation produces claude_code tool definition", () => {
+  test("claude-code skill activation registers claude_code in allowedToolNames", () => {
     mockCatalog = [
       makeSkill("claude-code", "/path/to/bundled-skills/claude-code"),
     ];
@@ -1749,8 +1754,7 @@ describe("bundled skill: claude-code", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.toolDefinitions[0].name).toBe("claude_code");
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(["claude_code"]));
   });
 
@@ -1803,7 +1807,7 @@ describe("bundled skill: app-builder", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("app-builder skill activation projects all 9 canonical non-proxy tool definitions", () => {
+  test("app-builder skill activation registers all 9 canonical non-proxy tools in allowedToolNames", () => {
     mockCatalog = [
       makeSkill("app-builder", "/path/to/bundled-skills/app-builder"),
     ];
@@ -1819,10 +1823,7 @@ describe("bundled skill: app-builder", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(9);
-    expect(result.toolDefinitions.map((d) => d.name)).toEqual([
-      ...APP_BUILDER_TOOL_NAMES,
-    ]);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(APP_BUILDER_TOOL_NAMES));
   });
 
@@ -1893,7 +1894,7 @@ describe("bundled skill: browser", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("browser skill activation via loaded_skill marker projects all 14 tool definitions", () => {
+  test("browser skill activation via loaded_skill marker registers all 14 tools in allowedToolNames", () => {
     mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
     mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
 
@@ -1905,10 +1906,7 @@ describe("bundled skill: browser", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(14);
-    expect(result.toolDefinitions.map((d) => d.name)).toEqual([
-      ...BROWSER_TOOL_NAMES,
-    ]);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(BROWSER_TOOL_NAMES));
   });
 
@@ -1983,8 +1981,8 @@ describe("tamper detection", () => {
     const result1 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result1.toolDefinitions).toHaveLength(1);
-    expect(result1.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result1.toolDefinitions).toEqual([]);
+    expect(result1.allowedToolNames.has("deploy_run")).toBe(true);
     expect(sessionState.get("deploy")).toBe("v1:original-file-hash");
 
     // Simulate file mutation on disk — the hash changes
@@ -1997,8 +1995,8 @@ describe("tamper detection", () => {
     });
 
     // Tools are still available (re-registered with new hash)
-    expect(result2.toolDefinitions).toHaveLength(1);
-    expect(result2.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result2.toolDefinitions).toEqual([]);
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
 
     // Old tools were unregistered before new ones registered
     expect(mockUnregisteredSkillIds).toContain("deploy");
@@ -2029,7 +2027,8 @@ describe("tamper detection", () => {
       const result = projectSkillTools(history, {
         previouslyActiveSkillIds: sessionState,
       });
-      expect(result.toolDefinitions).toHaveLength(1);
+      expect(result.toolDefinitions).toEqual([]);
+      expect(result.allowedToolNames.has("deploy_run")).toBe(true);
       expect(mockUnregisteredSkillIds).not.toContain("deploy");
       expect(mockSkillRefCount.get("deploy")).toBe(1);
     }
@@ -2056,7 +2055,7 @@ describe("tamper detection", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "deploy_status"]),
     );
@@ -2096,7 +2095,7 @@ describe("tamper detection", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "oncall_page"]),
     );
@@ -2130,7 +2129,8 @@ describe("tamper detection", () => {
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
 
     // The exception triggers re-registration since the fallback hash
     // (`unknown-<timestamp>`) will never match the stored hash
@@ -2222,8 +2222,7 @@ describe("versioned markers through session projection", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(["deploy_run"]));
   });
 
@@ -2245,7 +2244,7 @@ describe("versioned markers through session projection", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["deploy_run", "oncall_page"]),
     );
@@ -2306,7 +2305,8 @@ describe("hash change re-prompt regressions (PR 35)", () => {
     const result1 = projectSkillTools(history, {
       previouslyActiveSkillIds: sessionState,
     });
-    expect(result1.toolDefinitions).toHaveLength(1);
+    expect(result1.toolDefinitions).toEqual([]);
+    expect(result1.allowedToolNames.has("deploy_run")).toBe(true);
     expect(sessionState.get("deploy")).toBe("v1:approved-hash");
     expect(mockSkillRefCount.get("deploy")).toBe(1);
 
@@ -2319,8 +2319,8 @@ describe("hash change re-prompt regressions (PR 35)", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result2.toolDefinitions).toHaveLength(1);
-    expect(result2.toolDefinitions[0].name).toBe("deploy_run");
+    expect(result2.toolDefinitions).toEqual([]);
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
 
     // Old version was unregistered
     expect(mockUnregisteredSkillIds).toContain("deploy");
@@ -2583,8 +2583,7 @@ describe("includes metadata does not auto-activate child skill tools", () => {
     });
 
     // Only parent tools should be projected
-    expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.toolDefinitions[0].name).toBe("parent_action");
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(new Set(["parent_action"]));
 
     // Child tools must NOT be present
@@ -2611,7 +2610,7 @@ describe("includes metadata does not auto-activate child skill tools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames).toEqual(
       new Set(["parent_action", "child_action"]),
     );
@@ -2639,8 +2638,8 @@ describe("includes metadata does not auto-activate child skill tools", () => {
       previouslyActiveSkillIds: sessionState,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.toolDefinitions[0].name).toBe("gp_action");
+    expect(result.toolDefinitions).toEqual([]);
+    expect(result.allowedToolNames.has("gp_action")).toBe(true);
     expect(result.allowedToolNames.has("parent_action")).toBe(false);
     expect(result.allowedToolNames.has("child_action")).toBe(false);
   });

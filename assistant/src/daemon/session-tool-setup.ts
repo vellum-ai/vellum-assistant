@@ -662,6 +662,6 @@ export function createResolveToolsCallback(
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return [...allBaseDefs, ...projection.toolDefinitions];
+    return allBaseDefs;
   };
 }

@@ -987,7 +987,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
 
   return [
     "## Available Skills",
-    "The following skills are available. Before executing one, call the `skill_load` tool with its `id` to load the full instructions.",
+    "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
     "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),
