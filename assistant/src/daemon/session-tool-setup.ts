@@ -492,6 +492,62 @@ export interface SkillProjectionContext {
   allowedToolNames?: Set<string>;
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
+  /** Channel capabilities — read lazily per turn for conditional tool filtering. */
+  readonly channelCapabilities?: {
+    channel: string;
+    supportsDynamicUi: boolean;
+  };
+  /** True when no client is connected (HTTP-only). */
+  readonly hasNoClient?: boolean;
+  /** Host bash proxy — presence indicates host tools should be available. */
+  readonly hostBashProxy?: { isAvailable(): boolean };
+  /** True when the conversation has user-uploaded attachments. */
+  hasAttachments?: boolean;
+}
+
+// ── Conditional tool sets ────────────────────────────────────────────
+
+const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
+const HOST_TOOL_NAMES = new Set([
+  "host_file_read",
+  "host_file_write",
+  "host_file_edit",
+  "host_bash",
+]);
+const ASSET_TOOL_NAMES = new Set(["asset_search", "asset_materialize"]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set([
+  "app_open",
+  "computer_use_request_control",
+]);
+const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
+
+/**
+ * Determine whether a tool should be included in the LLM tool definitions
+ * for the current turn based on session context. Tools not active for the
+ * current context are omitted from the definitions sent to the provider,
+ * reducing noise and preventing the model from attempting calls that would
+ * fail.
+ */
+export function isToolActiveForContext(
+  name: string,
+  ctx: SkillProjectionContext,
+): boolean {
+  if (UI_SURFACE_TOOL_NAMES.has(name)) {
+    return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
+  }
+  if (HOST_TOOL_NAMES.has(name)) {
+    return !!ctx.hostBashProxy;
+  }
+  if (ASSET_TOOL_NAMES.has(name)) {
+    return ctx.hasAttachments ?? true;
+  }
+  if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
+    return !ctx.hasNoClient;
+  }
+  if (PLATFORM_TOOL_NAMES.has(name)) {
+    return process.platform === "darwin" && !ctx.hasNoClient;
+  }
+  return true;
 }
 
 /**
@@ -535,17 +591,25 @@ export function createResolveToolsCallback(
       return [];
     }
 
+    // Filter core tools based on current session context so that tools
+    // irrelevant to this turn (e.g. UI tools when no client is connected)
+    // are omitted from the definitions sent to the provider.
+    const filteredCoreDefs = coreToolDefs.filter((d) =>
+      isToolActiveForContext(d.name, ctx),
+    );
+
     // Re-read MCP tool definitions from the registry each turn so sessions
     // automatically pick up tools added/removed by `vellum mcp reload`.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
+        coreCount: filteredCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
       },
       "MCP tools resolved for turn",
     );
-    const allBaseDefs = [...coreToolDefs, ...currentMcpDefs];
+    const allBaseDefs = [...filteredCoreDefs, ...currentMcpDefs];
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
