@@ -103,7 +103,7 @@ extension HTTPTransport {
 
             // REST returns { documents: [...] } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentListResponse.self, from: data)
-            let ipcDocs = rest.documents.map { doc in
+            let docs = rest.documents.map { doc in
                 IPCDocumentListResponseDocument(
                     surfaceId: doc.surfaceId,
                     conversationId: doc.conversationId,
@@ -113,11 +113,11 @@ extension HTTPTransport {
                     updatedAt: doc.updatedAt
                 )
             }
-            let ipcResponse = IPCDocumentListResponse(
+            let response = IPCDocumentListResponse(
                 type: "document_list_response",
-                documents: ipcDocs
+                documents: docs
             )
-            onMessage?(.documentListResponse(ipcResponse))
+            onMessage?(.documentListResponse(response))
         } catch {
             log.error("Fetch document list error: \(error.localizedDescription)")
         }
@@ -146,7 +146,7 @@ extension HTTPTransport {
 
             // REST returns { success, surfaceId, conversationId, ... } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentLoadResponse.self, from: data)
-            let ipcResponse = IPCDocumentLoadResponse(
+            let response = IPCDocumentLoadResponse(
                 type: "document_load_response",
                 surfaceId: rest.surfaceId,
                 conversationId: rest.conversationId,
@@ -158,7 +158,7 @@ extension HTTPTransport {
                 success: rest.success,
                 error: rest.error
             )
-            onMessage?(.documentLoadResponse(ipcResponse))
+            onMessage?(.documentLoadResponse(response))
         } catch {
             log.error("Fetch document load error: \(error.localizedDescription)")
         }
@@ -214,13 +214,13 @@ extension HTTPTransport {
 
             // REST returns { success, surfaceId, error? } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentSaveResponse.self, from: data)
-            let ipcResponse = IPCDocumentSaveResponse(
+            let response = IPCDocumentSaveResponse(
                 type: "document_save_response",
                 surfaceId: rest.surfaceId,
                 success: rest.success,
                 error: rest.error
             )
-            onMessage?(.documentSaveResponse(ipcResponse))
+            onMessage?(.documentSaveResponse(response))
         } catch {
             log.error("Document save error: \(error.localizedDescription)")
         }

@@ -162,7 +162,7 @@ extension AppDelegate {
 
             // 2. Send task_submit — daemon classifies and creates the session
             let screenBounds = CGDisplayBounds(CGMainDisplayID())
-            let ipcAttachments: [IPCAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
+            let messageAttachments: [IPCAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
                 IPCAttachment(
                     filename: $0.fileName,
                     mimeType: $0.mimeType,
@@ -175,7 +175,7 @@ extension AppDelegate {
                     task: effectiveTask,
                     screenWidth: Int(screenBounds.width),
                     screenHeight: Int(screenBounds.height),
-                    attachments: ipcAttachments,
+                    attachments: messageAttachments,
                     source: submission.source
                 ))
             } catch {

@@ -29,7 +29,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     }
 
     /// Reconstruct the attachment list for dispatch.
-    var ipcAttachments: [IPCAttachment]? {
+    var messageAttachments: [IPCAttachment]? {
         guard !attachments.isEmpty else { return nil }
         return attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText)

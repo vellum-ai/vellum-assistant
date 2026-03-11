@@ -1078,7 +1078,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedCurrentPage = nil
         flushCoalescedPublish()
 
-        let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
+        let messageAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
         }
 
@@ -1092,10 +1092,10 @@ public final class ChatViewModel: ObservableObject {
         if sessionId == nil {
             // First message: need to bootstrap session
             pendingUserMessageDisplayText = rawText
-            bootstrapSession(userMessage: text, attachments: ipcAttachments)
+            bootstrapSession(userMessage: text, attachments: messageAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId)
         }
     }
 
@@ -1307,7 +1307,7 @@ public final class ChatViewModel: ObservableObject {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.ipcAttachments)
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments)
         }
     }
 
