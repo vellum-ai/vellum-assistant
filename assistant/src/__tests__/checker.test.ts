@@ -4389,8 +4389,6 @@ describe("computer-use tool permission defaults", () => {
   test("computer_use_* tools classify as Low risk (proxy tools)", async () => {
     const cuToolNames = [
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",
