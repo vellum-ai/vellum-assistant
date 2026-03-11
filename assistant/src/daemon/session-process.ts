@@ -42,6 +42,7 @@ import {
   type SlashContext,
 } from "./session-slash.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { resolveStarterTaskIntent } from "./starter-task-intent.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("session-process");
@@ -422,6 +423,23 @@ export async function drainQueue(
       agentLoopContent = verificationIntent.rewrittenContent;
       session.preactivatedSkillIds = ["guardian-verify-setup"];
     }
+
+    // Starter task intent interception for queued messages.
+    // Deterministic [STARTER_TASK:<task_id>] messages load the
+    // onboarding-starter-tasks skill instead of relying on the
+    // playbook being embedded in the global system prompt.
+    const starterIntent = resolveStarterTaskIntent(resolvedContent);
+    if (starterIntent.kind === "starter_task") {
+      log.info(
+        {
+          conversationId: session.conversationId,
+          taskId: starterIntent.taskId,
+        },
+        "Starter task intent intercepted in queue — forcing skill flow",
+      );
+      agentLoopContent = starterIntent.rewrittenContent;
+      session.preactivatedSkillIds = ["onboarding-starter-tasks"];
+    }
   }
 
   // Try to persist and run the dequeued message. If persistUserMessage
@@ -747,6 +765,22 @@ export async function processMessage(
       );
       agentLoopContent = verificationIntent.rewrittenContent;
       session.preactivatedSkillIds = ["guardian-verify-setup"];
+    }
+
+    // Starter task intent interception — deterministic [STARTER_TASK:<task_id>]
+    // messages load the onboarding-starter-tasks skill instead of relying on
+    // the playbook being embedded in the global system prompt.
+    const starterIntent = resolveStarterTaskIntent(resolvedContent);
+    if (starterIntent.kind === "starter_task") {
+      log.info(
+        {
+          conversationId: session.conversationId,
+          taskId: starterIntent.taskId,
+        },
+        "Starter task intent intercepted — forcing skill flow",
+      );
+      agentLoopContent = starterIntent.rewrittenContent;
+      session.preactivatedSkillIds = ["onboarding-starter-tasks"];
     }
   }
 

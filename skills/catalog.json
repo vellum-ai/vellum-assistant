@@ -219,6 +219,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "onboarding-starter-tasks",
+      "name": "onboarding-starter-tasks",
+      "description": "Playbooks for onboarding starter task cards (make_it_yours, research_topic, research_to_ui)",
+      "metadata": {
+        "emoji": "\ud83d\ude80",
+        "vellum": {
+          "display-name": "Onboarding Starter Tasks",
+          "user-invocable": "false"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "notion",
       "name": "notion",
       "description": "Read and write Notion pages and databases using the Notion API",
