@@ -4,11 +4,13 @@ import type {
 } from "../../../../tools/types.js";
 
 const SETTINGS_TABS = [
+  "General",
+  "Channels",
+  "Models & Services",
   "Voice",
-  "Connect",
-  "Trust",
-  "Model",
-  "Scheduling",
+  "Permissions & Privacy",
+  "Contacts",
+  "Developer",
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
