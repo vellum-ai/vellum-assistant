@@ -116,9 +116,6 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                if !hasAPIKey {
-                    APIKeyBanner(onOpenSettings: onOpenSettings)
-                }
                 if messages.isEmpty && !isHistoryLoaded {
                     ChatLoadingSkeleton()
                         .padding(VSpacing.lg)
@@ -140,7 +137,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -150,7 +146,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
@@ -165,7 +160,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -175,7 +169,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
                             recordingAmplitude: recordingAmplitude,
                             onDictateToggle: onDictateToggle,
                             onVoiceModeToggle: onVoiceModeToggle,
@@ -255,15 +248,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
-                            sessionError: sessionError,
-                            isSecretBlockError: isSecretBlockError,
-                            onSendAnyway: onSendAnyway,
-                            isRetryableError: isRetryableError,
-                            onRetryError: onRetryError,
-                            isConnectionError: isConnectionError,
-                            hasRetryPayload: hasRetryPayload,
-                            connectionDiagnosticHint: connectionDiagnosticHint,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -273,10 +257,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            onRetrySessionError: onRetry,
-                            onCopyDebugInfo: onCopyDebugInfo,
-                            onDismissSessionError: onDismissSessionError,
                             watchSession: watchSession,
                             onStopWatch: onStopWatch,
                             isLearnMode: isLearnMode,
@@ -329,6 +309,43 @@ struct ChatView: View {
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
+        }
+        .overlay(alignment: .top) {
+            VStack(spacing: VSpacing.xs) {
+                if !hasAPIKey {
+                    ChatSessionErrorToast(
+                        message: "API key not set. Add one in Settings to start chatting.",
+                        icon: .keyRound,
+                        accentColor: VColor.warning,
+                        actionLabel: "Open Settings",
+                        onAction: onOpenSettings
+                    )
+                }
+
+                if let sessionError {
+                    ChatSessionErrorToast(
+                        error: sessionError,
+                        onRetry: onRetry,
+                        onCopyDebugInfo: onCopyDebugInfo,
+                        onDismiss: onDismissSessionError
+                    )
+                }
+
+                if let errorText, sessionError == nil {
+                    ChatSessionErrorToast(
+                        message: errorText,
+                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
+                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
+                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
+                        onDismiss: onDismissError
+                    )
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.top, VSpacing.sm)
+            .animation(VAnimation.fast, value: hasAPIKey)
+            .animation(VAnimation.fast, value: sessionError != nil)
+            .animation(VAnimation.fast, value: errorText != nil)
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)

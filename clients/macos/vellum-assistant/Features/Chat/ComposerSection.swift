@@ -11,15 +11,6 @@ struct ComposerSection: View {
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
-    let errorText: String?
-    let sessionError: SessionError?
-    let isSecretBlockError: Bool
-    let onSendAnyway: () -> Void
-    let isRetryableError: Bool
-    let onRetryError: () -> Void
-    let isConnectionError: Bool
-    var hasRetryPayload: Bool = true
-    var connectionDiagnosticHint: String? = nil
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -29,10 +20,6 @@ struct ComposerSection: View {
     let onFileDrop: ([URL]) -> Void
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
-    let onDismissError: () -> Void
-    let onRetrySessionError: () -> Void
-    let onCopyDebugInfo: () -> Void
-    let onDismissSessionError: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var isLearnMode: Bool = false
@@ -55,28 +42,6 @@ struct ComposerSection: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if let sessionError {
-                ChatSessionErrorToast(
-                    error: sessionError,
-                    onRetry: onRetrySessionError,
-                    onCopyDebugInfo: onCopyDebugInfo,
-                    onDismiss: onDismissSessionError
-                )
-            }
-
-            if let errorText, sessionError == nil {
-                ChatErrorBanner(
-                    text: errorText,
-                    isSecretBlockError: isSecretBlockError,
-                    onSendAnyway: onSendAnyway,
-                    isRetryableError: isRetryableError,
-                    onRetryError: onRetryError,
-                    isConnectionError: isConnectionError,
-                    hasRetryPayload: hasRetryPayload,
-                    connectionDiagnosticHint: connectionDiagnosticHint,
-                    onDismissError: onDismissError
-                )
-            }
             ComposerView(
                 inputText: $inputText,
                 hasAPIKey: hasAPIKey,
