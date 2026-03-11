@@ -812,7 +812,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
-            discardPartialOutputBuffer()
+            flushPartialOutputBuffer()
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -870,7 +870,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
-            discardPartialOutputBuffer()
+            flushPartialOutputBuffer()
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -1700,7 +1700,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
-            discardPartialOutputBuffer()
+            flushPartialOutputBuffer()
             // When the user intentionally cancelled, suppress the error.
             // Otherwise, insert an inline error message so errors are visually
             // distinct from normal assistant replies (rendered with a red box).
