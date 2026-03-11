@@ -139,7 +139,7 @@ struct TasksView: View {
 
 /// A single task row in the iOS task list.
 private struct TaskRow: View {
-    let item: IPCWorkItemsListResponseItem
+    let item: WorkItemsListResponseItem
     let hasOutput: Bool
     let runningIds: Set<String>
     let timeoutIds: Set<String>

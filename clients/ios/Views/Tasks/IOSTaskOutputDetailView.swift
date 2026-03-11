@@ -69,7 +69,7 @@ struct IOSTaskOutputDetailView: View {
 
     // MARK: - Metadata
 
-    private func metadataSection(_ output: IPCWorkItemOutputResponseOutput) -> some View {
+    private func metadataSection(_ output: WorkItemOutputResponseOutput) -> some View {
         HStack(spacing: VSpacing.sm) {
             // Status badge
             HStack(spacing: 4) {
@@ -100,7 +100,7 @@ struct IOSTaskOutputDetailView: View {
 
     // MARK: - Summary
 
-    private func summarySection(_ output: IPCWorkItemOutputResponseOutput) -> some View {
+    private func summarySection(_ output: WorkItemOutputResponseOutput) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Summary")
                 .font(VFont.captionMedium)

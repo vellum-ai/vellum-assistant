@@ -4,7 +4,7 @@ import VellumAssistantShared
 
 struct IntegrationsSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @State private var integrations: [IPCIntegrationListResponseIntegration] = []
+    @State private var integrations: [IntegrationListResponseIntegration] = []
     @State private var connectingIntegrationId: String?
 
     var body: some View {
