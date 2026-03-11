@@ -6,6 +6,7 @@
  * secure key naming convention.
  */
 
+import { credentialKey } from "../../security/credential-key.js";
 import { matchHostPattern } from "./host-pattern-match.js";
 import {
   type CredentialMetadata,
@@ -33,7 +34,7 @@ function toResolved(metadata: CredentialMetadata): ResolvedCredential {
     credentialId: metadata.credentialId,
     service: metadata.service,
     field: metadata.field,
-    storageKey: `credential:${metadata.service}:${metadata.field}`,
+    storageKey: credentialKey(metadata.service, metadata.field),
     alias: metadata.alias,
     injectionTemplates: metadata.injectionTemplates ?? [],
     metadata,
