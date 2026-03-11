@@ -121,7 +121,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Send a message or create a draft. On Gmail, creates a draft for review. Supports file attachments on Gmail via attachment_paths. High-risk action. Include a confidence score (0-1).",
+      "description": "Send a message, reply to a thread, or create a draft. On Gmail, always creates a draft for review. Supports replies (via thread_id), attachments (via attachment_paths, Gmail only), and all messaging platforms.",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -133,7 +133,7 @@
           },
           "conversation_id": {
             "type": "string",
-            "description": "Channel ID, email address, or conversation ID to send to"
+            "description": "Conversation/channel ID. For Gmail new messages, use the recipient email address."
           },
           "text": {
             "type": "string",
@@ -156,7 +156,7 @@
           },
           "thread_id": {
             "type": "string",
-            "description": "Thread ID to continue an existing thread (Gmail only)"
+            "description": "Thread ID for replies. When provided, the message is sent as a reply within the thread. On Gmail, auto-extracts reply-all recipients and threading headers."
           },
           "confidence": {
             "type": "number",
@@ -170,44 +170,6 @@
         "required": ["conversation_id", "text", "confidence"]
       },
       "executor": "tools/messaging-send.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "messaging_reply",
-      "description": "Reply in a thread. For Gmail, creates a threaded draft with reply-all recipients; for other platforms, sends directly. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "platform": {
-            "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
-          },
-          "conversation_id": {
-            "type": "string",
-            "description": "Channel ID or conversation ID"
-          },
-          "thread_id": {
-            "type": "string",
-            "description": "Thread ID to reply to"
-          },
-          "text": {
-            "type": "string",
-            "description": "Reply text"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["conversation_id", "thread_id", "text", "confidence"]
-      },
-      "executor": "tools/messaging-reply.ts",
       "execution_target": "host"
     },
     {

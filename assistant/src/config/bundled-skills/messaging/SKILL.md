@@ -114,8 +114,7 @@ When a messaging tool fails with a token or authorization error:
 - **List Conversations**: Show channels, inboxes, DMs with unread counts
 - **Read Messages**: Read message history from a conversation
 - **Search**: Search messages with platform-appropriate query syntax
-- **Send**: Send a message (high risk — requires user approval)
-- **Reply**: Reply in a thread (medium risk)
+- **Send / Reply**: Send a message or reply in a thread (via `thread_id`). High risk — requires user approval.
 - **Mark Read**: Mark conversation as read
 
 ### Telegram

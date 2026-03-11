@@ -27,7 +27,6 @@ describe("Messaging skill split", () => {
     "messaging_read",
     "messaging_search",
     "messaging_send",
-    "messaging_reply",
     "messaging_mark_read",
     "messaging_analyze_style",
     "messaging_draft",
