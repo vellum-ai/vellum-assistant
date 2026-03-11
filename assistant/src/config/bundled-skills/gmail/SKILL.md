@@ -83,11 +83,6 @@ Workflow: use `gmail_attachments` with `action: "list"` to discover attachments,
 - **Filters**: `gmail_filters` — list, create, or delete Gmail filters. Filter criteria include from, to, subject, query, has_attachment. Actions include adding/removing labels and forwarding
 - **Vacation Responder**: `gmail_vacation` — get, enable, or disable the vacation auto-responder with custom message, date range, and domain/contact restrictions
 
-### Google Contacts
-
-- **Contacts**: `google_contacts` — list or search Google Contacts by name or email. Returns name, email, phone, and organization
-  - Requires the `contacts.readonly` scope — users may need to re-authorize Gmail to grant this additional permission
-
 ## Drafting vs Sending (Gmail)
 
 Gmail uses a **draft-first workflow**. All compose and reply tools create Gmail drafts automatically:

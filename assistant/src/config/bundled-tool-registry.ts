@@ -58,6 +58,7 @@ import * as computerUseWait from "./bundled-skills/computer-use/tools/computer-u
 import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js";
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
 import * as contactUpsert from "./bundled-skills/contacts/tools/contact-upsert.js";
+import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
 // ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
 import * as documentUpdate from "./bundled-skills/document/tools/document-update.js";
@@ -84,7 +85,6 @@ import * as gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
 import * as gmailTriage from "./bundled-skills/gmail/tools/gmail-triage.js";
 import * as gmailUnsubscribe from "./bundled-skills/gmail/tools/gmail-unsubscribe.js";
 import * as gmailVacation from "./bundled-skills/gmail/tools/gmail-vacation.js";
-import * as googleContacts from "./bundled-skills/gmail/tools/google-contacts.js";
 // ── google-calendar ────────────────────────────────────────────────────────────
 import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
 import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
@@ -246,6 +246,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["contacts:tools/contact-upsert.ts", contactUpsert],
   ["contacts:tools/contact-search.ts", contactSearch],
   ["contacts:tools/contact-merge.ts", contactMerge],
+  ["contacts:tools/google-contacts.ts", googleContacts],
 
   // document
   ["document:tools/document-create.ts", documentCreate],
@@ -276,7 +277,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["gmail:tools/gmail-vacation.ts", gmailVacation],
   ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
   ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
-  ["gmail:tools/google-contacts.ts", googleContacts],
 
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
