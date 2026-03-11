@@ -162,11 +162,7 @@ struct SlashCommandRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: VSpacing.md) {
-                Image(nsImage: appearance.chatAvatarImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
+                VAvatarImage(image: appearance.chatAvatarImage, size: 28)
                     .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 2) {

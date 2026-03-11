@@ -302,15 +302,7 @@ struct MessageListView: View {
     /// Floating avatar anchored at the bottom of the conversation, Claude-style.
     private var assistantAvatarFooter: some View {
         HStack {
-            Image(nsImage: appearance.chatAvatarImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 40, height: 40)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
-                )
+            VAvatarImage(image: appearance.chatAvatarImage, size: 52)
             Spacer()
         }
         .padding(.top, VSpacing.xs)

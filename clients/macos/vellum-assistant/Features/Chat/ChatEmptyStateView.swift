@@ -67,12 +67,7 @@ struct ChatEmptyStateView: View {
             Spacer()
 
             HStack(spacing: VSpacing.md) {
-                Image(nsImage: appearance.chatAvatarImage)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 32, height: 32)
-                    .clipShape(Circle())
+                VAvatarImage(image: appearance.chatAvatarImage, size: 32)
 
                 Text(title)
                     .font(.custom("Fraunces", size: 28).weight(.regular))
