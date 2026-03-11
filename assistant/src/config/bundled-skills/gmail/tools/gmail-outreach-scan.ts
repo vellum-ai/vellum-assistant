@@ -1,8 +1,3 @@
-import type { EmailMetadata } from "../../../../messaging/email-classifier.js";
-import {
-  classifyOutreach,
-  type OutreachClassification,
-} from "../../../../messaging/outreach-classifier.js";
 import {
   batchGetMessages,
   listMessages,
@@ -31,8 +26,6 @@ interface OutreachSenderAggregation {
   messageIds: string[];
   hasMore: boolean;
   sampleSubjects: string[];
-  outreachTypes: string[];
-  confidenceSum: number;
 }
 
 /** Parse "Display Name <email@example.com>" into parts. */
@@ -48,39 +41,6 @@ function parseFrom(from: string): { displayName: string; email: string } {
   return { displayName: "", email: bare };
 }
 
-function buildSuggestedActions(email: string, count: number): string[] {
-  const actions: string[] = [`Archive all ${count} messages`];
-  if (count >= 2) {
-    actions.push(`Create filter to auto-archive future emails from ${email}`);
-  }
-  if (count >= 3) {
-    const domain = email.split("@")[1];
-    if (domain) {
-      actions.push(
-        `Create filter to auto-archive future emails from @${domain}`,
-      );
-    }
-  }
-  return actions;
-}
-
-/** Find the most common string in an array. */
-function mostCommon(items: string[]): string {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    counts.set(item, (counts.get(item) ?? 0) + 1);
-  }
-  let best = items[0] ?? "other";
-  let bestCount = 0;
-  for (const [item, count] of counts) {
-    if (count > bestCount) {
-      best = item;
-      bestCount = count;
-    }
-  }
-  return best;
-}
-
 export async function run(
   input: Record<string, unknown>,
   _context: ToolContext,
@@ -91,7 +51,6 @@ export async function run(
   );
   const maxSenders = (input.max_senders as number) ?? 30;
   const timeRange = (input.time_range as string) ?? "90d";
-  const minConfidence = (input.min_confidence as number) ?? 0.5;
   const inputPageToken = input.page_token as string | undefined;
 
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
@@ -142,42 +101,17 @@ export async function run(
           JSON.stringify({
             senders: [],
             total_scanned: 0,
-            outreach_detected: 0,
-            message: "No emails found matching the query.",
+            note: "No emails found matching the query.",
           }),
         );
       }
 
       const messages = (await Promise.all(fetchPromises)).flat();
 
-      // Build EmailMetadata for the classifier
-      const emailMetadata: EmailMetadata[] = messages.map((msg) => {
-        const headers = msg.payload?.headers ?? [];
-        const from =
-          headers.find((h) => h.name.toLowerCase() === "from")?.value ?? "";
-        const subject =
-          headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
-        return { id: msg.id, from, subject, snippet: "", labels: [] };
-      });
-
-      // Classify in batches
-      const classifications = await classifyOutreach(emailMetadata);
-
-      // Index classifications by message ID
-      const classificationMap = new Map<string, OutreachClassification>();
-      for (const c of classifications) {
-        if (c.isOutreach) {
-          classificationMap.set(c.id, c);
-        }
-      }
-
-      // Aggregate by sender email (only outreach-classified messages)
+      // Aggregate all fetched messages by sender
       const senderMap = new Map<string, OutreachSenderAggregation>();
 
       for (const msg of messages) {
-        const classification = classificationMap.get(msg.id);
-        if (!classification) continue;
-
         const headers = msg.payload?.headers ?? [];
         const fromHeader =
           headers.find((h) => h.name.toLowerCase() === "from")?.value ?? "";
@@ -201,15 +135,11 @@ export async function run(
             messageIds: [],
             hasMore: false,
             sampleSubjects: [],
-            outreachTypes: [],
-            confidenceSum: 0,
           };
           senderMap.set(email, agg);
         }
 
         agg.messageCount++;
-        agg.outreachTypes.push(classification.outreachType);
-        agg.confidenceSum += classification.confidence;
 
         if (!agg.displayName && displayName) agg.displayName = displayName;
 
@@ -241,33 +171,21 @@ export async function run(
         }
       }
 
-      // Sort by message count desc, filter by confidence, take top N
-      const qualified = [...senderMap.values()]
-        .map((s) => ({
-          ...s,
-          avgConfidence:
-            s.messageCount > 0 ? s.confidenceSum / s.messageCount : 0,
-          outreachType: mostCommon(s.outreachTypes),
-        }))
-        .filter((s) => s.avgConfidence >= minConfidence)
-        .sort((a, b) => b.messageCount - a.messageCount);
-
-      const totalOutreachDetected = qualified.length;
-      const sorted = qualified.slice(0, maxSenders);
+      // Sort by message count desc, take top N
+      const sorted = [...senderMap.values()]
+        .sort((a, b) => b.messageCount - a.messageCount)
+        .slice(0, maxSenders);
 
       const senders = sorted.map((s) => ({
         id: Buffer.from(s.email).toString("base64url"),
         display_name: s.displayName || s.email.split("@")[0],
         email: s.email,
         message_count: s.messageCount,
-        outreach_type: s.outreachType,
-        confidence: Math.round(s.avgConfidence * 100) / 100,
         newest_message_id: s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
         search_query: `from:${s.email}`,
         sample_subjects: s.sampleSubjects,
-        suggested_actions: buildSuggestedActions(s.email, s.messageCount),
       }));
 
       // Store message IDs server-side to keep them out of LLM context
@@ -285,9 +203,9 @@ export async function run(
           scan_id: scanId,
           senders,
           total_scanned: allMessageIds.length,
-          outreach_detected: totalOutreachDetected,
           ...(truncated ? { truncated: true } : {}),
           ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
+          note: "Scanned inbox for senders without List-Unsubscribe headers (potential cold outreach). Use gmail_archive and gmail_filters for cleanup.",
         }),
       );
     });
