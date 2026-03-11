@@ -19,9 +19,6 @@ struct VellumAssistantApp: App {
                 }
                 .disabled(!appDelegate.updateManager.canCheckForUpdates)
                 Divider()
-                Button("Export Logs...") {
-                    appDelegate.exportAssistantLogs()
-                }
                 Button("Send Logs to Vellum") {
                     appDelegate.sendLogsToSentry()
                 }
