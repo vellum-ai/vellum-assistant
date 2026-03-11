@@ -1,3 +1,4 @@
+import Combine
 import os
 import SwiftUI
 import VellumAssistantShared
@@ -37,6 +38,7 @@ class TaskQueueViewModel: ObservableObject {
     private var pendingPreflightItem: WorkItemsListResponseItem?
 
     private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
+    private var cancellables = Set<AnyCancellable>()
 
     /// How long to wait for a daemon run-task response before treating
     /// the request as timed out.
@@ -46,6 +48,12 @@ class TaskQueueViewModel: ObservableObject {
         self.daemonClient = daemonClient
         setupCallbacks()
         fetchItems()
+
+        // Retry fetching when the assistant (re)connects.
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.fetchItems() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Filtered Items
@@ -188,6 +196,10 @@ class TaskQueueViewModel: ObservableObject {
         errorMessage = nil
         do {
             try daemonClient.sendWorkItemsList()
+        } catch let error as DaemonClient.SendError where error == .notConnected {
+            // Not connected yet — silently wait for reconnect to retry.
+            logger.info("fetchItems: not connected, will retry on reconnect")
+            isLoading = false
         } catch {
             logger.error("fetchItems failed: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription

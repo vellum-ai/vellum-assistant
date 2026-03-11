@@ -690,7 +690,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         public var errorDescription: String? {
             switch self {
             case .notConnected:
-                return "Cannot send: not connected to daemon"
+                return "Cannot send: not connected to assistant"
             }
         }
     }
