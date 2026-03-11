@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm";
 
 import { getLogger } from "../../util/logger.js";
+import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db.js";
 import {
   _getQdrantBreakerState,
@@ -9,7 +10,6 @@ import {
 } from "../qdrant-circuit-breaker.js";
 import type { QdrantSearchResult } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
-import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import {
   memoryItems,
   memoryItemSources,
