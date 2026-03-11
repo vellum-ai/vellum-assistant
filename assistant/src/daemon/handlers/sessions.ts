@@ -50,7 +50,6 @@ import type {
   UsageRequest,
 } from "../message-protocol.js";
 import { normalizeThreadType } from "../message-protocol.js";
-import type { HostBashResponse } from "../message-types/host-bash.js";
 import type { Session } from "../session.js";
 import {
   buildSessionErrorMessage,
@@ -236,29 +235,6 @@ export function handleSecretResponse(
   log.warn(
     { requestId: msg.requestId },
     "No session found with pending secret prompt for requestId",
-  );
-}
-
-export function handleHostBashResponse(
-  msg: HostBashResponse,
-  ctx: HandlerContext,
-): void {
-  for (const [sessionId, session] of ctx.sessions) {
-    if (session.hasPendingHostBash(msg.requestId)) {
-      ctx.touchSession(sessionId);
-      session.resolveHostBash(msg.requestId, {
-        stdout: msg.stdout,
-        stderr: msg.stderr,
-        exitCode: msg.exitCode,
-        timedOut: msg.timedOut,
-      });
-      pendingInteractions.resolve(msg.requestId);
-      return;
-    }
-  }
-  log.warn(
-    { requestId: msg.requestId },
-    "No session found with pending host bash request for requestId",
   );
 }
 

@@ -104,11 +104,21 @@ class HostShellTool implements Tool {
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (context.hostBashProxy?.isAvailable()) {
+      const { shellDefaultTimeoutSec, shellMaxTimeoutSec } =
+        getConfig().timeouts;
+      const rawSec =
+        typeof input.timeout_seconds === "number"
+          ? input.timeout_seconds
+          : shellDefaultTimeoutSec;
+      const normalizedTimeout = Math.max(
+        1,
+        Math.min(rawSec, shellMaxTimeoutSec),
+      );
       return context.hostBashProxy.request(
         {
           command,
           working_dir: rawWorkingDir as string | undefined,
-          timeout_seconds: input.timeout_seconds as number | undefined,
+          timeout_seconds: normalizedTimeout,
         },
         context.sessionId,
         context.signal,

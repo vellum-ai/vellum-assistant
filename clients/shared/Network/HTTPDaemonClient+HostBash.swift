@@ -43,6 +43,7 @@ extension HTTPTransport {
         }
     }
 
+    #if os(macOS)
     /// Execute a host bash request locally and post the result back to the daemon.
     /// Spawns `/bin/bash -c -- <command>` via `Foundation.Process`, enforces a
     /// timeout, and collects stdout/stderr.
@@ -112,12 +113,28 @@ extension HTTPTransport {
                 return
             }
 
-            // Read pipe data before waiting for exit to avoid deadlock when
-            // the pipe buffer fills (Process blocks on write until we read).
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            // Read stdout and stderr concurrently to avoid deadlock.
+            // If we read sequentially and the process fills one pipe's buffer
+            // (~64 KB), the process blocks on that write, the other pipe never
+            // reaches EOF, and this thread hangs forever.
+            var stdoutData = Data()
+            var stderrData = Data()
+            let pipeGroup = DispatchGroup()
+
+            pipeGroup.enter()
+            DispatchQueue.global().async {
+                stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                pipeGroup.leave()
+            }
+
+            pipeGroup.enter()
+            DispatchQueue.global().async {
+                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                pipeGroup.leave()
+            }
 
             process.waitUntilExit()
+            pipeGroup.wait()
             timerSource.cancel()
 
             let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
@@ -137,4 +154,5 @@ extension HTTPTransport {
             await self.postHostBashResult(result)
         }
     }
+    #endif
 }

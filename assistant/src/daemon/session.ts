@@ -373,7 +373,7 @@ export class Session {
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
-    this.hostBashProxy?.updateSender(sendToClient);
+    this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
   }
 
   /** Returns the current sendToClient reference for identity comparison. */

@@ -20,6 +20,7 @@ export class HostBashProxy {
   private pending = new Map<string, PendingRequest>();
   private sendToClient: (msg: ServerMessage) => void;
   private onInternalResolve?: (requestId: string) => void;
+  private clientConnected = false;
 
   constructor(
     sendToClient: (msg: ServerMessage) => void,
@@ -29,8 +30,12 @@ export class HostBashProxy {
     this.onInternalResolve = onInternalResolve;
   }
 
-  updateSender(sendToClient: (msg: ServerMessage) => void): void {
+  updateSender(
+    sendToClient: (msg: ServerMessage) => void,
+    clientConnected: boolean,
+  ): void {
     this.sendToClient = sendToClient;
+    this.clientConnected = clientConnected;
   }
 
   request(
@@ -124,7 +129,7 @@ export class HostBashProxy {
   }
 
   isAvailable(): boolean {
-    return true;
+    return this.clientConnected;
   }
 
   dispose(): void {
