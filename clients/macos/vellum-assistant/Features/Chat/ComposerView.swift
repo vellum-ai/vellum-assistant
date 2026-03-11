@@ -491,7 +491,7 @@ struct ComposerView: View {
             }
         }
         .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
-        .animation(VAnimation.spring, value: canSend)
+        .animation(VAnimation.fast, value: canSend)
     }
 
     // MARK: - Dictation Inline Mode
