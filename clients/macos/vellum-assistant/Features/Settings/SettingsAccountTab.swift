@@ -56,8 +56,8 @@ struct SettingsAccountTab: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
             assistantInfoSection
-            restartDaemonSection
-            if let assistant = currentAssistant {
+            if let assistant = currentAssistant, assistant.isManaged || assistant.isRemote {
+                restartDaemonSection
                 AssistantBackupsSection(assistant: assistant, store: store)
                     .withRestoreConfirmation
             }
@@ -269,7 +269,9 @@ struct SettingsAccountTab: View {
                 AccountDaemonStatusRows(daemonClient: daemonClient)
             }
 
-            healthzInfoRows
+            if currentAssistant?.isManaged == true || currentAssistant?.isRemote == true {
+                healthzInfoRows
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -339,25 +341,18 @@ struct SettingsAccountTab: View {
     }
 
     private func fetchHealthz() async {
+        guard let assistant = currentAssistant,
+              assistant.isManaged || assistant.isRemote else { return }
+
         isLoadingHealthz = true
         defer { isLoadingHealthz = false }
 
-        guard let assistant = currentAssistant else { return }
-
-        if assistant.isManaged || assistant.isRemote {
-            healthz = await DaemonHealthzFetcher.fetchManaged(
-                baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
-                assistantId: assistant.assistantId,
-                sessionToken: SessionTokenManager.getToken(),
-                organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
-            )
-        } else {
-            let port = assistant.resolvedDaemonPort()
-            healthz = await DaemonHealthzFetcher.fetchLocal(
-                port: port,
-                bearerToken: ActorTokenManager.getToken()
-            )
-        }
+        healthz = await DaemonHealthzFetcher.fetchManaged(
+            baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
+            assistantId: assistant.assistantId,
+            sessionToken: SessionTokenManager.getToken(),
+            organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        )
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
