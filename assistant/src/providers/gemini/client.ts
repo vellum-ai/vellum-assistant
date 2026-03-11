@@ -16,10 +16,6 @@ export interface GeminiProviderOptions {
   streamTimeoutMs?: number;
   /** When set, routes requests through the managed proxy at this base URL. */
   managedBaseUrl?: string;
-  /** Vertex AI project placeholder (used with managed proxy). */
-  vertexProject?: string;
-  /** Vertex AI location placeholder (used with managed proxy). */
-  vertexLocation?: string;
 }
 
 export class GeminiProvider implements Provider {
@@ -35,11 +31,11 @@ export class GeminiProvider implements Provider {
   ) {
     this.client = options.managedBaseUrl
       ? new GoogleGenAI({
-          apiKey,
           vertexai: true,
-          project: options.vertexProject ?? "proxy",
-          location: options.vertexLocation ?? "us-central1",
-          httpOptions: { baseUrl: options.managedBaseUrl },
+          httpOptions: {
+            baseUrl: options.managedBaseUrl,
+            headers: { "x-goog-api-key": apiKey },
+          },
         })
       : new GoogleGenAI({ apiKey });
     this.model = model;
