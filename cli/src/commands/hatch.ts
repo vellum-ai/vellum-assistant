@@ -48,7 +48,8 @@ import {
   stopLocalProcesses,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
-import { isProcessAlive } from "../lib/process";
+import { detectOrphanedProcesses } from "../lib/orphan-detection";
+import { isProcessAlive, stopProcess } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
@@ -728,6 +729,22 @@ async function hatchLocal(
         "🧹 Cleaning up stale local processes (no lock file entry)...\n",
       );
       await stopLocalProcesses();
+    }
+  }
+
+  // On desktop, scan the process table for orphaned vellum processes that
+  // are not tracked by any PID file or lock file entry and kill them before
+  // starting new ones. This prevents resource leaks when the desktop app
+  // crashes or is force-quit without a clean shutdown.
+  if (IS_DESKTOP) {
+    const orphans = await detectOrphanedProcesses();
+    if (orphans.length > 0) {
+      desktopLog(
+        `🧹 Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"} — cleaning up...`,
+      );
+      for (const orphan of orphans) {
+        await stopProcess(parseInt(orphan.pid, 10), `${orphan.name} (PID ${orphan.pid})`);
+      }
     }
   }
 
