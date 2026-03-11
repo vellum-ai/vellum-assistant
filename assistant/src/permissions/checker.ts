@@ -139,8 +139,6 @@ const LOW_RISK_PROGRAMS = new Set([
   "tree",
   "du",
   "df",
-  "assistant",
-  "vellum",
 ]);
 
 // High-risk shell programs / patterns
@@ -172,6 +170,15 @@ const HIGH_RISK_PROGRAMS = new Set([
   "kill",
   "killall",
   "pkill",
+]);
+
+// Read-only subcommands for the assistant/vellum CLIs
+const LOW_RISK_CLI_SUBCOMMANDS = new Set([
+  "ps",
+  "doctor",
+  "audit",
+  "completions",
+  "map",
 ]);
 
 // Git subcommands that are low-risk (read-only)
@@ -642,6 +649,16 @@ async function classifyRiskUncached(
           continue;
         }
         // Non-read-only git commands are medium
+        maxRisk = RiskLevel.Medium;
+        continue;
+      }
+
+      if (prog === "vellum" || prog === "assistant") {
+        const subcommand = seg.args[0];
+        if (subcommand && LOW_RISK_CLI_SUBCOMMANDS.has(subcommand)) {
+          continue;
+        }
+        // Mutating CLI subcommands are medium
         maxRisk = RiskLevel.Medium;
         continue;
       }
