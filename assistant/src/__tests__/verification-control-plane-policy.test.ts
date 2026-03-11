@@ -402,7 +402,7 @@ describe("isVerificationControlPlaneInvocation", () => {
     test("detects endpoint despite malformed percent-encoding elsewhere in command", () => {
       const result = isVerificationControlPlaneInvocation("bash", {
         command:
-          'curl -H "X: %ZZ" http://localhost:3000/v1/channel-verification-sessions -d \'{"channel":"sms"}\'',
+          'curl -H "X: %ZZ" http://localhost:3000/v1/channel-verification-sessions -d \'{"channel":"telegram"}\'',
       });
       expect(result).toBe(true);
     });
