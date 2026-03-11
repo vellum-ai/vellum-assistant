@@ -33,6 +33,7 @@ import "./filesystem/view-image.js";
 import "./filesystem/write.js";
 import "./network/web-fetch.js";
 import "./network/web-search.js";
+import "./skills/execute.js";
 import "./skills/load.js";
 import "./system/request-permission.js";
 import "./terminal/shell.js";
@@ -54,6 +55,7 @@ export const eagerModuleToolNames: string[] = [
   "file_edit",
   "web_search",
   "web_fetch",
+  "skill_execute",
   "skill_load",
   "request_system_permission",
   "asset_search",
