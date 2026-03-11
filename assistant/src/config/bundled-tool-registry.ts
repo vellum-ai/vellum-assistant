@@ -101,7 +101,6 @@ import * as gmailTriage from "./bundled-skills/messaging/tools/gmail-triage.js";
 import * as gmailUnsubscribe from "./bundled-skills/messaging/tools/gmail-unsubscribe.js";
 import * as gmailVacation from "./bundled-skills/messaging/tools/gmail-vacation.js";
 import * as googleContacts from "./bundled-skills/messaging/tools/google-contacts.js";
-import * as messagingAnalyzeActivity from "./bundled-skills/messaging/tools/messaging-analyze-activity.js";
 import * as messagingAnalyzeStyle from "./bundled-skills/messaging/tools/messaging-analyze-style.js";
 // ── messaging ────────────────────────────────────────────────────────────────
 import * as messagingAuthTest from "./bundled-skills/messaging/tools/messaging-auth-test.js";
@@ -286,7 +285,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-send.ts", messagingSend],
   ["messaging:tools/messaging-reply.ts", messagingReply],
   ["messaging:tools/messaging-mark-read.ts", messagingMarkRead],
-  ["messaging:tools/messaging-analyze-activity.ts", messagingAnalyzeActivity],
   ["messaging:tools/messaging-analyze-style.ts", messagingAnalyzeStyle],
   ["messaging:tools/messaging-draft.ts", messagingDraft],
   ["messaging:tools/gmail-archive.ts", gmailArchive],

@@ -230,27 +230,6 @@
       "execution_target": "host"
     },
     {
-      "name": "messaging_analyze_activity",
-      "description": "Analyze channel or conversation activity levels. Groups conversations as high/medium/low/dead activity.",
-      "category": "messaging",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "platform": {
-            "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        }
-      },
-      "executor": "tools/messaging-analyze-activity.ts",
-      "execution_target": "host"
-    },
-    {
       "name": "messaging_analyze_style",
       "description": "Analyze sent messages to extract personal writing style patterns. Saves style characteristics to memory for personalized drafting. Run once to enable style-aware message composition.",
       "category": "messaging",
