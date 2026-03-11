@@ -249,8 +249,16 @@ async function handleDiagnosticsExport(body: {
 
       rangeStart =
         precedingUserMessage?.createdAt ?? anchorMessage.createdAt - 2000;
-      rangeEnd = anchorMessage.createdAt;
-      usageRangeEnd = anchorMessage.createdAt + 5000;
+
+      // When the anchor is not an assistant message (e.g. the fallback "any
+      // message" path hit because the assistant reply hasn't been persisted
+      // yet), extend the range to the current time so in-flight tool
+      // invocations and usage recorded after the user message are captured.
+      const anchorIsAssistant = anchorMessage.role === "assistant";
+      rangeEnd = anchorIsAssistant ? anchorMessage.createdAt : now;
+      usageRangeEnd = anchorIsAssistant
+        ? anchorMessage.createdAt + 5000
+        : now + 5000;
     } else {
       // No messages at all — use the current time so we capture any
       // in-flight LLM usage or tool invocations.
