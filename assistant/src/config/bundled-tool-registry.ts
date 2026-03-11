@@ -87,8 +87,6 @@ import * as mediaStatus from "./bundled-skills/media-processing/tools/media-stat
 import * as queryMediaEvents from "./bundled-skills/media-processing/tools/query-media-events.js";
 // ── messaging ──────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/messaging/tools/gmail-archive.js";
-import * as gmailArchiveByQuery from "./bundled-skills/messaging/tools/gmail-archive-by-query.js";
-import * as gmailBatchArchive from "./bundled-skills/messaging/tools/gmail-batch-archive.js";
 import * as gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-label.js";
 import * as gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
 import * as gmailDraft from "./bundled-skills/messaging/tools/gmail-draft.js";
@@ -312,8 +310,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-analyze-style.ts", messagingAnalyzeStyle],
   ["messaging:tools/messaging-draft.ts", messagingDraft],
   ["messaging:tools/gmail-archive.ts", gmailArchive],
-  ["messaging:tools/gmail-batch-archive.ts", gmailBatchArchive],
-  ["messaging:tools/gmail-archive-by-query.ts", gmailArchiveByQuery],
   ["messaging:tools/gmail-label.ts", gmailLabel],
   ["messaging:tools/gmail-batch-label.ts", gmailBatchLabel],
   ["messaging:tools/gmail-trash.ts", gmailTrash],

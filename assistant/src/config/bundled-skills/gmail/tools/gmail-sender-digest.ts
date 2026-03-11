@@ -235,7 +235,7 @@ export async function run(
           query_used: query,
           ...(truncated ? { truncated: true } : {}),
           ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
-          note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_batch_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
+          note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
         }),
       );
     });

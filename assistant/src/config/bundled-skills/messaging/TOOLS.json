@@ -307,7 +307,7 @@
     },
     {
       "name": "gmail_archive",
-      "description": "Archive a Gmail message (remove from inbox). Include a confidence score (0-1).",
+      "description": "Archive Gmail messages (remove from inbox). Accepts a single message_id, an array of message_ids, scan_id + sender_ids from a prior scan, or a query to archive all matches. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "medium",
       "input_schema": {
@@ -317,28 +317,13 @@
             "type": "string",
             "description": "Gmail message ID to archive"
           },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Gmail message IDs to archive (for batch operations)"
           },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["message_id", "confidence"]
-      },
-      "executor": "tools/gmail-archive.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "gmail_batch_archive",
-      "description": "Archive multiple Gmail messages at once. Prefer scan_id + sender_ids (from a prior scan) over raw message_ids. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
           "scan_id": {
             "type": "string",
             "description": "Scan result ID from a prior gmail_sender_digest or gmail_outreach_scan call"
@@ -348,14 +333,11 @@
             "items": {
               "type": "string"
             },
-            "description": "Sender IDs to archive (used with scan_id to resolve message IDs server-side)"
+            "description": "Sender IDs to archive (used with scan_id)"
           },
-          "message_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Gmail message IDs to archive (fallback \u2014 prefer scan_id + sender_ids)"
+          "query": {
+            "type": "string",
+            "description": "Gmail search query to archive all matching messages"
           },
           "confidence": {
             "type": "number",
@@ -368,33 +350,7 @@
         },
         "required": ["confidence"]
       },
-      "executor": "tools/gmail-batch-archive.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "gmail_archive_by_query",
-      "description": "Archive ALL Gmail messages matching a search query. Paginates through all results and archives in bulk. Ideal for high-volume senders where message IDs are not pre-collected. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "Gmail search query (e.g. \"from:marketing@example.com category:promotions newer_than:90d\")"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["query", "confidence"]
-      },
-      "executor": "tools/gmail-archive-by-query.ts",
+      "executor": "tools/gmail-archive.ts",
       "execution_target": "host"
     },
     {
@@ -1022,7 +978,7 @@
     },
     {
       "name": "gmail_outreach_scan",
-      "description": "Scan Gmail for cold outreach emails (sales, recruiting, marketing) using LLM classification. Returns top outreach senders with suggested cleanup actions. Read-only \u2014 use gmail_batch_archive and gmail_filters for cleanup.",
+      "description": "Scan Gmail for cold outreach emails (sales, recruiting, marketing) using LLM classification. Returns top outreach senders with suggested cleanup actions. Read-only \u2014 use gmail_archive and gmail_filters for cleanup.",
       "category": "messaging",
       "risk": "low",
       "input_schema": {

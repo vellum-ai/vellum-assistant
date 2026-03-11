@@ -22,8 +22,6 @@ const slackToolsManifest = JSON.parse(
 describe("Messaging tool contract", () => {
   const expectedGmailToolNames = [
     "gmail_archive",
-    "gmail_batch_archive",
-    "gmail_archive_by_query",
     "gmail_label",
     "gmail_batch_label",
     "gmail_trash",
