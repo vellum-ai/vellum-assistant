@@ -639,14 +639,19 @@ export class DaemonServer {
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine. Non-desktop sessions (CLI,
     // channels, headless) fall back to local execution.
-    if (resolvedInterface === "macos" || resolvedInterface === "ios") {
-      session.setHostBashProxy(
-        new HostBashProxy(session.getCurrentSender(), (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
-    } else {
-      session.setHostBashProxy(undefined);
+    // Guard: don't replace an active proxy during concurrent turn races —
+    // another request may have started processing between the isProcessing()
+    // check above and the await on ensureActorScopedHistory().
+    if (!session.isProcessing() || !session.hostBashProxy) {
+      if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+        session.setHostBashProxy(
+          new HostBashProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      } else {
+        session.setHostBashProxy(undefined);
+      }
     }
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
