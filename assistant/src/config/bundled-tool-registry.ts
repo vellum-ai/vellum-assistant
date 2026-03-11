@@ -118,18 +118,18 @@ import * as messagingReply from "./bundled-skills/messaging/tools/messaging-repl
 import * as messagingSearch from "./bundled-skills/messaging/tools/messaging-search.js";
 import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.js";
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
-import * as sequenceAnalytics from "./bundled-skills/messaging/tools/sequence-analytics.js";
-import * as sequenceCancel from "./bundled-skills/messaging/tools/sequence-cancel.js";
-import * as sequenceCreate from "./bundled-skills/messaging/tools/sequence-create.js";
-import * as sequenceDelete from "./bundled-skills/messaging/tools/sequence-delete.js";
-import * as sequenceEnroll from "./bundled-skills/messaging/tools/sequence-enroll.js";
-import * as sequenceEnrollmentList from "./bundled-skills/messaging/tools/sequence-enrollment-list.js";
-import * as sequenceGet from "./bundled-skills/messaging/tools/sequence-get.js";
-import * as sequenceImport from "./bundled-skills/messaging/tools/sequence-import.js";
-import * as sequenceList from "./bundled-skills/messaging/tools/sequence-list.js";
-import * as sequencePause from "./bundled-skills/messaging/tools/sequence-pause.js";
-import * as sequenceResume from "./bundled-skills/messaging/tools/sequence-resume.js";
-import * as sequenceUpdate from "./bundled-skills/messaging/tools/sequence-update.js";
+import * as messaging_sequenceAnalytics from "./bundled-skills/messaging/tools/sequence-analytics.js";
+import * as messaging_sequenceCancel from "./bundled-skills/messaging/tools/sequence-cancel.js";
+import * as messaging_sequenceCreate from "./bundled-skills/messaging/tools/sequence-create.js";
+import * as messaging_sequenceDelete from "./bundled-skills/messaging/tools/sequence-delete.js";
+import * as messaging_sequenceEnroll from "./bundled-skills/messaging/tools/sequence-enroll.js";
+import * as messaging_sequenceEnrollmentList from "./bundled-skills/messaging/tools/sequence-enrollment-list.js";
+import * as messaging_sequenceGet from "./bundled-skills/messaging/tools/sequence-get.js";
+import * as messaging_sequenceImport from "./bundled-skills/messaging/tools/sequence-import.js";
+import * as messaging_sequenceList from "./bundled-skills/messaging/tools/sequence-list.js";
+import * as messaging_sequencePause from "./bundled-skills/messaging/tools/sequence-pause.js";
+import * as messaging_sequenceResume from "./bundled-skills/messaging/tools/sequence-resume.js";
+import * as messaging_sequenceUpdate from "./bundled-skills/messaging/tools/sequence-update.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
 // ── orchestration ──────────────────────────────────────────────────────────────
@@ -150,6 +150,19 @@ import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js"
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
 // ── screen-watch ───────────────────────────────────────────────────────────────
 import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
+// ── sequences ──────────────────────────────────────────────────────────────────
+import * as sequences_sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
+import * as sequences_sequenceCancel from "./bundled-skills/sequences/tools/sequence-cancel.js";
+import * as sequences_sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
+import * as sequences_sequenceDelete from "./bundled-skills/sequences/tools/sequence-delete.js";
+import * as sequences_sequenceEnroll from "./bundled-skills/sequences/tools/sequence-enroll.js";
+import * as sequences_sequenceEnrollmentList from "./bundled-skills/sequences/tools/sequence-enrollment-list.js";
+import * as sequences_sequenceGet from "./bundled-skills/sequences/tools/sequence-get.js";
+import * as sequences_sequenceImport from "./bundled-skills/sequences/tools/sequence-import.js";
+import * as sequences_sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
+import * as sequences_sequencePause from "./bundled-skills/sequences/tools/sequence-pause.js";
+import * as sequences_sequenceResume from "./bundled-skills/sequences/tools/sequence-resume.js";
+import * as sequences_sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
 // ── settings ───────────────────────────────────────────────────────────────────
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
@@ -322,18 +335,21 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-archive-by-sender.ts", messagingArchiveBySender],
   ["messaging:tools/gmail-outreach-scan.ts", gmailOutreachScan],
   ["messaging:tools/google-contacts.ts", googleContacts],
-  ["messaging:tools/sequence-create.ts", sequenceCreate],
-  ["messaging:tools/sequence-list.ts", sequenceList],
-  ["messaging:tools/sequence-get.ts", sequenceGet],
-  ["messaging:tools/sequence-update.ts", sequenceUpdate],
-  ["messaging:tools/sequence-delete.ts", sequenceDelete],
-  ["messaging:tools/sequence-enroll.ts", sequenceEnroll],
-  ["messaging:tools/sequence-enrollment-list.ts", sequenceEnrollmentList],
-  ["messaging:tools/sequence-pause.ts", sequencePause],
-  ["messaging:tools/sequence-resume.ts", sequenceResume],
-  ["messaging:tools/sequence-cancel.ts", sequenceCancel],
-  ["messaging:tools/sequence-import.ts", sequenceImport],
-  ["messaging:tools/sequence-analytics.ts", sequenceAnalytics],
+  ["messaging:tools/sequence-create.ts", messaging_sequenceCreate],
+  ["messaging:tools/sequence-list.ts", messaging_sequenceList],
+  ["messaging:tools/sequence-get.ts", messaging_sequenceGet],
+  ["messaging:tools/sequence-update.ts", messaging_sequenceUpdate],
+  ["messaging:tools/sequence-delete.ts", messaging_sequenceDelete],
+  ["messaging:tools/sequence-enroll.ts", messaging_sequenceEnroll],
+  [
+    "messaging:tools/sequence-enrollment-list.ts",
+    messaging_sequenceEnrollmentList,
+  ],
+  ["messaging:tools/sequence-pause.ts", messaging_sequencePause],
+  ["messaging:tools/sequence-resume.ts", messaging_sequenceResume],
+  ["messaging:tools/sequence-cancel.ts", messaging_sequenceCancel],
+  ["messaging:tools/sequence-import.ts", messaging_sequenceImport],
+  ["messaging:tools/sequence-analytics.ts", messaging_sequenceAnalytics],
 
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
@@ -360,6 +376,23 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // screen-watch
   ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
+
+  // sequences
+  ["sequences:tools/sequence-create.ts", sequences_sequenceCreate],
+  ["sequences:tools/sequence-list.ts", sequences_sequenceList],
+  ["sequences:tools/sequence-get.ts", sequences_sequenceGet],
+  ["sequences:tools/sequence-update.ts", sequences_sequenceUpdate],
+  ["sequences:tools/sequence-delete.ts", sequences_sequenceDelete],
+  ["sequences:tools/sequence-enroll.ts", sequences_sequenceEnroll],
+  [
+    "sequences:tools/sequence-enrollment-list.ts",
+    sequences_sequenceEnrollmentList,
+  ],
+  ["sequences:tools/sequence-pause.ts", sequences_sequencePause],
+  ["sequences:tools/sequence-resume.ts", sequences_sequenceResume],
+  ["sequences:tools/sequence-cancel.ts", sequences_sequenceCancel],
+  ["sequences:tools/sequence-import.ts", sequences_sequenceImport],
+  ["sequences:tools/sequence-analytics.ts", sequences_sequenceAnalytics],
 
   // settings
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
