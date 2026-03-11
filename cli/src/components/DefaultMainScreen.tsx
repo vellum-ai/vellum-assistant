@@ -1481,6 +1481,159 @@ function ChatApp({
         return;
       }
 
+      if (trimmed === "/retire") {
+        if (!project || !zone) {
+          h.showError(
+            "No instance info available. Connect to a hatched instance first.",
+          );
+          return;
+        }
+
+        const confirmIndex = await h.showSelection(`Retire ${assistantId}?`, [
+          "Yes, retire",
+          "Cancel",
+        ]);
+        if (confirmIndex !== 0) {
+          h.addStatus("Cancelled.");
+          return;
+        }
+
+        h.showSpinner(`Retiring instance ${assistantId}...`);
+
+        try {
+          const labelChild = spawn(
+            "gcloud",
+            [
+              "compute",
+              "instances",
+              "add-labels",
+              assistantId,
+              `--project=${project}`,
+              `--zone=${zone}`,
+              "--labels=retired-by=vel",
+            ],
+            { stdio: "pipe" },
+          );
+          await new Promise<void>((resolve) => {
+            labelChild.on("close", () => resolve());
+            labelChild.on("error", () => resolve());
+          });
+        } catch {
+          // Best-effort labeling before deletion
+        }
+
+        const child = spawn(
+          "gcloud",
+          [
+            "compute",
+            "instances",
+            "delete",
+            assistantId,
+            `--project=${project}`,
+            `--zone=${zone}`,
+            "--quiet",
+          ],
+          { stdio: "pipe" },
+        );
+
+        child.on("close", (code) => {
+          handleRef_.current?.hideSpinner();
+          if (code === 0) {
+            removeAssistantEntry(assistantId);
+            handleRef_.current?.addStatus(
+              `Removed ${assistantId} from lockfile.json`,
+            );
+          } else {
+            handleRef_.current?.showError(
+              `Failed to delete instance (exit code ${code})`,
+            );
+          }
+          cleanup();
+          process.exit(code === 0 ? 0 : 1);
+        });
+
+        child.on("error", (err) => {
+          handleRef_.current?.hideSpinner();
+          handleRef_.current?.showError(
+            `Failed to retire instance: ${err.message}`,
+          );
+        });
+        return;
+      }
+
+      if (trimmed === "/doctor" || trimmed.startsWith("/doctor ")) {
+        if (!project || !zone) {
+          h.showError(
+            "No instance info available. Connect to a hatched instance first.",
+          );
+          return;
+        }
+        const userPrompt = trimmed.slice("/doctor".length).trim() || undefined;
+        const recentChatContext = chatLogRef.current.slice(-20);
+
+        chatLogRef.current.push({ role: "user", content: trimmed });
+
+        if (userPrompt) {
+          const doctorUserMsg: RuntimeMessage = {
+            id: "local-user-" + Date.now(),
+            role: "user",
+            content: userPrompt,
+            timestamp: new Date().toISOString(),
+            label: "You (to Doctor):",
+          };
+          h.addMessage(doctorUserMsg);
+        }
+
+        h.showSpinner(`Analyzing ${assistantId}...`);
+
+        try {
+          const result = await callDoctorDaemon(
+            assistantId,
+            project,
+            zone,
+            userPrompt,
+            (event) => {
+              switch (event.phase) {
+                case "invoking_prompt":
+                  handleRef_.current?.showSpinner(
+                    `Analyzing ${assistantId}...`,
+                  );
+                  break;
+                case "calling_tool":
+                  handleRef_.current?.showSpinner(
+                    `Running ${event.toolName ?? "tool"} on ${assistantId}...`,
+                  );
+                  break;
+                case "processing_tool_result":
+                  handleRef_.current?.showSpinner(
+                    `Reviewing diagnostics for ${assistantId}...`,
+                  );
+                  break;
+              }
+            },
+            doctorSessionIdRef.current,
+            recentChatContext,
+          );
+          h.hideSpinner();
+          if (result.recommendation) {
+            h.addStatus(`Recommendation:\n${result.recommendation}`);
+            chatLogRef.current.push({
+              role: "assistant",
+              content: result.recommendation,
+            });
+          } else if (result.error) {
+            h.showError(result.error);
+            chatLogRef.current.push({ role: "error", content: result.error });
+          }
+        } catch (err) {
+          h.hideSpinner();
+          const errorMsg = `Doctor assistant unreachable: ${err instanceof Error ? err.message : err}`;
+          h.showError(errorMsg);
+          chatLogRef.current.push({ role: "error", content: errorMsg });
+        }
+        return;
+      }
+
       // If a connection attempt is already in progress, don't silently drop input
       if (connectingRef.current) {
         h.addStatus(
@@ -1636,159 +1789,6 @@ function ChatApp({
           h.showError(
             `Pairing failed: ${err instanceof Error ? err.message : err}`,
           );
-        }
-        return;
-      }
-
-      if (trimmed === "/retire") {
-        if (!project || !zone) {
-          h.showError(
-            "No instance info available. Connect to a hatched instance first.",
-          );
-          return;
-        }
-
-        const confirmIndex = await h.showSelection(`Retire ${assistantId}?`, [
-          "Yes, retire",
-          "Cancel",
-        ]);
-        if (confirmIndex !== 0) {
-          h.addStatus("Cancelled.");
-          return;
-        }
-
-        h.showSpinner(`Retiring instance ${assistantId}...`);
-
-        try {
-          const labelChild = spawn(
-            "gcloud",
-            [
-              "compute",
-              "instances",
-              "add-labels",
-              assistantId,
-              `--project=${project}`,
-              `--zone=${zone}`,
-              "--labels=retired-by=vel",
-            ],
-            { stdio: "pipe" },
-          );
-          await new Promise<void>((resolve) => {
-            labelChild.on("close", () => resolve());
-            labelChild.on("error", () => resolve());
-          });
-        } catch {
-          // Best-effort labeling before deletion
-        }
-
-        const child = spawn(
-          "gcloud",
-          [
-            "compute",
-            "instances",
-            "delete",
-            assistantId,
-            `--project=${project}`,
-            `--zone=${zone}`,
-            "--quiet",
-          ],
-          { stdio: "pipe" },
-        );
-
-        child.on("close", (code) => {
-          handleRef_.current?.hideSpinner();
-          if (code === 0) {
-            removeAssistantEntry(assistantId);
-            handleRef_.current?.addStatus(
-              `Removed ${assistantId} from lockfile.json`,
-            );
-          } else {
-            handleRef_.current?.showError(
-              `Failed to delete instance (exit code ${code})`,
-            );
-          }
-          cleanup();
-          process.exit(code === 0 ? 0 : 1);
-        });
-
-        child.on("error", (err) => {
-          handleRef_.current?.hideSpinner();
-          handleRef_.current?.showError(
-            `Failed to retire instance: ${err.message}`,
-          );
-        });
-        return;
-      }
-
-      if (trimmed === "/doctor" || trimmed.startsWith("/doctor ")) {
-        if (!project || !zone) {
-          h.showError(
-            "No instance info available. Connect to a hatched instance first.",
-          );
-          return;
-        }
-        const userPrompt = trimmed.slice("/doctor".length).trim() || undefined;
-        const recentChatContext = chatLogRef.current.slice(-20);
-
-        chatLogRef.current.push({ role: "user", content: trimmed });
-
-        if (userPrompt) {
-          const doctorUserMsg: RuntimeMessage = {
-            id: "local-user-" + Date.now(),
-            role: "user",
-            content: userPrompt,
-            timestamp: new Date().toISOString(),
-            label: "You (to Doctor):",
-          };
-          h.addMessage(doctorUserMsg);
-        }
-
-        h.showSpinner(`Analyzing ${assistantId}...`);
-
-        try {
-          const result = await callDoctorDaemon(
-            assistantId,
-            project,
-            zone,
-            userPrompt,
-            (event) => {
-              switch (event.phase) {
-                case "invoking_prompt":
-                  handleRef_.current?.showSpinner(
-                    `Analyzing ${assistantId}...`,
-                  );
-                  break;
-                case "calling_tool":
-                  handleRef_.current?.showSpinner(
-                    `Running ${event.toolName ?? "tool"} on ${assistantId}...`,
-                  );
-                  break;
-                case "processing_tool_result":
-                  handleRef_.current?.showSpinner(
-                    `Reviewing diagnostics for ${assistantId}...`,
-                  );
-                  break;
-              }
-            },
-            doctorSessionIdRef.current,
-            recentChatContext,
-          );
-          h.hideSpinner();
-          if (result.recommendation) {
-            h.addStatus(`Recommendation:\n${result.recommendation}`);
-            chatLogRef.current.push({
-              role: "assistant",
-              content: result.recommendation,
-            });
-          } else if (result.error) {
-            h.showError(result.error);
-            chatLogRef.current.push({ role: "error", content: result.error });
-          }
-        } catch (err) {
-          h.hideSpinner();
-          const errorMsg = `Doctor assistant unreachable: ${err instanceof Error ? err.message : err}`;
-          h.showError(errorMsg);
-          chatLogRef.current.push({ role: "error", content: errorMsg });
         }
         return;
       }
