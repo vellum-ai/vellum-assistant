@@ -5,10 +5,15 @@ import {
 } from "../../../../daemon/media-visibility-policy.js";
 import {
   generateImage,
+  type ImageGenCredentials,
   mapGeminiError,
 } from "../../../../media/gemini-image-service.js";
 import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
 import { getConversationThreadType } from "../../../../memory/conversation-crud.js";
+import {
+  buildManagedBaseUrl,
+  resolveManagedProxyContext,
+} from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
 import type {
@@ -48,7 +53,23 @@ export async function run(
   const config = getConfig();
   const apiKey = config.apiKeys.gemini;
 
-  if (!apiKey) {
+  // Resolve credentials: prefer direct API key, fall back to managed proxy
+  let credentials: ImageGenCredentials | undefined;
+  if (apiKey) {
+    credentials = { type: "direct", apiKey };
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      credentials = {
+        type: "managed-proxy",
+        assistantApiKey: ctx.assistantApiKey,
+        baseUrl: managedBaseUrl,
+      };
+    }
+  }
+
+  if (!credentials) {
     return {
       content:
         "No Gemini API key configured. Please set your Gemini API key to use image generation.",
@@ -95,7 +116,7 @@ export async function run(
   }
 
   try {
-    const result = await generateImage(apiKey, {
+    const result = await generateImage(credentials, {
       prompt,
       mode,
       sourceImages,
