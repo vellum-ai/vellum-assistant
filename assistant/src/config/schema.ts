@@ -127,17 +127,14 @@ export {
 export type { NotificationsConfig } from "./schemas/notifications.js";
 export { NotificationsConfigSchema } from "./schemas/notifications.js";
 export type {
-  AvatarConfig,
   DaemonConfig,
   PlatformConfig,
   UiConfig,
 } from "./schemas/platform.js";
 export {
-  AvatarConfigSchema,
   DaemonConfigSchema,
   PlatformConfigSchema,
   UiConfigSchema,
-  VALID_AVATAR_STRATEGIES,
 } from "./schemas/platform.js";
 export type { SandboxConfig } from "./schemas/sandbox.js";
 export { SandboxConfigSchema } from "./schemas/sandbox.js";
@@ -202,7 +199,6 @@ import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import {
-  AvatarConfigSchema,
   DaemonConfigSchema,
   PlatformConfigSchema,
   UiConfigSchema,
@@ -316,7 +312,6 @@ export const AssistantConfigSchema = z
     notifications: NotificationsConfigSchema.default(
       NotificationsConfigSchema.parse({}),
     ),
-    avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
     assistantFeatureFlagValues: z
       .record(
