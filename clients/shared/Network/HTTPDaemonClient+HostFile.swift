@@ -112,7 +112,7 @@ extension HTTPTransport {
 
     /// Read a file and return its content formatted with line numbers.
     /// Matches the daemon's `FileSystemOps.readFileSafe` output format.
-    private static func readFile(path: String, offset: Int?, limit: Int?) throws -> String {
+    private nonisolated static func readFile(path: String, offset: Int?, limit: Int?) throws -> String {
         let fileContent = try String(contentsOfFile: path, encoding: .utf8)
         var lines = fileContent.components(separatedBy: "\n")
 
@@ -143,7 +143,7 @@ extension HTTPTransport {
     }
 
     /// Write content to a file, creating parent directories as needed.
-    private static func writeFile(path: String, content: String) throws -> String {
+    private nonisolated static func writeFile(path: String, content: String) throws -> String {
         let fileURL = URL(fileURLWithPath: path)
         let parentDir = fileURL.deletingLastPathComponent().path
 
@@ -161,7 +161,7 @@ extension HTTPTransport {
     /// Edit a file by finding and replacing a string.
     /// If `replaceAll` is true, replaces all occurrences.
     /// If `replaceAll` is false, verifies exactly one match exists.
-    private static func editFile(path: String, oldString: String, newString: String, replaceAll: Bool) throws -> String {
+    private nonisolated static func editFile(path: String, oldString: String, newString: String, replaceAll: Bool) throws -> String {
         guard oldString != newString else {
             throw FileOperationError.sameStrings
         }
