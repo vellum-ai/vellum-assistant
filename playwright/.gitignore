@@ -1,3 +1,4 @@
 test-results/
 playwright-report/
 agent-xcode/.build/
+ax-helper/.build
