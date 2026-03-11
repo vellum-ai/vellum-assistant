@@ -91,7 +91,7 @@ struct IOSTaskPermissionPreflightView: View {
 
     // MARK: - Permissions List
 
-    private func permissionsList(_ permissions: [IPCWorkItemPreflightResponsePermission]) -> some View {
+    private func permissionsList(_ permissions: [WorkItemPreflightResponsePermission]) -> some View {
         List {
             Section {
                 Text("Task: \(itemTitle)")
@@ -119,7 +119,7 @@ struct IOSTaskPermissionPreflightView: View {
         }
     }
 
-    private func permissionRow(_ permission: IPCWorkItemPreflightResponsePermission) -> some View {
+    private func permissionRow(_ permission: WorkItemPreflightResponsePermission) -> some View {
         let isApproved = approvedTools.contains(permission.tool)
         return HStack(spacing: VSpacing.sm) {
             Button {
