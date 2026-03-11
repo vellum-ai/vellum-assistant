@@ -48,6 +48,7 @@ mock.module("../tools/registry.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
@@ -411,7 +412,7 @@ describe("credential_store tool — prompt action", () => {
     expect(result.content).not.toContain("prompt-secret-val");
 
     // Verify stored
-    expect(getSecureKey("credential:test-prompt:api_key")).toBe(
+    expect(getSecureKey(credentialKey("test-prompt", "api_key"))).toBe(
       "prompt-secret-val",
     );
   });
@@ -603,7 +604,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     upsertCredentialMetadata("integration:gmail", "access_token", {
       oauth2ClientId: "stored-client-id-123",
     });
-    setSecureKey("credential:integration:gmail:client_secret", "test-secret");
+    setSecureKey(
+      credentialKey("integration:gmail", "client_secret"),
+      "test-secret",
+    );
 
     const result = await credentialStoreTool.execute(
       {
@@ -784,7 +788,7 @@ describe("credential_store tool — store validation edge cases", () => {
     );
 
     // Verify stored
-    expect(getSecureKey("credential:del-test:key")).toBe("secret");
+    expect(getSecureKey(credentialKey("del-test", "key"))).toBe("secret");
     const { getCredentialMetadata } =
       await import("../tools/credentials/metadata-store.js");
     expect(getCredentialMetadata("del-test", "key")).toBeDefined();
@@ -801,7 +805,7 @@ describe("credential_store tool — store validation edge cases", () => {
     expect(result.isError).toBe(false);
 
     // Both should be gone
-    expect(getSecureKey("credential:del-test:key")).toBeUndefined();
+    expect(getSecureKey(credentialKey("del-test", "key"))).toBeUndefined();
     expect(getCredentialMetadata("del-test", "key")).toBeUndefined();
   });
 });

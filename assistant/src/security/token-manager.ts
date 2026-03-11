@@ -11,6 +11,7 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
+import { credentialKey, migrateKeys } from "./credential-key.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
 import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
 
@@ -171,7 +172,7 @@ function isTokenExpired(service: string): boolean {
  * Throws `TokenExpiredError` if refresh is not possible.
  */
 async function doRefresh(service: string): Promise<string> {
-  const refreshToken = getSecureKey(`credential:${service}:refresh_token`);
+  const refreshToken = getSecureKey(credentialKey(service, "refresh_token"));
   if (!refreshToken) {
     throw new TokenExpiredError(
       service,
@@ -198,7 +199,7 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  const clientSecret = getSecureKey(`credential:${service}:client_secret`);
+  const clientSecret = getSecureKey(credentialKey(service, "client_secret"));
   const authMethod = meta?.oauth2TokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
     | undefined;
@@ -242,7 +243,7 @@ async function doRefresh(service: string): Promise<string> {
 
   if (
     !(await setSecureKeyAsync(
-      `credential:${service}:access_token`,
+      credentialKey(service, "access_token"),
       result.accessToken,
     ))
   ) {
@@ -255,7 +256,7 @@ async function doRefresh(service: string): Promise<string> {
   if (result.refreshToken) {
     if (
       !(await setSecureKeyAsync(
-        `credential:${service}:refresh_token`,
+        credentialKey(service, "refresh_token"),
         result.refreshToken,
       ))
     ) {
@@ -293,7 +294,9 @@ export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
 ): Promise<T> {
-  let token = getSecureKey(`credential:${service}:access_token`);
+  migrateKeys();
+
+  let token = getSecureKey(credentialKey(service, "access_token"));
   if (!token) {
     throw new TokenExpiredError(
       service,

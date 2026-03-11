@@ -147,12 +147,12 @@ describe("E2E: secure store and list lifecycle", () => {
     // Value must NOT appear in tool output (invariant 1)
     expect(result.content).not.toContain("ghp_abc123");
     // Value must be in keychain
-    expect(storedKeys.get("credential:github:token")).toBe("ghp_abc123");
+    expect(storedKeys.get("credential/github/token")).toBe("ghp_abc123");
   });
 
   test("list returns service/field pairs without secret values", async () => {
-    storedKeys.set("credential:github:token", "secret1");
-    storedKeys.set("credential:aws:access_key", "secret2");
+    storedKeys.set("credential/github/token", "secret1");
+    storedKeys.set("credential/aws/access_key", "secret2");
     metadataStore.set("github:token", {
       credentialId: "cred-github-token",
       service: "github",
@@ -177,14 +177,14 @@ describe("E2E: secure store and list lifecycle", () => {
   });
 
   test("delete removes credential from keychain", async () => {
-    storedKeys.set("credential:github:token", "secret1");
+    storedKeys.set("credential/github/token", "secret1");
 
     const result = await credentialStoreTool.execute(
       { action: "delete", service: "github", field: "token" },
       makeContext(),
     );
     expect(result.isError).toBe(false);
-    expect(storedKeys.has("credential:github:token")).toBe(false);
+    expect(storedKeys.has("credential/github/token")).toBe(false);
   });
 });
 
@@ -267,7 +267,7 @@ describe("E2E: one-time send override", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not enabled");
-    expect(storedKeys.has("credential:svc:key")).toBe(false);
+    expect(storedKeys.has("credential/svc/key")).toBe(false);
   });
 
   test("accepts transient_send when config gate is on", async () => {
@@ -285,7 +285,7 @@ describe("E2E: one-time send override", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("NOT saved");
     // Value must NOT be in keychain
-    expect(storedKeys.has("credential:svc:key")).toBe(false);
+    expect(storedKeys.has("credential/svc/key")).toBe(false);
     // Value must NOT appear in output
     expect(result.content).not.toContain("tmp1");
   });
@@ -303,7 +303,7 @@ describe("E2E: one-time send override", () => {
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(storedKeys.has("credential:svc:key")).toBe(true);
+    expect(storedKeys.has("credential/svc/key")).toBe(true);
   });
 });
 

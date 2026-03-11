@@ -71,6 +71,7 @@ mock.module("../security/oauth2.js", () => {
 
 // getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
 
+import { credentialKey } from "../security/credential-key.js";
 import {
   deleteSecureKey,
   getSecureKey,
@@ -146,7 +147,7 @@ async function executeVault(
         };
       }
 
-      const key = `credential:${service}:${field}`;
+      const key = credentialKey(service, field);
       const ok = setSecureKey(key, value);
       if (!ok) {
         return { content: "Error: failed to store credential", isError: true };
@@ -177,7 +178,7 @@ async function executeVault(
         };
       }
 
-      const key = `credential:${service}:${field}`;
+      const key = credentialKey(service, field);
       const result = deleteSecureKey(key);
       if (result !== "deleted") {
         return {
@@ -579,7 +580,7 @@ describe("credential_store tool", () => {
 
       // Delete the secret directly without going through the tool (simulates
       // a divergence where metadata write failed after secret deletion)
-      deleteSecureKey("credential:svc-a:key");
+      deleteSecureKey(credentialKey("svc-a", "key"));
 
       const result = await credentialStoreTool.execute(
         { action: "list" },
@@ -622,7 +623,7 @@ describe("credential_store tool", () => {
   // -----------------------------------------------------------------------
   describe("delete action", () => {
     test("deletes a stored credential", async () => {
-      setSecureKey("credential:gmail:password", "secret");
+      setSecureKey(credentialKey("gmail", "password"), "secret");
 
       const result = await executeVault({
         action: "delete",
@@ -633,7 +634,7 @@ describe("credential_store tool", () => {
       expect(result.content).toBe("Deleted credential for gmail/password.");
 
       // Verify it's actually gone
-      expect(getSecureKey("credential:gmail:password")).toBeUndefined();
+      expect(getSecureKey(credentialKey("gmail", "password"))).toBeUndefined();
     });
 
     test("returns error for non-existent credential", async () => {
@@ -670,12 +671,14 @@ describe("credential_store tool", () => {
   // -----------------------------------------------------------------------
   describe("credential value access", () => {
     test("credential values are stored via secure keys", () => {
-      setSecureKey("credential:github:token", "ghp_abc123");
-      expect(getSecureKey("credential:github:token")).toBe("ghp_abc123");
+      setSecureKey(credentialKey("github", "token"), "ghp_abc123");
+      expect(getSecureKey(credentialKey("github", "token"))).toBe("ghp_abc123");
     });
 
     test("returns undefined for non-existent credential", () => {
-      expect(getSecureKey("credential:nonexistent:field")).toBeUndefined();
+      expect(
+        getSecureKey(credentialKey("nonexistent", "field")),
+      ).toBeUndefined();
     });
   });
 
@@ -1120,8 +1123,12 @@ describe("credential_store tool", () => {
         value: "github-pass",
       });
 
-      expect(getSecureKey("credential:gmail:password")).toBe("gmail-pass");
-      expect(getSecureKey("credential:github:password")).toBe("github-pass");
+      expect(getSecureKey(credentialKey("gmail", "password"))).toBe(
+        "gmail-pass",
+      );
+      expect(getSecureKey(credentialKey("github", "password"))).toBe(
+        "github-pass",
+      );
     });
 
     test("same service with different fields do not collide", async () => {
@@ -1138,8 +1145,8 @@ describe("credential_store tool", () => {
         value: "backup@example.com",
       });
 
-      expect(getSecureKey("credential:gmail:password")).toBe("pass123");
-      expect(getSecureKey("credential:gmail:recovery_email")).toBe(
+      expect(getSecureKey(credentialKey("gmail", "password"))).toBe("pass123");
+      expect(getSecureKey(credentialKey("gmail", "recovery_email"))).toBe(
         "backup@example.com",
       );
     });
@@ -1188,8 +1195,11 @@ describe("withValidToken refresh deduplication", () => {
     opts?: { expired?: boolean; accessToken?: string },
   ) {
     const accessToken = opts?.accessToken ?? "old-access-token";
-    setSecureKey(`credential:${service}:access_token`, accessToken);
-    setSecureKey(`credential:${service}:refresh_token`, "valid-refresh-token");
+    setSecureKey(credentialKey(service, "access_token"), accessToken);
+    setSecureKey(
+      credentialKey(service, "refresh_token"),
+      "valid-refresh-token",
+    );
     upsertCredentialMetadata(service, "access_token", {
       oauth2TokenUrl: "https://oauth.example.com/token",
       oauth2ClientId: "test-client-id",
