@@ -149,7 +149,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 ## Scan ID
 
-Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context.
+Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context. `gmail_outreach_scan` is a pure data aggregation tool — it finds senders without List-Unsubscribe headers (potential cold outreach) and does not use LLM classification.
 
 - Pass `scan_id` + `sender_ids` to `gmail_archive` instead of `message_ids`
 - Scan results expire after **30 minutes** — if archiving fails with an expiration error, re-run the scan
