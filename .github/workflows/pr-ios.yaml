@@ -26,8 +26,22 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
+      - name: Cache Homebrew XcodeGen
+        id: cache-xcodegen
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar/xcodegen
+            /opt/homebrew/Cellar/xcodegen
+          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install XcodeGen
+        if: steps.cache-xcodegen.outputs.cache-hit != 'true'
         run: brew install xcodegen
+
+      - name: Link XcodeGen
+        if: steps.cache-xcodegen.outputs.cache-hit == 'true'
+        run: brew link xcodegen 2>/dev/null || true
 
       - name: Clear stale SPM artifact cache
         run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts

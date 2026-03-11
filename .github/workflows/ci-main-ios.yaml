@@ -29,7 +29,7 @@ jobs:
           path: |
             /usr/local/Cellar/xcodegen
             /opt/homebrew/Cellar/xcodegen
-          key: xcodegen-${{ runner.os }}-${{ runner.arch }}
+          key: xcodegen-v1-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install XcodeGen
         if: steps.cache-xcodegen.outputs.cache-hit != 'true'
