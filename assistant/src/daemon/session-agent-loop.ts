@@ -1384,6 +1384,9 @@ export async function runAgentLoopImpl(
           ...(emittedAttachments.length > 0
             ? { attachments: emittedAttachments }
             : {}),
+          ...(state.lastAssistantMessageId
+            ? { messageId: state.lastAssistantMessageId }
+            : {}),
         });
       } else {
         ctx.emitActivityState("idle", "message_complete", "global", reqId);

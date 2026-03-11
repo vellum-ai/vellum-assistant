@@ -959,6 +959,11 @@ extension ChatViewModel {
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
+                // Backfill the daemon's persisted message ID so diagnostics exports
+                // can anchor to it without requiring a history reload.
+                if let messageId = handoff.messageId {
+                    messages[index].daemonMessageId = messageId
+                }
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil

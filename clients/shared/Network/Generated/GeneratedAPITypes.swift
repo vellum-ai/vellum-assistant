@@ -1770,13 +1770,15 @@ public struct GenerationHandoff: Codable, Sendable {
     public let requestId: String?
     public let queuedCount: Int
     public let attachments: [UserMessageAttachment]?
+    public let messageId: String?
 
-    public init(type: String, sessionId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil) {
+    public init(type: String, sessionId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
         self.queuedCount = queuedCount
         self.attachments = attachments
+        self.messageId = messageId
     }
 }
 
