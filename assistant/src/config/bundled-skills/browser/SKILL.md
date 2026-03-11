@@ -60,3 +60,12 @@ This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs,
 ## Verification
 
 Use `browser_screenshot` after critical actions (form submission, booking confirmation, checkout) to visually verify results before reporting success to the user.
+
+## When to Use Browser Automation
+
+Browser automation should be your **last resort** for interacting with external services. Prefer:
+1. Sandbox CLI tools or host CLI tools (gh, curl, etc.) with structured output
+2. Direct API calls via curl/httpie with API tokens from credential_store
+3. `web_fetch` for public endpoints
+
+Only use browser automation when the task genuinely requires a browser (no API exists, visual interaction needed, or OAuth consent screen).

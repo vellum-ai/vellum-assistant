@@ -568,6 +568,31 @@ export function stripVoiceCallControlContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<voice_call_control>"]);
 }
 
+/** Return channel-specific formatting rules for the given channel. */
+function getChannelFormattingRules(channel: string): string[] {
+  switch (channel) {
+    case "discord":
+      return [
+        "Do not use markdown tables -- use bullet lists instead.",
+        "Wrap multiple links in `<>` to suppress embeds.",
+      ];
+    case "whatsapp":
+      return [
+        "Do not use markdown tables -- use bullet lists instead.",
+        "No markdown headers -- use **bold** or CAPS for emphasis.",
+      ];
+    case "email":
+      return ["Keep formatting simple -- avoid markdown that email clients may not render."];
+    default:
+      return [];
+  }
+}
+
+/** Return true if the channel supports group chat contexts. */
+function isGroupChatCapableChannel(channel: string): boolean {
+  return ["telegram", "discord", "slack", "whatsapp"].includes(channel);
+}
+
 /**
  * Prepend channel capability context to the last user message so the
  * model knows what the current channel can and cannot do.
@@ -590,7 +615,7 @@ export function injectChannelCapabilityContext(
     );
     if (!caps.supportsDynamicUi) {
       lines.push(
-        "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
+        "- Do NOT use ui_show, ui_update, or app_create -- this channel cannot render them.",
       );
       lines.push(
         "- Present information as well-formatted text instead of dynamic UI.",
@@ -604,6 +629,33 @@ export function injectChannelCapabilityContext(
 
   if (!caps.supportsVoiceInput) {
     lines.push("- Do NOT ask the user to use voice or microphone input.");
+  }
+
+  // Channel-specific formatting rules -- only injected for channels that need them
+  const formattingRules = getChannelFormattingRules(caps.channel);
+  if (formattingRules.length > 0) {
+    lines.push("");
+    lines.push("CHANNEL FORMATTING:");
+    for (const rule of formattingRules) {
+      lines.push(`- ${rule}`);
+    }
+  }
+
+  // Group chat etiquette -- injected for multi-user channels
+  if (isGroupChatCapableChannel(caps.channel)) {
+    lines.push("");
+    lines.push("GROUP CHAT ETIQUETTE:");
+    lines.push(
+      "- You are a participant, not a proxy. Respond when directly mentioned or you can add genuine value. Stay silent during casual banter or when someone already answered.",
+    );
+    lines.push(
+      "- Quality over quantity -- humans do not respond to every message in a group chat. Neither should you.",
+    );
+    if (caps.channel === "discord" || caps.channel === "slack") {
+      lines.push(
+        "- Use emoji reactions to acknowledge without cluttering the conversation.",
+      );
+    }
   }
 
   // PTT state — only relevant on channels that support voice input

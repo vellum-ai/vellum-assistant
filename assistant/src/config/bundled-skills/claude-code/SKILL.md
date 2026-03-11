@@ -46,9 +46,13 @@ Do NOT delegate when:
 
 Claude Code supports scoped worker profiles that restrict tool access:
 
-- **general** (default) — Full access to all tools. Backward-compatible with existing behavior.
-- **researcher** — Read-only access. Can search, read files, and browse the web but cannot write or execute commands.
-- **coder** — Full read/write/execute access optimized for implementation tasks.
-- **reviewer** — Read-only access tailored for code review, with emphasis on analysis and feedback.
+- **general** (default) -- Full access to all tools. Backward-compatible with existing behavior.
+- **researcher** -- Read-only access. Can search, read files, and browse the web but cannot write or execute commands.
+- **coder** -- Full read/write/execute access optimized for implementation tasks.
+- **reviewer** -- Read-only access tailored for code review, with emphasis on analysis and feedback.
 
 Select the profile that best matches the task to enforce least-privilege access.
+
+## Access Preference for Coding Tasks
+
+When working on code, prefer the sandbox environment first. Install tools with `bash` (e.g. `apt-get install -y git`) if needed. Only fall back to host tools (`host_bash`) when you need access to the user's local git repos, host-installed CLIs with existing auth, or host-specific resources.
