@@ -2798,30 +2798,51 @@ public final class HTTPTransport {
             // (string) and `timestamp` (ISO 8601 string), but HistoryResponseMessage
             // expects `text` and `timestamp` as a Double (ms since epoch). Transform
             // the response to match the expected message format.
+            //
+            // The HTTP API also omits the `data` field from attachments when content
+            // was not requested (returning only metadata like `sizeBytes`), but
+            // UserMessageAttachment.data is non-optional. We backfill missing fields
+            // to avoid decode failures.
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let messages = json["messages"] as? [[String: Any]] {
 
                     let isoFormatter = ISO8601DateFormatter()
                     isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let fallbackFormatter = ISO8601DateFormatter()
 
-                    let transformed: [[String: Any]] = messages.map { msg in
+                    let transformed: [[String: Any]] = messages.compactMap { msg in
                         var m = msg
-                        // Rename `content` → `text`
-                        if let content = m.removeValue(forKey: "content") {
+                        // Rename `content` → `text`, defaulting to empty string if absent/null.
+                        let content = m.removeValue(forKey: "content")
+                        if let content, !(content is NSNull) {
                             m["text"] = content
+                        } else {
+                            m["text"] = ""
                         }
                         // Convert ISO 8601 timestamp string → Double (ms since epoch)
                         if let tsString = m["timestamp"] as? String {
                             if let date = isoFormatter.date(from: tsString) {
                                 m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                            } else if let date = fallbackFormatter.date(from: tsString) {
+                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
                             } else {
-                                // Fallback: try without fractional seconds
-                                let fallback = ISO8601DateFormatter()
-                                if let date = fallback.date(from: tsString) {
-                                    m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                                log.warning("Unparseable timestamp in history message, using epoch: \(tsString, privacy: .public)")
+                                m["timestamp"] = 0.0
+                            }
+                        } else if m["timestamp"] == nil || m["timestamp"] is NSNull {
+                            m["timestamp"] = 0.0
+                        }
+                        // Normalize attachments: the HTTP API omits `data` for large
+                        // attachments (returns sizeBytes instead), but
+                        // UserMessageAttachment.data is non-optional String.
+                        if var attachments = m["attachments"] as? [[String: Any]] {
+                            for i in attachments.indices {
+                                if attachments[i]["data"] == nil || attachments[i]["data"] is NSNull {
+                                    attachments[i]["data"] = ""
                                 }
                             }
+                            m["attachments"] = attachments
                         }
                         return m
                     }
@@ -2838,7 +2859,7 @@ public final class HTTPTransport {
                     onMessage?(historyResponse)
                 }
             } catch {
-                log.error("Failed to deserialize history response: \(error)")
+                log.error("Failed to deserialize history response for session \(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
