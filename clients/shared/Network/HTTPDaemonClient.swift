@@ -181,6 +181,16 @@ public final class HTTPTransport {
     /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
     var remoteSessionId: String?
 
+    /// Map of daemon remote session IDs → client local session IDs.
+    /// Supports multiple concurrent sessions (e.g. popout windows) where SSE
+    /// events from different conversations need remapping to the correct local ID.
+    var sessionIdMap: [String: String] = [:]
+
+    /// Local session IDs that haven't yet learned their remote counterpart.
+    /// When a new session is created, its local ID is added here. The first SSE
+    /// event with an unknown remote ID is paired with the oldest pending entry.
+    var pendingLocalSessionIds: [String] = []
+
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
 
@@ -1426,39 +1436,57 @@ public final class HTTPTransport {
         // local session ID so that ChatViewModel.belongsToSession() passes.
         // The daemon assigns its own UUID via getOrCreateConversation(), which
         // differs from the correlationId the client uses as sessionId.
+        // Supports multiple concurrent sessions (popout windows) via sessionIdMap.
         var jsonString = data
-        if let localId = activeLocalSessionId {
-            if remoteSessionId == nil {
-                // Learn the daemon's session ID from the first event envelope.
-                if let eventData = data.data(using: .utf8),
-                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
-                   let eventSessionId = envelope.sessionId,
-                   eventSessionId != localId {
-                    remoteSessionId = eventSessionId
-                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
-                }
+
+        // Try to learn a new remote → local mapping from the event envelope.
+        if !pendingLocalSessionIds.isEmpty,
+           let eventData = data.data(using: .utf8),
+           let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
+           let eventSessionId = envelope.sessionId,
+           sessionIdMap[eventSessionId] == nil,
+           !sessionIdMap.values.contains(eventSessionId) {
+            // This is an unknown remote ID — pair it with the oldest pending local ID.
+            let localId = pendingLocalSessionIds.removeFirst()
+            sessionIdMap[eventSessionId] = localId
+            // Keep legacy fields in sync for code that still reads them.
+            if activeLocalSessionId == localId {
+                remoteSessionId = eventSessionId
             }
-            if let remoteId = remoteSessionId {
-                // Replace only the sessionId JSON value — not arbitrary occurrences
-                // of the UUID elsewhere in the payload. Handle both compact
-                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\":\"\(remoteId)\"",
-                    with: "\"sessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\": \"\(remoteId)\"",
-                    with: "\"sessionId\": \"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\":\"\(remoteId)\"",
-                    with: "\"parentSessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\": \"\(remoteId)\"",
-                    with: "\"parentSessionId\": \"\(localId)\""
-                )
+            log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
+        }
+
+        // Legacy single-session learning (for sessions created before this change).
+        if let localId = activeLocalSessionId, remoteSessionId == nil,
+           sessionIdMap.values.first(where: { $0 == localId }) == nil {
+            if let eventData = data.data(using: .utf8),
+               let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
+               let eventSessionId = envelope.sessionId,
+               eventSessionId != localId {
+                remoteSessionId = eventSessionId
+                sessionIdMap[eventSessionId] = localId
+                log.info("Learned remote sessionId (legacy) \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
             }
+        }
+
+        // Apply all known remote → local remappings.
+        for (remoteId, localId) in sessionIdMap {
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\":\"\(remoteId)\"",
+                with: "\"sessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\": \"\(remoteId)\"",
+                with: "\"sessionId\": \"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\":\"\(remoteId)\"",
+                with: "\"parentSessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\": \"\(remoteId)\"",
+                with: "\"parentSessionId\": \"\(localId)\""
+            )
         }
 
         guard let jsonData = jsonString.data(using: .utf8) else { return }

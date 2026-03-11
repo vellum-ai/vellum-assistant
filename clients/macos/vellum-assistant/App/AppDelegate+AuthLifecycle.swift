@@ -100,6 +100,7 @@ extension AppDelegate {
         Task {
             await authManager.logout()
 
+            mainWindow?.threadWindowManager?.closeAll()
             mainWindow?.close()
             mainWindow = nil
             conversationBadgeCancellable?.cancel()
@@ -258,6 +259,7 @@ extension AppDelegate {
         //    awake and can be switched back to without a cold start.
         daemonClient.disconnect()
         // Close and recreate the main window to reset thread/session state
+        mainWindow?.threadWindowManager?.closeAll()
         mainWindow?.close()
         mainWindow = nil
 
@@ -438,6 +440,7 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
+        mainWindow?.threadWindowManager?.closeAll()
         mainWindow?.close()
         mainWindow = nil
         conversationBadgeCancellable?.cancel()

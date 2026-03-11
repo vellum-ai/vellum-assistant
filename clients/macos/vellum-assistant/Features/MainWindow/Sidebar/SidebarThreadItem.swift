@@ -12,6 +12,8 @@ struct SidebarThreadItem: View {
     var selectThread: () -> Void
     /// Optional additional callback after selection (e.g. dismiss a popover).
     var onSelect: (() -> Void)? = nil
+    /// Opens the thread in a separate window.
+    var onOpenInNewWindow: ((UUID) -> Void)? = nil
 
     private var isSelected: Bool {
         switch windowState.selection {
@@ -160,6 +162,13 @@ struct SidebarThreadItem: View {
         }
         .padding(.horizontal, VSpacing.sm)
         .contextMenu {
+            if let onOpenInNewWindow {
+                Button {
+                    onOpenInNewWindow(thread.id)
+                } label: {
+                    Label { Text("Open in new window") } icon: { VIconView(.externalLink, size: 14) }
+                }
+            }
             Button {
                 withAnimation(VAnimation.standard) {
                     if thread.isPinned {

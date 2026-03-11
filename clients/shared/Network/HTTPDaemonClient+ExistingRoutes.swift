@@ -32,6 +32,8 @@ extension HTTPTransport {
                 let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
                 self.activeLocalSessionId = sessionId
                 self.remoteSessionId = nil  // Reset — will be learned from the first SSE event
+                // Register for multi-session remapping (popout windows).
+                self.pendingLocalSessionIds.append(sessionId)
                 let info = ServerMessage.sessionInfo(
                     SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
                 )

@@ -78,6 +78,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// exceeded, the least-recently-accessed VM (that isn't the active thread) is
     /// evicted. This prevents unbounded memory growth from accumulated conversations.
     private let maxCachedViewModels = 10
+    /// Thread IDs whose ViewModels are pinned (open in detached windows).
+    /// Pinned VMs are excluded from LRU eviction.
+    private(set) var pinnedViewModelIds: Set<UUID> = []
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
@@ -1575,6 +1578,31 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return viewModel
     }
 
+    // MARK: - Detached Window Support
+
+    /// Get or create a ViewModel for use in a detached window.
+    /// Unlike the private `getOrCreateViewModel`, this also ensures the message
+    /// loop is started and history is loaded — the same initialization that
+    /// `activeThreadId.didSet` performs for the main window.
+    func getOrCreateViewModel(forDetached threadId: UUID) -> ChatViewModel? {
+        let vm = getOrCreateViewModel(for: threadId)
+        vm?.ensureMessageLoopStarted()
+        sessionRestorer.loadHistoryIfNeeded(threadId: threadId)
+        return vm
+    }
+
+    /// Pin a ViewModel so it won't be evicted by LRU cache management.
+    /// Used when a thread is opened in a detached window.
+    func pinViewModel(threadId: UUID) {
+        pinnedViewModelIds.insert(threadId)
+    }
+
+    /// Unpin a ViewModel, allowing LRU eviction again.
+    /// Called when a detached window is closed.
+    func unpinViewModel(threadId: UUID) {
+        pinnedViewModelIds.remove(threadId)
+    }
+
     // MARK: - VM LRU Cache Management
 
     /// Move `threadId` to the end of `vmAccessOrder` (most-recently-used position).
@@ -1587,10 +1615,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// keeping at most `maxCachedViewModels` entries in the dictionary.
     private func evictStaleCachedViewModels() {
         while chatViewModels.count > maxCachedViewModels {
-            // Find the oldest non-active, non-busy VM so we never cancel an in-flight response
-            // just because the user switched threads.
+            // Find the oldest non-active, non-pinned, non-busy VM so we never cancel
+            // an in-flight response or evict a VM backing a detached window.
             guard let victim = vmAccessOrder.first(where: {
-                guard $0 != activeThreadId, let vm = chatViewModels[$0] else { return false }
+                guard $0 != activeThreadId, !pinnedViewModelIds.contains($0),
+                      let vm = chatViewModels[$0] else { return false }
                 return !vm.isSending && !vm.isThinking && vm.pendingQueuedCount == 0
             }) else {
                 break

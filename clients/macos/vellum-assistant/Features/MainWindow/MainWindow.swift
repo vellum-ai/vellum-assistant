@@ -216,6 +216,7 @@ public final class MainWindow {
     private let services: AppServices
     private var window: NSWindow?
     let threadManager: ThreadManager
+    private(set) var threadWindowManager: ThreadWindowManager!
     let appListManager = AppListManager()
     let traceStore = TraceStore()
     let usageDashboardStore: UsageDashboardStore
@@ -267,6 +268,11 @@ public final class MainWindow {
         )
         self.usageDashboardStore = UsageDashboardStore(client: services.daemonClient)
         self.taskQueueViewModel = TaskQueueViewModel(daemonClient: services.daemonClient)
+        self.threadWindowManager = ThreadWindowManager(
+            threadManager: threadManager,
+            daemonClient: services.daemonClient,
+            settingsStore: services.settingsStore
+        )
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
@@ -375,7 +381,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, taskQueueViewModel: taskQueueViewModel, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(threadManager: threadManager, threadWindowManager: threadWindowManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, taskQueueViewModel: taskQueueViewModel, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
