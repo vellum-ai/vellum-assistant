@@ -618,11 +618,11 @@ export async function handleSendMessage(
   // execute commands on the user's machine. Non-desktop sessions (CLI,
   // channels, headless) fall back to local execution.
   if (sourceInterface === "macos" || sourceInterface === "ios") {
-    session.setHostBashProxy(
-      new HostBashProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      }),
-    );
+    const proxy = new HostBashProxy(onEvent, (requestId) => {
+      pendingInteractions.resolve(requestId);
+    });
+    proxy.updateSender(onEvent, true);
+    session.setHostBashProxy(proxy);
   } else {
     session.setHostBashProxy(undefined);
   }
