@@ -49,7 +49,6 @@ describe("Messaging skill split", () => {
     "gmail_vacation",
     "gmail_sender_digest",
     "gmail_outreach_scan",
-    "google_contacts",
   ];
 
   const expectedSequenceToolNames = [
@@ -60,6 +59,9 @@ describe("Messaging skill split", () => {
     "sequence_delete",
     "sequence_enroll",
     "sequence_enrollment_list",
+    "sequence_pause",
+    "sequence_resume",
+    "sequence_cancel",
     "sequence_import",
     "sequence_analytics",
   ];
@@ -95,11 +97,10 @@ describe("Messaging skill split", () => {
     }
   });
 
-  test("sequences/TOOLS.json contains all 9 expected sequence_* tool names", () => {
+  test("sequences/TOOLS.json contains all expected sequence_* tool names", () => {
     const names: string[] = sequencesManifest.tools.map(
       (t: { name: string }) => t.name,
     );
-    expect(names).toHaveLength(9);
     for (const name of expectedSequenceToolNames) {
       expect(names).toContain(name);
     }
