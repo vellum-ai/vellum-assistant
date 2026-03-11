@@ -70,10 +70,7 @@ describe("HostBashProxy", () => {
     test("formats error output correctly", async () => {
       setup();
 
-      const resultPromise = proxy.request(
-        { command: "false" },
-        "session-1",
-      );
+      const resultPromise = proxy.request({ command: "false" }, "session-1");
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
@@ -187,9 +184,23 @@ describe("HostBashProxy", () => {
   });
 
   describe("isAvailable", () => {
-    test("returns true", () => {
+    test("returns false by default (no client connected)", () => {
       setup();
+      expect(proxy.isAvailable()).toBe(false);
+    });
+
+    test("returns true after updateSender with clientConnected=true", () => {
+      setup();
+      proxy.updateSender(sendToClient, true);
       expect(proxy.isAvailable()).toBe(true);
+    });
+
+    test("returns false after updateSender with clientConnected=false", () => {
+      setup();
+      proxy.updateSender(sendToClient, true);
+      expect(proxy.isAvailable()).toBe(true);
+      proxy.updateSender(sendToClient, false);
+      expect(proxy.isAvailable()).toBe(false);
     });
   });
 
@@ -219,7 +230,7 @@ describe("HostBashProxy", () => {
       setup();
 
       const newMessages: unknown[] = [];
-      proxy.updateSender((msg) => newMessages.push(msg));
+      proxy.updateSender((msg) => newMessages.push(msg), true);
 
       const resultPromise = proxy.request(
         { command: "echo updated" },
