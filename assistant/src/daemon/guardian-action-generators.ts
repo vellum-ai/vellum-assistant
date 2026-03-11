@@ -83,8 +83,8 @@ const FOLLOWUP_CONVERSATION_MAX_TOKENS = 300;
 const FOLLOWUP_CONVERSATION_SYSTEM_PROMPT =
   "You are an assistant helping route a guardian's reply to a post-timeout follow-up message. " +
   "A voice caller asked a question, but the call timed out before the guardian could answer. " +
-  "The guardian has now replied late, and was asked whether they want to call the caller back, " +
-  "send them a text message, or skip it. " +
+  "The guardian has now replied late, and was asked whether they want to call the caller back " +
+  "or skip it. " +
   "Analyze the guardian's latest reply to determine their intent. " +
   "When uncertain, default to keep_pending and ask a clarifying question. " +
   "Always provide a natural, helpful reply along with your decision.";
@@ -101,10 +101,10 @@ const FOLLOWUP_CONVERSATION_TOOL_SCHEMA = {
     properties: {
       disposition: {
         type: "string",
-        enum: ["call_back", "message_back", "decline", "keep_pending"],
+        enum: ["call_back", "decline", "keep_pending"],
         description:
           "The guardian's intent: call_back to call the original caller, " +
-          "message_back to send a text message, decline to skip the follow-up, " +
+          "decline to skip the follow-up, " +
           "keep_pending if the intent is unclear (ask for clarification).",
       },
       replyText: {
@@ -118,7 +118,6 @@ const FOLLOWUP_CONVERSATION_TOOL_SCHEMA = {
 
 const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
   "call_back",
-  "message_back",
   "decline",
   "keep_pending",
 ]);

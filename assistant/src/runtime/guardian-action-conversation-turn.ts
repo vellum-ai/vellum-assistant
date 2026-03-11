@@ -2,12 +2,11 @@
  * Guardian follow-up conversation engine.
  *
  * When a guardian replies to a post-timeout follow-up prompt (e.g. "would you
- * like to call them back or send a message?"), this engine classifies the
+ * like to call them back?"), this engine classifies the
  * guardian's intent into a structured disposition and produces a natural reply.
  *
  * Dispositions:
  *   - call_back:     Guardian wants to call the original caller back
- *   - message_back:  Guardian wants to send a text/message to the caller
  *   - decline:       Guardian declines to follow up ("never mind", "no thanks")
  *   - keep_pending:  Intent is ambiguous — ask for clarification
  *
@@ -37,7 +36,6 @@ const FALLBACK_RETRY_TEXT = getGuardianActionFallbackMessage({
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
   "call_back",
-  "message_back",
   "decline",
   "keep_pending",
 ]);
