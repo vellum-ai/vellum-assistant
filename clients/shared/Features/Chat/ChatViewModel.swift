@@ -1937,7 +1937,22 @@ public final class ChatViewModel: ObservableObject {
         if let lastMsg = messages.last, lastMsg.role == .user {
             lastFailedMessageText = lastMsg.text
             lastFailedMessageDisplayText = nil
-            lastFailedMessageAttachments = nil
+            // Preserve attachments so they are resent with the retry.
+            // ChatAttachment.data may already be cleared for older messages,
+            // but for a just-sent 429'd message it is still populated.
+            lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
+                guard !att.data.isEmpty else { return nil }
+                return UserMessageAttachment(
+                    id: att.id,
+                    filename: att.filename,
+                    mimeType: att.mimeType,
+                    data: att.data,
+                    extractedText: nil,
+                    sizeBytes: nil,
+                    thumbnailData: nil,
+                    filePath: att.filePath
+                )
+            }
             retryLastMessage()
         } else {
             regenerateLastMessage()

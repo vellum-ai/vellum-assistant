@@ -3466,7 +3466,7 @@ public final class HTTPTransport {
                     sessionId: sessionId,
                     code: .regenerateFailed,
                     userMessage: "Unable to regenerate response. Try sending your message again.",
-                    retryable: false
+                    retryable: true
                 )))
             }
         } catch {
@@ -3475,7 +3475,7 @@ public final class HTTPTransport {
                 sessionId: sessionId,
                 code: .regenerateFailed,
                 userMessage: "Unable to regenerate response. Try sending your message again.",
-                retryable: false
+                retryable: true
             )))
         }
     }
