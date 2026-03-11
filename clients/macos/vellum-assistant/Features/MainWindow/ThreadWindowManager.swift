@@ -76,15 +76,10 @@ final class ThreadWindowManager: ObservableObject {
         windows[threadId] = window
         detachedThreadIds.insert(threadId)
 
-        // Switch the main window away from this thread to avoid two windows
-        // with the same shared ChatViewModel both showing an active composer.
+        // Switch the main window to a fresh new-thread composer so the user
+        // can start a new conversation while the popped-out thread continues.
         if threadManager.activeThreadId == threadId {
-            let next = threadManager.visibleThreads.first(where: { $0.id != threadId })
-            if let next {
-                threadManager.selectThread(id: next.id)
-            } else {
-                threadManager.enterDraftMode()
-            }
+            threadManager.enterDraftMode()
         }
 
         log.info("Opened thread \(threadId) in new window")
@@ -118,6 +113,7 @@ final class ThreadWindowManager: ObservableObject {
         windows.removeValue(forKey: threadId)
         detachedThreadIds.remove(threadId)
         threadManager.unpinViewModel(threadId: threadId)
+
         log.info("Closed detached window for thread \(threadId)")
     }
 }

@@ -21,8 +21,11 @@ extension ChatViewModel {
     func belongsToSession(_ messageSessionId: String?) -> Bool {
         guard let messageSessionId else { return true }
         guard let sessionId else {
-            // No session established yet — accept all messages
-            return true
+            // No session established yet — reject messages from known sessions.
+            // The VM will claim its own session via correlationId matching in
+            // the sessionInfo handler; stray messages from other sessions must
+            // not leak into a draft/bootstrapping VM.
+            return false
         }
         return messageSessionId == sessionId
     }

@@ -35,7 +35,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowWidth: CGFloat = 700
+        let windowWidth: CGFloat = 900
         let windowHeight: CGFloat = 700
         // Offset slightly from center so it doesn't overlap the main window exactly
         let windowRect = NSRect(
@@ -60,6 +60,8 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
         nsWindow.backgroundColor = NSColor(VColor.backgroundSubtle)
         nsWindow.isReleasedWhenClosed = false
         nsWindow.contentMinSize = NSSize(width: 500, height: 400)
+        nsWindow.setFrame(windowRect, display: false)
+        nsWindow.setFrameAutosaveName("ThreadWindow-\(threadId.uuidString)")
         nsWindow.delegate = self
         nsWindow.observeAppActivation()
 
