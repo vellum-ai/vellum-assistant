@@ -1148,6 +1148,7 @@ public final class ChatViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self.btwResponse = "Failed to get response: \(error.localizedDescription)"
             }
+            guard !Task.isCancelled else { return }
             self.btwLoading = false
         }
     }
@@ -2552,6 +2553,7 @@ public final class ChatViewModel: ObservableObject {
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
+        btwTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
