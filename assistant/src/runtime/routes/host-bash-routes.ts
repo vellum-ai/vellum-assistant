@@ -4,14 +4,11 @@
  * Resolves pending host bash proxy requests by requestId when the desktop
  * client returns execution results via HTTP.
  */
-import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
-
-const log = getLogger("host-bash-routes");
 
 /**
  * POST /v1/host-bash-result — resolve a pending host bash request by requestId.

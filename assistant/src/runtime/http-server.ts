@@ -95,7 +95,6 @@ import { appManagementRouteDefinitions } from "./routes/app-management-routes.js
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
-import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
@@ -125,6 +124,7 @@ import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
+import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
