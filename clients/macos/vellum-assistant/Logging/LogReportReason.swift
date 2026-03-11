@@ -1,0 +1,44 @@
+import Foundation
+import VellumAssistantShared
+
+/// Pre-defined categories a user can pick when sending a log report.
+enum LogReportReason: String, CaseIterable, Identifiable {
+    case bugReport
+    case performanceIssue
+    case connectionIssue
+    case assistantBehavior
+    case appCrash
+    case other
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .bugReport: return "Bug Report"
+        case .performanceIssue: return "Performance Issue"
+        case .connectionIssue: return "Connection Issue"
+        case .assistantBehavior: return "Assistant Behavior"
+        case .appCrash: return "App Crash"
+        case .other: return "Other"
+        }
+    }
+
+    /// Lucide icon raw value suitable for `VIcon.resolve(_:)`.
+    var icon: String {
+        switch self {
+        case .bugReport: return VIcon.bug.rawValue
+        case .performanceIssue: return VIcon.zap.rawValue
+        case .connectionIssue: return VIcon.wifiOff.rawValue
+        case .assistantBehavior: return VIcon.brain.rawValue
+        case .appCrash: return VIcon.triangleAlert.rawValue
+        case .other: return VIcon.messageCircle.rawValue
+        }
+    }
+}
+
+/// Aggregated form data collected from the log report sheet.
+struct LogReportFormData {
+    var reason: LogReportReason
+    var message: String
+    var email: String
+}
