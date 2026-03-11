@@ -83,7 +83,6 @@ import * as gmail_gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-out
 import * as gmail_gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
 import * as gmail_gmailSendWithAttachments from "./bundled-skills/gmail/tools/gmail-send-with-attachments.js";
 import * as gmail_gmailSenderDigest from "./bundled-skills/gmail/tools/gmail-sender-digest.js";
-import * as gmailSummarizeThread from "./bundled-skills/gmail/tools/gmail-summarize-thread.js";
 import * as gmail_gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
 import * as gmail_gmailTriage from "./bundled-skills/gmail/tools/gmail-triage.js";
 import * as gmail_gmailUnsubscribe from "./bundled-skills/gmail/tools/gmail-unsubscribe.js";
@@ -306,7 +305,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
     gmail_gmailSendWithAttachments,
   ],
   ["gmail:tools/gmail-forward.ts", gmail_gmailForward],
-  ["gmail:tools/gmail-summarize-thread.ts", gmailSummarizeThread],
   ["gmail:tools/gmail-follow-up.ts", gmail_gmailFollowUp],
   ["gmail:tools/gmail-triage.ts", gmail_gmailTriage],
   ["gmail:tools/gmail-filters.ts", gmail_gmailFilters],

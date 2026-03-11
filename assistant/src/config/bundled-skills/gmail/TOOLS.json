@@ -432,28 +432,6 @@
       "execution_target": "host"
     },
     {
-      "name": "gmail_summarize_thread",
-      "description": "Summarize a Gmail thread using LLM analysis. Returns participants, key decisions, open questions, and sentiment.",
-      "category": "gmail",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "thread_id": {
-            "type": "string",
-            "description": "Gmail thread ID to summarize"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["thread_id"]
-      },
-      "executor": "tools/gmail-summarize-thread.ts",
-      "execution_target": "host"
-    },
-    {
       "name": "gmail_follow_up",
       "description": "Track, list, or untrack Gmail messages for follow-up using a dedicated label. Include a confidence score (0-1).",
       "category": "gmail",
