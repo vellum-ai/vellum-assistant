@@ -419,6 +419,9 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case hostBashResult
 
+        // BTW side-chain
+        case btw
+
         // Misc
         case channelVerificationSessions
         case registerDeviceToken
@@ -820,6 +823,9 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case .hostBashResult:
             return ("/v1/host-bash-result", nil)
+        // BTW side-chain
+        case .btw:
+            return ("/v1/btw", nil)
         // Misc
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
@@ -1204,6 +1210,9 @@ public final class HTTPTransport {
         // Host Bash Proxy
         case .hostBashResult:
             return ("\(prefix)/host-bash-result/", nil)
+        // BTW side-chain
+        case .btw:
+            return ("\(prefix)/btw/", nil)
         // Misc
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
@@ -1642,6 +1651,69 @@ public final class HTTPTransport {
                 userMessage: error.localizedDescription,
                 retryable: true
             )))
+        }
+    }
+
+    /// Send a /btw side-chain question and stream the response text.
+    /// Returns an AsyncThrowingStream that yields text deltas from SSE btw_text_delta events.
+    func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { continuation in
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                guard let url = self.buildURL(for: .btw) else {
+                    continuation.finish(throwing: URLError(.badURL))
+                    return
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                request.timeoutInterval = 120
+                self.applyAuth(&request)
+
+                let body: [String: Any] = [
+                    "conversationKey": conversationKey,
+                    "content": content,
+                ]
+
+                do {
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        throw URLError(.badServerResponse, userInfo: [
+                            NSLocalizedDescriptionKey: "HTTP \(statusCode)"
+                        ])
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+
+                        if line.hasPrefix("data: ") {
+                            let jsonString = String(line.dropFirst(6))
+                            if let data = jsonString.data(using: .utf8),
+                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                if let text = parsed["text"] as? String {
+                                    continuation.yield(text)
+                                }
+                                if let type = parsed["type"] as? String, type == "btw_complete" {
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
     }
 
