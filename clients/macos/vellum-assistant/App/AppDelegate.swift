@@ -140,6 +140,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        // ── Single-instance guard ──────────────────────────────────────
+        // If another copy of this app is already running (e.g. Sparkle
+        // relaunch race, macOS state restoration, or accidental double-
+        // open), activate the existing instance and terminate this one.
+        // Uses Apple's NSRunningApplication API — the recommended way to
+        // detect running instances on macOS.
+        if let bundleId = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                .filter { $0 != .current }
+            if let existing = others.first {
+                existing.activate()
+                // Give the existing instance a moment to come forward
+                // before we exit, so the user sees a smooth transition.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    NSApp.terminate(nil)
+                }
+                return
+            }
+        }
+
         Self.shared = self
         metricKitManager = MetricKitManager()
 
