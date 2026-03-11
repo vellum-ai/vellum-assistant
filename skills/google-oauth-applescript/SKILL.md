@@ -37,7 +37,7 @@ You open pages via the `open` command (launches in the user's default browser �
 2. **Screenshot after every action.** Take a screenshot once a page loads to confirm state. Take another after the user acts to verify the result.
 3. **Never auto-advance.** Wait for user confirmation ("done", "ok", "next", etc.) before proceeding to the next step.
 4. **Use landmarks, not coordinates.** Don't say "click the third item in the left sidebar." Say "Look for **APIs & Services** — it might be in the left sidebar, or you might need to click the hamburger menu first."
-5. **Confirm after, not before.** Don't show what the page *should* look like before the user acts. Confirm what they *should see after* they act — this catches divergence without overloading them.
+5. **Confirm after, not before.** Don't show what the page _should_ look like before the user acts. Confirm what they _should see after_ they act — this catches divergence without overloading them.
 6. **Keep instructions short per step.** One action per message when possible.
 7. **Don't assume any browser.** Screenshots work at the screen level. Focus on the GCP page content, not browser-specific UI (bookmark bars, tab layouts, etc.).
 8. Never use `computer_use_*` tools, `browser_*` tools, or CDP for navigation.
@@ -89,6 +89,7 @@ If no Google account → guide them to create one (or defer).
 Open: `https://console.cloud.google.com`
 
 **Screenshot → Analyze:**
+
 - If sign-in page → instruct user to sign in
 - If console dashboard → proceed
 - If project selector is showing → note which project is selected
@@ -108,6 +109,7 @@ Wait for confirmation.
 Open: `https://console.cloud.google.com/cloud-resource-manager`
 
 **Screenshot → Analyze:**
+
 - If the page shows one or more existing projects → offer the user a choice
 - If the page shows no projects (empty state) → skip straight to project creation
 
@@ -126,6 +128,7 @@ Open: `https://console.cloud.google.com/projectcreate`
 > I've opened the Create Project page. You should see a field for **Project name**. Type something like `vellum-assistant` (the exact name doesn't matter). Then click **Create**.
 
 **Checkpoint:** Screenshot after user says they clicked Create.
+
 - Look for a notification banner or redirect to the new project's dashboard
 - If there's an org selector or billing prompt, guide through it
 
@@ -134,6 +137,7 @@ Open: `https://console.cloud.google.com/projectcreate`
 ### Project limit reached
 
 If the user hits the project quota limit, explain their options:
+
 1. Request a quota increase
 2. Delete an unused project
 3. Reuse an existing project
@@ -505,19 +509,19 @@ Screenshot after every user action and compare against expectations. When someth
 
 ### Recovery Patterns
 
-| Situation | Response |
-|-----------|----------|
-| User lands on unexpected page | Screenshot, identify where they are, navigate back |
-| User not signed in to Google | Tell them to sign in, wait, continue |
-| API already enabled | "Looks like this one's already enabled — great, let's skip ahead." |
-| OAuth consent screen already configured | "You've already set this up — let's go straight to creating credentials." |
-| Project quota / billing issue | Explain clearly, help them resolve or use a different project |
-| Secret not shown after credential creation | Guide to credential detail page as fallback |
-| Org policy / billing blockers | Explain plainly, wait for user |
-| "This app isn't verified" warning | Normal for testing. Click Advanced > Continue |
-| Auth URL returned instead of auto-completing | Send URL to user to open manually |
-| User is confused or frustrated | Pause, acknowledge, simplify: "Let's take a step back..." |
-| `open` command fails | Fall back to Path B (give URLs manually) |
+| Situation                                    | Response                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------- |
+| User lands on unexpected page                | Screenshot, identify where they are, navigate back                        |
+| User not signed in to Google                 | Tell them to sign in, wait, continue                                      |
+| API already enabled                          | "Looks like this one's already enabled — great, let's skip ahead."        |
+| OAuth consent screen already configured      | "You've already set this up — let's go straight to creating credentials." |
+| Project quota / billing issue                | Explain clearly, help them resolve or use a different project             |
+| Secret not shown after credential creation   | Guide to credential detail page as fallback                               |
+| Org policy / billing blockers                | Explain plainly, wait for user                                            |
+| "This app isn't verified" warning            | Normal for testing. Click Advanced > Continue                             |
+| Auth URL returned instead of auto-completing | Send URL to user to open manually                                         |
+| User is confused or frustrated               | Pause, acknowledge, simplify: "Let's take a step back..."                 |
+| `open` command fails                         | Fall back to Path B (give URLs manually)                                  |
 
 ## Tone & Voice
 
