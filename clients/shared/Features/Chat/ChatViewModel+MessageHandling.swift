@@ -491,9 +491,8 @@ extension ChatViewModel {
         partialOutputBuffer = [:]
         let maxPartialOutput = 5000
         for (_, entry) in buffered {
-            let msgIndex = entry.msgIndex
             let tcIndex = entry.tcIndex
-            guard msgIndex < messages.count,
+            guard let msgIndex = messages.firstIndex(where: { $0.id == entry.messageId }),
                   tcIndex < messages[msgIndex].toolCalls.count else { continue }
             messages[msgIndex].toolCalls[tcIndex].partialOutput.append(entry.content)
             if messages[msgIndex].toolCalls[tcIndex].partialOutput.count > maxPartialOutput {
@@ -1416,12 +1415,13 @@ extension ChatViewModel {
                 // Append plain-text output chunks to the coalescing buffer.
                 // Structured JSON sub-events (with a valid subType) are handled above;
                 // the subType guard prevents them from leaking raw JSON here.
-                let key = "\(msgIndex):\(tcIndex)"
+                let messageId = messages[msgIndex].id
+                let key = "\(messageId):\(tcIndex)"
                 if var entry = partialOutputBuffer[key] {
                     entry.content += msg.chunk
                     partialOutputBuffer[key] = entry
                 } else {
-                    partialOutputBuffer[key] = (msgIndex: msgIndex, tcIndex: tcIndex, content: msg.chunk)
+                    partialOutputBuffer[key] = (messageId: messageId, tcIndex: tcIndex, content: msg.chunk)
                 }
                 schedulePartialOutputFlush()
             }

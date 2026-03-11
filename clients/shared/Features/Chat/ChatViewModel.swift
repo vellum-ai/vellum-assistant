@@ -434,9 +434,10 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Partial Output Coalescing
 
-    /// Buffered partial-output chunks keyed by a composite "msgIndex:tcIndex" key.
-    /// Each entry holds the message index, tool-call index, and accumulated text.
-    var partialOutputBuffer: [String: (msgIndex: Int, tcIndex: Int, content: String)] = [:]
+    /// Buffered partial-output chunks keyed by "messageUUID:tcIndex".
+    /// Uses stable message UUID instead of positional index so the buffer
+    /// survives message-list mutations (pagination prepend, memory trim).
+    var partialOutputBuffer: [String: (messageId: UUID, tcIndex: Int, content: String)] = [:]
     /// Scheduled flush task for coalescing partial-output writes.
     var partialOutputFlushTask: Task<Void, Never>?
 
