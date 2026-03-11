@@ -72,67 +72,32 @@ struct VoiceSettingsView: View {
 
             if pttEnabled {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Activation key")
+                    Text("Activation Key:")
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
 
                     HStack(spacing: VSpacing.sm) {
-                        // Preset buttons
+                        // Preset options
                         ForEach(Array(presets.enumerated()), id: \.offset) { _, preset in
                             let isSelected = currentActivator == preset.activator
-                            Button(preset.label) {
+                            activationKeyOption(label: preset.label, isSelected: isSelected) {
                                 selectActivator(preset.activator)
                             }
-                            .buttonStyle(.plain)
-                            .font(VFont.caption)
-                            .foregroundColor(isSelected ? .white : VColor.textMuted)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .contentShape(Capsule())
-                            .background(
-                                Capsule()
-                                    .fill(isSelected ? Forest._700 : VColor.surface)
-                            )
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(isSelected ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
-                            )
                         }
 
-                        // Custom button / recording state
+                        // Custom option / recording state
                         if isRecordingCustomKey {
-                            Button("Press any key...") {
+                            activationKeyOption(label: "Press any key...", isSelected: true, isRecording: true) {
                                 stopRecordingCustomKey()
                             }
-                            .buttonStyle(.plain)
-                            .font(VFont.caption)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .contentShape(Capsule())
-                            .background(
-                                Capsule()
-                                    .fill(VColor.accent)
-                            )
                         } else {
                             let isCustom = !presets.contains(where: { $0.activator == currentActivator })
-                            Button(isCustom ? currentActivator.displayName : "Custom...") {
+                            activationKeyOption(
+                                label: isCustom ? currentActivator.displayName : "Custom",
+                                isSelected: isCustom
+                            ) {
                                 startRecordingCustomKey()
                             }
-                            .buttonStyle(.plain)
-                            .font(VFont.caption)
-                            .foregroundColor(isCustom ? .white : VColor.textMuted)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .contentShape(Capsule())
-                            .background(
-                                Capsule()
-                                    .fill(isCustom ? Forest._700 : VColor.surface)
-                            )
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(isCustom ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
-                            )
                         }
                     }
 
@@ -150,6 +115,40 @@ struct VoiceSettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Activation Key Option
+
+    private func activationKeyOption(label: String, isSelected: Bool, isRecording: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                // Radio indicator
+                Circle()
+                    .fill(isSelected ? VColor.radioSelectedFill : Color.clear)
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Circle()
+                            .strokeBorder(isSelected ? VColor.radioSelectedFill : VColor.radioUnselectedStroke, lineWidth: 1.5)
+                    )
+
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isSelected ? VColor.radioSelectedBg : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .strokeBorder(VColor.radioBorder, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Custom Key Recording
@@ -271,59 +270,53 @@ struct VoiceSettingsView: View {
                     wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
                     wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
                 }
+                .fixedSize(horizontal: false, vertical: true)
 
-                // Keyword
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Keyword")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                // Keyword + Conversation timeout side by side
+                HStack(alignment: .top, spacing: VSpacing.lg) {
+                    // Keyword
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Keyword")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
 
-                    TextField("Enter wake word or phrase", text: $wakeWordKeyword)
-                        .vInputStyle()
-                        .accessibilityLabel("Wake word keyword")
+                        TextField("Enter wake word or phrase", text: $wakeWordKeyword)
+                            .vInputStyle()
+                            .accessibilityLabel("Wake word keyword")
 
-                    HStack(spacing: VSpacing.sm) {
-                        ForEach(suggestedKeywords, id: \.self) { suggestion in
-                            Button(suggestion) {
-                                wakeWordKeyword = suggestion
+                        HStack(spacing: VSpacing.sm) {
+                            ForEach(suggestedKeywords, id: \.self) { suggestion in
+                                Button(suggestion) {
+                                    wakeWordKeyword = suggestion
+                                }
+                                .buttonStyle(.plain)
+                                .font(VFont.caption)
+                                .foregroundColor(wakeWordKeyword == suggestion ? .white : VColor.textMuted)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xs)
+                                .background(Capsule().fill(wakeWordKeyword == suggestion ? VColor.radioSelectedFill : VColor.surface))
+                                .overlay(Capsule().strokeBorder(wakeWordKeyword == suggestion ? Color.clear : VColor.surfaceBorder, lineWidth: 1))
                             }
-                            .buttonStyle(.plain)
-                            .font(VFont.caption)
-                            .foregroundColor(wakeWordKeyword == suggestion ? .white : VColor.textMuted)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(Capsule().fill(wakeWordKeyword == suggestion ? Forest._700 : VColor.surface))
-                            .overlay(Capsule().strokeBorder(wakeWordKeyword == suggestion ? Color.clear : VColor.surfaceBorder, lineWidth: 1))
                         }
                     }
-                }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Conversation timeout
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Conversation timeout
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Conversation timeout")
                             .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
+                        VDropdown(
+                            placeholder: "Select timeout\u{2026}",
+                            selection: $wakeWordTimeoutSeconds,
+                            options: timeoutOptions
+                        )
+                        .accessibilityLabel("Conversation timeout duration")
                         Text("How long to wait for follow-up speech before ending the conversation.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VDropdown(
-                        placeholder: "Select timeout\u{2026}",
-                        selection: $wakeWordTimeoutSeconds,
-                        options: timeoutOptions
-                    )
-                    .frame(width: 160)
-                    .accessibilityLabel("Conversation timeout duration")
-                }
-
-                // Privacy note
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.lock, size: 10)
-                        .foregroundColor(VColor.textMuted)
-                    Text("Uses on-device speech recognition \u{2014} no data leaves your Mac.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -346,11 +339,12 @@ struct VoiceSettingsView: View {
                     .foregroundColor(VColor.textMuted)
                     .lineSpacing(1)
             }
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private let timeoutOptions: [(label: String, value: Int)] = [

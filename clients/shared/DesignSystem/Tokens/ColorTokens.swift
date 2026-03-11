@@ -225,6 +225,12 @@ public enum VColor {
     public static let toggleKnob = adaptiveColor(light: Stone._50, dark: Color.white)
     public static let toggleKnobDisabled = adaptiveColor(light: Color(hex: 0xBDB9A9), dark: Moss._500)
 
+    // Radio option (activation key picker)
+    public static let radioBorder = adaptiveColor(light: Moss._200, dark: Moss._600)
+    public static let radioSelectedFill = adaptiveColor(light: Color(hex: 0x2A3825), dark: Forest._600)
+    public static let radioUnselectedStroke = adaptiveColor(light: Moss._300, dark: Moss._500)
+    public static let radioSelectedBg = adaptiveColor(light: Moss._200, dark: Moss._700)
+
     // Slash command highlight — green tint for /command tokens in composer and chat
     public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
 
