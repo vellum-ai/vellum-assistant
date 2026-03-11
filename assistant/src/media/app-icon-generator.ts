@@ -11,8 +11,16 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import { getAppsDir } from "../memory/app-store.js";
+import {
+  buildManagedBaseUrl,
+  resolveManagedProxyContext,
+} from "../providers/managed-proxy/context.js";
 import { getLogger } from "../util/logger.js";
-import { generateImage, mapGeminiError } from "./gemini-image-service.js";
+import {
+  generateImage,
+  type ImageGenCredentials,
+  mapGeminiError,
+} from "./gemini-image-service.js";
 
 const log = getLogger("app-icon-generator");
 
@@ -29,8 +37,26 @@ export async function generateAppIcon(
 ): Promise<void> {
   const config = getConfig();
   const apiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    log.debug("No Gemini API key — skipping app icon generation");
+
+  let credentials: ImageGenCredentials | undefined;
+  if (apiKey) {
+    credentials = { type: "direct", apiKey };
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      credentials = {
+        type: "managed-proxy",
+        assistantApiKey: ctx.assistantApiKey,
+        baseUrl: managedBaseUrl,
+      };
+    }
+  }
+
+  if (!credentials) {
+    log.debug(
+      "No Gemini API key or managed proxy — skipping app icon generation",
+    );
     return;
   }
 
@@ -58,7 +84,7 @@ export async function generateAppIcon(
   try {
     log.info({ appId, appName }, "Generating app icon via Gemini");
 
-    const result = await generateImage(apiKey, {
+    const result = await generateImage(credentials, {
       prompt,
       mode: "generate",
       model: config.imageGenModel,
