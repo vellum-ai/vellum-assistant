@@ -1667,7 +1667,6 @@ const GMAIL_TOOL_NAMES = [
   "gmail_archive",
   "gmail_batch_archive",
   "gmail_label",
-  "gmail_batch_label",
   "gmail_trash",
   "gmail_send",
   "gmail_unsubscribe",
@@ -1688,7 +1687,7 @@ describe("bundled skill: gmail", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("gmail skill activation via loaded_skill marker registers all 12 tools in allowedToolNames", () => {
+  test("gmail skill activation via loaded_skill marker registers all 11 tools in allowedToolNames", () => {
     mockCatalog = [makeSkill("gmail", "/path/to/bundled-skills/gmail")];
     mockManifests = { gmail: makeManifest([...GMAIL_TOOL_NAMES]) };
 

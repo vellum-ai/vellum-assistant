@@ -40,7 +40,6 @@ describe("Messaging skill split", () => {
     "gmail_batch_archive",
     "gmail_archive_by_query",
     "gmail_label",
-    "gmail_batch_label",
     "gmail_trash",
     "gmail_unsubscribe",
     "gmail_draft",
