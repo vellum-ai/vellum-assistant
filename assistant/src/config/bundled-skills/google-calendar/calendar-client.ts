@@ -8,9 +8,6 @@ import type {
   FreeBusyResponse,
 } from "./types.js";
 
-/** Used by the legacy string-token path. */
-const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
-
 export class CalendarApiError extends Error {
   constructor(
     public readonly status: number,
@@ -23,41 +20,10 @@ export class CalendarApiError extends Error {
 }
 
 async function request<T>(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  if (typeof connectionOrToken === "string") {
-    // Legacy path: use raw token directly
-    const token = connectionOrToken;
-    const url = `${CALENDAR_API_BASE}${path}`;
-    const resp = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
-      throw new CalendarApiError(
-        resp.status,
-        resp.statusText,
-        `Calendar API ${resp.status}: ${body}`,
-      );
-    }
-    const contentLength = resp.headers.get("content-length");
-    if (resp.status === 204 || contentLength === "0") {
-      return undefined as T;
-    }
-    const text = await resp.text();
-    if (!text) return undefined as T;
-    return JSON.parse(text) as T;
-  }
-
-  // OAuthConnection path: use connection.request() with baseUrl override
-  const connection = connectionOrToken;
   const method = (options?.method ?? "GET").toUpperCase();
 
   // Extract non-auth headers
@@ -127,7 +93,7 @@ async function request<T>(
 
 /** List events from a calendar. */
 export async function listEvents(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   calendarId = "primary",
   options?: {
     timeMin?: string;
@@ -161,19 +127,19 @@ export async function listEvents(
   if (options?.syncToken) params.set("syncToken", options.syncToken);
 
   return request<CalendarEventsListResponse>(
-    connectionOrToken,
+    connection,
     `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
   );
 }
 
 /** Get a single event by ID. */
 export async function getEvent(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   eventId: string,
   calendarId = "primary",
 ): Promise<CalendarEvent> {
   return request<CalendarEvent>(
-    connectionOrToken,
+    connection,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
     )}`,
@@ -182,7 +148,7 @@ export async function getEvent(
 
 /** Create a new event. */
 export async function createEvent(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   event: {
     summary: string;
     start: { dateTime?: string; date?: string; timeZone?: string };
@@ -196,7 +162,7 @@ export async function createEvent(
 ): Promise<CalendarEvent> {
   const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
-    connectionOrToken,
+    connection,
     `/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
     {
       method: "POST",
@@ -207,7 +173,7 @@ export async function createEvent(
 
 /** Update an event (patch). */
 export async function patchEvent(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   eventId: string,
   updates: Partial<{
     summary: string;
@@ -222,7 +188,7 @@ export async function patchEvent(
 ): Promise<CalendarEvent> {
   const params = new URLSearchParams({ sendUpdates });
   return request<CalendarEvent>(
-    connectionOrToken,
+    connection,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(
       eventId,
     )}?${params}`,
@@ -235,10 +201,10 @@ export async function patchEvent(
 
 /** Query free/busy information. */
 export async function freeBusy(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   query: FreeBusyRequest,
 ): Promise<FreeBusyResponse> {
-  return request<FreeBusyResponse>(connectionOrToken, "/freeBusy", {
+  return request<FreeBusyResponse>(connection, "/freeBusy", {
     method: "POST",
     body: JSON.stringify(query),
   });
@@ -246,10 +212,7 @@ export async function freeBusy(
 
 /** List calendars the user has access to. */
 export async function listCalendars(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
 ): Promise<CalendarListResponse> {
-  return request<CalendarListResponse>(
-    connectionOrToken,
-    "/users/me/calendarList",
-  );
+  return request<CalendarListResponse>(connection, "/users/me/calendarList");
 }

@@ -10,7 +10,6 @@ import {
 } from "../../../../messaging/registry.js";
 import type { OAuthConnection } from "../../../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
-import { withValidToken } from "../../../../security/token-manager.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
 
 export function ok(content: string): ToolExecutionResult {
@@ -139,21 +138,4 @@ export function getProviderConnection(
 ): OAuthConnection | string {
   if (provider.isConnected?.()) return "";
   return resolveOAuthConnection(provider.credentialService);
-}
-
-/**
- * Execute a callback with a valid OAuth token for the given provider.
- * Providers that manage their own auth (e.g. Telegram with a bot token)
- * expose isConnected() and don't need an OAuth access_token lookup.
- *
- * @deprecated Prefer getProviderConnection() and passing the connection directly.
- */
-export async function withProviderToken<T>(
-  provider: MessagingProvider,
-  fn: (token: string) => Promise<T>,
-): Promise<T> {
-  if (provider.isConnected?.()) {
-    return fn("");
-  }
-  return withValidToken(provider.credentialService, fn);
 }

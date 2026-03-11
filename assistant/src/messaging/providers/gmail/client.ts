@@ -19,7 +19,6 @@ import type {
   GmailVacationSettings,
 } from "./types.js";
 
-const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
 
 /** Max sub-requests per batch HTTP call (Gmail API limit) */
@@ -99,63 +98,11 @@ function extractBody(options?: GmailRequestOptions): unknown | undefined {
 }
 
 async function request<T>(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   path: string,
   options?: GmailRequestOptions,
 ): Promise<T> {
   const canRetry = options?.retryable ?? isIdempotent(options);
-
-  if (typeof connectionOrToken === "string") {
-    // Legacy path: use raw token directly
-    const token = connectionOrToken;
-    const url = `${GMAIL_API_BASE}${path}`;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const resp = await fetch(url, {
-        ...options,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          ...options?.headers,
-        },
-      });
-
-      if (!resp.ok) {
-        if (canRetry && isRetryable(resp.status) && attempt < MAX_RETRIES) {
-          const retryAfter = resp.headers.get("retry-after");
-          const delayMs = retryAfter
-            ? parseInt(retryAfter, 10) * 1000
-            : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-          continue;
-        }
-        const body = await resp.text().catch(() => "");
-        throw new GmailApiError(
-          resp.status,
-          resp.statusText,
-          `Gmail API ${resp.status}: ${body}`,
-        );
-      }
-
-      // Some endpoints (e.g. batchModify) return empty success responses
-      const contentLength = resp.headers.get("content-length");
-      if (resp.status === 204 || contentLength === "0") {
-        return undefined as T;
-      }
-      const text = await resp.text();
-      if (!text) return undefined as T;
-      return JSON.parse(text) as T;
-    }
-
-    // Unreachable -- the loop always returns or throws -- but TypeScript needs this
-    throw new Error(
-      "Unreachable: retry loop exited without returning or throwing",
-    );
-  }
-
-  // OAuthConnection path
-  const connection = connectionOrToken;
   const method = (options?.method ?? "GET").toUpperCase();
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -210,7 +157,7 @@ async function request<T>(
 
 /** List messages matching a query. */
 export async function listMessages(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   query?: string,
   maxResults = 20,
   pageToken?: string,
@@ -223,15 +170,12 @@ export async function listMessages(
   if (labelIds) {
     for (const id of labelIds) params.append("labelIds", id);
   }
-  return request<GmailMessageListResponse>(
-    connectionOrToken,
-    `/messages?${params}`,
-  );
+  return request<GmailMessageListResponse>(connection, `/messages?${params}`);
 }
 
 /** Get a single message by ID. */
 export async function getMessage(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageId: string,
   format: GmailMessageFormat = "full",
   metadataHeaders?: string[],
@@ -242,10 +186,7 @@ export async function getMessage(
     for (const h of metadataHeaders) params.append("metadataHeaders", h);
   }
   if (fields) params.set("fields", fields);
-  return request<GmailMessage>(
-    connectionOrToken,
-    `/messages/${messageId}?${params}`,
-  );
+  return request<GmailMessage>(connection, `/messages/${messageId}?${params}`);
 }
 
 /**
@@ -283,7 +224,7 @@ function parseSubResponse(
  * Returns successfully parsed messages and a list of IDs that failed (for individual retry).
  */
 async function executeBatchCall(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageIds: string[],
   format: GmailMessageFormat,
   metadataHeaders: string[] | undefined,
@@ -386,12 +327,8 @@ async function executeBatchCall(
     );
   };
 
-  if (typeof connectionOrToken === "string") {
-    return doBatchFetch(connectionOrToken);
-  }
-
-  // OAuthConnection path: use withToken to get raw token for batch endpoint
-  return connectionOrToken.withToken(doBatchFetch);
+  // Use withToken to get raw token for batch endpoint
+  return connection.withToken(doBatchFetch);
 }
 
 /**
@@ -400,7 +337,7 @@ async function executeBatchCall(
  * Falls back to individual getMessage for any sub-requests that fail within a batch.
  */
 export async function batchGetMessages(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageIds: string[],
   format: GmailMessageFormat = "full",
   metadataHeaders?: string[],
@@ -412,7 +349,7 @@ export async function batchGetMessages(
   if (messageIds.length === 1) {
     return [
       await getMessage(
-        connectionOrToken,
+        connection,
         messageIds[0],
         format,
         metadataHeaders,
@@ -439,7 +376,7 @@ export async function batchGetMessages(
     const waveResults = await Promise.all(
       wave.map((chunk) =>
         executeBatchCall(
-          connectionOrToken,
+          connection,
           chunk.ids,
           format,
           metadataHeaders,
@@ -461,7 +398,7 @@ export async function batchGetMessages(
       if (failedIds.length > 0) {
         const retried = await Promise.all(
           failedIds.map(({ id }) =>
-            getMessage(connectionOrToken, id, format, metadataHeaders, fields),
+            getMessage(connection, id, format, metadataHeaders, fields),
           ),
         );
         for (let r = 0; r < failedIds.length; r++) {
@@ -476,28 +413,24 @@ export async function batchGetMessages(
 
 /** Modify labels on a single message. */
 export async function modifyMessage(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageId: string,
   modifications: GmailModifyRequest,
 ): Promise<GmailMessage> {
-  return request<GmailMessage>(
-    connectionOrToken,
-    `/messages/${messageId}/modify`,
-    {
-      method: "POST",
-      body: JSON.stringify(modifications),
-      retryable: true,
-    },
-  );
+  return request<GmailMessage>(connection, `/messages/${messageId}/modify`, {
+    method: "POST",
+    body: JSON.stringify(modifications),
+    retryable: true,
+  });
 }
 
 /** Batch modify labels on multiple messages. */
 export async function batchModifyMessages(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageIds: string[],
   modifications: GmailModifyRequest,
 ): Promise<void> {
-  await request<void>(connectionOrToken, "/messages/batchModify", {
+  await request<void>(connection, "/messages/batchModify", {
     method: "POST",
     body: JSON.stringify({ ids: messageIds, ...modifications }),
     retryable: true,
@@ -506,33 +439,26 @@ export async function batchModifyMessages(
 
 /** Move a message to trash. */
 export async function trashMessage(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageId: string,
 ): Promise<GmailMessage> {
-  return request<GmailMessage>(
-    connectionOrToken,
-    `/messages/${messageId}/trash`,
-    {
-      method: "POST",
-      retryable: true,
-    },
-  );
+  return request<GmailMessage>(connection, `/messages/${messageId}/trash`, {
+    method: "POST",
+    retryable: true,
+  });
 }
 
 /** List all labels. */
 export async function listLabels(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
 ): Promise<GmailLabel[]> {
-  const resp = await request<GmailLabelsListResponse>(
-    connectionOrToken,
-    "/labels",
-  );
+  const resp = await request<GmailLabelsListResponse>(connection, "/labels");
   return resp.labels ?? [];
 }
 
 /** Create a draft. */
 export async function createDraft(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   to: string,
   subject: string,
   body: string,
@@ -559,7 +485,7 @@ export async function createDraft(
     .replace(/=+$/, "");
   const message: Record<string, unknown> = { raw };
   if (threadId) message.threadId = threadId;
-  return request<GmailDraft>(connectionOrToken, "/drafts", {
+  return request<GmailDraft>(connection, "/drafts", {
     method: "POST",
     body: JSON.stringify({ message }),
   });
@@ -567,13 +493,13 @@ export async function createDraft(
 
 /** Create a draft from a pre-built base64url MIME payload. */
 export async function createDraftRaw(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   raw: string,
   threadId?: string,
 ): Promise<GmailDraft> {
   const message: Record<string, unknown> = { raw };
   if (threadId) message.threadId = threadId;
-  return request<GmailDraft>(connectionOrToken, "/drafts", {
+  return request<GmailDraft>(connection, "/drafts", {
     method: "POST",
     body: JSON.stringify({ message }),
   });
@@ -581,10 +507,10 @@ export async function createDraftRaw(
 
 /** Send an existing draft by ID. */
 export async function sendDraft(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   draftId: string,
 ): Promise<GmailMessage> {
-  return request<GmailMessage>(connectionOrToken, "/drafts/send", {
+  return request<GmailMessage>(connection, "/drafts/send", {
     method: "POST",
     body: JSON.stringify({ id: draftId }),
   });
@@ -592,7 +518,7 @@ export async function sendDraft(
 
 /** Send an email. */
 export async function sendMessage(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   to: string,
   subject: string,
   body: string,
@@ -615,7 +541,7 @@ export async function sendMessage(
     .replace(/=+$/, "");
   const payload: Record<string, unknown> = { raw };
   if (threadId) payload.threadId = threadId;
-  return request<GmailMessage>(connectionOrToken, "/messages/send", {
+  return request<GmailMessage>(connection, "/messages/send", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -623,32 +549,32 @@ export async function sendMessage(
 
 /** Get the authenticated user's profile (email address). */
 export async function getProfile(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
 ): Promise<GmailProfile> {
-  return request<GmailProfile>(connectionOrToken, "/profile");
+  return request<GmailProfile>(connection, "/profile");
 }
 
 /** Get attachment data for a message. */
 export async function getAttachment(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   messageId: string,
   attachmentId: string,
 ): Promise<GmailAttachment> {
   return request<GmailAttachment>(
-    connectionOrToken,
+    connection,
     `/messages/${messageId}/attachments/${attachmentId}`,
   );
 }
 
 /** Send an email with a pre-built raw MIME payload (for multipart/attachments). */
 export async function sendMessageRaw(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   raw: string,
   threadId?: string,
 ): Promise<GmailMessage> {
   const payload: Record<string, unknown> = { raw };
   if (threadId) payload.threadId = threadId;
-  return request<GmailMessage>(connectionOrToken, "/messages/send", {
+  return request<GmailMessage>(connection, "/messages/send", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -656,14 +582,14 @@ export async function sendMessageRaw(
 
 /** Create a user label. */
 export async function createLabel(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   name: string,
   opts?: {
     messageListVisibility?: "show" | "hide";
     labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide";
   },
 ): Promise<GmailLabel> {
-  return request<GmailLabel>(connectionOrToken, "/labels", {
+  return request<GmailLabel>(connection, "/labels", {
     method: "POST",
     body: JSON.stringify({ name, ...opts }),
   });
@@ -671,10 +597,10 @@ export async function createLabel(
 
 /** List all Gmail filters. */
 export async function listFilters(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
 ): Promise<GmailFilter[]> {
   const resp = await request<GmailFiltersListResponse>(
-    connectionOrToken,
+    connection,
     "/settings/filters",
   );
   return resp.filter ?? [];
@@ -682,11 +608,11 @@ export async function listFilters(
 
 /** Create a Gmail filter. */
 export async function createFilter(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   criteria: GmailFilterCriteria,
   action: GmailFilterAction,
 ): Promise<GmailFilter> {
-  return request<GmailFilter>(connectionOrToken, "/settings/filters", {
+  return request<GmailFilter>(connection, "/settings/filters", {
     method: "POST",
     body: JSON.stringify({ criteria, action }),
   });
@@ -694,35 +620,28 @@ export async function createFilter(
 
 /** Delete a Gmail filter. */
 export async function deleteFilter(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   filterId: string,
 ): Promise<void> {
-  await request<void>(connectionOrToken, `/settings/filters/${filterId}`, {
+  await request<void>(connection, `/settings/filters/${filterId}`, {
     method: "DELETE",
   });
 }
 
 /** Get vacation auto-reply settings. */
 export async function getVacation(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
 ): Promise<GmailVacationSettings> {
-  return request<GmailVacationSettings>(
-    connectionOrToken,
-    "/settings/vacation",
-  );
+  return request<GmailVacationSettings>(connection, "/settings/vacation");
 }
 
 /** Update vacation auto-reply settings. */
 export async function updateVacation(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   settings: GmailVacationSettings,
 ): Promise<GmailVacationSettings> {
-  return request<GmailVacationSettings>(
-    connectionOrToken,
-    "/settings/vacation",
-    {
-      method: "PUT",
-      body: JSON.stringify(settings),
-    },
-  );
+  return request<GmailVacationSettings>(connection, "/settings/vacation", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
 }

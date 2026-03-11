@@ -11,37 +11,12 @@ import type {
   PeopleSearchResponse,
 } from "./people-types.js";
 
-/** Used by the legacy string-token path. */
-const PEOPLE_API_BASE = "https://people.googleapis.com/v1";
-
 const PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations";
 
 async function request<T>(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   path: string,
 ): Promise<T> {
-  if (typeof connectionOrToken === "string") {
-    // Legacy path: use raw token with full URL
-    const token = connectionOrToken;
-    const url = `${PEOPLE_API_BASE}${path}`;
-    const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
-      throw new GmailApiError(
-        resp.status,
-        resp.statusText,
-        `People API ${resp.status}: ${body}`,
-      );
-    }
-    return resp.json() as Promise<T>;
-  }
-
-  // OAuthConnection path: use connection.request() with baseUrl override
-  const connection = connectionOrToken;
   const resp = await connection.request({
     method: "GET",
     path,
@@ -65,7 +40,7 @@ async function request<T>(
 
 /** List the user's contacts with pagination. */
 export async function listContacts(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   pageSize = 50,
   pageToken?: string,
 ): Promise<PeopleConnectionsResponse> {
@@ -75,14 +50,14 @@ export async function listContacts(
   });
   if (pageToken) params.set("pageToken", pageToken);
   return request<PeopleConnectionsResponse>(
-    connectionOrToken,
+    connection,
     `/people/me/connections?${params}`,
   );
 }
 
 /** Search contacts by name or email. */
 export async function searchContacts(
-  connectionOrToken: OAuthConnection | string,
+  connection: OAuthConnection,
   query: string,
 ): Promise<PeopleSearchResponse> {
   const params = new URLSearchParams({
@@ -90,7 +65,7 @@ export async function searchContacts(
     readMask: PERSON_FIELDS,
   });
   return request<PeopleSearchResponse>(
-    connectionOrToken,
+    connection,
     `/people:searchContacts?${params}`,
   );
 }

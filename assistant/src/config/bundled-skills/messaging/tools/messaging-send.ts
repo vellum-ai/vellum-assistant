@@ -9,6 +9,7 @@ import {
   listMessages,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
+import type { OAuthConnection } from "../../../../oauth/connection.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -55,16 +56,17 @@ export async function run(
 
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {
+      const gmailConn = conn as OAuthConnection;
       // Reply mode: thread_id provided — create a threaded draft with reply-all recipients
       if (threadId) {
         // Fetch thread messages to extract recipients and threading headers
-        const list = await listMessages(conn, `thread:${threadId}`, 10);
+        const list = await listMessages(gmailConn, `thread:${threadId}`, 10);
         if (!list.messages?.length) {
           return err("No messages found in this thread.");
         }
 
         const messages = await batchGetMessages(
-          conn,
+          gmailConn,
           list.messages.map((m) => m.id),
           "metadata",
           ["From", "To", "Cc", "Message-ID", "Subject"],
@@ -81,7 +83,7 @@ export async function run(
         }
 
         // Build reply-all recipient list, excluding the user's own email
-        const profile = await getProfile(conn);
+        const profile = await getProfile(gmailConn);
         const userEmail = profile.emailAddress.toLowerCase();
 
         const allRecipients = new Set<string>();
@@ -128,7 +130,7 @@ export async function run(
             cc: ccList.length > 0 ? ccList.join(", ") : undefined,
             attachments,
           });
-          const draft = await createDraftRaw(conn, raw, threadId);
+          const draft = await createDraftRaw(gmailConn, raw, threadId);
 
           const filenames = attachments.map((a) => a.filename).join(", ");
           const recipientSummary =
@@ -141,7 +143,7 @@ export async function run(
         }
 
         const draft = await createDraft(
-          conn,
+          gmailConn,
           toList.join(", "),
           replySubject,
           text,
@@ -178,7 +180,7 @@ export async function run(
           inReplyTo,
           attachments,
         });
-        const draft = await createDraftRaw(conn, raw, threadId);
+        const draft = await createDraftRaw(gmailConn, raw, threadId);
 
         const filenames = attachments.map((a) => a.filename).join(", ");
         return ok(
@@ -188,7 +190,7 @@ export async function run(
 
       // Without attachments: use standard createDraft
       const draft = await createDraft(
-        conn,
+        gmailConn,
         conversationId,
         subject ?? "",
         text,

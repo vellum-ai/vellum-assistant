@@ -4,6 +4,10 @@
  * All methods accept either an OAuthConnection or a raw token string.
  * Throws SlackApiError on failures, with status: 401 on auth errors
  * for withValidToken compatibility.
+ *
+ * String overloads are retained for non-OAuth callers (e.g. slack/share.ts)
+ * that pass raw bot tokens via resolveSlackToken(). These bypass the
+ * OAuthConnection model by design.
  */
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
