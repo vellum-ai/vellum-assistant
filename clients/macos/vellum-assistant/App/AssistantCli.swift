@@ -593,9 +593,11 @@ final class AssistantCli {
               !command.isEmpty else {
             return false
         }
-        // Match the same patterns used by the TypeScript CLI's isVellumProcess:
-        // vellum binary names, @vellumai scoped packages, and the gateway flag.
-        let pattern = "vellum-daemon|vellum-cli|vellum-gateway|@vellumai"
+        // Match vellum-related processes: compiled binary names, @vellumai scoped
+        // packages, the /vellum/ path component (bunx installs), and source-tree
+        // daemon paths (/daemon/main). Avoids matching unrelated processes whose
+        // working directory happens to contain "vellum" (e.g. vellum-assistant).
+        let pattern = "vellum-daemon|vellum-cli|vellum-gateway|@vellumai|/vellum/|/daemon/main"
         return command.range(of: pattern, options: .regularExpression) != nil
     }
 
