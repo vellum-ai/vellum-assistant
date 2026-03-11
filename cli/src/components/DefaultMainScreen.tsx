@@ -34,6 +34,7 @@ export const ANSI = {
 } as const;
 
 export const SLASH_COMMANDS = [
+  "/btw",
   "/clear",
   "/doctor",
   "/exit",
@@ -642,6 +643,10 @@ function HelpDisplay(): ReactElement {
   return (
     <Box flexDirection="column">
       <Text bold>Commands:</Text>
+      <Text>
+        {"  /btw <question>   "}
+        <Text dimColor>Ask a side question while the assistant is working</Text>
+      </Text>
       <Text>
         {"  /doctor [question] "}
         <Text dimColor>Run diagnostics on the remote instance via SSH</Text>
@@ -1500,6 +1505,65 @@ function ChatApp({
         return;
       }
 
+      if (trimmed.startsWith("/btw ")) {
+        const question = trimmed.slice(5).trim();
+        if (!question) return;
+
+        h.addStatus(`/btw ${question}`, "gray");
+
+        const isConnected = await ensureConnected();
+        if (!isConnected) return;
+
+        try {
+          const res = await fetch(
+            `${runtimeUrl}/v1/assistants/${assistantId}/btw`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(bearerToken
+                  ? { Authorization: `Bearer ${bearerToken}` }
+                  : {}),
+              },
+              body: JSON.stringify({
+                conversationKey: assistantId,
+                content: question,
+              }),
+              signal: AbortSignal.timeout(30_000),
+            },
+          );
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+          let fullText = "";
+          const reader = res.body?.getReader();
+          const decoder = new TextDecoder();
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value, { stream: true });
+              for (const line of chunk.split("\n")) {
+                if (line.startsWith("data: ")) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.text) fullText += data.text;
+                  } catch {
+                    /* skip malformed */
+                  }
+                }
+              }
+            }
+          }
+          h.addStatus(fullText || "No response");
+        } catch (err) {
+          h.showError(
+            `/btw failed: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+        return;
+      }
+
       if (trimmed === "/pair") {
         h.showSpinner("Generating pairing credentials...");
 
@@ -1727,38 +1791,35 @@ function ChatApp({
       }
 
       if (busyRef.current) {
-        if (trimmed.startsWith("/btw ")) {
-          // Handled below by /btw command handler (added in a later PR)
-        } else {
-          const isConnected = await ensureConnected();
-          if (!isConnected) return;
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(
-              () => controller.abort(),
-              SEND_TIMEOUT_MS,
+        // /btw is already handled above this block
+        const isConnected = await ensureConnected();
+        if (!isConnected) return;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(
+            () => controller.abort(),
+            SEND_TIMEOUT_MS,
+          );
+          const sendResult = await sendMessage(
+            runtimeUrl,
+            assistantId,
+            trimmed,
+            controller.signal,
+            bearerToken,
+          );
+          clearTimeout(timeoutId);
+          if (sendResult.accepted) {
+            h.addStatus(
+              "Message queued — will be processed after current response",
+              "gray",
             );
-            const sendResult = await sendMessage(
-              runtimeUrl,
-              assistantId,
-              trimmed,
-              controller.signal,
-              bearerToken,
-            );
-            clearTimeout(timeoutId);
-            if (sendResult.accepted) {
-              h.addStatus(
-                "Message queued — will be processed after current response",
-                "gray",
-              );
-            } else {
-              h.showError("Message was not accepted by the assistant");
-            }
-          } catch (err) {
-            h.showError(
-              `Failed to queue message: ${err instanceof Error ? err.message : String(err)}`,
-            );
+          } else {
+            h.showError("Message was not accepted by the assistant");
           }
+        } catch (err) {
+          h.showError(
+            `Failed to queue message: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         return;
       }
