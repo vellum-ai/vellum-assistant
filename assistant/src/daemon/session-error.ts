@@ -159,6 +159,13 @@ function classifyCore(
         retryable: false,
       };
     }
+    if (error.statusCode === 401) {
+      return {
+        code: "PROVIDER_BILLING",
+        userMessage: "Your API key is invalid or expired.",
+        retryable: false,
+      };
+    }
     if (error.statusCode === 429) {
       return {
         code: "PROVIDER_RATE_LIMIT",
