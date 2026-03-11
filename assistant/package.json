@@ -2,6 +2,9 @@
   "name": "@vellumai/assistant",
   "version": "0.4.45",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "bin": {
     "assistant": "./src/index.ts"
   },
