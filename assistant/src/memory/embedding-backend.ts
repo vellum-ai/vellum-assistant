@@ -176,7 +176,10 @@ export function clearEmbeddingBackendCache(): void {
   localBackendBroken = false;
 }
 
-function cacheKey(provider: string, model: string): string {
+function cacheKey(provider: string, model: string, extras?: string[]): string {
+  if (extras && extras.length > 0) {
+    return `${provider}:${model}:${extras.join(":")}`;
+  }
   return `${provider}:${model}`;
 }
 
@@ -184,13 +187,25 @@ function getCachedOrCreate<T extends EmbeddingBackend>(
   provider: string,
   model: string,
   create: () => T,
+  extras?: string[],
 ): T {
-  const key = cacheKey(provider, model);
+  const key = cacheKey(provider, model, extras);
   const existing = backendCache.get(key);
   if (existing) return existing as T;
   const instance = create();
   backendCache.set(key, instance);
   return instance;
+}
+
+function geminiCacheExtras(config: AssistantConfig): string[] {
+  const extras: string[] = [];
+  if (config.memory.embeddings.geminiTaskType) {
+    extras.push(`task=${config.memory.embeddings.geminiTaskType}`);
+  }
+  if (config.memory.embeddings.geminiDimensions != null) {
+    extras.push(`dim=${config.memory.embeddings.geminiDimensions}`);
+  }
+  return extras;
 }
 
 export type EmbeddingProviderName = "local" | "openai" | "gemini" | "ollama";
@@ -292,6 +307,7 @@ export function selectEmbeddingBackend(
                   dimensions: config.memory.embeddings.geminiDimensions,
                 },
               ),
+            geminiCacheExtras(config),
           ),
           reason: null,
         };
@@ -522,6 +538,7 @@ function selectFallbackBackends(
                     dimensions: config.memory.embeddings.geminiDimensions,
                   },
                 ),
+              geminiCacheExtras(config),
             ),
           );
         }
