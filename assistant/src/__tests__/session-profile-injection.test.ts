@@ -40,6 +40,11 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+  loadDefaultsRegistry: () => ({}),
+}));
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},

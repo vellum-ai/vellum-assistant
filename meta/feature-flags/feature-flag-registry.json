@@ -128,6 +128,14 @@
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
       "defaultEnabled": true
+    },
+    {
+      "id": "automatic-memory-recall",
+      "scope": "assistant",
+      "key": "feature_flags.automatic-memory-recall.enabled",
+      "label": "Automatic Memory Recall",
+      "description": "Automatically retrieve and inject relevant memories before every LLM call. Disabling eliminates the latency of embedding generation, semantic search, and reranking on each message while preserving on-demand memory_recall tool access.",
+      "defaultEnabled": false
     }
   ]
 }

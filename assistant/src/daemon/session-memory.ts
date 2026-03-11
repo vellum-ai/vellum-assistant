@@ -1,3 +1,4 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { getMemoryConflictAndCleanupStats } from "../memory/admin.js";
@@ -157,45 +158,83 @@ export async function prepareMemoryContext(
       })
     : { text: "" };
 
+  // Feature flag: when automatic memory recall is disabled, skip the entire
+  // buildMemoryRecall() pipeline (embedding generation, semantic search,
+  // reranking) to eliminate its latency. The on-demand memory_recall tool
+  // remains available for explicit lookups.
+  const automaticRecallEnabled = isAssistantFeatureFlagEnabled(
+    "feature_flags.automatic-memory-recall.enabled",
+    runtimeConfig,
+  );
+
+  const noopRecall = {
+    enabled: false,
+    degraded: false,
+    injectedText: "",
+    lexicalHits: 0,
+    semanticHits: 0,
+    recencyHits: 0,
+    entityHits: 0,
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
+    earlyTerminated: false,
+    mergedCount: 0,
+    selectedCount: 0,
+    rerankApplied: false,
+    injectedTokens: 0,
+    latencyMs: 0,
+    topCandidates: [],
+  } as Awaited<ReturnType<typeof buildMemoryRecall>>;
+
   // Memory recall
-  const recallQuery = buildMemoryQuery(content, ctx.messages);
   const recallInjectionStrategy: RecallInjectionStrategy =
     (runtimeConfig.memory?.retrieval?.injectionStrategy as
       | RecallInjectionStrategy
       | undefined) ?? "prepend_user_block";
-  const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
-  const recallBudget = dynamicBudgetConfig?.enabled
-    ? computeRecallBudget({
-        estimatedPromptTokens: estimatePromptTokens(
-          ctx.messages,
-          ctx.systemPrompt,
-          { providerName: ctx.provider.name },
-        ),
-        maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
-        targetHeadroomTokens: dynamicBudgetConfig.targetHeadroomTokens,
-        minInjectTokens: dynamicBudgetConfig.minInjectTokens,
-        maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
-      })
-    : undefined;
-  // Build scope policy override for non-default scopes so retrieval
-  // honours the session's memory policy regardless of the global config.
-  const scopePolicyOverride: ScopePolicyOverride | undefined =
-    ctx.scopeId !== "default"
-      ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }
-      : undefined;
 
-  const recall = await buildMemoryRecall(
-    recallQuery,
-    ctx.conversationId,
-    runtimeConfig,
-    {
-      excludeMessageIds: [userMessageId],
-      signal: abortSignal,
-      maxInjectTokensOverride: recallBudget,
-      scopeId: ctx.scopeId,
-      scopePolicyOverride,
-    },
-  );
+  let recall: Awaited<ReturnType<typeof buildMemoryRecall>>;
+
+  if (automaticRecallEnabled) {
+    const recallQuery = buildMemoryQuery(content, ctx.messages);
+    const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
+    const recallBudget = dynamicBudgetConfig?.enabled
+      ? computeRecallBudget({
+          estimatedPromptTokens: estimatePromptTokens(
+            ctx.messages,
+            ctx.systemPrompt,
+            { providerName: ctx.provider.name },
+          ),
+          maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
+          targetHeadroomTokens: dynamicBudgetConfig.targetHeadroomTokens,
+          minInjectTokens: dynamicBudgetConfig.minInjectTokens,
+          maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
+        })
+      : undefined;
+    // Build scope policy override for non-default scopes so retrieval
+    // honours the session's memory policy regardless of the global config.
+    const scopePolicyOverride: ScopePolicyOverride | undefined =
+      ctx.scopeId !== "default"
+        ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }
+        : undefined;
+
+    recall = await buildMemoryRecall(
+      recallQuery,
+      ctx.conversationId,
+      runtimeConfig,
+      {
+        excludeMessageIds: [userMessageId],
+        signal: abortSignal,
+        maxInjectTokensOverride: recallBudget,
+        scopeId: ctx.scopeId,
+        scopePolicyOverride,
+      },
+    );
+  } else {
+    recall = noopRecall;
+  }
+
   const memoryStatus = getMemoryConflictAndCleanupStats();
 
   onEvent({
