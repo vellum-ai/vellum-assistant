@@ -127,6 +127,11 @@ struct AssistantUpgradeSection: View {
 
     private func loadReleases() async {
         clearMessages()
+        await loadReleasesQuietly()
+    }
+
+    /// Fetches releases without clearing existing messages.
+    private func loadReleasesQuietly() async {
         isLoadingReleases = true
         defer { isLoadingReleases = false }
 
@@ -168,8 +173,8 @@ struct AssistantUpgradeSection: View {
             }
             if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
                 successMessage = "Upgrade initiated. The assistant may be briefly unavailable."
-                // Refresh releases to update UI
-                await loadReleases()
+                // Refresh releases to update UI without clearing success message
+                await loadReleasesQuietly()
             } else {
                 errorMessage = "Upgrade failed (HTTP \(httpResponse.statusCode))"
             }
@@ -189,7 +194,7 @@ struct AssistantUpgradeSection: View {
         let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
         guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return nil }
         let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else { return nil }
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(path)\(trailingSlash)") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30

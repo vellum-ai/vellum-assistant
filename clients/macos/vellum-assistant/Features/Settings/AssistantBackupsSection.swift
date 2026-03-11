@@ -5,7 +5,7 @@ import VellumAssistantShared
 
 /// Backup and restore UI for the Settings Account tab.
 ///
-/// For local assistants, creates/restores `.vbundle` archives via the daemon's
+/// For local assistants, creates/restores `.vbundle` archives via the assistant's
 /// migration endpoints (`POST /v1/migrations/export` and `POST /v1/migrations/import`).
 ///
 /// For managed/remote assistants, uses the platform API endpoints
@@ -187,7 +187,7 @@ struct AssistantBackupsSection: View {
         let token = ActorTokenManager.getToken()
 
         guard let url = URL(string: "http://localhost:\(port)/v1/migrations/export") else {
-            errorMessage = "Invalid daemon URL"
+            errorMessage = "Invalid assistant URL"
             return
         }
 
@@ -201,7 +201,7 @@ struct AssistantBackupsSection: View {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response from daemon"
+                errorMessage = "Invalid response from assistant"
                 return
             }
 
@@ -258,6 +258,11 @@ struct AssistantBackupsSection: View {
 
     private func loadManagedBackups() async {
         clearMessages()
+        await loadManagedBackupsQuietly()
+    }
+
+    /// Fetches managed backups without clearing existing messages.
+    private func loadManagedBackupsQuietly() async {
         isLoadingBackups = true
         defer { isLoadingBackups = false }
 
@@ -299,8 +304,8 @@ struct AssistantBackupsSection: View {
                 return
             }
             if httpResponse.statusCode >= 200 && httpResponse.statusCode < 300 {
-                successMessage = "Backup created successfully"
-                await loadManagedBackups()
+                    successMessage = "Backup created successfully"
+                    await loadManagedBackupsQuietly()
             } else {
                 errorMessage = "Failed to create backup (HTTP \(httpResponse.statusCode))"
             }
@@ -393,7 +398,7 @@ extension AssistantBackupsSection {
         let token = ActorTokenManager.getToken()
 
         guard let url = URL(string: "http://localhost:\(port)/v1/migrations/import") else {
-            errorMessage = "Invalid daemon URL"
+            errorMessage = "Invalid assistant URL"
             return
         }
 
@@ -411,16 +416,16 @@ extension AssistantBackupsSection {
 
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                errorMessage = "Invalid response from daemon"
+                errorMessage = "Invalid response from assistant"
                 return
             }
 
             if httpResponse.statusCode == 200 {
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let success = json["success"] as? Bool, success {
-                    successMessage = "Backup restored successfully. You may need to restart the daemon."
+                    successMessage = "Backup restored successfully. You may need to restart the assistant."
                 } else {
-                    errorMessage = "Import completed with warnings. Check daemon logs for details."
+                    errorMessage = "Import completed with warnings. Check assistant logs for details."
                 }
             } else {
                 errorMessage = "Import failed (HTTP \(httpResponse.statusCode))"

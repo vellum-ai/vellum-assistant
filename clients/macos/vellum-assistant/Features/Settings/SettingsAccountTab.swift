@@ -100,7 +100,7 @@ struct SettingsAccountTab: View {
                 platformUrlText = newValue
             }
         }
-        .alert("Restart Daemon", isPresented: $showingRestartConfirmation) {
+        .alert("Restart Assistant", isPresented: $showingRestartConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Restart", role: .destructive) {
                 isRestarting = true
@@ -110,14 +110,14 @@ struct SettingsAccountTab: View {
                 }
             }
         } message: {
-            Text("Are you sure you want to restart the daemon? It will be briefly unavailable.")
+            Text("Are you sure you want to restart the assistant? It will be briefly unavailable.")
         }
         .sheet(isPresented: $isRestarting) {
             VStack(spacing: VSpacing.lg) {
                 ProgressView()
                     .controlSize(.regular)
                     .progressViewStyle(.circular)
-                Text("Restarting daemon...")
+                Text("Restarting assistant...")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                 Text("The assistant will be briefly unavailable.")
@@ -546,17 +546,17 @@ struct SettingsAccountTab: View {
         onClose()
     }
 
-    // MARK: - Restart Daemon
+    // MARK: - Restart Assistant
 
     private var restartDaemonSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Restart Daemon")
+            Text("Restart Assistant")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Restart the daemon process")
+                    Text("Restart the assistant process")
                         .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     Text("The assistant will be briefly unavailable during restart.")
