@@ -1,7 +1,6 @@
 import { inArray } from "drizzle-orm";
 
 import { getLogger } from "../../util/logger.js";
-import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db.js";
 import {
   _getQdrantBreakerState,
@@ -11,6 +10,7 @@ import {
 import type { QdrantSearchResult } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
+  conversations,
   memoryItems,
   memoryItemSources,
   memorySegments,
@@ -55,6 +55,7 @@ export async function semanticSearch(
   const itemTargetIds: string[] = [];
   const summaryTargetIds: string[] = [];
   const segmentTargetIds: string[] = [];
+  const mediaConversationIds: string[] = [];
   for (const r of results) {
     if (r.payload.target_type === "item")
       itemTargetIds.push(r.payload.target_id);
@@ -62,6 +63,8 @@ export async function semanticSearch(
       summaryTargetIds.push(r.payload.target_id);
     else if (r.payload.target_type === "segment")
       segmentTargetIds.push(r.payload.target_id);
+    else if (r.payload.target_type === "media" && r.payload.conversation_id)
+      mediaConversationIds.push(r.payload.conversation_id);
   }
 
   const itemsMap = new Map<string, typeof memoryItems.$inferSelect>();
@@ -109,6 +112,23 @@ export async function semanticSearch(
       .where(inArray(memorySegments.id, segmentTargetIds))
       .all();
     for (const seg of allSegments) segmentsMap.set(seg.id, seg);
+  }
+
+  // Batch-fetch conversation scope IDs for media results to avoid N+1 queries.
+  // When a conversation is not found (deleted), its media is excluded rather than
+  // falling back to "default" scope, which would leak private media.
+  const mediaScopeMap = new Map<string, string>();
+  if (scopeIds && mediaConversationIds.length > 0) {
+    const unique = [...new Set(mediaConversationIds)];
+    const rows = db
+      .select({
+        id: conversations.id,
+        memoryScopeId: conversations.memoryScopeId,
+      })
+      .from(conversations)
+      .where(inArray(conversations.id, unique))
+      .all();
+    for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
 
   const excludedSet =
@@ -169,11 +189,18 @@ export async function semanticSearch(
     } else if (payload.target_type === "media") {
       // Use stored memory_scope_id when available; fall back to deriving
       // scope from conversation_id for legacy media points.
+      // If the conversation was deleted, skip the media to avoid leaking
+      // private media into the default scope.
       if (scopeIds) {
-        const mediaScopeId = payload.memory_scope_id
-          ?? (payload.conversation_id
-            ? getConversationMemoryScopeId(payload.conversation_id)
-            : "default");
+        let mediaScopeId: string | undefined;
+        if (payload.memory_scope_id) {
+          mediaScopeId = payload.memory_scope_id;
+        } else if (payload.conversation_id) {
+          mediaScopeId = mediaScopeMap.get(payload.conversation_id);
+          if (!mediaScopeId) continue; // conversation deleted — skip
+        } else {
+          mediaScopeId = "default";
+        }
         if (!scopeIds.includes(mediaScopeId)) continue;
       }
       candidates.push({
