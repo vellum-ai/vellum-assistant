@@ -131,8 +131,9 @@ function resolveCanonicalRequestSourceType(
 
 /**
  * Build an onEvent callback that registers pending interactions when the agent
- * loop emits confirmation_request or secret_request events. This ensures that
- * channel approval interception can look up the session by requestId.
+ * loop emits confirmation_request, secret_request, host_bash_request, or
+ * host_file_request events. This ensures that channel approval interception
+ * can look up the session by requestId.
  */
 function makePendingInteractionRegistrar(
   session: Session,
@@ -205,6 +206,12 @@ function makePendingInteractionRegistrar(
         session,
         conversationId,
         kind: "host_bash",
+      });
+    } else if (msg.type === "host_file_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_file",
       });
     }
   };
