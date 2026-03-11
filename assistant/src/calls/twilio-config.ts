@@ -20,7 +20,7 @@ export interface TwilioConfig {
 
 /**
  * Resolve the Twilio phone number using a unified fallback chain so that
- * all callers (calls, SMS adapter, readiness checks, invite transports)
+ * all callers (calls, readiness checks, invite transports)
  * agree on the same number.
  *
  * Resolution order:
