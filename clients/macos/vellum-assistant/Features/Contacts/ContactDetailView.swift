@@ -6,13 +6,13 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "sms", "email", "whatsapp", "phone", "slack"]
+    private static let allChannelTypes = ["telegram", "email", "whatsapp", "phone", "slack"]
 
-    private static let verificationSupportedChannels: Set<String> = ["telegram", "sms", "phone", "slack"]
+    private static let verificationSupportedChannels: Set<String> = ["telegram", "phone", "slack"]
 
     /// Channels that support 6-digit code invites from this view. Voice invites
     /// require additional fields not available here, so they are excluded.
-    private static let codeInviteChannels: Set<String> = ["telegram", "sms", "email", "whatsapp", "slack"]
+    private static let codeInviteChannels: Set<String> = ["telegram", "email", "whatsapp", "slack"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
@@ -575,7 +575,7 @@ struct ContactDetailView: View {
                         }
                     }
                 } else if let channelHandle = result.channelHandle {
-                    // For channels without a share URL (email, WhatsApp, SMS),
+                    // For channels without a share URL (email, WhatsApp),
                     // show the assistant's channel handle so it can be copied.
                     HStack(spacing: VSpacing.sm) {
                         Text(channelHandle)
@@ -873,8 +873,6 @@ struct ContactDetailView: View {
             return .send
         case "phone":
             return .phoneCall
-        case "sms":
-            return .phoneCall
         case "email":
             return .mail
         case "whatsapp", "slack":
@@ -887,7 +885,6 @@ struct ContactDetailView: View {
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
-        case "sms": return "SMS"
         case "email": return "Email"
         case "whatsapp": return "WhatsApp"
         case "phone": return "Voice"
@@ -1175,15 +1172,6 @@ struct ContactDetailView: View {
                         policy: "allow"
                     ),
                     ContactChannelPayload(
-                        id: "ch-3",
-                        type: "sms",
-                        address: "+1555123456",
-                        isPrimary: false,
-                        status: "revoked",
-                        policy: "allow",
-                        revokedReason: "User requested"
-                    ),
-                    ContactChannelPayload(
                         id: "ch-4",
                         type: "slack",
                         address: "#general",
@@ -1230,14 +1218,6 @@ struct ContactDetailView: View {
                         policy: "allow",
                         verifiedAt: Int(Date().timeIntervalSince1970 * 1000) - 86_400_000,
                         verifiedVia: "telegram"
-                    ),
-                    ContactChannelPayload(
-                        id: "ch-g2",
-                        type: "sms",
-                        address: "+15551234567",
-                        isPrimary: false,
-                        status: "active",
-                        policy: "allow"
                     ),
                     ContactChannelPayload(
                         id: "ch-g3",
