@@ -53,10 +53,20 @@ extension SlotContent: Codable {
             // If the value is stale (e.g. a removed panel like "assistantInbox"),
             // degrade to .empty instead of failing the entire layout decode.
             let rawPanel = try container.decode(String.self, forKey: .panel)
-            if let panel = NativePanelId(rawValue: rawPanel) {
-                self = .native(panel)
-            } else {
-                self = .empty
+            // Handle legacy panel IDs that were renamed or removed
+            switch rawPanel {
+            case "identity", "agent":
+                self = .native(.intelligence)
+            case "directory":
+                self = .native(.apps)
+            case "taskQueue":
+                self = .native(.chat)
+            default:
+                if let panel = NativePanelId(rawValue: rawPanel) {
+                    self = .native(panel)
+                } else {
+                    self = .empty
+                }
             }
         case "surface":
             let surfaceId = try container.decode(String.self, forKey: .surfaceId)
