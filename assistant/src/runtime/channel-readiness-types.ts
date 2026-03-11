@@ -4,6 +4,9 @@ import type { ChannelId } from "../channels/types.js";
 
 export type { ChannelId };
 
+/** Setup progress for a channel: not_configured → incomplete → ready. */
+export type SetupStatus = "not_configured" | "incomplete" | "ready";
+
 /** Result of a single readiness check (local or remote). */
 export interface ReadinessCheckResult {
   name: string;
@@ -15,6 +18,7 @@ export interface ReadinessCheckResult {
 export interface ChannelReadinessSnapshot {
   channel: ChannelId;
   ready: boolean;
+  setupStatus: SetupStatus;
   checkedAt: number;
   stale: boolean;
   reasons: Array<{ code: string; text: string }>;
