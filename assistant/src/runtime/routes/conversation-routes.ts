@@ -640,7 +640,7 @@ export async function handleSendMessage(
       });
       session.setHostFileProxy(fileProxy);
     }
-  } else {
+  } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
     session.setHostFileProxy(undefined);
   }
