@@ -979,8 +979,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = GenerationHandoff
 
 extension GenerationHandoff {
-    public init(sessionId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil) {
-        self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount, attachments: attachments)
+    public init(sessionId: String, requestId: String?, queuedCount: Int, attachments: [UserMessageAttachment]? = nil, messageId: String? = nil) {
+        self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount, attachments: attachments, messageId: messageId)
     }
 }
 

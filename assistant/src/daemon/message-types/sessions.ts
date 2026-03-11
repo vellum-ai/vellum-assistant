@@ -273,6 +273,8 @@ export interface GenerationHandoff {
   requestId?: string;
   queuedCount: number;
   attachments?: UserMessageAttachment[];
+  /** Database ID of the persisted assistant message, if any. */
+  messageId?: string;
 }
 
 export interface ModelInfo {
