@@ -67,10 +67,7 @@ import type {
   _GuardianActionsClientMessages,
   _GuardianActionsServerMessages,
 } from "./message-types/guardian-actions.js";
-import type {
-  _HostBashClientMessages,
-  _HostBashServerMessages,
-} from "./message-types/host-bash.js";
+import type { _HostBashServerMessages } from "./message-types/host-bash.js";
 import type {
   _InboxClientMessages,
   _InboxServerMessages,
@@ -155,7 +152,6 @@ export type ClientMessage =
   | _SubagentsClientMessages
   | _DocumentsClientMessages
   | _GuardianActionsClientMessages
-  | _HostBashClientMessages
   | _WorkspaceClientMessages
   | _SchedulesClientMessages
   | _DiagnosticsClientMessages
