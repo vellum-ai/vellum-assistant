@@ -1265,7 +1265,6 @@ function ChatApp({
 
   const showSpinner = useCallback((text: string) => {
     setSpinnerText(text);
-    setInputFocused(false);
   }, []);
 
   const hideSpinner = useCallback(() => {
@@ -1723,6 +1722,43 @@ function ChatApp({
           const errorMsg = `Doctor assistant unreachable: ${err instanceof Error ? err.message : err}`;
           h.showError(errorMsg);
           chatLogRef.current.push({ role: "error", content: errorMsg });
+        }
+        return;
+      }
+
+      if (busyRef.current) {
+        if (trimmed.startsWith("/btw ")) {
+          // Handled below by /btw command handler (added in a later PR)
+        } else {
+          const isConnected = await ensureConnected();
+          if (!isConnected) return;
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(
+              () => controller.abort(),
+              SEND_TIMEOUT_MS,
+            );
+            const sendResult = await sendMessage(
+              runtimeUrl,
+              assistantId,
+              trimmed,
+              controller.signal,
+              bearerToken,
+            );
+            clearTimeout(timeoutId);
+            if (sendResult.accepted) {
+              h.addStatus(
+                "Message queued — will be processed after current response",
+                "gray",
+              );
+            } else {
+              h.showError("Message was not accepted by the assistant");
+            }
+          } catch (err) {
+            h.showError(
+              `Failed to queue message: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
         return;
       }
