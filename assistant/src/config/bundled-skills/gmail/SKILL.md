@@ -1,6 +1,6 @@
 ---
 name: gmail
-description: Archive, label, draft, triage, unsubscribe, and manage Gmail with smart inbox tools
+description: Archive, label, draft, unsubscribe, and manage Gmail with smart inbox tools
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📨"
@@ -70,13 +70,6 @@ Workflow: use `gmail_attachments` with `action: "list"` to discover attachments,
 
 - **Forward**: `gmail_forward` — forward a message to another recipient, preserving all attachments. Optionally prepend your own text
 - **Follow-up Tracking**: `gmail_follow_up` — track/untrack messages for follow-up using a dedicated "Follow-up" label, or list all tracked messages
-
-### Smart Triage
-
-- **Triage**: `gmail_triage` — LLM-powered inbox classification of unread emails into categories: `needs_reply`, `fyi_only`, `can_archive`, `urgent`, `newsletter`, `promotional`
-  - Returns grouped report with reasoning and suggested actions per email
-  - Set `auto_apply: true` to auto-archive `can_archive` emails and label `needs_reply` as "Follow-up"
-  - Custom query support (default: `is:unread in:inbox`)
 
 ### Inbox Automation
 

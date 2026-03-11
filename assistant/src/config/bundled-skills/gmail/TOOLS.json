@@ -317,40 +317,6 @@
       "execution_target": "host"
     },
     {
-      "name": "gmail_triage",
-      "description": "LLM-powered inbox triage: classify unread emails by urgency and type, optionally auto-apply actions. Include a confidence score (0-1).",
-      "category": "gmail",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "max_results": {
-            "type": "number",
-            "description": "Maximum emails to triage (default 20)"
-          },
-          "auto_apply": {
-            "type": "boolean",
-            "description": "Auto-archive can_archive and label needs_reply as Follow-up (default false)"
-          },
-          "query": {
-            "type": "string",
-            "description": "Gmail search query (default 'is:unread in:inbox')"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Brief non-technical explanation of why this tool is being called"
-          }
-        },
-        "required": ["confidence"]
-      },
-      "executor": "tools/gmail-triage.ts",
-      "execution_target": "host"
-    },
-    {
       "name": "gmail_filters",
       "description": "List, create, or delete Gmail filters for inbox automation. Include a confidence score (0-1).",
       "category": "gmail",
