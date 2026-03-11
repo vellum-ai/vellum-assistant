@@ -129,7 +129,7 @@ When searching Gmail, the query uses Gmail's search operators:
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_batch_archive`, `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables — the user already indicated they want to keep those.
+**CRITICAL**: Never call `gmail_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables — the user already indicated they want to keep those.
 
 ### Workflow
 
@@ -145,7 +145,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
    - **Show a `task_progress` card** with steps for each phase (e.g., "Archiving 89 senders (2,400 emails)", "Unsubscribing from 72 senders"). Update each step from `in_progress` → `completed` as each phase finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
 4. **Act on selection** — batch, don't loop:
-   - **Archive all at once**: Call `gmail_batch_archive` **once** with `scan_id` + **all** selected senders' `id` values in the `sender_ids` array. The tool resolves message IDs server-side and batches the Gmail API calls internally — never loop sender-by-sender.
+   - **Archive all at once**: Call `gmail_archive` **once** with `scan_id` + **all** selected senders' `id` values in the `sender_ids` array. The tool resolves message IDs server-side and batches the Gmail API calls internally — never loop sender-by-sender.
    - **Unsubscribe in bulk**: If the action is "Archive & Unsubscribe", call `gmail_unsubscribe` for each sender that has `has_unsubscribe: true` — but emit **all** unsubscribe tool calls in a **single assistant response** (parallel tool use) rather than one-at-a-time across separate turns.
 5. **Accurate summary**: The scan counts are exact — the `message_count` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer**: After reporting results, offer auto-archive filters:
@@ -164,13 +164,13 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context.
 
-- Pass `scan_id` + `sender_ids` to `gmail_batch_archive` instead of `message_ids`
+- Pass `scan_id` + `sender_ids` to `gmail_archive` instead of `message_ids`
 - Scan results expire after **30 minutes** — if archiving fails with an expiration error, re-run the scan
 - Raw `message_ids` still work as a fallback for non-scan workflows
 
 ## Batch Operations
 
-- Gmail batch tools (`gmail_batch_archive`, `gmail_batch_label`) support `scan_id` + `sender_ids` (preferred) or raw `message_ids`.
+- Gmail batch tools (`gmail_archive`, `gmail_batch_label`) support `scan_id` + `sender_ids` (preferred) or raw `message_ids`.
 - First scan to get a `scan_id`, then apply batch actions using it.
 - Always confirm with the user before batch operations on large numbers of messages.
 
