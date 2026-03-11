@@ -196,7 +196,7 @@ struct AssistantUpgradeSection: View {
         let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
         guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return nil }
         let trailingSlash = path.hasSuffix("/") ? "" : "/"
-        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(path)\(trailingSlash)") else { return nil }
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(path)\(trailingSlash)") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
