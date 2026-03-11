@@ -83,7 +83,6 @@ function makeStreamingSession(events: ServerMessage[]): Session {
       }
     },
     handleConfirmationResponse: () => {},
-    ensureActorScopedHistory: async () => {},
     abort: () => {},
   } as unknown as Session;
 }
@@ -218,7 +217,6 @@ describe("voice-session-bridge", () => {
         await new Promise((r) => setTimeout(r, 200));
       },
       handleConfirmationResponse: () => {},
-      ensureActorScopedHistory: async () => {},
       abort: () => {
         abortCalled = true;
       },
@@ -271,7 +269,6 @@ describe("voice-session-bridge", () => {
         await new Promise((r) => setTimeout(r, 200));
       },
       handleConfirmationResponse: () => {},
-      ensureActorScopedHistory: async () => {},
       abort: () => {
         abortCalled = true;
       },
@@ -671,7 +668,6 @@ describe("voice-session-bridge", () => {
       ) => {
         handleConfirmationCalls.push({ requestId, decision, decisionContext });
       },
-      ensureActorScopedHistory: async () => {},
       abort: () => {},
     } as unknown as Session;
 
@@ -746,7 +742,6 @@ describe("voice-session-bridge", () => {
       handleConfirmationResponse: (requestId: string, decision: string) => {
         handleConfirmationCalls.push({ requestId, decision });
       },
-      ensureActorScopedHistory: async () => {},
       abort: () => {},
     } as unknown as Session;
 
@@ -815,7 +810,6 @@ describe("voice-session-bridge", () => {
       handleConfirmationResponse: (requestId: string, decision: string) => {
         handleConfirmationCalls.push({ requestId, decision });
       },
-      ensureActorScopedHistory: async () => {},
       abort: () => {},
     } as unknown as Session;
 
@@ -882,7 +876,6 @@ describe("voice-session-bridge", () => {
       handleConfirmationResponse: (requestId: string, decision: string) => {
         handleConfirmationCalls.push({ requestId, decision });
       },
-      ensureActorScopedHistory: async () => {},
       abort: () => {},
     } as unknown as Session;
 
@@ -957,7 +950,6 @@ describe("voice-session-bridge", () => {
       ) => {
         handleSecretCalls.push({ requestId, value, delivery });
       },
-      ensureActorScopedHistory: async () => {},
       abort: () => {},
     } as unknown as Session;
 
@@ -1018,7 +1010,6 @@ describe("voice-session-bridge", () => {
         await new Promise((r) => setTimeout(r, 200));
       },
       handleConfirmationResponse: () => {},
-      ensureActorScopedHistory: async () => {},
       abort: () => {
         abortCalled = true;
       },
