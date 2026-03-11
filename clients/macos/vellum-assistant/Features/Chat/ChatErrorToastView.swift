@@ -7,7 +7,7 @@ import VellumAssistantShared
 ///
 /// Supports two initialization paths:
 /// 1. From a typed `SessionError` (category-based icon, color, and recovery suggestion)
-/// 2. From an unstructured message string (replaces the former `ChatErrorBanner`)
+/// 2. From an unstructured message string (icon, color, and action are customizable)
 struct ChatSessionErrorToast: View {
     // MARK: - Display Properties
 
@@ -43,7 +43,7 @@ struct ChatSessionErrorToast: View {
 
     // MARK: - Unstructured Message Init
 
-    /// Initialize from an unstructured error message (replaces `ChatErrorBanner`).
+    /// Initialize from an unstructured error message with customizable styling.
     init(
         message: String,
         subtitle: String? = nil,
