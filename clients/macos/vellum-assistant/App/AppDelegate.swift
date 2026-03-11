@@ -146,13 +146,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // open), activate the existing instance and terminate this one.
         // Uses Apple's NSRunningApplication API — the recommended way to
         // detect running instances on macOS.
-        if let bundleId = Bundle.main.bundleIdentifier {
+        //
+        // Exception: performRestart() launches a new instance via
+        // NSWorkspace.openApplication (createsNewApplicationInstance: true)
+        // before terminating the old one.  Both processes are briefly
+        // alive.  performRestart() writes a transient sentinel file that
+        // the new instance checks here; if the file exists we are the
+        // replacement process and should proceed normally.
+        let restartSentinel = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".vellum/restart-in-progress")
+        let isRestart = FileManager.default.fileExists(atPath: restartSentinel.path)
+        if isRestart {
+            try? FileManager.default.removeItem(at: restartSentinel)
+        }
+
+        if !isRestart, let bundleId = Bundle.main.bundleIdentifier {
             let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
-                .filter { $0 != .current }
+                .filter { $0 != .current && !$0.isTerminated }
             if let existing = others.first {
+                log.info("[singleInstance] Another instance (pid \(existing.processIdentifier)) detected — activating it and terminating self")
                 existing.activate()
-                // Give the existing instance a moment to come forward
-                // before we exit, so the user sees a smooth transition.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     NSApp.terminate(nil)
                 }

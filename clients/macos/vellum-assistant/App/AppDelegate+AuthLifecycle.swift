@@ -82,6 +82,14 @@ extension AppDelegate {
 
     @objc func performRestart() {
         let bundleURL = Bundle.main.bundleURL
+
+        // Write a transient sentinel so the new instance's single-instance
+        // guard knows this is an intentional restart, not a duplicate launch.
+        // The new instance removes the file immediately after reading it.
+        let sentinelDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".vellum")
+        try? FileManager.default.createDirectory(at: sentinelDir, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: sentinelDir.appendingPathComponent("restart-in-progress").path, contents: nil)
+
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
