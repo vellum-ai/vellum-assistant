@@ -146,24 +146,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "google-oauth-setup",
-      "name": "google-oauth-setup",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Google OAuth Setup",
-          "user-invocable": "true",
-          "includes": [
-            "browser",
-            "public-ingress"
-          ],
-          "credential-setup-for": "gmail"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
