@@ -28,7 +28,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 17", async () => {
+  test("should be exactly 11 (no-client baseline excludes host tools)", async () => {
     await initializeTools();
     const allDefs = buildToolDefinitions();
 
@@ -48,16 +48,15 @@ describe("always-loaded tool count", () => {
     );
     const activeNames = activeTools.map((t) => t.name).sort();
 
+    // Host tools (host_bash, host_file_*) are excluded when no client is
+    // connected — without a human in the loop, the guardian auto-approve
+    // path would allow unchecked host command execution.
     const expectedNames = [
       "bash",
       "credential_store",
       "file_edit",
       "file_read",
       "file_write",
-      "host_bash",
-      "host_file_edit",
-      "host_file_read",
-      "host_file_write",
       "memory_manage",
       "memory_recall",
       "skill_execute",
@@ -67,6 +66,6 @@ describe("always-loaded tool count", () => {
     ].sort();
 
     expect(activeNames).toEqual(expectedNames);
-    expect(activeTools.length).toBe(15);
+    expect(activeTools.length).toBe(11);
   });
 });

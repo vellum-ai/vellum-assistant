@@ -571,9 +571,10 @@ export function isToolActiveForContext(
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
-    // Host tools are always available — they have local execution fallbacks
-    // for non-desktop sessions (CLI, headless) when no proxy is connected.
-    return true;
+    // Host tools require a connected client — without one, there is no human
+    // to approve execution and the guardian auto-approve path would allow
+    // unchecked host command execution on the daemon host.
+    return !ctx.hasNoClient;
   }
   if (ASSET_TOOL_NAMES.has(name)) {
     return ctx.hasAttachments ?? false;
