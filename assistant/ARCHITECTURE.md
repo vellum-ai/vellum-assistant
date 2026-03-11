@@ -641,7 +641,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**          | `handleInstallSkill()` in `daemon/handlers/skills.ts`    | When a client requests skill installation, the handler checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                        |
+| **6. Skill install gate**          | `handleSkillsInstall()` in `daemon/handlers/skills.ts`   | When a client requests skill installation, the handler checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                        |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -657,7 +657,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                                                               |
 | `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                                                                           |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses; `handleInstallSkill()` — enforcement point 6                                                     |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for client responses; `handleSkillsInstall()` — enforcement point 6                                                    |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
 | `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
 
