@@ -916,20 +916,32 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                         ])
                     }
 
+                    var currentEventType: String?
                     for try await line in bytes.lines {
                         if Task.isCancelled { break }
 
-                        if line.hasPrefix("data: ") {
+                        if line.hasPrefix("event: ") {
+                            currentEventType = String(line.dropFirst(7))
+                        } else if line.hasPrefix("data: ") {
                             let jsonString = String(line.dropFirst(6))
                             if let data = jsonString.data(using: .utf8),
                                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                if currentEventType == "btw_error" {
+                                    let errorMessage = parsed["message"] as? String ?? parsed["error"] as? String ?? "Unknown btw error"
+                                    throw URLError(.badServerResponse, userInfo: [
+                                        NSLocalizedDescriptionKey: errorMessage
+                                    ])
+                                }
                                 if let text = parsed["text"] as? String {
                                     continuation.yield(text)
                                 }
-                                if let type = parsed["type"] as? String, type == "btw_complete" {
+                                if currentEventType == "btw_complete" {
                                     break
                                 }
                             }
+                            currentEventType = nil
+                        } else if line.isEmpty {
+                            currentEventType = nil
                         }
                     }
                     continuation.finish()
