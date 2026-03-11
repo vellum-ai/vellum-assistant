@@ -19,7 +19,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       await trashMessage(token, messageId);
       return ok("Message moved to trash.");
     });

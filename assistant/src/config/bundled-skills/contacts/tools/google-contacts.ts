@@ -45,7 +45,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       switch (action) {
         case "list": {
           const pageSize = (input.page_size as number) ?? 50;

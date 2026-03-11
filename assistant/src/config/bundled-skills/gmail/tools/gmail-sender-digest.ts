@@ -59,7 +59,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       // Pipeline: fire metadata fetches for each page of IDs as they arrive,
       // overlapping fetch latency with pagination latency
       const allMessageIds: string[] = [];

@@ -36,7 +36,7 @@ export async function run(
 
   try {
     const provider = getMessagingProvider("gmail");
-    return withValidToken(provider.credentialService, async (token) => {
+    return await withValidToken(provider.credentialService, async (token) => {
       switch (action) {
         case "track": {
           const messageId = input.message_id as string;
