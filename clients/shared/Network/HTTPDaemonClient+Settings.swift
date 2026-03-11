@@ -162,7 +162,7 @@ extension HTTPTransport {
                 return true
             }
             // ingress_config and platform_config do not have HTTP routes yet;
-            // they continue to use HTTP handlers and are not dispatched here.
+            // they continue to use SSE message handlers and are not dispatched here.
             if let msg = message as? VercelApiConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
                 return true
