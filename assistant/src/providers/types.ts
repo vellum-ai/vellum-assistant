@@ -50,6 +50,19 @@ export interface ToolResultContent {
   contentBlocks?: ContentBlock[];
 }
 
+export interface ServerToolUseContent {
+  type: "server_tool_use";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface WebSearchToolResultContent {
+  type: "web_search_tool_result";
+  tool_use_id: string;
+  content: unknown; // Opaque — encrypted_content in search results is provider-specific
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
@@ -57,7 +70,9 @@ export type ContentBlock =
   | ImageContent
   | FileContent
   | ToolUseContent
-  | ToolResultContent;
+  | ToolResultContent
+  | ServerToolUseContent
+  | WebSearchToolResultContent;
 
 export interface Message {
   role: "user" | "assistant";
