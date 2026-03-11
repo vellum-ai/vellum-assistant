@@ -63,7 +63,7 @@ struct ErrorBannerGalleryView: View {
                     label("Connection error with diagnostic hint")
                     ChatSessionErrorToast(
                         message: "Unable to reach the server.",
-                        subtitle: "Check that the daemon is running on port 8080.",
+                        subtitle: "Check that the assistant is running on port 8080.",
                         actionLabel: "Retry",
                         onAction: {},
                         onDismiss: {}
