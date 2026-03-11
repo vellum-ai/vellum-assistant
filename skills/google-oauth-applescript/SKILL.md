@@ -352,6 +352,7 @@ Tell the user:
 > **3a. Branding** — Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`
 >
 > If the page is empty or shows **Get Started**, fill in:
+>
 > - App name: **Vellum Assistant**
 > - User support email: **your email**
 > - Developer contact email: **your email**
