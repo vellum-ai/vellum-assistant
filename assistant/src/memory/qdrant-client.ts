@@ -186,11 +186,11 @@ export class VellumQdrantClient {
       }
 
       this.collectionReady = true;
+      log.info(
+        { collection: this.collection },
+        "Qdrant collection created with payload indexes",
+      );
     }
-    log.info(
-      { collection: this.collection },
-      "Qdrant collection created with payload indexes",
-    );
   }
 
   async upsert(
