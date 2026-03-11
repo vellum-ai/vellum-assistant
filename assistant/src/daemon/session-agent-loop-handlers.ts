@@ -206,6 +206,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   app_create: "app",
   app_update: "app",
   skill_load: "skill",
+  skill_execute: "skill",
   app_file_edit: "app file",
   app_file_write: "app file",
 };

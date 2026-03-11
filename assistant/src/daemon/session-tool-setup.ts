@@ -34,6 +34,7 @@ import {
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
+  ToolContext,
   ToolExecutionResult,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
@@ -157,7 +158,9 @@ export function createToolExecutor(
       markDoordashStepInProgress(ctx, input);
     }
 
-    const result = await executor.execute(name, input, {
+    // Build the context object shared by both the skill_execute interception
+    // path and the regular executor path.
+    const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
       sessionId: ctx.conversationId,
       conversationId: ctx.conversationId,
@@ -324,7 +327,38 @@ export function createToolExecutor(
             : ("deny" as const),
         };
       },
-    });
+    };
+
+    // Intercept skill_execute: extract the real tool name and input, then
+    // route through the full executor pipeline so the underlying tool's
+    // risk level, permission checks, hooks, and lifecycle events all fire
+    // with the real tool name.
+    if (name === "skill_execute") {
+      const toolName = typeof input.tool === "string" ? input.tool : "";
+      const toolInput =
+        input.input != null && typeof input.input === "object"
+          ? (input.input as Record<string, unknown>)
+          : {};
+
+      if (!toolName) {
+        return {
+          content:
+            'Error: skill_execute requires a "tool" parameter with the tool name',
+          isError: true,
+        };
+      }
+
+      const result = await executor.execute(toolName, toolInput, toolContext);
+
+      runPostExecutionSideEffects(toolName, toolInput, result, {
+        ctx,
+        broadcastToAllClients,
+      });
+
+      return result;
+    }
+
+    const result = await executor.execute(name, input, toolContext);
 
     runPostExecutionSideEffects(name, input, result, {
       ctx,
