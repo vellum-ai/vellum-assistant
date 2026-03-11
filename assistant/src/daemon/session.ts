@@ -46,6 +46,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import type { HostBashProxy } from "./host-bash-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -156,6 +157,7 @@ export class Session {
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
+  /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -562,6 +564,26 @@ export class Session {
     delivery?: "store" | "transient_send",
   ): void {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
+  }
+
+  resolveHostBash(
+    requestId: string,
+    response: {
+      stdout: string;
+      stderr: string;
+      exitCode: number | null;
+      timedOut: boolean;
+    },
+  ): void {
+    this.hostBashProxy?.resolve(requestId, response);
+  }
+
+  hasPendingHostBash(requestId: string): boolean {
+    return this.hostBashProxy?.hasPendingRequest(requestId) ?? false;
+  }
+
+  setHostBashProxy(proxy: HostBashProxy | undefined): void {
+    this.hostBashProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────

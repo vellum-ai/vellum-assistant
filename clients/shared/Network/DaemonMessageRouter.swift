@@ -78,6 +78,9 @@ extension DaemonClient {
             onAssistantActivityState?(msg)
         case .secretRequest(let msg):
             onSecretRequest?(msg)
+        case .hostBashRequest(let msg):
+            onHostBashRequest?(msg)
+            handleHostBashRequest(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
@@ -348,4 +351,27 @@ extension DaemonClient {
         }
     }
     #endif
+
+    // MARK: - Host Bash Proxy
+
+    /// Handle a host_bash_request by executing the command locally via
+    /// `Foundation.Process` and posting the result back to the daemon.
+    func handleHostBashRequest(_ msg: HostBashRequest) {
+        #if os(macOS)
+        httpTransport?.executeHostBashRequest(msg)
+        #else
+        log.warning("Received host_bash_request on iOS — local execution not supported")
+        // Post an error result back so the daemon doesn't hang waiting
+        Task {
+            let result = HostBashResultPayload(
+                requestId: msg.requestId,
+                stdout: "",
+                stderr: "Host bash execution is not supported on iOS",
+                exitCode: nil,
+                timedOut: false
+            )
+            await httpTransport?.postHostBashResult(result)
+        }
+        #endif
+    }
 }

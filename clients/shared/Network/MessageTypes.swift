@@ -1507,6 +1507,54 @@ extension IPCConfirmationRequestDiff: Equatable {
 /// Backed by generated `IPCConfirmationStateChanged`.
 public typealias ConfirmationStateChangedMessage = IPCConfirmationStateChanged
 
+// MARK: - Host Bash Proxy
+
+/// Request from the daemon to execute a bash command on the host machine.
+/// The desktop client receives this via SSE, runs the command locally via
+/// `Foundation.Process`, and POSTs the result back to `/v1/host-bash-result`.
+public struct HostBashRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let sessionId: String
+    public let command: String
+    public let workingDir: String?
+    public let timeoutSeconds: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId = "request_id"
+        case sessionId = "session_id"
+        case command
+        case workingDir = "working_dir"
+        case timeoutSeconds = "timeout_seconds"
+    }
+}
+
+/// Payload posted back to the daemon with the result of a host bash execution.
+public struct HostBashResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let stdout: String
+    public let stderr: String
+    public let exitCode: Int?
+    public let timedOut: Bool
+
+    public init(requestId: String, stdout: String, stderr: String, exitCode: Int?, timedOut: Bool) {
+        self.requestId = requestId
+        self.stdout = stdout
+        self.stderr = stderr
+        self.exitCode = exitCode
+        self.timedOut = timedOut
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case requestId = "request_id"
+        case stdout
+        case stderr
+        case exitCode = "exit_code"
+        case timedOut = "timed_out"
+    }
+}
+
 /// Server-side assistant activity lifecycle event.
 /// Backed by generated `IPCAssistantActivityState`.
 public typealias AssistantActivityStateMessage = IPCAssistantActivityState
@@ -2239,6 +2287,7 @@ public enum ServerMessage: Decodable, Sendable {
     case contactsResponse(ContactsResponseMessage)
     case tokenRotated(TokenRotatedMessage)
     case identityChanged(IPCIdentityChanged)
+    case hostBashRequest(HostBashRequest)
     case pong
     case unknown(String)
 
@@ -2683,6 +2732,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "identity_changed":
             let message = try IPCIdentityChanged(from: decoder)
             self = .identityChanged(message)
+        case "host_bash_request":
+            let message = try HostBashRequest(from: decoder)
+            self = .hostBashRequest(message)
         case "pong":
             self = .pong
         default:

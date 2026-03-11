@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
@@ -6,7 +6,7 @@ import { getDb, rawExec } from "../db.js";
 import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { asString, BackendUnavailableError } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import { extractMediaBlocks } from "../message-content.js";
+import { extractMediaBlockMeta } from "../message-content.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
@@ -67,14 +67,14 @@ export function rebuildIndexJob(): void {
       enqueueMemoryJob("embed_media", { assetId: asset.id });
     }
 
-    const allMessages = db
+    const imageMessages = db
       .select({ id: messages.id, content: messages.content })
       .from(messages)
+      .where(like(messages.content, '%"type":"image"%'))
       .all();
-    for (const msg of allMessages) {
-      const blocks = extractMediaBlocks(msg.content);
-      const imageBlocks = blocks.filter((b) => b.type === "image");
-      for (const block of imageBlocks) {
+    for (const msg of imageMessages) {
+      const blocks = extractMediaBlockMeta(msg.content);
+      for (const block of blocks) {
         enqueueMemoryJob("embed_attachment", {
           messageId: msg.id,
           blockIndex: block.index,

@@ -28,7 +28,7 @@ export interface ConfirmationDetails {
 export interface PendingInteraction {
   session: Session;
   conversationId: string;
-  kind: "confirmation" | "secret";
+  kind: "confirmation" | "secret" | "host_bash";
   confirmationDetails?: ConfirmationDetails;
 }
 

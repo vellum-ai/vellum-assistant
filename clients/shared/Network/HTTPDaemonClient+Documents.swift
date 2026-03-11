@@ -113,11 +113,11 @@ extension HTTPTransport {
                     updatedAt: doc.updatedAt
                 )
             }
-            let response = IPCDocumentListResponse(
+            let documentListResponse = IPCDocumentListResponse(
                 type: "document_list_response",
                 documents: docs
             )
-            onMessage?(.documentListResponse(response))
+            onMessage?(.documentListResponse(documentListResponse))
         } catch {
             log.error("Fetch document list error: \(error.localizedDescription)")
         }
@@ -146,7 +146,7 @@ extension HTTPTransport {
 
             // REST returns { success, surfaceId, conversationId, ... } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentLoadResponse.self, from: data)
-            let response = IPCDocumentLoadResponse(
+            let documentLoadResponse = IPCDocumentLoadResponse(
                 type: "document_load_response",
                 surfaceId: rest.surfaceId,
                 conversationId: rest.conversationId,
@@ -158,7 +158,7 @@ extension HTTPTransport {
                 success: rest.success,
                 error: rest.error
             )
-            onMessage?(.documentLoadResponse(response))
+            onMessage?(.documentLoadResponse(documentLoadResponse))
         } catch {
             log.error("Fetch document load error: \(error.localizedDescription)")
         }
@@ -214,13 +214,13 @@ extension HTTPTransport {
 
             // REST returns { success, surfaceId, error? } without `type` — wrap into HTTP envelope
             let rest = try decoder.decode(RESTDocumentSaveResponse.self, from: data)
-            let response = IPCDocumentSaveResponse(
+            let documentSaveResponse = IPCDocumentSaveResponse(
                 type: "document_save_response",
                 surfaceId: rest.surfaceId,
                 success: rest.success,
                 error: rest.error
             )
-            onMessage?(.documentSaveResponse(response))
+            onMessage?(.documentSaveResponse(documentSaveResponse))
         } catch {
             log.error("Document save error: \(error.localizedDescription)")
         }

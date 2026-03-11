@@ -27,7 +27,7 @@ export interface QdrantPointPayload {
   last_seen_at?: number;
   conversation_id?: string;
   message_id?: string;
-  scope_id?: string;
+  memory_scope_id?: string;
   entity_ids?: string[];
   modality?: "text" | "image" | "audio" | "video";
 }
@@ -115,7 +115,7 @@ export class VellumQdrantClient {
             await this.client.deleteCollection(this.collection);
             // Fall through to collection creation below
           } else {
-            await this.ensurePayloadIndexes();
+            await this.ensurePayloadIndexesSafe();
             this.collectionReady = true;
             return;
           }
@@ -124,7 +124,7 @@ export class VellumQdrantClient {
             { err },
             "Failed to verify collection compatibility, assuming compatible",
           );
-          await this.ensurePayloadIndexes();
+          await this.ensurePayloadIndexesSafe();
           this.collectionReady = true;
           return;
         }
@@ -169,13 +169,14 @@ export class VellumQdrantClient {
         "status" in err &&
         (err as { status: number }).status === 409
       ) {
+        await this.ensurePayloadIndexesSafe();
         this.collectionReady = true;
         return;
       }
       throw err;
     }
 
-    await this.ensurePayloadIndexes();
+    await this.ensurePayloadIndexesSafe();
 
     // Write sentinel point to record the active embedding model
     if (this.embeddingModel) {
@@ -409,6 +410,23 @@ export class VellumQdrantClient {
       msg.includes("doesn't exist") ||
       msg.includes("not found")
     );
+  }
+
+  /**
+   * Wraps ensurePayloadIndexes so that a 404 (collection deleted between
+   * our existence check and index creation) resets collectionReady instead
+   * of propagating — the next operation will self-heal via ensureCollection.
+   */
+  private async ensurePayloadIndexesSafe(): Promise<void> {
+    try {
+      await this.ensurePayloadIndexes();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        return;
+      }
+      throw err;
+    }
   }
 
   private async ensurePayloadIndexes(): Promise<void> {

@@ -203,7 +203,7 @@ extension HTTPTransport {
 
             // REST returns { success, result, error? } — wrap into HTTP envelope
             let rest = try decoder.decode(RESTAppDataResponse.self, from: data)
-            let response = IPCAppDataResponse(
+            let appDataResponse = IPCAppDataResponse(
                 type: "app_data_response",
                 surfaceId: msg.surfaceId,
                 callId: msg.callId,
@@ -211,7 +211,7 @@ extension HTTPTransport {
                 result: rest.result,
                 error: rest.error
             )
-            onMessage?(.appDataResponse(response))
+            onMessage?(.appDataResponse(appDataResponse))
         } catch {
             log.error("App data request error: \(error.localizedDescription)")
         }

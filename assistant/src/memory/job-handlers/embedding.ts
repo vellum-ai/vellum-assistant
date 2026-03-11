@@ -147,11 +147,11 @@ export async function embedAttachmentJob(
 
   // Use messageId + blockIndex as targetId for uniqueness
   const targetId = `${messageId}:${blockIndex}`;
-  const scopeId = getConversationMemoryScopeId(message.conversationId);
+  const memoryScopeId = getConversationMemoryScopeId(message.conversationId);
   await embedAndUpsert(config, "media", targetId, input, {
     created_at: message.createdAt,
     message_id: messageId,
     conversation_id: message.conversationId,
-    scope_id: scopeId,
+    memory_scope_id: memoryScopeId,
   });
 }

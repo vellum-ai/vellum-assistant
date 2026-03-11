@@ -117,10 +117,16 @@ function estimateEntryBytes(key: string, vector: number[]): number {
   return key.length * 2 + vector.length * 8;
 }
 
-function vectorCacheKey(provider: string, model: string, input: EmbeddingInput): string {
+function vectorCacheKey(
+  provider: string,
+  model: string,
+  input: EmbeddingInput,
+  extras?: string[],
+): string {
   const contentHash = embeddingInputContentHash(input);
+  const suffix = extras && extras.length > 0 ? `\0${extras.join("\0")}` : "";
   return createHash("sha256")
-    .update(`${provider}\0${model}\0${contentHash}`)
+    .update(`${provider}\0${model}\0${contentHash}${suffix}`)
     .digest("hex");
 }
 
@@ -128,8 +134,9 @@ function getFromVectorCache(
   provider: string,
   model: string,
   input: EmbeddingInput,
+  extras?: string[],
 ): number[] | undefined {
-  const key = vectorCacheKey(provider, model, input);
+  const key = vectorCacheKey(provider, model, input, extras);
   const v = vectorCache.get(key);
   if (v !== undefined) {
     // LRU refresh: move to end of insertion order
@@ -144,8 +151,9 @@ function putInVectorCache(
   model: string,
   input: EmbeddingInput,
   vector: number[],
+  extras?: string[],
 ): void {
-  const key = vectorCacheKey(provider, model, input);
+  const key = vectorCacheKey(provider, model, input, extras);
   // If replacing an existing entry, subtract its old cost first
   const existing = vectorCache.get(key);
   if (existing !== undefined) {
@@ -395,9 +403,13 @@ export async function embedWithBackend(
       ? selectFallbackBackends(config, "local")
       : [];
 
+  // ── Compute provider-specific vector cache extras ───────────────
+  const vectorExtras =
+    primaryProvider === "gemini" ? geminiCacheExtras(config) : undefined;
+
   // ── In-memory cache check (primary provider only) ──────────────
   const cached: (number[] | null)[] = inputs.map((input) => {
-    const v = getFromVectorCache(primaryProvider, primaryModel, input);
+    const v = getFromVectorCache(primaryProvider, primaryModel, input, vectorExtras);
     if (v && v.length === expectedDim) return v;
     return null;
   });
@@ -451,12 +463,15 @@ export async function embedWithBackend(
       }
 
       // Populate cache with freshly embedded vectors
+      const backendExtras =
+        backend.provider === "gemini" ? geminiCacheExtras(config) : undefined;
       for (let i = 0; i < inputsToEmbed.length; i++) {
         putInVectorCache(
           backend.provider,
           backend.model,
           inputsToEmbed[i],
           vectors[i],
+          backendExtras,
         );
       }
 
