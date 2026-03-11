@@ -15,6 +15,21 @@ metadata:
 
 You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
 
+## Trigger Phrases
+
+- "Set up phone calling" / "enable calls"
+- "Make a call to..." / "call [number/business]"
+- "Configure Twilio" (in context of voice calls)
+- "Can you make phone calls?"
+- "Set up my phone number" (for calling)
+
+## Exclusivity Rules
+
+- Do NOT improvise Twilio setup instructions from general knowledge -- always follow this skill's setup flow.
+- Do NOT confuse with voice-setup (local PTT/wake word/microphone) or guardian-verify-setup (channel verification).
+- If the user says "voice" in the context of phone calls or Twilio, this is the correct skill (not voice-setup).
+- For guardian voice verification specifically, load guardian-verify-setup instead.
+
 # Overview
 
 The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls with **ElevenLabs** providing the text-to-speech voice. After Twilio setup, the assistant configures ElevenLabs as the TTS provider and prompts the user to choose a voice from a curated list of supported options.

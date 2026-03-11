@@ -11,6 +11,24 @@ metadata:
 
 You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
 
+## Trigger Phrases
+
+- "verify guardian"
+- "verify my Telegram account"
+- "verify phone channel"
+- "verify my phone number"
+- "set up guardian verification"
+- "help me set myself up as your guardian"
+
+Interpret "help me set myself up as your guardian" as the user asking to verify themselves as guardian (not asking the assistant to self-assign permissions). Do not give conceptual "I cannot set myself as guardian" explanations unless the user explicitly asks a conceptual/security question.
+
+## Exclusivity Rules
+
+- Guardian verification intents must only be handled by this skill -- load it exclusively.
+- Do NOT load `phone-calls` for guardian verification intent routing. The phone-calls skill does not orchestrate verification flows.
+- If the user asks to "load phone-calls and guardian verification", prioritize this skill and continue the verification flow. Only load `phone-calls` if the user also asks to configure or place regular calls.
+- If the user has already explicitly specified a channel (e.g., "verify my phone for voice", "verify my Telegram"), do not re-ask which channel unless the input is contradictory.
+
 ## Prerequisites
 
 - Run shell commands for this skill with `bash`.
@@ -65,7 +83,7 @@ Handle each error code:
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `missing_destination` | Ask the user to provide their phone number, Telegram destination, or Slack user ID.                                                                                                                                                                |
 | `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported. For Slack: explain that the value must be a Slack member ID (e.g. U01ABCDEF). |
-| `already_bound`       | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the create command with `--rebind` added.                                                                         |
+| `already_bound`       | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the create command with `--rebind` added.                                                                                               |
 | `rate_limited`        | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later.                                                                                                                             |
 | `unsupported_channel` | Tell the user the channel is not supported. Only phone, telegram, and slack are valid.                                                                                                                                                             |
 | `no_bot_username`     | Telegram bot is not configured. Load and run the `telegram-setup` skill first.                                                                                                                                                                     |
