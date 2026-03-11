@@ -903,7 +903,7 @@ describe("routing and mode fields", () => {
   });
 
   test("routing hints round-trip through DB raw query", () => {
-    const hints = { target: "sms" };
+    const hints = { target: "telegram" };
     const job = createSchedule({
       name: "Raw round-trip",
       message: "check raw",
