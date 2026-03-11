@@ -262,7 +262,7 @@ struct ContactsListView: View {
 
     // MARK: - Helpers
 
-    /// Summarizes channel types into a human-readable string (e.g. "Telegram, SMS, Voice").
+    /// Summarizes channel types into a human-readable string (e.g. "Telegram, Voice").
     private func channelSummary(_ channels: [ContactChannelPayload]) -> String {
         let types = Set(channels.map(\.type))
         return types.sorted().map { channelLabel(for: $0) }.joined(separator: ", ")
@@ -272,7 +272,6 @@ struct ContactsListView: View {
     private func channelIcon(for type: String) -> VIcon {
         switch type {
         case "telegram": return .send
-        case "sms": return .messageSquare
         case "phone": return .phoneCall
         case "email": return .mail
         case "slack": return .hash
@@ -284,7 +283,6 @@ struct ContactsListView: View {
     private func channelLabel(for type: String) -> String {
         switch type {
         case "telegram": return "Telegram"
-        case "sms": return "SMS"
         case "phone": return "Voice"
         case "email": return "Email"
         case "slack": return "Slack"
@@ -332,10 +330,6 @@ struct ContactsListView: View {
                         isPrimary: true, status: "verified", policy: "allow"
                     ),
                     ContactChannelPayload(
-                        id: "ch-2", type: "sms", address: "+15551234567",
-                        isPrimary: false, status: "verified", policy: "allow"
-                    ),
-                    ContactChannelPayload(
                         id: "ch-3", type: "phone", address: "+15551234567",
                         isPrimary: false, status: "verified", policy: "allow"
                     ),
@@ -364,7 +358,7 @@ struct ContactsListView: View {
                 interactionCount: 3,
                 channels: [
                     ContactChannelPayload(
-                        id: "ch-5", type: "sms", address: "+15559876543",
+                        id: "ch-5", type: "email", address: "bob@example.com",
                         isPrimary: true, status: "pending", policy: "ask"
                     ),
                 ]
