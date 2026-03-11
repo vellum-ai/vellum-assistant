@@ -106,9 +106,32 @@ function recordRefreshFailure(service: string): void {
   }
 }
 
+// ── Per-service refresh deduplication ─────────────────────────────────
+// When multiple concurrent `withValidToken` calls detect an expired or
+// 401-rejected token for the same service, only one actual refresh
+// attempt is made. Other callers join the in-flight promise.
+
+const inflightRefreshes = new Map<string, Promise<string>>();
+
+function deduplicatedRefresh(service: string): Promise<string> {
+  const existing = inflightRefreshes.get(service);
+  if (existing) return existing;
+
+  const promise = doRefresh(service).finally(() => {
+    inflightRefreshes.delete(service);
+  });
+  inflightRefreshes.set(service, promise);
+  return promise;
+}
+
 /** @internal Test-only: reset all circuit breaker state */
 export function _resetRefreshBreakers(): void {
   refreshBreakers.clear();
+}
+
+/** @internal Test-only: reset in-flight refresh deduplication state */
+export function _resetInflightRefreshes(): void {
+  inflightRefreshes.clear();
 }
 
 /** @internal Test-only: get breaker state for a service */
@@ -280,14 +303,14 @@ export async function withValidToken<T>(
 
   // Proactively refresh if expired or about to expire.
   if (isTokenExpired(service)) {
-    token = await doRefresh(service);
+    token = await deduplicatedRefresh(service);
   }
 
   try {
     return await callback(token);
   } catch (err: unknown) {
     if (is401Error(err)) {
-      token = await doRefresh(service);
+      token = await deduplicatedRefresh(service);
       return callback(token);
     }
     throw err;

@@ -46,6 +46,26 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock OAuth2 token refresh for token-manager deduplication tests
+// ---------------------------------------------------------------------------
+
+let mockRefreshOAuth2Token: ReturnType<
+  typeof mock<() => Promise<{ accessToken: string; expiresIn: number }>>
+>;
+
+mock.module("../security/oauth2.js", () => {
+  mockRefreshOAuth2Token = mock(() =>
+    Promise.resolve({
+      accessToken: "refreshed-access-token",
+      expiresIn: 3600,
+    }),
+  );
+  return {
+    refreshOAuth2Token: mockRefreshOAuth2Token,
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Import the module under test
 // ---------------------------------------------------------------------------
 
@@ -57,8 +77,14 @@ import {
   setSecureKey,
 } from "../security/secure-keys.js";
 import {
+  _resetInflightRefreshes,
+  _resetRefreshBreakers,
+  withValidToken,
+} from "../security/token-manager.js";
+import {
   _setMetadataPath,
   getCredentialMetadata,
+  upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
@@ -1117,5 +1143,241 @@ describe("credential_store tool", () => {
         "backup@example.com",
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token refresh deduplication tests
+// ---------------------------------------------------------------------------
+
+describe("withValidToken refresh deduplication", () => {
+  beforeAll(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  beforeEach(() => {
+    _resetBackend();
+    for (const entry of readdirSync(TEST_DIR)) {
+      rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
+    }
+    _setStorePath(STORE_PATH);
+    _setMetadataPath(join(TEST_DIR, "metadata.json"));
+    _resetRefreshBreakers();
+    _resetInflightRefreshes();
+    mockRefreshOAuth2Token.mockClear();
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+    _resetRefreshBreakers();
+    _resetInflightRefreshes();
+  });
+
+  afterAll(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  /**
+   * Helper: set up a service with an access token, refresh token, and OAuth2
+   * metadata so that token refresh can proceed through doRefresh().
+   */
+  function setupService(
+    service: string,
+    opts?: { expired?: boolean; accessToken?: string },
+  ) {
+    const accessToken = opts?.accessToken ?? "old-access-token";
+    setSecureKey(`credential:${service}:access_token`, accessToken);
+    setSecureKey(`credential:${service}:refresh_token`, "valid-refresh-token");
+    upsertCredentialMetadata(service, "access_token", {
+      oauth2TokenUrl: "https://oauth.example.com/token",
+      oauth2ClientId: "test-client-id",
+      ...(opts?.expired
+        ? { expiresAt: Date.now() - 60_000 } // expired 1 minute ago
+        : { expiresAt: Date.now() + 3600_000 }), // expires in 1 hour
+    });
+  }
+
+  test("3 concurrent 401 refreshes for the same service call doRefresh exactly once", async () => {
+    setupService("integration:gmail");
+
+    let resolveRefresh!: (value: {
+      accessToken: string;
+      expiresIn: number;
+    }) => void;
+    const refreshPromise = new Promise<{
+      accessToken: string;
+      expiresIn: number;
+    }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    mockRefreshOAuth2Token.mockImplementation(() => refreshPromise);
+
+    const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+    const callback = async (token: string) => {
+      if (token === "old-access-token") throw err401;
+      return `result-with-${token}`;
+    };
+
+    // Launch 3 concurrent withValidToken calls — all will get a non-expired
+    // token first, call the callback, get a 401, and then try to refresh.
+    const p1 = withValidToken("integration:gmail", callback);
+    const p2 = withValidToken("integration:gmail", callback);
+    const p3 = withValidToken("integration:gmail", callback);
+
+    // Let the event loop tick so all 3 calls enter the 401 retry path
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Resolve the single refresh attempt
+    resolveRefresh({ accessToken: "new-token-123", expiresIn: 3600 });
+
+    const results = await Promise.all([p1, p2, p3]);
+
+    // All 3 should succeed with the refreshed token
+    expect(results).toEqual([
+      "result-with-new-token-123",
+      "result-with-new-token-123",
+      "result-with-new-token-123",
+    ]);
+
+    // refreshOAuth2Token should have been called exactly once
+    expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
+  });
+
+  test("concurrent refreshes for different services proceed independently", async () => {
+    setupService("integration:gmail");
+    setupService("integration:slack");
+
+    let resolveGmail!: (value: {
+      accessToken: string;
+      expiresIn: number;
+    }) => void;
+    let resolveSlack!: (value: {
+      accessToken: string;
+      expiresIn: number;
+    }) => void;
+
+    const gmailPromise = new Promise<{
+      accessToken: string;
+      expiresIn: number;
+    }>((resolve) => {
+      resolveGmail = resolve;
+    });
+    const slackPromise = new Promise<{
+      accessToken: string;
+      expiresIn: number;
+    }>((resolve) => {
+      resolveSlack = resolve;
+    });
+
+    let refreshCallCount = 0;
+    mockRefreshOAuth2Token.mockImplementation(() => {
+      refreshCallCount++;
+      // Both services use the same tokenUrl in this test, so we track by
+      // call order to return the correct deferred promise.
+      if (refreshCallCount === 1) return gmailPromise;
+      return slackPromise;
+    });
+
+    const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+    const gmailCallback = async (token: string) => {
+      if (token === "old-access-token") throw err401;
+      return `gmail-${token}`;
+    };
+    const slackCallback = async (token: string) => {
+      if (token === "old-access-token") throw err401;
+      return `slack-${token}`;
+    };
+
+    const p1 = withValidToken("integration:gmail", gmailCallback);
+    const p2 = withValidToken("integration:slack", slackCallback);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Resolve both independently
+    resolveGmail({ accessToken: "gmail-new-token", expiresIn: 3600 });
+    resolveSlack({ accessToken: "slack-new-token", expiresIn: 3600 });
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1).toBe("gmail-gmail-new-token");
+    expect(r2).toBe("slack-slack-new-token");
+
+    // Both services should have triggered their own refresh
+    expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(2);
+  });
+
+  test("deduplication cleans up after refresh completes, allowing subsequent refreshes", async () => {
+    setupService("integration:gmail");
+
+    let refreshCount = 0;
+    mockRefreshOAuth2Token.mockImplementation(() => {
+      refreshCount++;
+      return Promise.resolve({
+        accessToken: `token-${refreshCount}`,
+        expiresIn: 3600,
+      });
+    });
+
+    const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+    // First call triggers a refresh
+    const r1 = await withValidToken(
+      "integration:gmail",
+      async (token: string) => {
+        if (token === "old-access-token") throw err401;
+        return token;
+      },
+    );
+    expect(r1).toBe("token-1");
+    expect(refreshCount).toBe(1);
+
+    // Set up so the next call will also get a 401 (token-1 stored from first refresh)
+    const r2 = await withValidToken(
+      "integration:gmail",
+      async (token: string) => {
+        if (token === "token-1") throw err401;
+        return token;
+      },
+    );
+    expect(r2).toBe("token-2");
+    // Second refresh should have happened (not deduplicated with the first,
+    // since the first already completed)
+    expect(refreshCount).toBe(2);
+  });
+
+  test("deduplication propagates refresh errors to all waiting callers", async () => {
+    setupService("integration:gmail");
+
+    mockRefreshOAuth2Token.mockImplementation(() =>
+      Promise.reject(
+        Object.assign(
+          new Error("OAuth2 token refresh failed (HTTP 401: invalid_grant)"),
+        ),
+      ),
+    );
+
+    const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
+
+    const callback = async (token: string) => {
+      if (token === "old-access-token") throw err401;
+      return "should-not-reach";
+    };
+
+    // Launch 2 concurrent calls — both should fail with the same error
+    const p1 = withValidToken("integration:gmail", callback);
+    const p2 = withValidToken("integration:gmail", callback);
+
+    const results = await Promise.allSettled([p1, p2]);
+
+    expect(results[0].status).toBe("rejected");
+    expect(results[1].status).toBe("rejected");
+
+    // Only one actual refresh attempt
+    expect(mockRefreshOAuth2Token).toHaveBeenCalledTimes(1);
   });
 });
