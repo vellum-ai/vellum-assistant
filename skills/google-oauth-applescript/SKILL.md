@@ -168,6 +168,8 @@ Tell the user:
 >
 > Let me know when both are done!
 
+Wait for confirmation.
+
 ### Step 4c: Add scopes
 
 First, copy the required scopes to the clipboard, then navigate to the Data Access page:
@@ -478,7 +480,7 @@ After authorization:
 ## Guardrails
 
 - **No browser automation tools.** Path A uses `host_bash` + `osascript` only for navigation. No `browser_*`, no CDP, no `computer_use_*` for navigation.
-- **Use AppleScript narrowly.** Only for: activate Chrome, open a URL in the active tab. Do not click buttons or fill forms via AppleScript.
+- **Use AppleScript narrowly.** Only for: activate Chrome, open a URL in the active tab, and set the clipboard. Do not click buttons or fill forms via AppleScript.
 - **Do not delete and recreate OAuth clients.** That orphans stored credentials.
 - **Do not leave the credential dialog early.** The Client Secret is shown only once.
 - **Google Cloud UI drift is normal.** Adapt instructions while preserving the same end state.
