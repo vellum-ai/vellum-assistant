@@ -750,9 +750,10 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Accumulated streaming output from tool_output_chunk events (plain text only).
     /// Capped at 5000 characters (keeps the tail when exceeded).
     public var partialOutput: String = ""
-    /// Lightweight sentinel tracking `partialOutput.count` so that `==` can detect
-    /// changes without expensive full-string comparison.
-    public var partialOutputLength: Int = 0
+    /// Monotonically increasing revision counter so that `==` can detect
+    /// changes without expensive full-string comparison. Incremented on
+    /// every write, even when `partialOutput` is at the character cap.
+    public var partialOutputRevision: Int = 0
     /// Sub-tool steps for claude_code tool calls (live progress tracking).
     public var claudeCodeSteps: [ClaudeCodeSubStep] = []
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
@@ -778,7 +779,7 @@ public struct ToolCallData: Identifiable, Equatable {
             // (empty -> populated) without expensive full-string comparison.
             && lhs.inputFullLength == rhs.inputFullLength
             && lhs.inputRawValueLength == rhs.inputRawValueLength
-            && lhs.partialOutputLength == rhs.partialOutputLength
+            && lhs.partialOutputRevision == rhs.partialOutputRevision
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.reasonDescription == rhs.reasonDescription
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps

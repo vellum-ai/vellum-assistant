@@ -431,6 +431,15 @@ public final class ChatViewModel: ObservableObject {
     var streamingDeltaBuffer: String = ""
     /// Scheduled flush work item; cancelled and re-created on each delta.
     var streamingFlushTask: Task<Void, Never>?
+
+    // MARK: - Partial Output Coalescing
+
+    /// Buffered partial-output chunks keyed by a composite "msgIndex:tcIndex" key.
+    /// Each entry holds the message index, tool-call index, and accumulated text.
+    var partialOutputBuffer: [String: (msgIndex: Int, tcIndex: Int, content: String)] = [:]
+    /// Scheduled flush task for coalescing partial-output writes.
+    var partialOutputFlushTask: Task<Void, Never>?
+
     /// Safety timer that force-resets the UI if the daemon never acknowledges
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
@@ -2543,6 +2552,7 @@ public final class ChatViewModel: ObservableObject {
         subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
+        partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
         for task in refetchTasks.values { task.cancel() }

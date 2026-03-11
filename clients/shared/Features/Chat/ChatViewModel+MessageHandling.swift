@@ -479,6 +479,48 @@ extension ChatViewModel {
         }
     }
 
+    // MARK: - Partial Output Coalescing
+
+    /// Flush buffered partial-output chunks into the `messages` array.
+    /// Called on a timer and eagerly on `messageComplete` / `toolResult`.
+    func flushPartialOutputBuffer() {
+        partialOutputFlushTask?.cancel()
+        partialOutputFlushTask = nil
+        guard !partialOutputBuffer.isEmpty else { return }
+        let buffered = partialOutputBuffer
+        partialOutputBuffer = [:]
+        let maxPartialOutput = 5000
+        for (_, entry) in buffered {
+            let msgIndex = entry.msgIndex
+            let tcIndex = entry.tcIndex
+            guard msgIndex < messages.count,
+                  tcIndex < messages[msgIndex].toolCalls.count else { continue }
+            messages[msgIndex].toolCalls[tcIndex].partialOutput.append(entry.content)
+            if messages[msgIndex].toolCalls[tcIndex].partialOutput.count > maxPartialOutput {
+                let excess = messages[msgIndex].toolCalls[tcIndex].partialOutput.count - maxPartialOutput
+                messages[msgIndex].toolCalls[tcIndex].partialOutput.removeFirst(excess)
+            }
+            messages[msgIndex].toolCalls[tcIndex].partialOutputRevision += 1
+        }
+    }
+
+    /// Discard any buffered partial-output chunks without flushing.
+    func discardPartialOutputBuffer() {
+        partialOutputFlushTask?.cancel()
+        partialOutputFlushTask = nil
+        partialOutputBuffer = [:]
+    }
+
+    /// Schedule a partial-output flush after the throttle interval if one isn't already pending.
+    private func schedulePartialOutputFlush() {
+        guard partialOutputFlushTask == nil else { return }
+        partialOutputFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.streamingFlushInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.flushPartialOutputBuffer()
+        }
+    }
+
     public func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
@@ -591,6 +633,7 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Backfill the daemon's persisted message ID so diagnostics exports
             // can anchor to it without requiring a history reload.
             if let messageId = complete.messageId,
@@ -769,6 +812,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -826,6 +870,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -929,6 +974,7 @@ extension ChatViewModel {
             // stuck in streaming state or cause subsequent deltas to append to it.
             if msg.runStillActive != true {
                 flushStreamingBuffer()
+                flushPartialOutputBuffer()
                 if let existingId = currentAssistantMessageId,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
                     messages[index].isStreaming = false
@@ -954,6 +1000,7 @@ extension ChatViewModel {
             // Flush buffered text so it lands on the current assistant message
             // before we clear the ID and hand off to the next queued turn.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
@@ -1012,6 +1059,7 @@ extension ChatViewModel {
             // Flush any buffered text so already-received tokens are preserved
             // in the assistant message before we clear the turn state.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -1119,6 +1167,7 @@ extension ChatViewModel {
             guard !isLoadingHistory else { return }
             // Flush buffered text before inserting the confirmation message.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // Route using sessionId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
             // via shouldAcceptConfirmation for older daemons that omit sessionId.
@@ -1171,6 +1220,7 @@ extension ChatViewModel {
             }
             // Flush buffered text so it lands before the tool call in content order.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             // If a chip with the same toolUseId already exists (e.g. toolUseStart
             // arrived before this preview), ignore the late preview.
             if let existingId = currentAssistantMessageId,
@@ -1214,6 +1264,7 @@ extension ChatViewModel {
             guard !isWorkspaceRefinementInFlight else { return }
             // Flush buffered text so it lands before the tool call in content order.
             flushStreamingBuffer()
+            flushPartialOutputBuffer()
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" {
@@ -1357,19 +1408,22 @@ extension ChatViewModel {
                 default:
                     break
                 }
-            } else if !msg.chunk.isEmpty,
+            } else if msg.subType == nil || msg.subType?.isEmpty == true,
+                      !msg.chunk.isEmpty,
                       let existingId = currentAssistantMessageId,
                       let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
                       let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
-                // Append plain-text output chunks to partialOutput for any tool type.
-                // Structured JSON sub-events (with a valid subType) are handled above.
-                let maxPartialOutput = 5000
-                messages[msgIndex].toolCalls[tcIndex].partialOutput.append(msg.chunk)
-                if messages[msgIndex].toolCalls[tcIndex].partialOutput.count > maxPartialOutput {
-                    let excess = messages[msgIndex].toolCalls[tcIndex].partialOutput.count - maxPartialOutput
-                    messages[msgIndex].toolCalls[tcIndex].partialOutput.removeFirst(excess)
+                // Append plain-text output chunks to the coalescing buffer.
+                // Structured JSON sub-events (with a valid subType) are handled above;
+                // the subType guard prevents them from leaking raw JSON here.
+                let key = "\(msgIndex):\(tcIndex)"
+                if var entry = partialOutputBuffer[key] {
+                    entry.content += msg.chunk
+                    partialOutputBuffer[key] = entry
+                } else {
+                    partialOutputBuffer[key] = (msgIndex: msgIndex, tcIndex: tcIndex, content: msg.chunk)
                 }
-                messages[msgIndex].toolCalls[tcIndex].partialOutputLength = messages[msgIndex].toolCalls[tcIndex].partialOutput.count
+                schedulePartialOutputFlush()
             }
 
         case .toolResult(let msg):
@@ -1645,6 +1699,7 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             // When the user intentionally cancelled, suppress the error.
             // Otherwise, insert an inline error message so errors are visually
             // distinct from normal assistant replies (rendered with a red box).
