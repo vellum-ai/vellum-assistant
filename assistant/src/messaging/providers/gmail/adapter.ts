@@ -5,6 +5,7 @@
  * and implements the MessagingProvider interface.
  */
 
+import type { OAuthConnection } from "../../../oauth/connection.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
   ArchiveResult,
@@ -94,8 +95,11 @@ export const gmailMessagingProvider: MessagingProvider = {
     "unsubscribe",
   ]),
 
-  async testConnection(token: string): Promise<ConnectionInfo> {
-    const profile = await gmail.getProfile(token);
+  async testConnection(
+    connectionOrToken: OAuthConnection | string,
+  ): Promise<ConnectionInfo> {
+    const connection = connectionOrToken as OAuthConnection;
+    const profile = await gmail.getProfile(connection);
     return {
       connected: true,
       user: profile.emailAddress,
@@ -108,11 +112,12 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async listConversations(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     _options?: ListOptions,
   ): Promise<Conversation[]> {
+    const connection = connectionOrToken as OAuthConnection;
     // Gmail "conversations" are modeled as labels with unread counts
-    const labels = await gmail.listLabels(token);
+    const labels = await gmail.listLabels(connection);
     const conversations: Conversation[] = [];
 
     for (const label of labels) {
@@ -151,14 +156,15 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async getHistory(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     options?: HistoryOptions,
   ): Promise<Message[]> {
+    const connection = connectionOrToken as OAuthConnection;
     // conversationId is a label ID — list messages in that label
     const limit = options?.limit ?? 50;
     const listResult = await gmail.listMessages(
-      token,
+      connection,
       undefined,
       limit,
       undefined,
@@ -168,7 +174,7 @@ export const gmailMessagingProvider: MessagingProvider = {
     if (!listResult.messages?.length) return [];
 
     const messages = await gmail.batchGetMessages(
-      token,
+      connection,
       listResult.messages.map((m) => m.id),
       "full",
     );
@@ -177,19 +183,20 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async search(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult> {
+    const connection = connectionOrToken as OAuthConnection;
     const count = options?.count ?? 20;
-    const listResult = await gmail.listMessages(token, query, count);
+    const listResult = await gmail.listMessages(connection, query, count);
 
     if (!listResult.messages?.length) {
       return { total: 0, messages: [], hasMore: false };
     }
 
     const messages = await gmail.batchGetMessages(
-      token,
+      connection,
       listResult.messages.map((m) => m.id),
       "full",
     );
@@ -203,16 +210,17 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     conversationId: string,
     text: string,
     options?: SendOptions,
   ): Promise<SendResult> {
+    const connection = connectionOrToken as OAuthConnection;
     // conversationId is the recipient email for Gmail
     const to = conversationId;
     const subject = options?.subject ?? "";
     const msg = await gmail.sendMessage(
-      token,
+      connection,
       to,
       subject,
       text,
@@ -228,15 +236,16 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async getThreadReplies(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     _conversationId: string,
     threadId: string,
     options?: HistoryOptions,
   ): Promise<Message[]> {
+    const connection = connectionOrToken as OAuthConnection;
     // Get all messages in a Gmail thread
     const limit = options?.limit ?? 50;
     const listResult = await gmail.listMessages(
-      token,
+      connection,
       `thread:${threadId}`,
       limit,
     );
@@ -244,7 +253,7 @@ export const gmailMessagingProvider: MessagingProvider = {
     if (!listResult.messages?.length) return [];
 
     const messages = await gmail.batchGetMessages(
-      token,
+      connection,
       listResult.messages.map((m) => m.id),
       "full",
     );
@@ -253,19 +262,23 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async markRead(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     _conversationId: string,
     messageId?: string,
   ): Promise<void> {
+    const connection = connectionOrToken as OAuthConnection;
     if (!messageId) return;
-    await gmail.modifyMessage(token, messageId, { removeLabelIds: ["UNREAD"] });
+    await gmail.modifyMessage(connection, messageId, {
+      removeLabelIds: ["UNREAD"],
+    });
   },
 
   async senderDigest(
-    token: string,
+    connectionOrToken: OAuthConnection | string,
     query: string,
     options?: { maxMessages?: number; maxSenders?: number; pageToken?: string },
   ): Promise<SenderDigestResult> {
+    const connection = connectionOrToken as OAuthConnection;
     const maxMessages = Math.min(options?.maxMessages ?? 5000, 5000);
     const maxSenders = options?.maxSenders ?? 30;
     const maxIdsPerSender = 5000;
@@ -285,7 +298,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       }
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
       const listResp = await gmail.listMessages(
-        token,
+        connection,
         query,
         pageSize,
         pageToken,
@@ -295,7 +308,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       allMessageIds.push(...ids);
       fetchPromises.push(
         gmail.batchGetMessages(
-          token,
+          connection,
           ids,
           "metadata",
           metadataHeaders,
@@ -409,7 +422,11 @@ export const gmailMessagingProvider: MessagingProvider = {
     };
   },
 
-  async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {
+  async archiveByQuery(
+    connectionOrToken: OAuthConnection | string,
+    query: string,
+  ): Promise<ArchiveResult> {
+    const connection = connectionOrToken as OAuthConnection;
     const maxMessages = 5000;
     const batchModifyLimit = 1000;
 
@@ -419,7 +436,7 @@ export const gmailMessagingProvider: MessagingProvider = {
 
     while (allMessageIds.length < maxMessages) {
       const listResp = await gmail.listMessages(
-        token,
+        connection,
         query,
         Math.min(500, maxMessages - allMessageIds.length),
         pageToken,
@@ -441,7 +458,7 @@ export const gmailMessagingProvider: MessagingProvider = {
 
     for (let i = 0; i < allMessageIds.length; i += batchModifyLimit) {
       const chunk = allMessageIds.slice(i, i + batchModifyLimit);
-      await gmail.batchModifyMessages(token, chunk, {
+      await gmail.batchModifyMessages(connection, chunk, {
         removeLabelIds: ["INBOX"],
       });
     }

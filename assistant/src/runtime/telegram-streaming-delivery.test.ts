@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ApprovalUIMetadata } from "./channel-approval-types.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 
 // ---------------------------------------------------------------------------
@@ -491,6 +492,137 @@ describe("TelegramStreamingDelivery", () => {
     expect(callPayload(0).text).toBe("Hello, world!! Great!");
 
     await delivery.finish();
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
+  // ── Test 5j: no-messageId + tool_use_start + finish delivers post-tool text ─
+  test("no-messageId + tool_use_start + finish delivers post-tool text", async () => {
+    // Scenario from Devin review: initial send succeeds without messageId,
+    // more deltas arrive, tool_use_start fires, finish() must deliver post-tool text.
+    mockDeliverChannelReply.mockReset();
+    let localCallCount = 0;
+    mockDeliverChannelReply.mockImplementation(
+      async (): Promise<ChannelDeliveryResult> => {
+        localCallCount++;
+        if (localCallCount === 1) return { ok: true }; // no messageId
+        return { ok: true, messageId: 400 };
+      },
+    );
+
+    const delivery = createDelivery();
+
+    // Step 1: initial send (>= 20 chars), succeeds without messageId
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(25),
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    // Step 2: more deltas arrive — stuck in buffer (onTextDelta skips both branches)
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "post-tool text",
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1); // no new call
+
+    // Step 3: tool_use_start — buffer should NOT be moved to currentMessageText
+    delivery.onEvent({
+      type: "tool_use_start",
+      toolName: "some_tool",
+      input: {},
+    });
+
+    // Step 4: finish() — should deliver the post-tool text as a new message
+    await delivery.finish();
+
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(2);
+    const secondPayload = callPayload(1);
+    expect(secondPayload.text).toBe("post-tool text");
+    expect(secondPayload.messageId).toBeUndefined(); // new message, not edit
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
+  // ── Test 5k: no-messageId + finish with approval sends approval as new message ─
+  test("no-messageId + finish with approval sends approval as new message", async () => {
+    // Scenario from Codex review: initial send succeeds without messageId,
+    // no additional buffer, but finish(approval) must still deliver approval buttons.
+    mockDeliverChannelReply.mockReset();
+    mockDeliverChannelReply.mockImplementation(
+      async (): Promise<ChannelDeliveryResult> => {
+        return { ok: true }; // no messageId
+      },
+    );
+
+    const delivery = createDelivery();
+
+    // Initial send succeeds without messageId
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(25),
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    // finish() with approval — approval must not be silently dropped
+    const approval: ApprovalUIMetadata = {
+      requestId: "test-req",
+      actions: [{ id: "approve_once", label: "Approve" }],
+      plainTextFallback: "Reply APPROVE or REJECT",
+    };
+    await delivery.finish(approval);
+
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(2);
+    const secondPayload = callPayload(1);
+    // Approval buttons sent as a new message
+    expect(secondPayload.approval).toEqual(approval);
+    expect(secondPayload.messageId).toBeUndefined();
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
+  // ── Test 5l: no-messageId + buffer + finish with approval delivers both ─
+  test("no-messageId + buffer + finish with approval delivers both text and approval", async () => {
+    // Combined scenario: no-messageId initial send, buffered text, and approval buttons.
+    mockDeliverChannelReply.mockReset();
+    let localCallCount = 0;
+    mockDeliverChannelReply.mockImplementation(
+      async (): Promise<ChannelDeliveryResult> => {
+        localCallCount++;
+        if (localCallCount === 1) return { ok: true }; // no messageId
+        return { ok: true, messageId: 500 };
+      },
+    );
+
+    const delivery = createDelivery();
+
+    // Initial send succeeds without messageId
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(25),
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    // More deltas arrive
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "remainder",
+    });
+
+    // finish() with approval — should deliver buffer text + approval together
+    const approval: ApprovalUIMetadata = {
+      requestId: "test-req",
+      actions: [{ id: "approve_once", label: "Approve" }],
+      plainTextFallback: "Reply APPROVE or REJECT",
+    };
+    await delivery.finish(approval);
+
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(2);
+    const secondPayload = callPayload(1);
+    expect(secondPayload.text).toBe("remainder");
+    expect(secondPayload.approval).toEqual(approval);
+    expect(secondPayload.messageId).toBeUndefined();
     expect(delivery.finishSucceeded).toBe(true);
   });
 

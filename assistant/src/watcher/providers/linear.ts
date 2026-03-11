@@ -13,7 +13,8 @@
  * and issues.
  */
 
-import { withValidToken } from "../../security/token-manager.js";
+import type { OAuthConnection } from "../../oauth/connection.js";
+import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import type {
@@ -23,8 +24,6 @@ import type {
 } from "../provider-types.js";
 
 const log = getLogger("watcher:linear");
-
-const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 
 // ── GraphQL response types ────────────────────────────────────────────────────
 
@@ -89,27 +88,23 @@ interface LinearViewer {
 // ── GraphQL helpers ───────────────────────────────────────────────────────────
 
 async function graphql<T>(
-  token: string,
+  connection: OAuthConnection,
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const resp = await fetch(LINEAR_GRAPHQL_URL, {
+  const resp = await connection.request({
     method: "POST",
-    headers: {
-      // Linear accepts both personal API keys and OAuth tokens; the Bearer scheme
-      // is required for all token types per Linear's API docs.
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
+    path: "/graphql",
+    body: { query, variables },
   });
 
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
+  if (resp.status >= 400) {
+    const body =
+      typeof resp.body === "string" ? resp.body : JSON.stringify(resp.body);
     throw new Error(`Linear API ${resp.status}: ${body}`);
   }
 
-  const result = (await resp.json()) as {
+  const result = resp.body as {
     data?: T;
     errors?: Array<{ message: string }>;
   };
@@ -128,9 +123,9 @@ async function graphql<T>(
 }
 
 /** Fetch the authenticated user's ID and name. */
-async function fetchViewer(token: string): Promise<LinearViewer> {
+async function fetchViewer(connection: OAuthConnection): Promise<LinearViewer> {
   const data = await graphql<{ viewer: LinearViewer }>(
-    token,
+    connection,
     `
       query {
         viewer {
@@ -150,7 +145,7 @@ async function fetchViewer(token: string): Promise<LinearViewer> {
  * between polls.
  */
 async function fetchNotifications(
-  token: string,
+  connection: OAuthConnection,
   since: string,
 ): Promise<LinearNotification[]> {
   const allNodes: LinearNotification[] = [];
@@ -165,7 +160,7 @@ async function fetchNotifications(
 
   do {
     const data: NotificationsResponse = await graphql<NotificationsResponse>(
-      token,
+      connection,
       `
         query FetchNotifications($after: DateTime, $cursor: String) {
           notifications(
@@ -242,7 +237,7 @@ async function fetchNotifications(
  * `pageInfo.hasNextPage` is false so updates beyond the first 50 aren't skipped.
  */
 async function fetchAssignedIssueUpdates(
-  token: string,
+  connection: OAuthConnection,
   viewerId: string,
   since: string,
 ): Promise<LinearIssue[]> {
@@ -258,7 +253,7 @@ async function fetchAssignedIssueUpdates(
 
   do {
     const data: IssuesResponse = await graphql<IssuesResponse>(
-      token,
+      connection,
       `
         query FetchAssignedIssues(
           $assigneeId: ID
@@ -319,7 +314,7 @@ async function fetchAssignedIssueUpdates(
  * complete set — needed for accurate eviction and reassignment detection.
  */
 async function fetchAllAssignedIssueIds(
-  token: string,
+  connection: OAuthConnection,
   viewerId: string,
 ): Promise<Set<string>> {
   const ids = new Set<string>();
@@ -334,7 +329,7 @@ async function fetchAllAssignedIssueIds(
 
   do {
     const data: IdsResponse = await graphql<IdsResponse>(
-      token,
+      connection,
       `
         query FetchAllAssignedIssueIds($assigneeId: ID, $cursor: String) {
           issues(
@@ -517,87 +512,86 @@ export const linearProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     watcherKey: string,
   ): Promise<FetchResult> {
-    return withValidToken(credentialService, async (token) => {
-      const since = watermark ?? new Date().toISOString();
+    const connection = resolveOAuthConnection(credentialService);
+    const since = watermark ?? new Date().toISOString();
 
-      // Resolve the authenticated viewer's ID once per poll for the assigned-issues query
-      const viewer = await fetchViewer(token);
+    // Resolve the authenticated viewer's ID once per poll for the assigned-issues query
+    const viewer = await fetchViewer(connection);
 
-      // Fetch notifications (assignments, mentions, status changes via notification feed)
-      const notifications = await fetchNotifications(token, since);
+    // Fetch notifications (assignments, mentions, status changes via notification feed)
+    const notifications = await fetchNotifications(connection, since);
 
-      // Only surface notification types that warrant attention
-      const relevantTypes = new Set([
-        "issueAssignedToYou",
-        "issueMentionedYou",
-        "issueCommentMentionedYou",
-        "issueStatusChanged",
-      ]);
+    // Only surface notification types that warrant attention
+    const relevantTypes = new Set([
+      "issueAssignedToYou",
+      "issueMentionedYou",
+      "issueCommentMentionedYou",
+      "issueStatusChanged",
+    ]);
 
-      const items: WatcherItem[] = [];
+    const items: WatcherItem[] = [];
 
-      for (const n of notifications) {
-        if (!relevantTypes.has(n.type)) continue;
-        items.push(notificationToItem(n));
+    for (const n of notifications) {
+      if (!relevantTypes.has(n.type)) continue;
+      items.push(notificationToItem(n));
+    }
+
+    // Fetch the complete set of currently assigned issue IDs (no updatedAt
+    // filter) so we can accurately evict stale cache entries and guard against
+    // false-positive status change events on reassignment.
+    const currentAssignedIds = await fetchAllAssignedIssueIds(
+      connection,
+      viewer.id,
+    );
+    const previousAssignedIds = lastSeenAssignedIdsByWatcher.get(watcherKey);
+
+    // Also poll assigned issues directly for status changes not covered by
+    // notifications (e.g., bulk team updates). We only emit an event when the
+    // state ID differs from what we recorded on the previous poll — any other
+    // field update (title, description, etc.) does not constitute a status change.
+    // On first sight of an issue we seed the map without emitting, so we don't
+    // fire false-positive events after a daemon restart.
+    const assignedIssues = await fetchAssignedIssueUpdates(
+      connection,
+      viewer.id,
+      since,
+    );
+    const stateCache = getStateCache(watcherKey);
+    for (const issue of assignedIssues) {
+      const previousStateId = stateCache.get(issue.id);
+      // Only emit a status change if: (1) we have a cached state that differs,
+      // AND (2) the issue was also assigned in the previous poll. Condition (2)
+      // prevents false-positive events when an issue is unassigned, changes
+      // state while unassigned, and is then reassigned.
+      const wasPreviouslySeen = previousAssignedIds?.has(issue.id) ?? false;
+      if (
+        previousStateId !== undefined &&
+        previousStateId !== issue.state.id &&
+        wasPreviouslySeen
+      ) {
+        items.push(issueToStatusChangeItem(issue, previousStateId));
       }
+      stateCache.set(issue.id, issue.state.id);
+    }
 
-      // Fetch the complete set of currently assigned issue IDs (no updatedAt
-      // filter) so we can accurately evict stale cache entries and guard against
-      // false-positive status change events on reassignment.
-      const currentAssignedIds = await fetchAllAssignedIssueIds(
-        token,
-        viewer.id,
-      );
-      const previousAssignedIds = lastSeenAssignedIdsByWatcher.get(watcherKey);
-
-      // Also poll assigned issues directly for status changes not covered by
-      // notifications (e.g., bulk team updates). We only emit an event when the
-      // state ID differs from what we recorded on the previous poll — any other
-      // field update (title, description, etc.) does not constitute a status change.
-      // On first sight of an issue we seed the map without emitting, so we don't
-      // fire false-positive events after a daemon restart.
-      const assignedIssues = await fetchAssignedIssueUpdates(
-        token,
-        viewer.id,
-        since,
-      );
-      const stateCache = getStateCache(watcherKey);
-      for (const issue of assignedIssues) {
-        const previousStateId = stateCache.get(issue.id);
-        // Only emit a status change if: (1) we have a cached state that differs,
-        // AND (2) the issue was also assigned in the previous poll. Condition (2)
-        // prevents false-positive events when an issue is unassigned, changes
-        // state while unassigned, and is then reassigned.
-        const wasPreviouslySeen = previousAssignedIds?.has(issue.id) ?? false;
-        if (
-          previousStateId !== undefined &&
-          previousStateId !== issue.state.id &&
-          wasPreviouslySeen
-        ) {
-          items.push(issueToStatusChangeItem(issue, previousStateId));
+    // Evict cached state for issues that left the assigned set so stale
+    // entries don't accumulate and don't cause false-positive events if the
+    // issue is later reassigned.
+    if (previousAssignedIds) {
+      for (const id of previousAssignedIds) {
+        if (!currentAssignedIds.has(id)) {
+          stateCache.delete(id);
         }
-        stateCache.set(issue.id, issue.state.id);
       }
+    }
+    lastSeenAssignedIdsByWatcher.set(watcherKey, currentAssignedIds);
 
-      // Evict cached state for issues that left the assigned set so stale
-      // entries don't accumulate and don't cause false-positive events if the
-      // issue is later reassigned.
-      if (previousAssignedIds) {
-        for (const id of previousAssignedIds) {
-          if (!currentAssignedIds.has(id)) {
-            stateCache.delete(id);
-          }
-        }
-      }
-      lastSeenAssignedIdsByWatcher.set(watcherKey, currentAssignedIds);
+    const newWatermark = new Date().toISOString();
+    log.info(
+      { count: items.length, viewer: viewer.name, watermark: newWatermark },
+      "Linear: fetched new notifications",
+    );
 
-      const newWatermark = new Date().toISOString();
-      log.info(
-        { count: items.length, viewer: viewer.name, watermark: newWatermark },
-        "Linear: fetched new notifications",
-      );
-
-      return { items, watermark: newWatermark };
-    });
+    return { items, watermark: newWatermark };
   },
 };

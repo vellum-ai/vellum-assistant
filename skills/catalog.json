@@ -134,30 +134,12 @@
     {
       "id": "google-oauth-applescript",
       "name": "google-oauth-applescript",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using collaborative AppleScript navigation",
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Google OAuth Setup",
           "user-invocable": "true",
-          "credential-setup-for": "gmail"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "google-oauth-setup",
-      "name": "google-oauth-setup",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Google OAuth Setup",
-          "user-invocable": "true",
-          "includes": [
-            "browser",
-            "public-ingress"
-          ],
           "credential-setup-for": "gmail"
         }
       },

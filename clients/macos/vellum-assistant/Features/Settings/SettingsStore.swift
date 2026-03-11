@@ -1155,6 +1155,7 @@ public final class SettingsStore: ObservableObject {
                     self.slackChannelBotUsername = nil
                     self.slackChannelTeamName = nil
                     self.slackChannelError = nil
+                    self.fetchChannelSetupStatus()
                 }
             } catch {
                 log.error("Failed to clear Slack channel config: \(error)")
@@ -1311,6 +1312,7 @@ public final class SettingsStore: ObservableObject {
                 path: "/v1/integrations/twilio/credentials"
             )
             twilioSaveInProgress = false
+            self.fetchChannelSetupStatus()
         }
     }
 

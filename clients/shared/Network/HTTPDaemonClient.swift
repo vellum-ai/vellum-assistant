@@ -1581,7 +1581,8 @@ public final class HTTPTransport {
                         sessionId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to upload \(failedCount) attachment\(failedCount == 1 ? "" : "s"). Please try again.",
-                        retryable: true
+                        retryable: true,
+                        failedMessageContent: content
                     )))
                     return
                 }
@@ -1629,7 +1630,8 @@ public final class HTTPTransport {
                         sessionId: sessionId,
                         code: .providerApi,
                         userMessage: "Failed to send message — authentication error. Please try again.",
-                        retryable: true
+                        retryable: true,
+                        failedMessageContent: content
                     )))
                 }
             } else {
@@ -1639,7 +1641,8 @@ public final class HTTPTransport {
                     sessionId: sessionId,
                     code: .providerApi,
                     userMessage: "Failed to send message (HTTP \(http.statusCode))",
-                    retryable: true
+                    retryable: true,
+                    failedMessageContent: content
                 )))
             }
         } catch {
@@ -1648,7 +1651,8 @@ public final class HTTPTransport {
                 sessionId: sessionId,
                 code: .providerApi,
                 userMessage: error.localizedDescription,
-                retryable: true
+                retryable: true,
+                failedMessageContent: content
             )))
         }
     }
@@ -3462,9 +3466,21 @@ public final class HTTPTransport {
                 }
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
+                onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: sessionId,
+                    code: .regenerateFailed,
+                    userMessage: "Unable to regenerate response. Try sending your message again.",
+                    retryable: true
+                )))
             }
         } catch {
             log.error("Regenerate error: \(error.localizedDescription)")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: sessionId,
+                code: .regenerateFailed,
+                userMessage: "Unable to regenerate response. Try sending your message again.",
+                retryable: true
+            )))
         }
     }
 

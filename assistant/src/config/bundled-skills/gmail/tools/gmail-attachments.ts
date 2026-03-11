@@ -6,8 +6,7 @@ import {
   getMessage,
 } from "../../../../messaging/providers/gmail/client.js";
 import type { GmailMessagePart } from "../../../../messaging/providers/gmail/types.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -57,17 +56,15 @@ export async function run(
 
   if (action === "list") {
     try {
-      const provider = getMessagingProvider("gmail");
-      return await withValidToken(provider.credentialService, async (token) => {
-        const message = await getMessage(token, messageId, "full");
-        const attachments = collectAttachments(message.payload?.parts);
+      const connection = resolveOAuthConnection("integration:gmail");
+      const message = await getMessage(connection, messageId, "full");
+      const attachments = collectAttachments(message.payload?.parts);
 
-        if (attachments.length === 0) {
-          return ok("No attachments found on this message.");
-        }
+      if (attachments.length === 0) {
+        return ok("No attachments found on this message.");
+      }
 
-        return ok(JSON.stringify(attachments, null, 2));
-      });
+      return ok(JSON.stringify(attachments, null, 2));
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));
     }
@@ -81,26 +78,26 @@ export async function run(
     if (!filename) return err("filename is required for download.");
 
     try {
-      const provider = getMessagingProvider("gmail");
-      return await withValidToken(provider.credentialService, async (token) => {
-        const attachment = await getAttachment(token, messageId, attachmentId);
+      const connection = resolveOAuthConnection("integration:gmail");
+      const attachment = await getAttachment(
+        connection,
+        messageId,
+        attachmentId,
+      );
 
-        // Gmail returns base64url; convert to standard base64 then to Buffer
-        const base64 = attachment.data.replace(/-/g, "+").replace(/_/g, "/");
-        const buffer = Buffer.from(base64, "base64");
+      // Gmail returns base64url; convert to standard base64 then to Buffer
+      const base64 = attachment.data.replace(/-/g, "+").replace(/_/g, "/");
+      const buffer = Buffer.from(base64, "base64");
 
-        const outputDir = context.workingDir ?? process.cwd();
-        // Sanitize filename: strip path separators to prevent traversal attacks from crafted MIME filenames
-        const safeName = basename(filename).replace(/\.\./g, "_");
-        const outputPath = resolve(outputDir, safeName);
-        if (!outputPath.startsWith(outputDir))
-          return err("Invalid filename: path traversal detected.");
-        await writeFile(outputPath, buffer);
+      const outputDir = context.workingDir ?? process.cwd();
+      // Sanitize filename: strip path separators to prevent traversal attacks from crafted MIME filenames
+      const safeName = basename(filename).replace(/\.\./g, "_");
+      const outputPath = resolve(outputDir, safeName);
+      if (!outputPath.startsWith(outputDir))
+        return err("Invalid filename: path traversal detected.");
+      await writeFile(outputPath, buffer);
 
-        return ok(
-          `Attachment saved to ${outputPath} (${buffer.length} bytes).`,
-        );
-      });
+      return ok(`Attachment saved to ${outputPath} (${buffer.length} bytes).`);
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));
     }

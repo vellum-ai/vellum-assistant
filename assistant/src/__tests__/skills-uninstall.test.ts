@@ -58,7 +58,7 @@ describe("assistant skills uninstall", () => {
 
     // GIVEN a skill is installed locally
     installFakeSkill("weather");
-    writeSkillsIndex("- weather\n- google-oauth-setup\n");
+    writeSkillsIndex("- weather\n- google-oauth-applescript\n");
 
     // WHEN we uninstall the skill
     uninstallSkillLocally("weather");
@@ -71,7 +71,7 @@ describe("assistant skills uninstall", () => {
     expect(index).not.toContain("weather");
 
     // AND other skills should remain in the index
-    expect(index).toContain("google-oauth-setup");
+    expect(index).toContain("google-oauth-applescript");
   });
 
   test("errors when skill is not installed", () => {

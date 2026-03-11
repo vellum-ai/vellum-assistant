@@ -1603,6 +1603,23 @@ extension ChatViewModel {
             // Empty sessionId is treated as a broadcast (e.g. transport-level 401)
             guard sessionId != nil, msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
+
+            // Per-message send failure: mark the specific user message instead
+            // of showing a session-level error banner.
+            if let failedContent = msg.failedMessageContent {
+                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == failedContent && $0.status != .sendFailed }) {
+                    messages[idx].status = .sendFailed
+                }
+                // Only reset sending state if no other messages are in-flight.
+                // Check if any non-failed user messages are still pending.
+                let hasActiveSend = messages.contains(where: { $0.role == .user && ($0.status == .processing || $0.status == .sent) }) && isSending
+                if !hasActiveSend {
+                    isThinking = false
+                    isSending = false
+                }
+                return
+            }
+
             isWorkspaceRefinementInFlight = false
             refinementFlushTask?.cancel()
             refinementFlushTask = nil

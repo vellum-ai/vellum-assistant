@@ -694,6 +694,9 @@ struct ActiveChatViewWrapper: View {
             onSurfaceRefetch: { surfaceId, sessionId in
                 viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
             },
+            onRetryFailedMessage: { messageId in
+                viewModel.retryFailedMessage(id: messageId)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,

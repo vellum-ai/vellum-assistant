@@ -635,10 +635,14 @@ function buildIntegrationSection(): string {
   const raw = loadRawConfig();
   const lines = ["## Connected Services", ""];
   for (const cred of oauthCreds) {
-    const acctInfo = getNestedValue(
+    const acctInfo = (getNestedValue(
       raw,
       `integrations.${cred.service}.accountInfo`,
-    ) as string | undefined;
+    ) ??
+      // Fallback: legacy config path used before the namespace migration
+      getNestedValue(raw, `integrations.accountInfo.${cred.service}`)) as
+      | string
+      | undefined;
     const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
     lines.push(`- **${cred.service}**: ${state}`);
   }

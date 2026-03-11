@@ -18,6 +18,8 @@ public struct MessageBubbleView: View {
     public let onGuardianAction: ((String, String) -> Void)?
     /// Called when a stripped surface scrolls into view and needs its data re-fetched.
     public let onSurfaceRefetch: ((String, String) -> Void)?
+    /// Called when the user taps "Retry" on a per-message send failure.
+    public let onRetryFailedMessage: ((UUID) -> Void)?
 
     public init(
         message: ChatMessage,
@@ -26,7 +28,8 @@ public struct MessageBubbleView: View {
         onRegenerate: (() -> Void)?,
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
         onGuardianAction: ((String, String) -> Void)? = nil,
-        onSurfaceRefetch: ((String, String) -> Void)? = nil
+        onSurfaceRefetch: ((String, String) -> Void)? = nil,
+        onRetryFailedMessage: ((UUID) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirmationResponse = onConfirmationResponse
@@ -35,6 +38,7 @@ public struct MessageBubbleView: View {
         self.onAlwaysAllow = onAlwaysAllow
         self.onGuardianAction = onGuardianAction
         self.onSurfaceRefetch = onSurfaceRefetch
+        self.onRetryFailedMessage = onRetryFailedMessage
     }
 
     public var body: some View {
@@ -116,6 +120,26 @@ public struct MessageBubbleView: View {
                         Text("Pending")
                             .font(VFont.small)
                             .foregroundColor(VColor.textMuted)
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+                }
+
+                // Per-message send failure indicator with inline retry button
+                if message.role == .user && message.status == .sendFailed {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.triangleAlert, size: 11)
+                            .foregroundColor(VColor.error)
+                        Text("Failed to send")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.error)
+                        Button {
+                            onRetryFailedMessage?(message.id)
+                        } label: {
+                            Text("Retry")
+                                .font(VFont.small.weight(.medium))
+                                .foregroundColor(VColor.accent)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, VSpacing.sm)
                 }

@@ -1,6 +1,5 @@
 import { trashMessage } from "../../../../messaging/providers/gmail/client.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -18,11 +17,9 @@ export async function run(
   }
 
   try {
-    const provider = getMessagingProvider("gmail");
-    return await withValidToken(provider.credentialService, async (token) => {
-      await trashMessage(token, messageId);
-      return ok("Message moved to trash.");
-    });
+    const connection = resolveOAuthConnection("integration:gmail");
+    await trashMessage(connection, messageId);
+    return ok("Message moved to trash.");
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

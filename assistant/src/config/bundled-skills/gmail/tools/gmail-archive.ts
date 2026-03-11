@@ -3,8 +3,7 @@ import {
   listMessages,
   modifyMessage,
 } from "../../../../messaging/providers/gmail/client.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -35,49 +34,47 @@ export async function run(
     }
 
     try {
-      const provider = getMessagingProvider("gmail");
-      return await withValidToken(provider.credentialService, async (token) => {
-        const allMessageIds: string[] = [];
-        let pageToken: string | undefined;
-        let truncated = false;
+      const connection = resolveOAuthConnection("integration:gmail");
+      const allMessageIds: string[] = [];
+      let pageToken: string | undefined;
+      let truncated = false;
 
-        while (allMessageIds.length < MAX_MESSAGES) {
-          const listResp = await listMessages(
-            token,
-            query,
-            Math.min(500, MAX_MESSAGES - allMessageIds.length),
-            pageToken,
-          );
-          const ids = (listResp.messages ?? []).map((m) => m.id);
-          if (ids.length === 0) break;
-          allMessageIds.push(...ids);
-          pageToken = listResp.nextPageToken ?? undefined;
-          if (!pageToken) break;
-        }
+      while (allMessageIds.length < MAX_MESSAGES) {
+        const listResp = await listMessages(
+          connection,
+          query,
+          Math.min(500, MAX_MESSAGES - allMessageIds.length),
+          pageToken,
+        );
+        const ids = (listResp.messages ?? []).map((m) => m.id);
+        if (ids.length === 0) break;
+        allMessageIds.push(...ids);
+        pageToken = listResp.nextPageToken ?? undefined;
+        if (!pageToken) break;
+      }
 
-        if (allMessageIds.length >= MAX_MESSAGES && pageToken) {
-          truncated = true;
-        }
+      if (allMessageIds.length >= MAX_MESSAGES && pageToken) {
+        truncated = true;
+      }
 
-        if (allMessageIds.length === 0) {
-          return ok("No messages matched the query. Nothing archived.");
-        }
+      if (allMessageIds.length === 0) {
+        return ok("No messages matched the query. Nothing archived.");
+      }
 
-        for (let i = 0; i < allMessageIds.length; i += BATCH_MODIFY_LIMIT) {
-          const chunk = allMessageIds.slice(i, i + BATCH_MODIFY_LIMIT);
-          await batchModifyMessages(token, chunk, {
-            removeLabelIds: ["INBOX"],
-          });
-        }
+      for (let i = 0; i < allMessageIds.length; i += BATCH_MODIFY_LIMIT) {
+        const chunk = allMessageIds.slice(i, i + BATCH_MODIFY_LIMIT);
+        await batchModifyMessages(connection, chunk, {
+          removeLabelIds: ["INBOX"],
+        });
+      }
 
-        const summary = `Archived ${allMessageIds.length} message(s) matching query: ${query}`;
-        if (truncated) {
-          return ok(
-            `${summary}\n\nNote: this operation was capped at ${MAX_MESSAGES} messages. Additional messages matching the query may remain in the inbox. Run the command again to archive more.`,
-          );
-        }
-        return ok(summary);
-      });
+      const summary = `Archived ${allMessageIds.length} message(s) matching query: ${query}`;
+      if (truncated) {
+        return ok(
+          `${summary}\n\nNote: this operation was capped at ${MAX_MESSAGES} messages. Additional messages matching the query may remain in the inbox. Run the command again to archive more.`,
+        );
+      }
+      return ok(summary);
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));
     }
@@ -106,11 +103,9 @@ export async function run(
   } else if (messageId) {
     // Single message path
     try {
-      const provider = getMessagingProvider("gmail");
-      return await withValidToken(provider.credentialService, async (token) => {
-        await modifyMessage(token, messageId, { removeLabelIds: ["INBOX"] });
-        return ok("Message archived.");
-      });
+      const connection = resolveOAuthConnection("integration:gmail");
+      await modifyMessage(connection, messageId, { removeLabelIds: ["INBOX"] });
+      return ok("Message archived.");
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));
     }
@@ -126,23 +121,21 @@ export async function run(
   }
 
   try {
-    const provider = getMessagingProvider("gmail");
-    return await withValidToken(provider.credentialService, async (token) => {
-      if (messageIds.length === 1) {
-        await modifyMessage(token, messageIds[0], {
-          removeLabelIds: ["INBOX"],
-        });
-        return ok("Message archived.");
-      }
+    const connection = resolveOAuthConnection("integration:gmail");
+    if (messageIds.length === 1) {
+      await modifyMessage(connection, messageIds[0], {
+        removeLabelIds: ["INBOX"],
+      });
+      return ok("Message archived.");
+    }
 
-      for (let i = 0; i < messageIds.length; i += BATCH_MODIFY_LIMIT) {
-        const chunk = messageIds.slice(i, i + BATCH_MODIFY_LIMIT);
-        await batchModifyMessages(token, chunk, {
-          removeLabelIds: ["INBOX"],
-        });
-      }
-      return ok(`Archived ${messageIds.length} message(s).`);
-    });
+    for (let i = 0; i < messageIds.length; i += BATCH_MODIFY_LIMIT) {
+      const chunk = messageIds.slice(i, i + BATCH_MODIFY_LIMIT);
+      await batchModifyMessages(connection, chunk, {
+        removeLabelIds: ["INBOX"],
+      });
+    }
+    return ok(`Archived ${messageIds.length} message(s).`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

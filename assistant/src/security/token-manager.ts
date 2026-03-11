@@ -289,6 +289,9 @@ async function doRefresh(service: string): Promise<string> {
  * 1. Retrieves the stored access token (throws if none exists).
  * 2. If the token is expired or near-expiry, refreshes it before calling the callback.
  * 3. If the callback throws with a 401 status, attempts one refresh-and-retry cycle.
+ *
+ * @deprecated Use `resolveOAuthConnection(service).request()` instead.
+ * Retained only for BYO connection internals.
  */
 export async function withValidToken<T>(
   service: string,

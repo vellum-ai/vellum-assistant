@@ -3,36 +3,44 @@
  * Separate from the Gmail client due to a different base URL.
  */
 
+import type { OAuthConnection } from "../../../oauth/connection.js";
+import { GOOGLE_PEOPLE_BASE_URL } from "../../../oauth/provider-base-urls.js";
 import { GmailApiError } from "./client.js";
 import type {
   PeopleConnectionsResponse,
   PeopleSearchResponse,
 } from "./people-types.js";
 
-const PEOPLE_API_BASE = "https://people.googleapis.com/v1";
-
 const PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations";
 
-async function request<T>(token: string, url: string): Promise<T> {
-  const resp = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+async function request<T>(
+  connection: OAuthConnection,
+  path: string,
+): Promise<T> {
+  const resp = await connection.request({
+    method: "GET",
+    path,
+    baseUrl: GOOGLE_PEOPLE_BASE_URL,
   });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => "");
+
+  if (resp.status < 200 || resp.status >= 300) {
+    const bodyStr =
+      typeof resp.body === "string"
+        ? resp.body
+        : JSON.stringify(resp.body ?? "");
     throw new GmailApiError(
       resp.status,
-      resp.statusText,
-      `People API ${resp.status}: ${body}`,
+      "",
+      `People API ${resp.status}: ${bodyStr}`,
     );
   }
-  return resp.json() as Promise<T>;
+
+  return resp.body as T;
 }
 
 /** List the user's contacts with pagination. */
 export async function listContacts(
-  token: string,
+  connection: OAuthConnection,
   pageSize = 50,
   pageToken?: string,
 ): Promise<PeopleConnectionsResponse> {
@@ -42,14 +50,14 @@ export async function listContacts(
   });
   if (pageToken) params.set("pageToken", pageToken);
   return request<PeopleConnectionsResponse>(
-    token,
-    `${PEOPLE_API_BASE}/people/me/connections?${params}`,
+    connection,
+    `/people/me/connections?${params}`,
   );
 }
 
 /** Search contacts by name or email. */
 export async function searchContacts(
-  token: string,
+  connection: OAuthConnection,
   query: string,
 ): Promise<PeopleSearchResponse> {
   const params = new URLSearchParams({
@@ -57,7 +65,7 @@ export async function searchContacts(
     readMask: PERSON_FIELDS,
   });
   return request<PeopleSearchResponse>(
-    token,
-    `${PEOPLE_API_BASE}/people:searchContacts?${params}`,
+    connection,
+    `/people:searchContacts?${params}`,
   );
 }

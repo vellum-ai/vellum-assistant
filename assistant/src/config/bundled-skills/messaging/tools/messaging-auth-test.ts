@@ -2,7 +2,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { err, ok, resolveProvider, withProviderToken } from "./shared.js";
+import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -12,10 +12,9 @@ export async function run(
 
   try {
     const provider = resolveProvider(platform);
-    return withProviderToken(provider, async (token) => {
-      const info = await provider.testConnection(token);
-      return ok(JSON.stringify(info, null, 2));
-    });
+    const conn = getProviderConnection(provider);
+    const info = await provider.testConnection(conn);
+    return ok(JSON.stringify(info, null, 2));
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

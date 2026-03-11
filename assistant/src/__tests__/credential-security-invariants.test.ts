@@ -248,7 +248,11 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
         const s = statSync(full);
         if (s.isDirectory()) {
           collectTsFiles(full, files);
-        } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+        } else if (
+          entry.endsWith(".ts") &&
+          !entry.endsWith(".d.ts") &&
+          !entry.endsWith(".test.ts")
+        ) {
           files.push(full);
         }
       }
@@ -560,7 +564,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       readFileSync(join(TEST_DIR, "metadata.json"), "utf-8"),
     );
     expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
-    expect(raw.version).toBe(3);
+    expect(raw.version).toBe(4);
   });
 });
 

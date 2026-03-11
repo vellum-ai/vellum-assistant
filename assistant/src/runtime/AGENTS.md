@@ -55,7 +55,7 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
 All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
 
-- **Authenticated**: 60 requests/minute
+- **Authenticated**: 300 requests/minute
 - **Unauthenticated**: 20 requests/minute
 
 When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid thread switching, polling, or unexpected request volume.

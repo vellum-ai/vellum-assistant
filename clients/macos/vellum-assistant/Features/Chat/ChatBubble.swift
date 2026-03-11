@@ -19,6 +19,8 @@ struct ChatBubble: View {
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
     var resolveHttpPort: (() -> Int?) = { nil }
+    /// Called when the user taps "Retry" on a failed message.
+    var onRetryFailedMessage: ((UUID) -> Void)?
     var isLatestAssistantMessage: Bool = false
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -78,7 +80,7 @@ struct ChatBubble: View {
 
     @ViewBuilder
     private var bubbleBorderOverlay: some View {
-        if message.isError {
+        if message.isError || (isUser && message.status == .sendFailed) {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
         }
@@ -188,6 +190,11 @@ struct ChatBubble: View {
                         }
                     }
 
+                    // Per-message send failure indicator with inline retry button
+                    if isUser && message.status == .sendFailed {
+                        sendFailedIndicator
+                    }
+
                     // Single unified status area at the bottom of the message:
                     // - In-progress: shows "Running a terminal command ..."
                     // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
@@ -227,6 +234,27 @@ struct ChatBubble: View {
             let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
             guard !Task.isCancelled else { return }
             mediaEmbedIntents = resolved
+        }
+    }
+
+    // MARK: - Send Failed Indicator
+
+    private var sendFailedIndicator: some View {
+        HStack(spacing: VSpacing.xs) {
+            VIconView(.triangleAlert, size: 12)
+                .foregroundColor(VColor.error)
+            Text("Failed to send")
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+            Button {
+                onRetryFailedMessage?(message.id)
+            } label: {
+                Text("Retry")
+                    .font(VFont.caption.weight(.medium))
+                    .foregroundColor(VColor.accent)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 

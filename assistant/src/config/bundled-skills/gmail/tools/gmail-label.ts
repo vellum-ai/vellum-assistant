@@ -2,8 +2,7 @@ import {
   batchModifyMessages,
   modifyMessage,
 } from "../../../../messaging/providers/gmail/client.js";
-import { getMessagingProvider } from "../../../../messaging/registry.js";
-import { withValidToken } from "../../../../security/token-manager.js";
+import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -21,14 +20,12 @@ export async function run(
 
   if (messageIds && messageIds.length > 0) {
     try {
-      const provider = getMessagingProvider("gmail");
-      return await withValidToken(provider.credentialService, async (token) => {
-        await batchModifyMessages(token, messageIds, {
-          addLabelIds,
-          removeLabelIds,
-        });
-        return ok(`Labels updated on ${messageIds.length} message(s).`);
+      const connection = resolveOAuthConnection("integration:gmail");
+      await batchModifyMessages(connection, messageIds, {
+        addLabelIds,
+        removeLabelIds,
       });
+      return ok(`Labels updated on ${messageIds.length} message(s).`);
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));
     }
@@ -36,11 +33,12 @@ export async function run(
 
   if (messageId) {
     try {
-      const provider = getMessagingProvider("gmail");
-      return await withValidToken(provider.credentialService, async (token) => {
-        await modifyMessage(token, messageId, { addLabelIds, removeLabelIds });
-        return ok("Labels updated.");
+      const connection = resolveOAuthConnection("integration:gmail");
+      await modifyMessage(connection, messageId, {
+        addLabelIds,
+        removeLabelIds,
       });
+      return ok("Labels updated.");
     } catch (e) {
       return err(e instanceof Error ? e.message : String(e));
     }
