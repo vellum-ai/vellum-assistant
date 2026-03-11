@@ -502,8 +502,6 @@ export interface SkillProjectionContext {
   };
   /** True when no client is connected (HTTP-only). */
   readonly hasNoClient?: boolean;
-  /** Host bash proxy — presence indicates host tools should be available. */
-  readonly hostBashProxy?: { isAvailable(): boolean };
   /** True when the conversation has user-uploaded attachments. */
   hasAttachments?: boolean;
 }
@@ -539,7 +537,9 @@ export function isToolActiveForContext(
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
-    return !!ctx.hostBashProxy;
+    // Host tools are always available — they have local execution fallbacks
+    // for non-desktop sessions (CLI, headless) when no proxy is connected.
+    return true;
   }
   if (ASSET_TOOL_NAMES.has(name)) {
     return ctx.hasAttachments ?? true;

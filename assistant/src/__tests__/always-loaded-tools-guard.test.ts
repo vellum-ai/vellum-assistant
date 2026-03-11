@@ -28,18 +28,17 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 13", async () => {
+  test("should be exactly 17", async () => {
     await initializeTools();
     const allDefs = buildToolDefinitions();
 
-    // Minimal context: no client, no host proxy, no attachments, no capabilities
+    // Minimal context: no client, no attachments, no capabilities
     const minimalContext: SkillProjectionContext = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
       coreToolNames: new Set(),
       toolsDisabledDepth: 0,
       hasNoClient: true,
-      hostBashProxy: undefined,
       hasAttachments: false,
       channelCapabilities: undefined,
     };
@@ -55,6 +54,10 @@ describe("always-loaded tool count", () => {
       "file_edit",
       "file_read",
       "file_write",
+      "host_bash",
+      "host_file_edit",
+      "host_file_read",
+      "host_file_write",
       "memory_delete",
       "memory_recall",
       "memory_save",
@@ -66,6 +69,6 @@ describe("always-loaded tool count", () => {
     ].sort();
 
     expect(activeNames).toEqual(expectedNames);
-    expect(activeTools.length).toBe(13);
+    expect(activeTools.length).toBe(17);
   });
 });
