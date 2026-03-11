@@ -317,6 +317,7 @@ struct ChatView: View {
             }
             .padding(.horizontal, VSpacing.xl)
             .padding(.top, VSpacing.sm)
+            .animation(VAnimation.fast, value: hasAPIKey)
             .animation(VAnimation.fast, value: sessionError != nil)
             .animation(VAnimation.fast, value: errorText != nil)
         }
