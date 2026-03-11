@@ -1,9 +1,9 @@
 /**
- * HTTP route handlers for exporting audit data and daemon log files.
+ * HTTP route handler for exporting audit data and daemon log files.
  *
- * These endpoints allow clients (e.g. macOS Export Logs) to retrieve
- * audit database records and daemon log files via HTTP instead of
- * requiring direct filesystem access.
+ * A single POST /v1/export endpoint allows clients (e.g. macOS Export Logs)
+ * to retrieve audit database records and daemon log files via HTTP instead
+ * of requiring direct filesystem access.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -20,59 +20,40 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("log-export-routes");
 
-// ---------------------------------------------------------------------------
-// Audit data export
-// ---------------------------------------------------------------------------
+/** Maximum total payload size for log file contents (10 MB). */
+const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
+
+interface ExportRequestBody {
+  auditLimit?: number;
+}
+
+interface ExportResponse {
+  success: true;
+  auditRows: Array<Record<string, unknown>>;
+  logFiles: Record<string, string>;
+}
 
 /**
- * Return recent tool invocation records as a JSON array.
- * Accepts an optional `limit` in the request body (default 1000).
+ * Collect audit data rows and daemon log file contents into a single
+ * response payload. Returns both `auditRows` (tool invocation records)
+ * and `logFiles` (filename → text content mapping).
  */
-async function handleAuditDataExport(body: {
-  limit?: number;
-}): Promise<Response> {
+async function handleExport(body: ExportRequestBody): Promise<Response> {
   try {
-    const limit = body.limit ?? 1000;
+    // --- Audit data ---
+    const limit = body.auditLimit ?? 1000;
     const db = getDb();
-    const rows = db
+    const auditRows = db
       .select()
       .from(toolInvocations)
       .orderBy(desc(toolInvocations.createdAt))
       .limit(limit)
       .all();
 
-    log.info({ count: rows.length }, "Audit data export completed");
-    return Response.json({ success: true, rows });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to export audit data");
-    return httpError(
-      "INTERNAL_ERROR",
-      `Failed to export audit data: ${message}`,
-      500,
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Daemon logs export
-// ---------------------------------------------------------------------------
-
-/** Maximum total payload size for log file contents (10 MB). */
-const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
-
-/**
- * Return daemon log file contents as a JSON object mapping filenames to
- * their text content. Reads from the daemon rotating log directory
- * (~/.vellum/workspace/data/logs/) and includes the daemon stderr log
- * (~/.vellum/daemon-stderr.log) when present.
- */
-async function handleDaemonLogsExport(): Promise<Response> {
-  try {
-    const files: Record<string, string> = {};
+    // --- Daemon log files ---
+    const logFiles: Record<string, string> = {};
     let totalBytes = 0;
 
-    // Rotating daemon logs
     const logsDir = join(getDataDir(), "logs");
     if (existsSync(logsDir)) {
       const entries = readdirSync(logsDir);
@@ -82,7 +63,7 @@ async function handleDaemonLogsExport(): Promise<Response> {
           const stat = statSync(filePath);
           if (!stat.isFile()) continue;
           if (totalBytes + stat.size > MAX_LOG_PAYLOAD_BYTES) continue;
-          files[entry] = readFileSync(filePath, "utf-8");
+          logFiles[entry] = readFileSync(filePath, "utf-8");
           totalBytes += stat.size;
         } catch {
           // Skip unreadable files
@@ -90,13 +71,12 @@ async function handleDaemonLogsExport(): Promise<Response> {
       }
     }
 
-    // Daemon stderr log
     const stderrPath = join(getRootDir(), "daemon-stderr.log");
     if (existsSync(stderrPath)) {
       try {
         const stat = statSync(stderrPath);
         if (totalBytes + stat.size <= MAX_LOG_PAYLOAD_BYTES) {
-          files["daemon-stderr.log"] = readFileSync(stderrPath, "utf-8");
+          logFiles["daemon-stderr.log"] = readFileSync(stderrPath, "utf-8");
         }
       } catch {
         // Skip if unreadable
@@ -104,16 +84,18 @@ async function handleDaemonLogsExport(): Promise<Response> {
     }
 
     log.info(
-      { fileCount: Object.keys(files).length, totalBytes },
-      "Daemon logs export completed",
+      { auditCount: auditRows.length, logFileCount: Object.keys(logFiles).length, totalBytes },
+      "Export completed",
     );
-    return Response.json({ success: true, files });
+
+    const payload: ExportResponse = { success: true, auditRows, logFiles };
+    return Response.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to export daemon logs");
+    log.error({ err }, "Failed to export");
     return httpError(
       "INTERNAL_ERROR",
-      `Failed to export daemon logs: ${message}`,
+      `Failed to export: ${message}`,
       500,
     );
   }
@@ -126,20 +108,12 @@ async function handleDaemonLogsExport(): Promise<Response> {
 export function logExportRouteDefinitions(): RouteDefinition[] {
   return [
     {
-      endpoint: "export/audit-data",
+      endpoint: "export",
       method: "POST",
-      policyKey: "export/audit-data",
+      policyKey: "export",
       handler: async ({ req }) => {
-        const body = (await req.json()) as { limit?: number };
-        return handleAuditDataExport(body);
-      },
-    },
-    {
-      endpoint: "export/daemon-logs",
-      method: "POST",
-      policyKey: "export/daemon-logs",
-      handler: async () => {
-        return handleDaemonLogsExport();
+        const body = (await req.json()) as ExportRequestBody;
+        return handleExport(body);
       },
     },
   ];

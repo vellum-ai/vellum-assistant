@@ -16,8 +16,7 @@ private let log = Logger(
 /// Log sources included:
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
 /// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
-/// - Daemon logs via `POST /v1/export/daemon-logs` HTTP API
-/// - Audit data via `POST /v1/export/audit-data` HTTP API
+/// - Daemon logs and audit data via `POST /v1/export` gateway HTTP API
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
@@ -231,99 +230,64 @@ enum LogExporter {
 
     // MARK: - Daemon HTTP Helpers
 
-    /// Fetches audit data and daemon log files from the daemon HTTP API
-    /// and writes them into `directory`. Silently skips if the daemon is
-    /// unreachable or returns an error.
+    /// Calls POST /v1/export on the gateway to fetch audit data and daemon
+    /// log files, then writes them into `directory`. Silently skips if the
+    /// gateway is unreachable or returns an error.
     private nonisolated static func fetchDaemonExports(into directory: URL) async {
-        guard let assistant = LockfileAssistant.loadLatest() else {
-            log.warning("No lockfile assistant found — skipping daemon exports")
-            return
-        }
-        let port = assistant.resolvedDaemonPort()
-        let baseURL = "http://localhost:\(port)"
+        let baseURL = LockfilePaths.resolveGatewayUrl()
 
         guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
             log.warning("No actor token available — skipping daemon exports")
             return
         }
 
-        // Audit data export
-        await fetchAuditData(baseURL: baseURL, token: token, into: directory)
-
-        // Daemon logs export
-        await fetchDaemonLogs(baseURL: baseURL, token: token, into: directory)
-    }
-
-    /// Calls POST /v1/export/audit-data and writes the returned rows as JSONL.
-    private nonisolated static func fetchAuditData(
-        baseURL: String,
-        token: String,
-        into directory: URL
-    ) async {
-        guard let url = URL(string: "\(baseURL)/v1/export/audit-data") else { return }
+        guard let url = URL(string: "\(baseURL)/v1/export") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["limit": 10000])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["auditLimit": 10000])
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode) else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                log.warning("Audit data export failed with status \(status)")
-                return
-            }
-            // Write the raw JSON response so it can be parsed offline
-            try data.write(to: directory.appendingPathComponent("audit-data.json"))
-        } catch {
-            log.warning("Audit data export request failed: \(error.localizedDescription)")
-        }
-    }
-
-    /// Calls POST /v1/export/daemon-logs and writes each returned file.
-    private nonisolated static func fetchDaemonLogs(
-        baseURL: String,
-        token: String,
-        into directory: URL
-    ) async {
-        guard let url = URL(string: "\(baseURL)/v1/export/daemon-logs") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else {
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                log.warning("Daemon logs export failed with status \(status)")
+                log.warning("Export API failed with status \(status)")
                 return
             }
 
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let files = json["files"] as? [String: String] else {
-                log.warning("Daemon logs export returned unexpected format")
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.warning("Export API returned unexpected format")
                 return
             }
 
-            let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
-            try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
-            for (filename, content) in files {
-                let sanitized = (filename as NSString).lastPathComponent
-                try? content.write(
-                    to: logsDir.appendingPathComponent(sanitized),
-                    atomically: true,
-                    encoding: .utf8
-                )
+            // Write audit rows as a standalone JSON file
+            if let auditRows = json["auditRows"] {
+                if let auditData = try? JSONSerialization.data(
+                    withJSONObject: auditRows,
+                    options: [.prettyPrinted]
+                ) {
+                    try? auditData.write(to: directory.appendingPathComponent("audit-data.json"))
+                }
+            }
+
+            // Write each daemon log file into a daemon-logs/ subdirectory
+            if let logFiles = json["logFiles"] as? [String: String] {
+                let logsDir = directory.appendingPathComponent("daemon-logs", isDirectory: true)
+                try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+                for (filename, content) in logFiles {
+                    let sanitized = (filename as NSString).lastPathComponent
+                    try? content.write(
+                        to: logsDir.appendingPathComponent(sanitized),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
             }
         } catch {
-            log.warning("Daemon logs export request failed: \(error.localizedDescription)")
+            log.warning("Export API request failed: \(error.localizedDescription)")
         }
     }
 
