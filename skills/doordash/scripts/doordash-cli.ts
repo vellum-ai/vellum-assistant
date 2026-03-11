@@ -72,7 +72,11 @@ async function runChromeCommand(
     ({ stdout } = await execFileAsync("assistant", args));
   } catch (err: unknown) {
     // Node's ExecFileException includes stdout/stderr from the child process
-    const execErr = err as { stdout?: string; stderr?: string; message?: string };
+    const execErr = err as {
+      stdout?: string;
+      stderr?: string;
+      message?: string;
+    };
     if (typeof execErr.stdout === "string" && execErr.stdout.trim()) {
       try {
         const result = JSON.parse(execErr.stdout);
@@ -99,7 +103,11 @@ async function ensureChromeWithCdp(opts?: {
   if (opts?.startUrl) args.push("--start-url", opts.startUrl);
   if (opts?.port) args.push("--port", String(opts.port));
   const result = await runChromeCommand(args, "Chrome launch failed");
-  return result as { baseUrl: string; launchedByUs: boolean; userDataDir: string };
+  return result as {
+    baseUrl: string;
+    launchedByUs: boolean;
+    userDataDir: string;
+  };
 }
 
 async function minimizeChromeWindow(cdpBase?: string): Promise<void> {
