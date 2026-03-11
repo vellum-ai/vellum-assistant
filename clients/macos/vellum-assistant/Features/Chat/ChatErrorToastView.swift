@@ -19,7 +19,7 @@ struct ChatSessionErrorToast: View {
     private let onAction: (() -> Void)?
     private let showCopyDebug: Bool
     private let onCopyDebugInfo: (() -> Void)?
-    private let onDismiss: () -> Void
+    private let onDismiss: (() -> Void)?
 
     // MARK: - SessionError Init
 
@@ -51,7 +51,7 @@ struct ChatSessionErrorToast: View {
         accentColor: Color = VColor.error,
         actionLabel: String? = nil,
         onAction: (() -> Void)? = nil,
-        onDismiss: @escaping () -> Void
+        onDismiss: (() -> Void)? = nil
     ) {
         self.icon = icon
         self.message = message
@@ -110,13 +110,15 @@ struct ChatSessionErrorToast: View {
                 .accessibilityLabel("Copy debug info")
             }
 
-            Button {
-                onDismiss()
-            } label: {
-                VIconView(.x, size: 14)
+            if let onDismiss {
+                Button {
+                    onDismiss()
+                } label: {
+                    VIconView(.x, size: 14)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss error")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
         }
         .foregroundColor(.white) // Intentional: always white on solid accent background
         .frame(minHeight: 32)

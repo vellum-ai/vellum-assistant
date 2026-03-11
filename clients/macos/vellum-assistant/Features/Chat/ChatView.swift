@@ -226,15 +226,6 @@ struct ChatView: View {
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
                             isLoadingAttachment: isLoadingAttachment,
-                            errorText: errorText,
-                            sessionError: sessionError,
-                            isSecretBlockError: isSecretBlockError,
-                            onSendAnyway: onSendAnyway,
-                            isRetryableError: isRetryableError,
-                            onRetryError: onRetryError,
-                            isConnectionError: isConnectionError,
-                            hasRetryPayload: hasRetryPayload,
-                            connectionDiagnosticHint: connectionDiagnosticHint,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -244,10 +235,6 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            onRetrySessionError: onRetry,
-                            onCopyDebugInfo: onCopyDebugInfo,
-                            onDismissSessionError: onDismissSessionError,
                             watchSession: watchSession,
                             onStopWatch: onStopWatch,
                             isLearnMode: isLearnMode,
@@ -299,24 +286,13 @@ struct ChatView: View {
         }
         .overlay(alignment: .top) {
             VStack(spacing: VSpacing.xs) {
-                // DEBUG: hardcoded error toast for visual testing
-                #if DEBUG
-                ChatSessionErrorToast(
-                    message: "Something went wrong. Please try again.",
-                    actionLabel: "Retry",
-                    onAction: {},
-                    onDismiss: {}
-                )
-                #endif
-
                 if !hasAPIKey {
                     ChatSessionErrorToast(
                         message: "API key not set. Add one in Settings to start chatting.",
                         icon: .keyRound,
                         accentColor: VColor.warning,
                         actionLabel: "Open Settings",
-                        onAction: onOpenSettings,
-                        onDismiss: {}
+                        onAction: onOpenSettings
                     )
                 }
 
