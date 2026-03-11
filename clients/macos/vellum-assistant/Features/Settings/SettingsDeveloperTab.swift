@@ -316,11 +316,11 @@ struct SettingsDeveloperTab: View {
         }
     }
 
-    private func formatMb(_ mb: Int) -> String {
+    private func formatMb(_ mb: Double) -> String {
         if mb >= 1024 {
-            return String(format: "%.1f GB", Double(mb) / 1024.0)
+            return String(format: "%.1f GB", mb / 1024.0)
         }
-        return "\(mb) MB"
+        return String(format: "%.0f MB", mb)
     }
 
     private func fetchHealthz() async {
@@ -340,7 +340,9 @@ struct SettingsDeveloperTab: View {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return }
-            healthz = try JSONDecoder().decode(DaemonHealthz.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            healthz = try decoder.decode(DaemonHealthz.self, from: data)
         } catch {}
     }
 

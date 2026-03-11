@@ -66,7 +66,9 @@ enum DaemonHealthzFetcher {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else { return nil }
-            return try JSONDecoder().decode(DaemonHealthz.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(DaemonHealthz.self, from: data)
         } catch {
             return nil
         }
