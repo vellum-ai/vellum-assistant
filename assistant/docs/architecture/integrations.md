@@ -25,7 +25,6 @@ graph TB
             SEARCH["messaging_search"]
             SEND["messaging_send (+ reply via thread_id)"]
             MARK_READ["messaging_mark_read"]
-            ACTIVITY["messaging_analyze_activity"]
             STYLE["messaging_analyze_style"]
             DRAFT["messaging_draft"]
         end
@@ -47,7 +46,6 @@ graph TB
         PROVIDER_IF["MessagingProvider interface"]
         REGISTRY["Provider Registry"]
         TYPES["Platform-agnostic types<br/>Conversation, Message, SearchResult"]
-        ACTIVITY_ANALYZER["Activity Analyzer"]
         STYLE_ANALYZER["Style Analyzer"]
         DRAFT_STORE["Draft Store"]
     end
@@ -159,12 +157,13 @@ sequenceDiagram
 | `assistant/src/messaging/provider.ts`            | `MessagingProvider` interface                                                                      |
 | `assistant/src/messaging/provider-types.ts`      | Platform-agnostic types (Conversation, Message, SearchResult)                                      |
 | `assistant/src/messaging/registry.ts`            | Provider registry: register, lookup, list connected                                                |
-| `assistant/src/messaging/activity-analyzer.ts`   | Activity classification for conversations                                                          |
 | `assistant/src/messaging/style-analyzer.ts`      | Writing style extraction from message corpus                                                       |
 | `assistant/src/messaging/draft-store.ts`         | Local draft storage (platform/id JSON files)                                                       |
 | `assistant/src/messaging/providers/slack/`       | Slack adapter, client, types                                                                       |
 | `assistant/src/messaging/providers/gmail/`       | Gmail adapter, client, types                                                                       |
-| `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                             |
+| `assistant/src/config/bundled-skills/messaging/` | Core messaging skill (send, read, search, reply across platforms)                                  |
+| `assistant/src/config/bundled-skills/gmail/`     | Gmail management skill (archive, label, triage, declutter)                                         |
+| `assistant/src/config/bundled-skills/sequences/` | Email sequence management skill (drip campaigns, enrollment, analytics)                            |
 | `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                    |
 | `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                      |
 | `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                  |
