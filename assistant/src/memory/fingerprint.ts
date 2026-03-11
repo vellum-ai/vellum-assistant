@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
  *
  * Format: sha256(`${scopeId}|${kind}|${subject}|${statement}`)
  *
- * All writers (memory_save, memory_update, items-extractor, playbook-create,
+ * All writers (memory_manage save/update ops, items-extractor, playbook-create,
  * playbook-update, gmail-analyze-style) MUST use this function so the
  * fingerprint scheme stays consistent and deduplication works correctly.
  */

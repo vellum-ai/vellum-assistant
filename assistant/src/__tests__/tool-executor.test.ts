@@ -1167,7 +1167,7 @@ describe("isSideEffectTool", () => {
     const readOnlyTools = [
       "file_read",
       "memory_recall",
-      "memory_save",
+      "memory_manage",
       "web_search",
       "browser_snapshot",
       "browser_screenshot",
