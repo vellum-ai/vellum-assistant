@@ -399,7 +399,7 @@
     {
       "id": "time-based-actions",
       "name": "time-based-actions",
-      "description": "Unified routing guide for reminders, schedules, notifications, and tasks — prevents common misrouting",
+      "description": "Unified routing guide for schedules, notifications, and tasks — prevents common misrouting",
       "metadata": {
         "emoji": "⏰",
         "vellum": {
