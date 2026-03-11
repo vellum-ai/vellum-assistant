@@ -481,12 +481,7 @@ export function createProxyApprovalCallback(
  * history or explicit preactivation. Without this, their tools are
  * unavailable in fresh sessions until `skill_load` is called.
  */
-const DEFAULT_PREACTIVATED_SKILL_IDS = [
-  "tasks",
-  "notifications",
-  "settings",
-  "skill-management",
-];
+const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications"];
 
 /**
  * Subset of Session state that the resolveTools callback reads at each
