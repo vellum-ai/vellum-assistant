@@ -33,9 +33,9 @@ When a platform is connected (auth test succeeds), always use the messaging API 
 
 Before using any messaging tool, verify that the platform is connected by calling `messaging_auth_test` with the appropriate `platform` parameter. If the call fails with a token/authorization error, follow the steps below.
 
-### Public Ingress (required for all platforms)
+### Public Ingress (required for Slack and Telegram)
 
-Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Each setup skill below declares `public-ingress` as a dependency and will prompt you to run it if `ingress.publicBaseUrl` is not configured.
+Slack and Telegram setup require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Gmail on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the google-oauth-applescript skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 
