@@ -2207,7 +2207,7 @@ public final class ChatViewModel: ObservableObject {
                     return toolCall
                 }
             }
-            let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
+            let attachments: [ChatAttachment] = mapMessageAttachments(item.attachments ?? [])
 
             // Map surfaces from history to inlineSurfaces
             var inlineSurfaces: [InlineSurfaceData] = []

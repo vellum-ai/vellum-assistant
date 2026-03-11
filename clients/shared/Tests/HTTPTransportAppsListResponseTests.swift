@@ -46,7 +46,7 @@ final class HTTPTransportAppsListResponseTests: XCTestCase {
         super.tearDown()
     }
 
-    func testAppsListResponseWrapsRawHTTPPayloadIntoIPCMessage() async throws {
+    func testAppsListResponseWrapsRawHTTPPayloadIntoMessage() async throws {
         let responseExpectation = expectation(description: "apps list response")
 
         MockAppsURLProtocol.requestHandler = { request in
@@ -86,7 +86,7 @@ final class HTTPTransportAppsListResponseTests: XCTestCase {
         await fulfillment(of: [responseExpectation], timeout: 1.0)
     }
 
-    func testSharedAppsListResponseWrapsRawHTTPPayloadIntoIPCMessage() async throws {
+    func testSharedAppsListResponseWrapsRawHTTPPayloadIntoMessage() async throws {
         let responseExpectation = expectation(description: "shared apps list response")
 
         MockAppsURLProtocol.requestHandler = { request in

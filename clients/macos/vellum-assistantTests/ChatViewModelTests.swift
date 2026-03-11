@@ -1608,7 +1608,7 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.sessionError?.debugDetails,
                         "Error: 500 Internal Server Error\n  at handler.ts:42",
-                        "debugDetails should be passed through from IPC message")
+                        "debugDetails should be passed through from server message")
     }
 
     func testDebugDetailsNilWhenNotProvided() {
@@ -1623,7 +1623,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.sessionError(errorMsg))
 
         XCTAssertNil(viewModel.sessionError?.debugDetails,
-                      "debugDetails should be nil when not provided in IPC message")
+                      "debugDetails should be nil when not provided in server message")
     }
 
     // MARK: - Regression: Cancel semantics and error channel split
@@ -2425,7 +2425,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onSessionCreated callback")
     }
 
-    func testCreateSessionIfNeededSendsThreadTypeInIPC() {
+    func testCreateSessionIfNeededSendsThreadTypeInMessage() {
         var capturedMessages: [Any] = []
         daemonClient.sendOverride = { msg in
             capturedMessages.append(msg)

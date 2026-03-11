@@ -32,7 +32,7 @@ final class ThreadManagerRenameTests: XCTestCase {
 
     // MARK: - Rename with sessionId
 
-    func testRenameWithSessionIdSendsIPC() {
+    func testRenameWithSessionIdSendsMessage() {
         guard let thread = threadManager.threads.first else {
             XCTFail("Expected at least one thread")
             return

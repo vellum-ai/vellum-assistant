@@ -820,7 +820,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - Outbound Verification: startOutboundVerification
 
-    func testStartOutboundVerificationSendsCorrectIPCMessage() {
+    func testStartOutboundVerificationSendsCorrectMessage() {
         store.startOutboundVerification(channel: "sms", destination: "+15551234567")
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
@@ -907,7 +907,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - Outbound Verification: resend sends correct message
 
-    func testResendOutboundSendsCorrectIPCMessage() {
+    func testResendOutboundSendsCorrectMessage() {
         let verificationMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let resendCountBefore = verificationMessagesBefore.filter { $0.action == "resend_session" }.count
 

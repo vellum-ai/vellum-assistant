@@ -317,8 +317,8 @@ extension ChatViewModel {
     }
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    func mapIPCAttachments(_ ipcAttachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
-        ipcAttachments.compactMap { ipc in
+    func mapMessageAttachments(_ attachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
+        attachments.compactMap { ipc in
             let id = ipc.id ?? UUID().uuidString
             let base64 = ipc.data
             let dataLength = base64.count
@@ -367,7 +367,7 @@ extension ChatViewModel {
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
     func ingestAssistantAttachments(_ ipcAttachments: [IPCUserMessageAttachment]?) {
         guard let ipcAttachments, !ipcAttachments.isEmpty else { return }
-        let chatAttachments = mapIPCAttachments(ipcAttachments)
+        let chatAttachments = mapMessageAttachments(ipcAttachments)
         guard !chatAttachments.isEmpty else { return }
 
         if let existingId = currentAssistantMessageId,
