@@ -1934,8 +1934,8 @@ public final class ChatViewModel: ObservableObject {
         // responded — e.g. because the send was rate-limited with 429), resend
         // the original message instead of regenerating. A /regenerate request
         // would fail with 404 because the daemon never received the message.
-        if let lastMsg = messages.last, lastMsg.role == .user, let text = lastMsg.text {
-            lastFailedMessageText = text
+        if let lastMsg = messages.last, lastMsg.role == .user {
+            lastFailedMessageText = lastMsg.text
             lastFailedMessageDisplayText = nil
             lastFailedMessageAttachments = nil
             retryLastMessage()
