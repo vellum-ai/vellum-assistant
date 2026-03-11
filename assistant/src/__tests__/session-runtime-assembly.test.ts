@@ -352,7 +352,7 @@ describe("buildChannelAwarenessSection", () => {
     expect(section).toContain("## Channel Awareness & Trust Gating");
   });
 
-  test("includes channel-specific rules", () => {
+  test("references channel capability flags", () => {
     const section = buildChannelAwarenessSection();
     expect(section).toContain("dashboard_capable");
     expect(section).toContain("supports_dynamic_ui");
@@ -376,6 +376,131 @@ describe("buildChannelAwarenessSection", () => {
   test("gates computer-control on dashboard channel", () => {
     const section = buildChannelAwarenessSection();
     expect(section).toContain("computer-control permissions on non-dashboard");
+  });
+
+  test("references CHANNEL CONSTRAINTS and CHANNEL FORMATTING as runtime-injected", () => {
+    const section = buildChannelAwarenessSection();
+    expect(section).toContain("CHANNEL CONSTRAINTS");
+    expect(section).toContain("CHANNEL FORMATTING");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Channel formatting rules injected per-channel
+// ---------------------------------------------------------------------------
+
+describe("channel formatting rules in channel_capabilities", () => {
+  const baseUserMessage: Message = {
+    role: "user",
+    content: [{ type: "text", text: "Hello" }],
+  };
+
+  test("discord channel includes formatting rules", () => {
+    const caps: ChannelCapabilities = {
+      channel: "discord",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("CHANNEL FORMATTING");
+    expect(injected).toContain("Do not use markdown tables");
+    expect(injected).toContain("suppress embeds");
+  });
+
+  test("whatsapp channel includes formatting rules", () => {
+    const caps: ChannelCapabilities = {
+      channel: "whatsapp",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("CHANNEL FORMATTING");
+    expect(injected).toContain("No markdown headers");
+  });
+
+  test("vellum channel does not include formatting rules", () => {
+    const caps: ChannelCapabilities = {
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).not.toContain("CHANNEL FORMATTING");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group chat etiquette injected per-channel
+// ---------------------------------------------------------------------------
+
+describe("group chat etiquette in channel_capabilities", () => {
+  const baseUserMessage: Message = {
+    role: "user",
+    content: [{ type: "text", text: "Hello" }],
+  };
+
+  test("telegram channel includes group chat etiquette", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("GROUP CHAT ETIQUETTE");
+    expect(injected).toContain("participant");
+  });
+
+  test("slack channel includes group chat etiquette with emoji reactions", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("GROUP CHAT ETIQUETTE");
+    expect(injected).toContain("emoji reactions");
+  });
+
+  test("vellum channel does not include group chat etiquette", () => {
+    const caps: ChannelCapabilities = {
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).not.toContain("GROUP CHAT ETIQUETTE");
+  });
+
+  test("email channel does not include group chat etiquette", () => {
+    const caps: ChannelCapabilities = {
+      channel: "email",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).not.toContain("GROUP CHAT ETIQUETTE");
+    expect(injected).toContain("CHANNEL FORMATTING");
   });
 });
 

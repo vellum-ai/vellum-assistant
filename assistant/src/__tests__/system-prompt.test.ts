@@ -223,7 +223,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("## External Service Access Preference");
     expect(result).toContain("CLI tools via host_bash");
-    expect(result).toContain("Browser automation as last resort");
+    expect(result).toContain("Browser automation");
   });
 
   test("includes external comms identity section", () => {

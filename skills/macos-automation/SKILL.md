@@ -28,6 +28,7 @@ Use this skill to interact with native macOS apps and system-level features via 
 **Creative:** Adobe Photoshop, Final Cut Pro
 
 For any unlisted app, check scriptability first:
+
 ```bash
 osascript -e 'tell application "AppName" to get name'
 ```
@@ -67,4 +68,10 @@ osascript -e 'display notification "Done!" with title "Vellum"'
 
 - For multi-line scripts, write them to a `.applescript` file and run with `osascript path/to/script.applescript`
 - Use `System Events` for UI scripting apps that don't have their own AppleScript dictionary
-- AppleScript permissions are gated by macOS TCC — if a command fails with a permission error, use `request_system_permission` to prompt the user
+- AppleScript permissions are gated by macOS TCC -- if a command fails with a permission error, use `request_system_permission` to prompt the user
+
+## Preference over Foreground Computer Use
+
+Always prefer osascript/AppleScript automation over foreground computer use (`computer_use_request_control`).
+Foreground control takes over the user's cursor and keyboard and is disruptive. Use it only when the task
+genuinely cannot be done via osascript or background automation.
