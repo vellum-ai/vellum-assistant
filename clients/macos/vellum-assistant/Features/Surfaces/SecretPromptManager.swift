@@ -24,7 +24,7 @@ final class SecretPromptManager {
     /// Called when the user responds to a secret prompt.
     /// Parameters: (requestId, value?, delivery?) — value is nil if user cancelled.
     /// `delivery` is "store" (default) or "transient_send" for one-time use.
-    /// Returns `true` if the IPC send succeeded.
+    /// Returns `true` if the send succeeded.
     var onResponse: ((String, String?, String?) -> Bool)?
 
     func showPrompt(_ message: SecretRequestMessage) {

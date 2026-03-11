@@ -635,6 +635,7 @@ export class AnthropicProvider implements Provider {
 
         // Track which tool is currently streaming so we can attribute inputJson deltas.
         let currentStreamingToolName: string | undefined;
+        let currentStreamingToolUseId: string | undefined;
         let accumulatedInputJson = "";
         let lastInputJsonEmitMs = 0;
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
@@ -664,8 +665,14 @@ export class AnthropicProvider implements Provider {
             event.content_block.type === "tool_use"
           ) {
             currentStreamingToolName = event.content_block.name;
+            currentStreamingToolUseId = event.content_block.id;
             accumulatedInputJson = "";
             lastInputJsonEmitMs = 0;
+            onEvent?.({
+              type: "tool_use_preview_start",
+              toolUseId: event.content_block.id,
+              toolName: event.content_block.name,
+            });
           }
           if (event.type === "content_block_stop") {
             if (pendingInputJsonFlush) {
@@ -676,10 +683,12 @@ export class AnthropicProvider implements Provider {
               onEvent?.({
                 type: "input_json_delta",
                 toolName: currentStreamingToolName,
+                toolUseId: currentStreamingToolUseId!,
                 accumulatedJson: accumulatedInputJson,
               });
             }
             currentStreamingToolName = undefined;
+            currentStreamingToolUseId = undefined;
             accumulatedInputJson = "";
           }
         });
@@ -697,10 +706,12 @@ export class AnthropicProvider implements Provider {
             onEvent?.({
               type: "input_json_delta",
               toolName: currentStreamingToolName,
+              toolUseId: currentStreamingToolUseId!,
               accumulatedJson: accumulatedInputJson,
             });
           } else if (!pendingInputJsonFlush) {
             const toolName = currentStreamingToolName;
+            const toolUseId = currentStreamingToolUseId!;
             pendingInputJsonFlush = setTimeout(() => {
               pendingInputJsonFlush = undefined;
               lastInputJsonEmitMs = Date.now();
@@ -708,6 +719,7 @@ export class AnthropicProvider implements Provider {
                 onEvent?.({
                   type: "input_json_delta",
                   toolName,
+                  toolUseId,
                   accumulatedJson: accumulatedInputJson,
                 });
               }

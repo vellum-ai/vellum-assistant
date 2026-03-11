@@ -199,7 +199,7 @@ export async function resolveAssistantAttachments(
   }
 
   // Persist resolved attachments and link to the last assistant message.
-  // Large video attachments are omitted from the IPC payload and lazy-loaded
+  // Large video attachments are omitted from the event payload and lazy-loaded
   // by the client via the HTTP endpoint (same pattern as history_response).
   const MAX_INLINE_B64_SIZE = 512 * 1024;
 

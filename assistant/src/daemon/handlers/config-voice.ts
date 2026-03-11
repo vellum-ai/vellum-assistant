@@ -1,5 +1,5 @@
 import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 /**
  * Send a client_settings_update message to all connected clients.
@@ -194,7 +194,7 @@ export function normalizeActivationKey(
 }
 
 /**
- * Process a voice configuration update request from a session or IPC client.
+ * Process a voice configuration update request from a session or client.
  * Validates the activation key and broadcasts the change to all connected clients.
  */
 export function handleVoiceConfigUpdate(
@@ -214,6 +214,3 @@ export function handleVoiceConfigUpdate(
   );
 }
 
-export const voiceHandlers = defineHandlers({
-  voice_config_update: handleVoiceConfigUpdate,
-});

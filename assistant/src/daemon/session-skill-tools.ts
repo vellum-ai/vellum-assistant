@@ -240,12 +240,21 @@ export function projectSkillTools(
   const contextIds = contextEntries.map((e) => e.id);
   const allCandidateIds = new Set<string>([...contextIds, ...preactivated]);
 
+  // Load the catalog (cached for session lifetime) and index by ID
+  const catalog = getCachedCatalog(options?.cache);
+  const catalogById = new Map<string, SkillSummary>();
+  for (const skill of catalog) {
+    catalogById.set(skill.id, skill);
+  }
+
   // Assistant feature flag gate: drop skills whose flag is explicitly OFF,
   // even if they have markers in conversation history from before the flag was turned off.
   const config = getConfig();
   const activeIds = new Set<string>();
   for (const id of allCandidateIds) {
-    if (isAssistantFeatureFlagEnabled(skillFlagKey(id), config)) {
+    const skill = catalogById.get(id);
+    const flagKey = skill ? skillFlagKey(skill) : undefined;
+    if (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config)) {
       activeIds.add(id);
     }
   }
@@ -268,13 +277,6 @@ export function projectSkillTools(
   if (activeIds.size === 0) {
     prevActive.clear();
     return { toolDefinitions: [], allowedToolNames: new Set() };
-  }
-
-  // Load the catalog (cached for session lifetime) and index by ID
-  const catalog = getCachedCatalog(options?.cache);
-  const catalogById = new Map<string, SkillSummary>();
-  for (const skill of catalog) {
-    catalogById.set(skill.id, skill);
   }
 
   const allToolDefinitions: ToolDefinition[] = [];

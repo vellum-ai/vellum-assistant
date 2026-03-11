@@ -26,7 +26,7 @@ const AUTO_APPROVE_TOOLS = new Set([
   "Bash(find *)",
 ]);
 
-// Tools that always require user approval via confirmation IPC
+// Tools that always require user approval via confirmation prompt
 const APPROVAL_REQUIRED_TOOLS = new Set([
   "Bash",
   "Edit",

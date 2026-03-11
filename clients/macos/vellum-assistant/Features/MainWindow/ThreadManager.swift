@@ -47,7 +47,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // causing ownership checks (e.g. subagent abort) to fail.
                 if let sessionId = activeViewModel?.sessionId {
                     do {
-                        try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+                        try daemonClient.send(SessionSwitchRequest(sessionId: sessionId))
                     } catch {
                         log.error("Failed to send session switch request: \(error)")
                     }
@@ -963,7 +963,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// unpinned threads without explicit ordering, sends nil so they sort by recency.
     private func sendReorderThreads() {
         let visible = visibleThreads
-        var updates: [IPCReorderThreadsRequestUpdate] = []
+        var updates: [ReorderThreadsRequestUpdate] = []
         for thread in visible {
             guard let sessionId = thread.sessionId else { continue }
             let order: Double?
@@ -974,7 +974,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             } else {
                 order = thread.displayOrder.map { Double($0) }
             }
-            updates.append(IPCReorderThreadsRequestUpdate(
+            updates.append(ReorderThreadsRequestUpdate(
                 sessionId: sessionId,
                 displayOrder: order,
                 isPinned: thread.isPinned
@@ -982,7 +982,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         guard !updates.isEmpty else { return }
         do {
-            try daemonClient.send(IPCReorderThreadsRequest(
+            try daemonClient.send(ReorderThreadsRequest(
                 type: "reorder_threads",
                 updates: updates
             ))
@@ -1053,7 +1053,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         threads[index].title = trimmed
         if let sessionId = threads[index].sessionId {
-            try? daemonClient.send(IPCSessionRenameRequest(
+            try? daemonClient.send(SessionRenameRequest(
                 type: "session_rename",
                 sessionId: sessionId,
                 title: trimmed
@@ -1068,9 +1068,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
             guard let self, let service = self.activityNotificationService else { return }
             let sessionId = viewModel?.sessionId ?? ""
+            // Pass empty summary so ActivityNotificationService derives the title
+            // from the tool calls themselves (friendly name + target for single tool,
+            // count-based for multiple tools)
+            let summary = ""
             Task { @MainActor in
                 await service.notifySessionComplete(
-                    summary: "Tool execution completed",
+                    summary: summary,
                     steps: toolCalls.count,
                     toolCalls: toolCalls,
                     sessionId: sessionId
@@ -1239,7 +1243,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Mark all visible (non-archived, non-private) threads as seen locally.
-    /// IPC signals are NOT sent immediately — call `commitPendingSeenSignals()`
+    /// Seen signals are NOT sent immediately — call `commitPendingSeenSignals()`
     /// after the undo window expires, or `cancelPendingSeenSignals()` if the
     /// user clicks Undo. Returns the IDs of threads that were actually marked.
     @discardableResult
@@ -1279,7 +1283,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return markedIds
     }
 
-    /// Send the deferred IPC seen signals that were collected by
+    /// Send the deferred seen signals that were collected by
     /// `markAllThreadsSeen()`. Called when the undo window expires
     /// (toast dismissed or auto-dismiss timer fires).
     internal func commitPendingSeenSignals() {
@@ -1293,14 +1297,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
-    /// Cancel any pending IPC seen signals (user clicked Undo).
+    /// Cancel any pending seen signals (user clicked Undo).
     internal func cancelPendingSeenSignals() {
         pendingSeenSessionIds = []
         pendingSeenSignalTask?.cancel()
         pendingSeenSignalTask = nil
     }
 
-    /// Schedule deferred IPC seen signals to fire after a delay.
+    /// Schedule deferred seen signals to fire after a delay.
     /// If the user clicks Undo before the delay, call
     /// `cancelPendingSeenSignals()` to prevent them from sending.
     /// The optional `onCommit` closure is called after the signals are sent,
@@ -1316,7 +1320,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Restore the unseen flag for the given thread IDs and cancel any
-    /// pending IPC seen signals (used by undo). Restores prior
+    /// pending seen signals (used by undo). Restores prior
     /// `lastSeenAssistantMessageAt` and `pendingAttentionOverrides`
     /// values captured by `markAllThreadsSeen()` instead of blindly
     /// clearing them.
@@ -1357,9 +1361,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     // MARK: - Private
 
-    /// Send a `conversation_seen_signal` IPC message to the daemon.
+    /// Send a `conversation_seen_signal` message to the daemon.
     private func emitConversationSeenSignal(conversationId: String) {
-        let signal = IPCConversationSeenSignal(
+        let signal = ConversationSeenSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: "macos_conversation_opened",
@@ -1375,7 +1379,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     private func emitConversationUnreadSignal(conversationId: String) async throws {
-        let signal = IPCConversationUnreadSignal(
+        let signal = ConversationUnreadSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: "macos_conversation_opened",
@@ -1470,7 +1474,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         sendReorderThreads()
         // Flush any rename that was queued before the session ID was assigned.
         if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {
-            try? daemonClient.send(IPCSessionRenameRequest(
+            try? daemonClient.send(SessionRenameRequest(
                 type: "session_rename",
                 sessionId: sessionId,
                 title: pendingTitle
@@ -1479,7 +1483,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func mergeAssistantAttention(
-        from session: IPCSessionListResponseSession,
+        from session: SessionListResponseSession,
         intoThreadAt index: Int
     ) {
         threads[index].hasUnseenLatestAssistantMessage =
@@ -1839,7 +1843,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// For the active thread, the seen signal is only emitted on meaningful
     /// transitions — when a new assistant message first appears (new messageId)
     /// or when streaming completes (isStreaming goes from true to false). This
-    /// avoids O(n) IPC calls per streaming response (one per text delta) while
+    /// avoids O(n) HTTP calls per streaming response (one per text delta) while
     /// still advancing the server-side seen cursor.
     private func handleAssistantMessageArrival(threadId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
         // Skip during thread restoration or history re-hydration —
@@ -1862,7 +1866,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
-            // Only emit the IPC seen signal on meaningful transitions:
+            // Only emit the seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming

@@ -30,6 +30,7 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
+import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
@@ -77,7 +78,6 @@ import {
   createGuardianActionCopyGenerator,
   createGuardianFollowUpConversationGenerator,
 } from "./guardian-action-generators.js";
-import { initPairingHandlers } from "./handlers/pairing.js";
 import {
   cancelGeneration,
   clearAllSessions,
@@ -181,9 +181,7 @@ export async function runDaemon(): Promise<void> {
       chmodSync(httpTokenPath, 0o600);
       log.info("Daemon startup: CLI edge token written");
     } else {
-      log.warn(
-        "No guardian principal available — CLI edge token not written",
-      );
+      log.warn("No guardian principal available — CLI edge token not written");
     }
 
     try {
@@ -260,12 +258,17 @@ export async function runDaemon(): Promise<void> {
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
       await qdrantManager.start();
+      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingModel = embeddingSelection.backend
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        : undefined;
       initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
         vectorSize: config.memory.qdrant.vectorSize,
         onDisk: config.memory.qdrant.onDisk,
         quantization: config.memory.qdrant.quantization,
+        embeddingModel,
       });
       log.info("Qdrant vector store initialized");
     } catch (err) {
@@ -301,11 +304,11 @@ export async function runDaemon(): Promise<void> {
             : undefined,
         );
       },
-      (reminder) => {
-        void emitNotificationSignal({
-          sourceEventName: "reminder.fired",
+      async (schedule) => {
+        await emitNotificationSignal({
+          sourceEventName: "schedule.notify",
           sourceChannel: "scheduler",
-          sourceSessionId: reminder.id,
+          sourceSessionId: schedule.id,
           attentionHints: {
             requiresAction: true,
             urgency: "high",
@@ -313,13 +316,14 @@ export async function runDaemon(): Promise<void> {
             visibleInSourceNow: false,
           },
           contextPayload: {
-            reminderId: reminder.id,
-            label: reminder.label,
-            message: reminder.message,
+            scheduleId: schedule.id,
+            label: schedule.label,
+            message: schedule.message,
           },
-          routingIntent: reminder.routingIntent,
-          routingHints: reminder.routingHints,
-          dedupeKey: `reminder:${reminder.id}`,
+          routingIntent: schedule.routingIntent,
+          routingHints: schedule.routingHints,
+          dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
+          throwOnError: true,
         });
       },
       (schedule) => {
@@ -392,7 +396,7 @@ export async function runDaemon(): Promise<void> {
     const hostname = getRuntimeHttpHost();
 
     // Mint a JWT bearer token for the pairing flow. This replaces the
-    // old static http-token that was removed — the pairing IPC handler
+    // old static http-token that was removed — the pairing handler
     // and HTTP auto-approve logic both guard on a non-empty bearer token.
     const pairingBearerToken = mintPairingBearerToken();
 
@@ -714,7 +718,6 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp.setPairingBroadcast((msg) =>
         server.broadcast(msg as ServerMessage),
       );
-      initPairingHandlers(runtimeHttp.getPairingStore(), pairingBearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
       log.info(

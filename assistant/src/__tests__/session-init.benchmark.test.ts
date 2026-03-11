@@ -91,7 +91,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
   getWorkspaceHooksDir: () => join(testDir, "hooks"),
   getWorkspacePromptPath: (file: string) => join(testDir, file),
-  getSocketPath: () => join(testDir, "test.sock"),
   getSessionTokenPath: () => join(testDir, "session-token"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "data", "test.db"),
@@ -142,10 +141,8 @@ const mockConfig = {
   contextWindow: {
     enabled: true,
     maxInputTokens: 180000,
-    targetInputTokens: 110000,
-    compactThreshold: 0.8,
-    preserveRecentUserTurns: 8,
-    summaryMaxTokens: 1200,
+    targetBudgetRatio: 0.30,
+    compactThreshold: 0.8,    summaryBudgetRatio: 0.05,
   },
   thinking: { enabled: false },
 };

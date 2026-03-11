@@ -195,22 +195,21 @@ export function buildSystemPrompt(): string {
 
 function buildTaskScheduleReminderRoutingSection(): string {
   return [
-    "## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications",
+    "## Tool Routing: Tasks vs Schedules vs Notifications",
     "",
-    'Four tools, each for a different purpose. Load the "Time-Based Actions" skill for the full decision framework.',
+    'Three tools, each for a different purpose. Load the "Time-Based Actions" skill for the full decision framework.',
     "",
     "| Tool | Purpose |",
     "|------|---------|",
     '| `task_list_add` | Track work — no time trigger ("add to my tasks", "remind me to X" without a time) |',
-    '| `schedule_create` | Recurring automation on cron/RRULE ("every day at 9am", "weekly on Mondays") |',
-    '| `reminder_create` | One-shot future alert ("remind me at 3pm", "remind me in 5 minutes") |',
+    '| `schedule_create` | Any time-based automation — recurring cron/RRULE ("every day at 9am") OR one-shot future alert with `fire_at` ("remind me at 3pm") |',
     "| `send_notification` | **Immediate-only** — fires instantly, NO delay capability |",
     "",
     "### Critical: `send_notification` is immediate-only",
-    "NEVER use `send_notification` for future-time requests — it fires NOW. Use `reminder_create` for any delayed alert.",
+    "NEVER use `send_notification` for future-time requests — it fires NOW. Use `schedule_create` with `fire_at` for any delayed alert.",
     "",
     "### Quick routing rules",
-    "- Future time, one-shot → `reminder_create`",
+    "- Future time, one-shot → `schedule_create` with `fire_at`",
     "- Recurring pattern → `schedule_create`",
     "- No time, track as work → `task_list_add`",
     "- Instant alert → `send_notification`",
@@ -342,7 +341,7 @@ function buildInChatConfigurationSection(): string {
     "**How to collect credentials and secrets:**",
     '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
     '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps.',
-    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate IPC or config tool to persist the value.",
+    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
     "",
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     "",
@@ -880,22 +879,24 @@ function appendSkillsCatalog(basePrompt: string): string {
   const config = getConfig();
 
   // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter((s) =>
-    isAssistantFeatureFlagEnabled(skillFlagKey(s.id), config),
-  );
+  const flagFiltered = skills.filter((s) => {
+    const flagKey = skillFlagKey(s);
+    return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
+  });
 
   const sections: string[] = [basePrompt];
 
   const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildDynamicSkillWorkflowSection(config));
+  sections.push(buildDynamicSkillWorkflowSection(config, flagFiltered));
 
   return sections.join("\n\n");
 }
 
 function buildDynamicSkillWorkflowSection(
-  config: import("../config/schema.js").AssistantConfig,
+  _config: import("../config/schema.js").AssistantConfig,
+  activeSkills: SkillSummary[],
 ): string {
   const lines = [
     "## Dynamic Skill Authoring Workflow",
@@ -911,7 +912,9 @@ function buildDynamicSkillWorkflowSection(
     "After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.",
   ];
 
-  if (isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config)) {
+  const activeSkillIds = new Set(activeSkills.map((s) => s.id));
+
+  if (activeSkillIds.has("browser")) {
     lines.push(
       "",
       "### Browser Skill Prerequisite",
@@ -919,17 +922,7 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
-  if (isAssistantFeatureFlagEnabled("feature_flags.twitter.enabled", config)) {
-    lines.push(
-      "",
-      "### X (Twitter) Skill",
-      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
-    );
-  }
-
-  if (
-    isAssistantFeatureFlagEnabled("feature_flags.messaging.enabled", config)
-  ) {
+  if (activeSkillIds.has("messaging")) {
     lines.push(
       "",
       "### Messaging Skill",

@@ -22,7 +22,7 @@ import type {
   TelegramConfigRequest,
   TelegramConfigResponse,
 } from "../message-protocol.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
   /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
@@ -53,7 +53,7 @@ export function summarizeTelegramError(err: unknown): string {
   return redactTelegramBotTokens(parts.join(" "));
 }
 
-// -- Transport-agnostic result type (omits the IPC `type` discriminant) --
+// -- Transport-agnostic result type (omits the `type` discriminant) --
 
 export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 
@@ -359,7 +359,7 @@ export async function setupTelegram(
   };
 }
 
-// -- IPC handler (thin wrapper over extracted functions) --
+// -- Message handler (thin wrapper over extracted functions) --
 
 export async function handleTelegramConfig(
   msg: TelegramConfigRequest,
@@ -402,7 +402,3 @@ export async function handleTelegramConfig(
     });
   }
 }
-
-export const telegramHandlers = defineHandlers({
-  telegram_config: handleTelegramConfig,
-});

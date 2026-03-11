@@ -32,7 +32,7 @@ final class ThreadManagerRenameTests: XCTestCase {
 
     // MARK: - Rename with sessionId
 
-    func testRenameWithSessionIdSendsIPC() {
+    func testRenameWithSessionIdSendsMessage() {
         guard let thread = threadManager.threads.first else {
             XCTFail("Expected at least one thread")
             return
@@ -45,7 +45,7 @@ final class ThreadManagerRenameTests: XCTestCase {
 
         XCTAssertEqual(threadManager.threads[0].title, "Renamed Thread")
 
-        let renameMessages = capturedMessages.compactMap { $0 as? IPCSessionRenameRequest }
+        let renameMessages = capturedMessages.compactMap { $0 as? SessionRenameRequest }
         XCTAssertEqual(renameMessages.count, 1)
         XCTAssertEqual(renameMessages.first?.sessionId, "session-abc")
         XCTAssertEqual(renameMessages.first?.title, "Renamed Thread")
@@ -64,7 +64,7 @@ final class ThreadManagerRenameTests: XCTestCase {
         threadManager.renameThread(id: thread.id, title: "")
 
         XCTAssertEqual(threadManager.threads[0].title, originalTitle)
-        let renameMessages = capturedMessages.compactMap { $0 as? IPCSessionRenameRequest }
+        let renameMessages = capturedMessages.compactMap { $0 as? SessionRenameRequest }
         XCTAssertTrue(renameMessages.isEmpty)
     }
 
@@ -79,7 +79,7 @@ final class ThreadManagerRenameTests: XCTestCase {
         threadManager.renameThread(id: thread.id, title: "   \n  ")
 
         XCTAssertEqual(threadManager.threads[0].title, originalTitle)
-        let renameMessages = capturedMessages.compactMap { $0 as? IPCSessionRenameRequest }
+        let renameMessages = capturedMessages.compactMap { $0 as? SessionRenameRequest }
         XCTAssertTrue(renameMessages.isEmpty)
     }
 

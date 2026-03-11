@@ -488,7 +488,7 @@ final class VoiceModeManager: ObservableObject {
         case denied
         case ambiguous
 
-        /// The decision string sent to the daemon via IPC.
+        /// The decision string sent to the daemon via HTTP.
         var decisionString: String {
             switch self {
             case .allow: return "allow"

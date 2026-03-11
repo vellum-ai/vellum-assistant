@@ -187,7 +187,7 @@ final class AvatarAppearanceManager {
     }
 
     /// Reloads the custom avatar from disk. Called when the daemon notifies
-    /// that the avatar image has been regenerated (via `avatar_updated` IPC).
+    /// that the avatar image has been regenerated (via `avatar_updated` event).
     /// Invalidates all cached images so SwiftUI views pick up the new avatar.
     func reloadAvatar() {
         cachedChatAvatar = nil

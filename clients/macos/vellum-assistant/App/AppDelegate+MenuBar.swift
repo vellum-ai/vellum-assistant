@@ -176,9 +176,9 @@ extension AppDelegate {
             return
         }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            showStatusMenu()
-        } else {
             toggleQuickInput()
+        } else {
+            showStatusMenu()
         }
     }
 

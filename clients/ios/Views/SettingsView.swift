@@ -8,9 +8,23 @@ struct SettingsView: View {
     @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
     @State private var versionTapCount: Int = 0
+    @State private var contactsStore: ContactsStore?
+    @State private var channelTrustStore: ChannelTrustStore?
     /// Shared thread store — passed through so PrivateThreadsSection can show and
     /// manage private threads without creating a second store that races on UserDefaults.
     var threadStore: IOSThreadStore
+
+    /// Lazily builds the Channels & Guardian destination using the
+    /// pre-created stores from `@State` properties.
+    @ViewBuilder
+    private var channelsGuardianDestination: some View {
+        if let trustStore = channelTrustStore, let contacts = contactsStore {
+            ChannelsGuardianSection(channelTrustStore: trustStore, contactsStore: contacts)
+        } else {
+            Text("Not connected")
+                .foregroundStyle(.secondary)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -29,6 +43,11 @@ struct SettingsView: View {
                         Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
                     }
                     NavigationLink {
+                        ModelsServicesSection()
+                    } label: {
+                        Label { Text("Models & Services") } icon: { VIconView(.cpu, size: 14) }
+                    }
+                    NavigationLink {
                         TwilioSettingsSection()
                     } label: {
                         Label { Text("Twilio") } icon: { VIconView(.phone, size: 14) }
@@ -37,6 +56,11 @@ struct SettingsView: View {
                         IntegrationsSection()
                     } label: {
                         Label { Text("Integrations") } icon: { VIconView(.link, size: 14) }
+                    }
+                    NavigationLink {
+                        channelsGuardianDestination
+                    } label: {
+                        Label { Text("Channels & Guardian") } icon: { VIconView(.shieldCheck, size: 14) }
                     }
                     NavigationLink {
                         SchedulesSection()
@@ -77,8 +101,11 @@ struct SettingsView: View {
                 }
 
                 Section("Permissions") {
-                    PermissionRowView(permission: .microphone)
-                    PermissionRowView(permission: .speechRecognition)
+                    NavigationLink {
+                        PrivacySection()
+                    } label: {
+                        Label { Text("Privacy") } icon: { VIconView(.eye, size: 14) }
+                    }
                 }
 
                 Section("About") {
@@ -110,6 +137,18 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationDestination(isPresented: $navigateToConnect) {
                 DaemonConnectionSection()
+            }
+            .task(id: "\(clientProvider.clientGeneration)-\(clientProvider.isConnected)") {
+                guard clientProvider.isConnected else {
+                    contactsStore = nil
+                    channelTrustStore = nil
+                    return
+                }
+                if let daemon = clientProvider.client as? DaemonClient {
+                    let contacts = ContactsStore(daemonClient: daemon)
+                    contactsStore = contacts
+                    channelTrustStore = ChannelTrustStore(daemonClient: daemon, contactsStore: contacts)
+                }
             }
         }
     }

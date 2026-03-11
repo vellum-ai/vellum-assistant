@@ -18,7 +18,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
@@ -85,17 +84,6 @@ const taskListAddDef = tasksToolsJson.tools.find(
   (t: { name: string }) => t.name === "task_list_add",
 );
 
-// Load reminder_create description from the bundled skill TOOLS.json
-const reminderToolsJson = JSON.parse(
-  readFileSync(
-    join(import.meta.dirname, "../config/bundled-skills/reminder/TOOLS.json"),
-    "utf-8",
-  ),
-);
-const reminderCreateDef = reminderToolsJson.tools.find(
-  (t: { name: string }) => t.name === "reminder_create",
-);
-
 // Load schedule_create description from the bundled skill TOOLS.json
 const scheduleToolsJson = JSON.parse(
   readFileSync(
@@ -111,7 +99,7 @@ const scheduleCreateDef = scheduleToolsJson.tools.find(
 // 1. System prompt: buildTaskScheduleReminderRoutingSection
 // =====================================================================
 
-describe("Task/Schedule/Reminder routing section in system prompt", () => {
+describe("Task/Schedule routing section in system prompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -125,15 +113,14 @@ describe("Task/Schedule/Reminder routing section in system prompt", () => {
   test("system prompt includes the routing section heading", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain(
-      "## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications",
+      "## Tool Routing: Tasks vs Schedules vs Notifications",
     );
   });
 
-  test("routing section lists all four tools in the summary table", () => {
+  test("routing section lists all three tools in the summary table", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("`task_list_add`");
     expect(prompt).toContain("`schedule_create`");
-    expect(prompt).toContain("`reminder_create`");
     expect(prompt).toContain("`send_notification`");
   });
 
@@ -168,7 +155,7 @@ describe("Task/Schedule/Reminder routing section in system prompt", () => {
   test("routing section is present in the system prompt", () => {
     const prompt = buildSystemPrompt();
     const taskRoutingIdx = prompt.indexOf(
-      "## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications",
+      "## Tool Routing: Tasks vs Schedules vs Notifications",
     );
     expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
   });
@@ -231,44 +218,18 @@ describe("schedule_create tool description", () => {
   });
 });
 
-describe("reminder tool description", () => {
-  test("mentions time-based reminders", () => {
-    expect(reminderCreateDef.description).toContain("time-based reminder");
-  });
-
-  test("scopes to time-triggered notifications only", () => {
-    expect(reminderCreateDef.description).toContain(
-      "ONLY when the user wants a time-triggered notification",
-    );
-  });
-
-  test('warns against using for "add to my tasks" requests', () => {
-    expect(reminderCreateDef.description).toContain(
-      'Do NOT use this for "add to my tasks"',
-    );
-  });
-
-  test("redirects to task_list_add for task queue items", () => {
-    expect(reminderCreateDef.description).toContain("task_list_add");
-  });
-});
-
 // =====================================================================
-// 3. Cross-tool consistency: all three tools agree on routing boundaries
+// 3. Cross-tool consistency: schedule and task tools agree on routing boundaries
 // =====================================================================
 
 describe("cross-tool routing consistency", () => {
-  test("all three tools reference task_list_add as the task-queue tool", () => {
-    // task_list_add is the canonical name in all three descriptions
+  test("both tools reference task_list_add as the task-queue tool", () => {
     expect(taskListAddDef.name).toBe("task_list_add");
     expect(scheduleCreateDef.description).toContain("task_list_add");
-    expect(reminderCreateDef.description).toContain("task_list_add");
   });
 
-  test('schedule_create and reminder both reject "add to my queue" usage', () => {
-    // Both should redirect away from task-queue requests
+  test('schedule_create rejects "add to my queue" usage', () => {
     expect(scheduleCreateDef.description).toContain("add to my queue");
-    expect(reminderCreateDef.description).toContain("add to my queue");
   });
 });
 

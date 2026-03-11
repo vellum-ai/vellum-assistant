@@ -293,7 +293,7 @@ function buildFallbackDecision(
     signal.attentionHints.urgency === "high" &&
     signal.attentionHints.requiresAction;
 
-  // Always include the vellum channel in the fallback — it's a local IPC
+  // Always include the vellum channel in the fallback — it's a local
   // broadcast with no cost, so desktop notifications should never be lost
   // when the LLM is unavailable. External channels (e.g. Telegram) are
   // only included for high-urgency actionable signals.
@@ -320,7 +320,7 @@ function buildFallbackDecision(
     selectedChannels,
     reasoningSummary: isHighUrgencyAction
       ? "Fallback: high urgency + requires action — all channels"
-      : "Fallback: vellum-only (local IPC, always delivered)",
+      : "Fallback: vellum-only (local, always delivered)",
     renderedCopy: copy,
     dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
     confidence: 0.3,

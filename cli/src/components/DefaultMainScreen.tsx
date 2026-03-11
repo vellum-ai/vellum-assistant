@@ -34,6 +34,7 @@ export const ANSI = {
 } as const;
 
 export const SLASH_COMMANDS = [
+  "/btw",
   "/clear",
   "/doctor",
   "/exit",
@@ -98,7 +99,7 @@ const MIN_FEED_ROWS = 3;
 // Feed item height estimation
 const TOOL_CALL_CHROME_LINES = 2; // header (┌) + footer (└)
 const MESSAGE_SPACING = 1;
-const HELP_DISPLAY_HEIGHT = 6;
+const HELP_DISPLAY_HEIGHT = 8;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
@@ -372,13 +373,7 @@ async function handleConfirmationPrompt(
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(
-      baseUrl,
-      assistantId,
-      requestId,
-      "allow",
-      bearerToken,
-    );
+    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken);
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -407,13 +402,7 @@ async function handleConfirmationPrompt(
     return;
   }
 
-  await submitDecision(
-    baseUrl,
-    assistantId,
-    requestId,
-    "deny",
-    bearerToken,
-  );
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -450,13 +439,7 @@ async function handlePatternSelection(
     return;
   }
 
-  await submitDecision(
-    baseUrl,
-    assistantId,
-    requestId,
-    "deny",
-    bearerToken,
-  );
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -504,13 +487,7 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(
-    baseUrl,
-    assistantId,
-    requestId,
-    "deny",
-    bearerToken,
-  );
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -642,6 +619,10 @@ function HelpDisplay(): ReactElement {
   return (
     <Box flexDirection="column">
       <Text bold>Commands:</Text>
+      <Text>
+        {"  /btw <question>   "}
+        <Text dimColor>Ask a side question while the assistant is working</Text>
+      </Text>
       <Text>
         {"  /doctor [question] "}
         <Text dimColor>Run diagnostics on the remote instance via SSH</Text>
@@ -1265,7 +1246,6 @@ function ChatApp({
 
   const showSpinner = useCallback((text: string) => {
     setSpinnerText(text);
-    setInputFocused(false);
   }, []);
 
   const hideSpinner = useCallback(() => {
@@ -1501,79 +1481,6 @@ function ChatApp({
         return;
       }
 
-      if (trimmed === "/pair") {
-        h.showSpinner("Generating pairing credentials...");
-
-        const isConnected = await ensureConnected();
-        if (!isConnected) {
-          h.hideSpinner();
-          h.showError("Cannot pair — not connected to the assistant runtime.");
-          return;
-        }
-
-        try {
-          const pairingRequestId = randomUUID();
-          const pairingSecret = randomBytes(32).toString("hex");
-          const gatewayUrl = runtimeUrl;
-
-          // Call /pairing/register on the gateway (dedicated pairing proxy route)
-          const registerUrl = `${runtimeUrl}/pairing/register`;
-          const registerRes = await fetch(registerUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(bearerToken
-                ? { Authorization: `Bearer ${bearerToken}` }
-                : {}),
-            },
-            body: JSON.stringify({
-              pairingRequestId,
-              pairingSecret,
-              gatewayUrl,
-            }),
-          });
-
-          if (!registerRes.ok) {
-            const body = await registerRes.text().catch(() => "");
-            throw new Error(
-              `HTTP ${registerRes.status}: ${body || registerRes.statusText}`,
-            );
-          }
-
-          const hostId = createHash("sha256")
-            .update(hostname() + userInfo().username)
-            .digest("hex");
-          const payload = JSON.stringify({
-            type: "vellum-daemon",
-            v: 4,
-            id: hostId,
-            g: gatewayUrl,
-            pairingRequestId,
-            pairingSecret,
-          });
-
-          const qrString = await new Promise<string>((resolve) => {
-            qrcode.generate(payload, { small: true }, (code: string) => {
-              resolve(code);
-            });
-          });
-
-          h.hideSpinner();
-          h.addStatus(
-            `Pairing Ready\n\n` +
-              `Scan this QR code with the Vellum iOS app:\n\n` +
-              `${qrString}\n` +
-              `This pairing request expires in 5 minutes. Run /pair again to generate a new one.`,
-          );
-        } catch (err) {
-          h.hideSpinner();
-          h.showError(
-            `Pairing failed: ${err instanceof Error ? err.message : err}`,
-          );
-        }
-        return;
-      }
-
       if (trimmed === "/retire") {
         if (!project || !zone) {
           h.showError(
@@ -1724,6 +1631,214 @@ function ChatApp({
           h.showError(errorMsg);
           chatLogRef.current.push({ role: "error", content: errorMsg });
         }
+        return;
+      }
+
+      // If a connection attempt is already in progress, don't silently drop input
+      if (connectingRef.current) {
+        h.addStatus(
+          "Still connecting — please wait a moment and try again.",
+          "yellow",
+        );
+        return;
+      }
+
+      if (trimmed.startsWith("/btw ")) {
+        const question = trimmed.slice(5).trim();
+        if (!question) return;
+
+        h.addStatus(`/btw ${question}`, "gray");
+
+        const isConnected = await ensureConnected();
+        if (!isConnected) return;
+
+        try {
+          const res = await fetch(
+            `${runtimeUrl}/v1/assistants/${assistantId}/btw`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(bearerToken
+                  ? { Authorization: `Bearer ${bearerToken}` }
+                  : {}),
+              },
+              body: JSON.stringify({
+                conversationKey: assistantId,
+                content: question,
+              }),
+              signal: AbortSignal.timeout(30_000),
+            },
+          );
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+          let fullText = "";
+          let sseError = "";
+          const reader = res.body?.getReader();
+          const decoder = new TextDecoder();
+          if (reader) {
+            let buffer = "";
+            let currentEvent = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (line.startsWith("event: ")) {
+                  currentEvent = line.slice(7).trim();
+                } else if (line.startsWith("data: ")) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (currentEvent === "btw_error" || data.error) {
+                      sseError = data.error ?? data.text ?? "Unknown error";
+                    } else if (data.text) {
+                      fullText += data.text;
+                    }
+                  } catch {
+                    /* skip malformed */
+                  }
+                } else if (line.trim() === "") {
+                  // Empty line marks end of SSE event; reset event type
+                  currentEvent = "";
+                }
+              }
+            }
+          }
+          if (sseError) {
+            h.showError(`/btw: ${sseError}`);
+          } else {
+            h.addStatus(fullText || "No response");
+          }
+        } catch (err) {
+          h.showError(
+            `/btw failed: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+        return;
+      }
+
+      if (trimmed === "/pair") {
+        h.showSpinner("Generating pairing credentials...");
+
+        const isConnected = await ensureConnected();
+        if (!isConnected) {
+          h.hideSpinner();
+          h.showError("Cannot pair — not connected to the assistant runtime.");
+          return;
+        }
+
+        try {
+          const pairingRequestId = randomUUID();
+          const pairingSecret = randomBytes(32).toString("hex");
+          const gatewayUrl = runtimeUrl;
+
+          // Call /pairing/register on the gateway (dedicated pairing proxy route)
+          const registerUrl = `${runtimeUrl}/pairing/register`;
+          const registerRes = await fetch(registerUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(bearerToken
+                ? { Authorization: `Bearer ${bearerToken}` }
+                : {}),
+            },
+            body: JSON.stringify({
+              pairingRequestId,
+              pairingSecret,
+              gatewayUrl,
+            }),
+          });
+
+          if (!registerRes.ok) {
+            const body = await registerRes.text().catch(() => "");
+            throw new Error(
+              `HTTP ${registerRes.status}: ${body || registerRes.statusText}`,
+            );
+          }
+
+          const hostId = createHash("sha256")
+            .update(hostname() + userInfo().username)
+            .digest("hex");
+          const payload = JSON.stringify({
+            type: "vellum-daemon",
+            v: 4,
+            id: hostId,
+            g: gatewayUrl,
+            pairingRequestId,
+            pairingSecret,
+          });
+
+          const qrString = await new Promise<string>((resolve) => {
+            qrcode.generate(payload, { small: true }, (code: string) => {
+              resolve(code);
+            });
+          });
+
+          h.hideSpinner();
+          h.addStatus(
+            `Pairing Ready\n\n` +
+              `Scan this QR code with the Vellum iOS app:\n\n` +
+              `${qrString}\n` +
+              `This pairing request expires in 5 minutes. Run /pair again to generate a new one.`,
+          );
+        } catch (err) {
+          h.hideSpinner();
+          h.showError(
+            `Pairing failed: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+        return;
+      }
+
+      if (busyRef.current) {
+        // /btw is already handled above this block
+        if (!trimmed.startsWith("/")) {
+          const userMsg: RuntimeMessage = {
+            id: "local-user-" + Date.now(),
+            role: "user",
+            content: trimmed,
+            timestamp: new Date().toISOString(),
+          };
+          h.addMessage(userMsg);
+        }
+        const isConnected = await ensureConnected();
+        if (!isConnected) {
+          h.showError("Cannot send — not connected to the assistant.");
+          setInputFocused(true);
+          return;
+        }
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(
+            () => controller.abort(),
+            SEND_TIMEOUT_MS,
+          );
+          const sendResult = await sendMessage(
+            runtimeUrl,
+            assistantId,
+            trimmed,
+            controller.signal,
+            bearerToken,
+          );
+          clearTimeout(timeoutId);
+          if (sendResult.accepted) {
+            chatLogRef.current.push({ role: "user", content: trimmed });
+            h.addStatus(
+              "Message queued — will be processed after current response",
+              "gray",
+            );
+          } else {
+            h.showError("Message was not accepted by the assistant");
+          }
+        } catch (err) {
+          h.showError(
+            `Failed to queue message: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        setInputFocused(true);
         return;
       }
 

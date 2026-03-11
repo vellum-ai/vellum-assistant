@@ -32,14 +32,6 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "twitter",
-      scope: "assistant",
-      key: "feature_flags.twitter.enabled",
-      label: "Twitter",
-      description: "Twitter skill",
-      defaultEnabled: true,
-    },
-    {
       id: "guardian-verify-setup",
       scope: "assistant",
       key: "feature_flags.guardian-verify-setup.enabled",
@@ -161,11 +153,11 @@ describe("GET /v1/feature-flags handler", () => {
     }
 
     // Verify specific labels
-    const twitterFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.twitter.enabled",
+    const browserFlag2 = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
     );
-    expect(twitterFlag).toBeDefined();
-    expect(twitterFlag.label).toBe("Twitter");
+    expect(browserFlag2).toBeDefined();
+    expect(browserFlag2.label).toBe("Browser");
 
     const hatchFlag = body.flags.find(
       (f: { key: string }) =>
@@ -216,7 +208,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         assistantFeatureFlagValues: {
           "feature_flags.browser.enabled": false,
-          "feature_flags.twitter.enabled": false,
+          "feature_flags.guardian-verify-setup.enabled": false,
         },
       }),
     );
@@ -236,11 +228,12 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag.enabled).toBe(false); // overridden from default true
     expect(browserFlag.defaultEnabled).toBe(true);
 
-    const twitterFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.twitter.enabled",
+    const guardianFlag = body.flags.find(
+      (f: { key: string }) =>
+        f.key === "feature_flags.guardian-verify-setup.enabled",
     );
-    expect(twitterFlag).toBeDefined();
-    expect(twitterFlag.enabled).toBe(false); // overridden from default true
+    expect(guardianFlag).toBeDefined();
+    expect(guardianFlag.enabled).toBe(false); // overridden from default true
   });
 
   test("ignores non-boolean values in assistantFeatureFlagValues", async () => {
@@ -248,7 +241,7 @@ describe("GET /v1/feature-flags handler", () => {
       configPath,
       JSON.stringify({
         assistantFeatureFlagValues: {
-          "feature_flags.twitter.enabled": "no",
+          "feature_flags.browser.enabled": "no",
         },
       }),
     );
@@ -261,12 +254,12 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // twitter should fall back to default since non-boolean was ignored
-    const twitterFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.twitter.enabled",
+    // browser should fall back to default since non-boolean was ignored
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
     );
-    expect(twitterFlag).toBeDefined();
-    expect(twitterFlag.enabled).toBe(twitterFlag.defaultEnabled);
+    expect(browserFlag).toBeDefined();
+    expect(browserFlag.enabled).toBe(browserFlag.defaultEnabled);
   });
 });
 
@@ -307,7 +300,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       JSON.stringify({
         twilio: { phoneNumber: "+1234567890" },
         email: { address: "test@example.com" },
-        assistantFeatureFlagValues: { "feature_flags.twitter.enabled": true },
+        assistantFeatureFlagValues: {
+          "feature_flags.guardian-verify-setup.enabled": true,
+        },
       }),
     );
 
@@ -329,7 +324,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(config.email).toEqual({ address: "test@example.com" });
     // New section should have both old and new values
     expect(
-      config.assistantFeatureFlagValues["feature_flags.twitter.enabled"],
+      config.assistantFeatureFlagValues[
+        "feature_flags.guardian-verify-setup.enabled"
+      ],
     ).toBe(true);
     expect(
       config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
@@ -384,7 +381,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const oldFormatKeys = [
       "skills.browser.enabled",
-      "skills.twitter.enabled",
+      "skills.guardian-verify-setup.enabled",
       "skills.my-skill.enabled",
     ];
 
@@ -460,7 +457,6 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const validKeys = [
       "feature_flags.browser.enabled",
-      "feature_flags.twitter.enabled",
       "feature_flags.guardian-verify-setup.enabled",
       "feature_flags.hatch-new-assistant.enabled",
     ];
@@ -547,14 +543,14 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const handler = createFeatureFlagsPatchHandler();
     await handler(
       new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.twitter.enabled",
+        "http://gateway.test/v1/feature-flags/feature_flags.guardian-verify-setup.enabled",
         {
           method: "PATCH",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ enabled: false }),
         },
       ),
-      "feature_flags.twitter.enabled",
+      "feature_flags.guardian-verify-setup.enabled",
     );
 
     // Verify the file is valid JSON and contains all expected data
@@ -565,7 +561,9 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
     ).toBe(true);
     expect(
-      config.assistantFeatureFlagValues["feature_flags.twitter.enabled"],
+      config.assistantFeatureFlagValues[
+        "feature_flags.guardian-verify-setup.enabled"
+      ],
     ).toBe(false);
 
     // Verify no temp files left behind
@@ -582,7 +580,6 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Fire multiple concurrent PATCH requests at the same time
     const flagKeys = [
       "feature_flags.browser.enabled",
-      "feature_flags.twitter.enabled",
       "feature_flags.guardian-verify-setup.enabled",
       "feature_flags.hatch-new-assistant.enabled",
     ];

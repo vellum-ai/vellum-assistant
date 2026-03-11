@@ -402,7 +402,7 @@ export function getMessageContent(
 }
 
 // ---------------------------------------------------------------------------
-// IPC handlers (delegate to shared logic)
+// HTTP handlers (delegate to shared logic)
 // ---------------------------------------------------------------------------
 
 export function handleConversationSearch(

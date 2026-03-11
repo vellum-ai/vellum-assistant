@@ -36,7 +36,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -430,10 +429,9 @@ describe("Context + Memory E2E regression", () => {
       config: {
         ...DEFAULT_CONFIG.contextWindow,
         maxInputTokens: 5200,
-        targetInputTokens: 2600,
+        targetBudgetRatio: 0.55,
         compactThreshold: 0.55,
-        preserveRecentUserTurns: 6,
-        chunkTokens: 900,
+        summaryBudgetRatio: 0.05,
       },
     });
 

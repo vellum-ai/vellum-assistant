@@ -602,8 +602,7 @@ function collectAppLogs(): void {
 }
 
 /**
- * Logs fixture state for CI diagnostics: lockfile path/contents,
- * defaults read for API key, HOME and BASE_DATA_DIR values.
+ * Logs fixture state for CI diagnostics without printing secret values.
  */
 function logFixtureState(): void {
   const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
@@ -620,7 +619,6 @@ function logFixtureState(): void {
       const data = JSON.parse(raw) as { assistants?: unknown[] };
       const count = Array.isArray(data.assistants) ? data.assistants.length : 0;
       console.error(`[fixture] Lockfile assistant count: ${count}`);
-      console.error(`[fixture] Lockfile contents: ${raw.slice(0, 500)}`);
     } catch (err) {
       console.error(`[fixture] Failed to read lockfile: ${err}`);
     }
@@ -638,16 +636,6 @@ function logFixtureState(): void {
     console.error(
       `[fixture] defaults read API key FAILED: ${err instanceof Error ? err.message : err}`,
     );
-  }
-
-  try {
-    const allDefaults = execSync(
-      `defaults read ${domain} 2>&1 | head -30`,
-      { encoding: "utf-8", timeout: 5_000 },
-    ).trim();
-    console.error(`[fixture] All defaults (first 30 lines):\n${allDefaults}`);
-  } catch {
-    // best-effort
   }
 }
 

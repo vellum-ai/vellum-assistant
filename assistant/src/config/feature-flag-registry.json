@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "twitter",
-      "scope": "assistant",
-      "key": "feature_flags.twitter.enabled",
-      "label": "Twitter",
-      "description": "Enable X (Twitter) skill section in the system prompt",
-      "defaultEnabled": false
-    },
-    {
       "id": "messaging",
       "scope": "assistant",
       "key": "feature_flags.messaging.enabled",
@@ -63,7 +55,7 @@
       "key": "feature_flags.collect-usage-data.enabled",
       "label": "Collect usage data",
       "description": "Send crash reports and error diagnostics to help improve the app",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "user-hosted-enabled",

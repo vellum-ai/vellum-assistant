@@ -6,7 +6,7 @@ All inbound HTTP endpoints — APIs, webhooks, OAuth callbacks, or any route tha
 
 Concretely:
 
-- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal IPC/transport.
+- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal HTTP transport.
 - The gateway's public URL is controlled by the **public ingress URL** setting. All externally-facing URLs you generate or advertise (callback URLs, webhook registration URLs, etc.) must be derived from this setting — never hardcode a hostname or port.
 - The daemon should remain unreachable from the public internet. It only receives traffic from the gateway over the internal network.
 
@@ -18,7 +18,7 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **Exception boundary:** The gateway service itself may call the runtime internally. Tests may use direct runtime URLs for isolated unit/integration scenarios. Intentional local daemon-control paths are exempt:
 
-- `clients/shared/IPC/DaemonClient.swift`
+- `clients/shared/Network/DaemonClient.swift`
 - `clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift` (health probe)
 
 **Migration rule:** If a needed endpoint is not available at the gateway, add a gateway route/proxy first, then consume it. Do not work around a missing gateway endpoint by hitting the runtime directly.

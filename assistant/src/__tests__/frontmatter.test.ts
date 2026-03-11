@@ -74,15 +74,6 @@ describe("parseFrontmatterFields", () => {
     expect(result).not.toBeNull();
     expect(result!.fields.name).toBe("Test");
     expect(result!.fields.description).toBe("Desc");
-    expect(Object.keys(result!.fields)).toHaveLength(2);
-  });
-
-  test("skips lines without a colon separator", () => {
-    const input = '---\nname: "Test"\nno-colon-here\n---\nBody';
-    const result = parseFrontmatterFields(input);
-    expect(result).not.toBeNull();
-    expect(Object.keys(result!.fields)).toHaveLength(1);
-    expect(result!.fields.name).toBe("Test");
   });
 
   // -- Escape sequence handling (double-quoted) --
@@ -110,8 +101,6 @@ describe("parseFrontmatterFields", () => {
   });
 
   test("handles \\\\n correctly (escaped backslash followed by n, not newline)", () => {
-    // \\n in the source → the regex sees \\n → should produce \ followed by n (literal)
-    // The single-pass regex handles: \\ → \ and the trailing n is not part of an escape
     const result = parseFrontmatterFields('---\npath: "back\\\\name"\n---\n');
     expect(result!.fields.path).toBe("back\\name");
   });
@@ -164,17 +153,6 @@ describe("parseFrontmatterFields", () => {
 
   // -- Edge cases with quoting --
 
-  test("value that starts with quote but does not end with matching quote is treated as unquoted", () => {
-    // "hello world (no closing quote) — should be treated as the raw value
-    const result = parseFrontmatterFields('---\nname: "hello world\n---\n');
-    expect(result!.fields.name).toBe('"hello world');
-  });
-
-  test("mismatched quotes (double-start, single-end) treated as unquoted", () => {
-    const result = parseFrontmatterFields("---\nname: \"hello'\n---\n");
-    expect(result!.fields.name).toBe("\"hello'");
-  });
-
   test("empty double-quoted value", () => {
     const result = parseFrontmatterFields('---\nname: ""\n---\n');
     expect(result!.fields.name).toBe("");
@@ -190,26 +168,26 @@ describe("parseFrontmatterFields", () => {
     expect(result!.fields.name).toBe("  spaced  ");
   });
 
-  test("value with only whitespace (no quotes) is trimmed", () => {
-    const result = parseFrontmatterFields("---\nname:    \n---\n");
-    expect(result!.fields.name).toBe("");
+  // -- YAML array values --
+
+  test("YAML inline array is parsed as a native array", () => {
+    const result = parseFrontmatterFields("---\nincludes: [a, b]\n---\n");
+    expect(result!.fields.includes).toEqual(["a", "b"]);
   });
 
-  // -- JSON array values --
-
-  test("JSON array value is preserved as raw string", () => {
+  test("JSON-style array value is parsed as a native array", () => {
     const result = parseFrontmatterFields('---\nincludes: ["a","b"]\n---\n');
-    expect(result!.fields.includes).toBe('["a","b"]');
+    expect(result!.fields.includes).toEqual(["a", "b"]);
   });
 
   // -- Boolean-like values --
 
-  test("boolean-like values are preserved as strings", () => {
+  test("boolean values are parsed as native booleans", () => {
     const result = parseFrontmatterFields(
       "---\nuser-invocable: false\ndisable-model-invocation: true\n---\n",
     );
-    expect(result!.fields["user-invocable"]).toBe("false");
-    expect(result!.fields["disable-model-invocation"]).toBe("true");
+    expect(result!.fields["user-invocable"]).toBe(false);
+    expect(result!.fields["disable-model-invocation"]).toBe(true);
   });
 
   // -- CRLF handling --
@@ -226,9 +204,74 @@ describe("parseFrontmatterFields", () => {
   // -- Multiple escape sequences in one value --
 
   test("handles multiple escape sequences in a single double-quoted value", () => {
-    // File content between quotes: a\nb\rc\\
-    // After unescape: a<newline>b<cr>c<backslash>
     const result = parseFrontmatterFields('---\ndesc: "a\\nb\\rc\\\\"\n---\n');
     expect(result!.fields.desc).toBe("a\nb\rc\\");
+  });
+
+  // -- YAML nested metadata parsing --
+
+  test("parses YAML nested metadata as proper object", () => {
+    const input = [
+      "---",
+      'name: "Test"',
+      'description: "A test skill"',
+      "metadata:",
+      '  emoji: "\uD83D\uDD0C"',
+      "  vellum:",
+      '    display-name: "Test Skill"',
+      "    user-invocable: false",
+      "---",
+      "Body",
+    ].join("\n");
+    const result = parseFrontmatterFields(input);
+    expect(result).not.toBeNull();
+    expect(result!.fields.name).toBe("Test");
+    expect(result!.fields.metadata).toEqual({
+      emoji: "\uD83D\uDD0C",
+      vellum: {
+        "display-name": "Test Skill",
+        "user-invocable": false,
+      },
+    });
+  });
+
+  test("parses YAML metadata with arrays and nested objects", () => {
+    const input = [
+      "---",
+      'name: "Test"',
+      'description: "A test skill"',
+      "metadata:",
+      "  vellum:",
+      "    os:",
+      "      - darwin",
+      "      - linux",
+      "    requires:",
+      "      bins:",
+      "        - node",
+      "        - npm",
+      "---",
+      "Body",
+    ].join("\n");
+    const result = parseFrontmatterFields(input);
+    expect(result).not.toBeNull();
+    const meta = result!.fields.metadata as Record<string, unknown>;
+    const vellum = meta.vellum as Record<string, unknown>;
+    expect(vellum.os).toEqual(["darwin", "linux"]);
+    expect(vellum.requires).toEqual({ bins: ["node", "npm"] });
+  });
+
+  test("returns null for invalid YAML frontmatter", () => {
+    // Tabs are invalid in YAML indentation — should return null
+    const input = "---\nname: valid\nbad:\n\t- indentation\n---\nBody";
+    const result = parseFrontmatterFields(input);
+    expect(result).toBeNull();
+  });
+
+  test("handles empty frontmatter block", () => {
+    const input = "---\n\n---\nBody";
+    const result = parseFrontmatterFields(input);
+    expect(result).not.toBeNull();
+    expect(result!.fields).toEqual({});
+    expect(result!.body).toBe("Body");
   });
 });

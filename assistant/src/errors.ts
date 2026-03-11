@@ -18,7 +18,6 @@
  *      ├─ PermissionDeniedError
  *      ├─ ConfigError
  *      ├─ DaemonError
- *      ├─ IpcError
  *      ├─ PlatformError
  *      ├─ IntegrityError
  *      └─ IngressBlockedError
@@ -32,7 +31,6 @@ export {
   ErrorCode,
   IngressBlockedError,
   IntegrityError,
-  IpcError,
   PermissionDeniedError,
   PlatformError,
   ProviderError,

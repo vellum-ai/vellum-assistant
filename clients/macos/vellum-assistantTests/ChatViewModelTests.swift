@@ -1560,14 +1560,14 @@ final class ChatViewModelTests: XCTestCase {
 
         let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
-            code: .queueFull,
-            userMessage: "Queue is full",
+            code: .providerApi,
+            userMessage: "Provider error",
             retryable: false
         )
         viewModel.handleServerMessage(.sessionError(errorMsg))
 
         XCTAssertEqual(viewModel.sessionError?.isRetryable, false)
-        XCTAssertEqual(viewModel.sessionError?.category, .queueFull)
+        XCTAssertEqual(viewModel.sessionError?.category, .providerApi)
     }
 
     func testSessionErrorReplacedBySubsequentError() {
@@ -1608,7 +1608,7 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.sessionError?.debugDetails,
                         "Error: 500 Internal Server Error\n  at handler.ts:42",
-                        "debugDetails should be passed through from IPC message")
+                        "debugDetails should be passed through from server message")
     }
 
     func testDebugDetailsNilWhenNotProvided() {
@@ -1623,7 +1623,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.sessionError(errorMsg))
 
         XCTAssertNil(viewModel.sessionError?.debugDetails,
-                      "debugDetails should be nil when not provided in IPC message")
+                      "debugDetails should be nil when not provided in server message")
     }
 
     // MARK: - Regression: Cancel semantics and error channel split
@@ -1699,7 +1699,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1) // assistant only
 
         // Complete with attachments
-        let attachment = IPCUserMessageAttachment(
+        let attachment = UserMessageAttachment(
             id: "att-1", filename: "photo.png", mimeType: "image/png",
             data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
@@ -1719,7 +1719,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
 
         // Complete with attachments but no prior text deltas (attachment-only turn)
-        let attachment = IPCUserMessageAttachment(
+        let attachment = UserMessageAttachment(
             id: "att-1", filename: "report.pdf", mimeType: "application/pdf",
             data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
@@ -1742,7 +1742,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Generated file")))
 
         // Handoff with attachments
-        let attachment = IPCUserMessageAttachment(
+        let attachment = UserMessageAttachment(
             id: "att-2", filename: "output.csv", mimeType: "text/csv",
             data: "Y29sQQ==", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
@@ -1782,13 +1782,13 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - History Attachment Hydration
 
     func testPopulateFromHistoryHydratesAssistantAttachments() {
-        let attachment = IPCUserMessageAttachment(
+        let attachment = UserMessageAttachment(
             id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
             data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
-            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
+            HistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
         viewModel.populateFromHistory(historyItems, hasMore: false)
@@ -1801,12 +1801,12 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {
-        let attachment = IPCUserMessageAttachment(
+        let attachment = UserMessageAttachment(
             id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
             data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
         viewModel.populateFromHistory(historyItems, hasMore: false)
@@ -1819,8 +1819,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
         viewModel.populateFromHistory(historyItems, hasMore: false)
@@ -1879,9 +1879,9 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistoryUsesTextSegments() {
-        let toolCall = IPCHistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(
+        let toolCall = HistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
                 id: nil,
                 role: "assistant",
                 text: "What are you working on?Saved that to memory.",
@@ -1905,9 +1905,9 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistoryFallsBackToLegacy() {
-        let toolCall = IPCHistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
-        let historyItems: [IPCHistoryResponseMessage] = [
-            IPCHistoryResponseMessage(
+        let toolCall = HistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
                 id: nil,
                 role: "assistant",
                 text: "Here are the files.",
@@ -2031,7 +2031,7 @@ final class ChatViewModelTests: XCTestCase {
     func testRetryButtonAppearsForNonConnectionSendFailure() {
         viewModel.sessionId = "sess-1"
         daemonClient.isConnected = true
-        // Make the IPC send throw to simulate a non-connection send failure
+        // Make the send throw to simulate a non-connection send failure
         // (e.g. socket write error while technically connected).
         daemonClient.sendOverride = { _ in throw NSError(domain: "test", code: 1) }
 
@@ -2425,7 +2425,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onSessionCreated callback")
     }
 
-    func testCreateSessionIfNeededSendsThreadTypeInIPC() {
+    func testCreateSessionIfNeededSendsThreadTypeInMessage() {
         var capturedMessages: [Any] = []
         daemonClient.sendOverride = { msg in
             capturedMessages.append(msg)

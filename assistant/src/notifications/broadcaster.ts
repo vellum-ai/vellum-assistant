@@ -79,8 +79,8 @@ export class NotificationBroadcaster {
   ): Promise<NotificationDeliveryResult[]> {
     const destinations = resolveDestinations(decision.selectedChannels);
 
-    // Ensure vellum is processed first so the notification_thread_created IPC
-    // push fires immediately, before slower channel sends (e.g. Telegram 30s
+    // Ensure vellum is processed first so the notification_thread_created
+    // event fires immediately, before slower channel sends (e.g. Telegram 30s
     // timeout) can delay it past the macOS deep-link retry window.
     const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
       if (a === "vellum") return -1;
@@ -242,10 +242,10 @@ export class NotificationBroadcaster {
           }
         }
 
-        // Emit notification_thread_created IPC event only when a NEW
+        // Emit notification_thread_created event only when a NEW
         // conversation was actually created. Reusing an existing thread
-        // should not fire the IPC event — the client already knows about
-        // the conversation.
+        // should not fire the event — the client already knows about the
+        // conversation.
         if (
           pairing.createdNewConversation &&
           pairing.strategy === "start_new_conversation"

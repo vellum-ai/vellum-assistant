@@ -76,9 +76,7 @@ async function handleStartRecording(
 
   if (!recordingId) {
     const isIdle = isRecordingIdle();
-    const reason = isIdle
-      ? "unknown"
-      : "A recording is already active";
+    const reason = isIdle ? "unknown" : "A recording is already active";
     log.warn(
       { conversationId: body.conversationId, isIdle },
       "Recording start failed via HTTP",
@@ -266,7 +264,11 @@ async function handlePostRecordingStatus(
       { err, sessionId: body.sessionId, status: body.status },
       "Recording status handler failed",
     );
-    return httpError("INTERNAL_ERROR", "Recording status processing failed", 500);
+    return httpError(
+      "INTERNAL_ERROR",
+      "Recording status processing failed",
+      500,
+    );
   }
 
   log.info(

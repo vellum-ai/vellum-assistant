@@ -763,6 +763,11 @@ export async function executeWebFetch(
         `start_index (${startIndex}) exceeded available content length (${processed.length}).`,
       );
     }
+    if (html && !rawMode && processed.length < 200) {
+      notices.push(
+        `Extracted text content is very short (${processed.length} characters). The page may require JavaScript rendering for full content.`,
+      );
+    }
 
     const content = formatWebFetchOutput({
       requestedUrl: safeRequestedUrl,

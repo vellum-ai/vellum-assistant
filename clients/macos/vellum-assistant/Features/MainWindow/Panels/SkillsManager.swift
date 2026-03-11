@@ -1,8 +1,13 @@
 import SwiftUI
+import Combine
 import VellumAssistantShared
 
 @MainActor
 final class SkillsManager: ObservableObject {
+    let skillsStore: SkillsStore
+
+    // Forward all published properties from SkillsStore so existing views
+    // continue to work via @ObservedObject on SkillsManager unchanged.
     @Published var skills: [SkillInfo] = []
     @Published var loadedBodies: [String: String] = [:]
     @Published var isLoading = false
@@ -11,372 +16,84 @@ final class SkillsManager: ObservableObject {
     @Published var inspectedSkill: ClawhubInspectData?
     @Published var isInspecting = false
     @Published var inspectError: String?
-    private var inspectCache: [String: ClawhubInspectData] = [:]
-    @Published var installResult: InstallResult?
-    @Published var uninstallResult: UninstallResult?
+    @Published var installResult: SkillsStore.InstallResult?
+    @Published var uninstallResult: SkillsStore.UninstallResult?
     @Published var isUninstalling = false
-    @Published var draftResult: SkillDraftResult?
+    @Published var draftResult: SkillsStore.SkillDraftResult?
     @Published var isDrafting = false
     @Published var draftError: String?
     @Published var isCreating = false
     @Published var createError: String?
 
-    struct InstallResult {
-        let slug: String
-        let success: Bool
-        let error: String?
-    }
-
-    struct UninstallResult {
-        let id: String
-        let success: Bool
-        let error: String?
-    }
-
-    struct SkillDraftResult {
-        let skillId: String
-        let name: String
-        let description: String
-        let emoji: String?
-        let bodyMarkdown: String
-        let warnings: [String]
-    }
-
-    private let daemonClient: DaemonClient
-    private var currentInspectSlug: String?
-    private var lastSearchQuery: String?
-    private var draftTask: Task<Void, Never>?
-    private var createTask: Task<Void, Never>?
-    private var draftGeneration: Int = 0
-    private var createGeneration: Int = 0
+    // Kept for source compatibility with existing macOS views.
+    typealias InstallResult = SkillsStore.InstallResult
+    typealias UninstallResult = SkillsStore.UninstallResult
+    typealias SkillDraftResult = SkillsStore.SkillDraftResult
 
     init(daemonClient: DaemonClient) {
-        self.daemonClient = daemonClient
+        self.skillsStore = SkillsStore(daemonClient: daemonClient)
+        bindStore()
     }
 
+    /// Wire up Combine subscriptions to forward SkillsStore state.
+    private func bindStore() {
+        skillsStore.$skills.assign(to: &$skills)
+        skillsStore.$loadedBodies.assign(to: &$loadedBodies)
+        skillsStore.$isLoading.assign(to: &$isLoading)
+        skillsStore.$searchResults.assign(to: &$searchResults)
+        skillsStore.$isSearching.assign(to: &$isSearching)
+        skillsStore.$inspectedSkill.assign(to: &$inspectedSkill)
+        skillsStore.$isInspecting.assign(to: &$isInspecting)
+        skillsStore.$inspectError.assign(to: &$inspectError)
+        skillsStore.$installResult.assign(to: &$installResult)
+        skillsStore.$uninstallResult.assign(to: &$uninstallResult)
+        skillsStore.$isUninstalling.assign(to: &$isUninstalling)
+        skillsStore.$draftResult.assign(to: &$draftResult)
+        skillsStore.$isDrafting.assign(to: &$isDrafting)
+        skillsStore.$draftError.assign(to: &$draftError)
+        skillsStore.$isCreating.assign(to: &$isCreating)
+        skillsStore.$createError.assign(to: &$createError)
+    }
+
+    // MARK: - Delegated Operations
+
     func fetchSkills(force: Bool = false) {
-        guard !isLoading else { return }
-        if !force && !skills.isEmpty { return }
-        isLoading = true
-
-        Task {
-            // Subscribe before sending so we don't miss fast daemon responses
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch {
-                isLoading = false
-                return
-            }
-
-            for await message in stream {
-                if case .skillsListResponse(let response) = message {
-                    skills = response.skills
-                    isLoading = false
-                    return
-                }
-            }
-            isLoading = false
-        }
+        skillsStore.fetchSkills(force: force)
     }
 
     func fetchSkillBody(skillId: String) {
-        guard loadedBodies[skillId] == nil else { return }
-
-        Task {
-            // Subscribe before sending so we don't miss fast daemon responses
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillDetailRequestMessage(skillId: skillId))
-            } catch {
-                return
-            }
-
-            for await message in stream {
-                if case .skillDetailResponse(let response) = message,
-                   response.skillId == skillId {
-                    if let error = response.error {
-                        loadedBodies[skillId] = "Error: \(error)"
-                    } else {
-                        loadedBodies[skillId] = response.body
-                    }
-                    return
-                }
-            }
-        }
+        skillsStore.fetchSkillBody(skillId: skillId)
     }
 
     func searchSkills(query: String = "", force: Bool = false) {
-        guard !isSearching else { return }
-        // Skip if we already have results for this query (unless forced)
-        if !force && !searchResults.isEmpty && lastSearchQuery == query { return }
-        isSearching = true
-
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.searchSkills(query: query)
-            } catch {
-                isSearching = false
-                return
-            }
-
-            for await message in stream {
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "search" {
-                    if response.success, let data = response.data {
-                        searchResults = data.skills
-                        lastSearchQuery = query
-                    }
-                    isSearching = false
-                    return
-                }
-            }
-            isSearching = false
-        }
+        skillsStore.searchSkills(query: query, force: force)
     }
 
     func installSkill(slug: String) {
-        installResult = nil
-
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.installSkill(slug: slug)
-            } catch {
-                installResult = InstallResult(slug: slug, success: false, error: "Failed to connect")
-                return
-            }
-
-            for await message in stream {
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "install" {
-                    if response.success {
-                        installResult = InstallResult(slug: slug, success: true, error: nil)
-                        inspectCache.removeValue(forKey: slug)
-                        fetchSkills(force: true)
-                    } else {
-                        installResult = InstallResult(slug: slug, success: false, error: response.error)
-                    }
-                    // Auto-clear after 3 seconds
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        if self.installResult?.slug == slug {
-                            self.installResult = nil
-                        }
-                    }
-                    return
-                }
-            }
-        }
+        skillsStore.installSkill(slug: slug)
     }
 
     func inspectSkill(slug: String) {
-        currentInspectSlug = slug
-        inspectError = nil
-
-        // Return cached result immediately if available
-        if let cached = inspectCache[slug] {
-            inspectedSkill = cached
-            isInspecting = false
-            return
-        }
-
-        isInspecting = true
-        inspectedSkill = nil
-
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.inspectSkill(slug: slug)
-            } catch {
-                // Only update if still the current request
-                guard currentInspectSlug == slug else { return }
-                isInspecting = false
-                inspectError = "Failed to connect"
-                return
-            }
-
-            for await message in stream {
-                if case .skillsInspectResponse(let response) = message,
-                   response.slug == slug {
-                    // Only update if still the current request
-                    guard currentInspectSlug == slug else { return }
-                    if let data = response.data {
-                        inspectedSkill = data
-                        inspectCache[slug] = data
-                    } else {
-                        inspectError = response.error ?? "Unknown error"
-                    }
-                    isInspecting = false
-                    return
-                }
-            }
-            if currentInspectSlug == slug {
-                isInspecting = false
-            }
-        }
+        skillsStore.inspectSkill(slug: slug)
     }
 
     func uninstallSkill(id: String) {
-        guard !isUninstalling else { return }
-        isUninstalling = true
-        uninstallResult = nil
-
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.uninstallSkill(id)
-            } catch {
-                isUninstalling = false
-                uninstallResult = UninstallResult(id: id, success: false, error: "Failed to connect")
-                return
-            }
-
-            for await message in stream {
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "uninstall" {
-                    if response.success {
-                        uninstallResult = UninstallResult(id: id, success: true, error: nil)
-                        inspectCache.removeAll()
-                        fetchSkills(force: true)
-                    } else {
-                        uninstallResult = UninstallResult(id: id, success: false, error: response.error)
-                    }
-                    isUninstalling = false
-                    // Auto-clear after 3 seconds
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        if self.uninstallResult?.id == id {
-                            self.uninstallResult = nil
-                        }
-                    }
-                    return
-                }
-            }
-            isUninstalling = false
-        }
+        skillsStore.uninstallSkill(id: id)
     }
 
     func clearInspection() {
-        currentInspectSlug = nil
-        inspectedSkill = nil
-        isInspecting = false
-        inspectError = nil
+        skillsStore.clearInspection()
     }
 
-    // MARK: - Skill Drafting & Creation
-
     func draftSkill(sourceText: String) {
-        guard !isDrafting else { return }
-        isDrafting = true
-        draftError = nil
-        draftResult = nil
-        draftGeneration += 1
-        let generation = draftGeneration
-
-        draftTask = Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.draftSkill(sourceText: sourceText)
-            } catch {
-                if generation == self.draftGeneration {
-                    isDrafting = false
-                    draftError = "Failed to send draft request"
-                }
-                return
-            }
-
-            for await message in stream {
-                guard !Task.isCancelled else { break }
-                guard generation == self.draftGeneration else { break }
-                if case .skillsDraftResponse(let response) = message {
-                    if response.success, let draft = response.draft {
-                        draftResult = SkillDraftResult(
-                            skillId: draft.skillId,
-                            name: draft.name,
-                            description: draft.description,
-                            emoji: draft.emoji,
-                            bodyMarkdown: draft.bodyMarkdown,
-                            warnings: response.warnings ?? []
-                        )
-                    } else {
-                        draftError = response.error ?? "Draft generation failed"
-                    }
-                    isDrafting = false
-                    return
-                }
-            }
-            if generation == self.draftGeneration {
-                isDrafting = false
-            }
-        }
+        skillsStore.draftSkill(sourceText: sourceText)
     }
 
     func createSkillFromDraft(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String) {
-        guard !isCreating else { return }
-        isCreating = true
-        createError = nil
-        createGeneration += 1
-        let generation = createGeneration
-
-        createTask = Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.createSkill(
-                    skillId: skillId,
-                    name: name,
-                    description: description,
-                    emoji: emoji,
-                    bodyMarkdown: bodyMarkdown
-                )
-            } catch {
-                if generation == self.createGeneration {
-                    isCreating = false
-                    createError = "Failed to send create request"
-                }
-                return
-            }
-
-            for await message in stream {
-                guard !Task.isCancelled else { break }
-                guard generation == self.createGeneration else { break }
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "create" {
-                    if !response.success {
-                        createError = response.error ?? "Failed to create skill"
-                    } else {
-                        fetchSkills(force: true)
-                    }
-                    isCreating = false
-                    return
-                }
-            }
-            if generation == self.createGeneration {
-                isCreating = false
-            }
-        }
+        skillsStore.createSkillFromDraft(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown)
     }
 
     func resetDraftState() {
-        draftTask?.cancel()
-        createTask?.cancel()
-        draftTask = nil
-        createTask = nil
-        draftResult = nil
-        isDrafting = false
-        draftError = nil
-        isCreating = false
-        createError = nil
-        draftGeneration += 1
-        createGeneration += 1
+        skillsStore.resetDraftState()
     }
 }

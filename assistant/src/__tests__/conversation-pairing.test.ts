@@ -232,7 +232,7 @@ describe("pairDeliveryWithConversation", () => {
 
   test("rejects threadSeedMessage that is a JSON dump and uses runtime composer", async () => {
     const signal = makeSignal({
-      sourceEventName: "reminder.fired",
+      sourceEventName: "schedule.notify",
       contextPayload: { message: "Daily standup" },
     });
     const copy = makeCopy({
@@ -256,7 +256,7 @@ describe("pairDeliveryWithConversation", () => {
 
   test("rejects very short threadSeedMessage and uses runtime composer", async () => {
     const signal = makeSignal({
-      sourceEventName: "reminder.fired",
+      sourceEventName: "schedule.notify",
       contextPayload: { message: "Test" },
     });
     const copy = makeCopy({

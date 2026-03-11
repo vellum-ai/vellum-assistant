@@ -1,10 +1,21 @@
+import { readFile } from "node:fs/promises";
+
 import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
+import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db.js";
+import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
-import { memoryItems, memorySegments, memorySummaries } from "../schema.js";
+import { extractMediaBlocks } from "../message-content.js";
+import {
+  mediaAssets,
+  memoryItems,
+  memorySegments,
+  memorySummaries,
+  messages,
+} from "../schema.js";
 
 export async function embedSegmentJob(
   job: MemoryJob,
@@ -74,4 +85,73 @@ export async function embedSummaryJob(
       last_seen_at: summary.endAt,
     },
   );
+}
+
+export async function embedMediaJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const assetId = asString(job.payload.assetId);
+  if (!assetId) return;
+
+  const db = getDb();
+  const asset = db
+    .select()
+    .from(mediaAssets)
+    .where(eq(mediaAssets.id, assetId))
+    .get();
+  if (!asset || asset.status !== "indexed") return;
+
+  // Read the media file from disk
+  const fileData = await readFile(asset.filePath);
+
+  // Determine modality from mediaType
+  const input: EmbeddingInput = {
+    type: asset.mediaType as "image" | "audio" | "video",
+    data: fileData,
+    mimeType: asset.mimeType,
+  };
+
+  await embedAndUpsert(config, "media", asset.id, input, {
+    created_at: asset.createdAt,
+    kind: asset.mediaType,
+    subject: asset.title,
+  });
+}
+
+export async function embedAttachmentJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const messageId = asString(job.payload.messageId);
+  const blockIndex = job.payload.blockIndex as number;
+  if (!messageId || typeof blockIndex !== "number") return;
+
+  const db = getDb();
+  const message = db
+    .select()
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (!message) return;
+
+  const mediaBlocks = extractMediaBlocks(message.content);
+  const block = mediaBlocks.find((b) => b.index === blockIndex);
+  if (!block) return;
+
+  const input: EmbeddingInput = {
+    type: block.type,
+    data: block.data,
+    mimeType: block.mimeType,
+  };
+
+  // Use messageId + blockIndex as targetId for uniqueness
+  const targetId = `${messageId}:${blockIndex}`;
+  const memoryScopeId = getConversationMemoryScopeId(message.conversationId);
+  await embedAndUpsert(config, "media", targetId, input, {
+    created_at: message.createdAt,
+    message_id: messageId,
+    conversation_id: message.conversationId,
+    memory_scope_id: memoryScopeId,
+  });
 }

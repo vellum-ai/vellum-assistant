@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -14,7 +20,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
@@ -612,6 +617,33 @@ describe("skill_load tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Just body.");
     expect(result.content).not.toContain("--- Reference:");
+  });
+
+  test("references/ directory skips symlinked markdown files that escape the skill directory", async () => {
+    if (process.platform === "win32") {
+      // Symlink creation is not consistently available in Windows test environments.
+      return;
+    }
+
+    const skillDir = join(TEST_DIR, "skills", "refs-symlink");
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(join(skillDir, "references"), { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      '---\nname: "Refs Symlink"\ndescription: "Skips symlinks"\n---\n\nBody.\n',
+    );
+
+    const outsideSecretPath = join(TEST_DIR, "outside-secret.md");
+    writeFileSync(outsideSecretPath, "TOP_SECRET_DO_NOT_LOAD");
+    symlinkSync(outsideSecretPath, join(skillDir, "references", "secret.md"));
+
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- refs-symlink\n");
+
+    const result = await executeSkillLoad({ skill: "refs-symlink" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Body.");
+    expect(result.content).not.toContain("--- Reference: Secret ---");
+    expect(result.content).not.toContain("TOP_SECRET_DO_NOT_LOAD");
   });
 
   test("references/ directory ignores non-markdown files", async () => {

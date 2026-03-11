@@ -3,7 +3,7 @@
  *
  * Reads guardian delivery info from the contacts table.
  *
- * - Vellum: no external endpoint needed — delivery goes through the IPC
+ * - Vellum: no external endpoint needed — delivery goes through the event
  *   broadcast mechanism to connected desktop/mobile clients. The
  *   guardianPrincipalId is included in metadata so downstream adapters
  *   can scope guardian-sensitive notifications to bound guardian devices.
@@ -40,7 +40,7 @@ export function resolveDestinations(
     // guard, so we narrow with a switch over known deliverable values.
     switch (channel as NotificationChannel) {
       case "vellum": {
-        // Vellum delivery is local IPC — no external endpoint required.
+        // Vellum delivery is local — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
         const guardianResult = findGuardianForChannel("vellum");

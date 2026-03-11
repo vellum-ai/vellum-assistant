@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import { startLocalDaemon, startGateway } from "../lib/local";
+import { maybeStartNgrokTunnel } from "../lib/ngrok";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -93,6 +94,21 @@ export async function wake(): Promise<void> {
     } else {
       await startGateway(undefined, watch, resources);
     }
+  }
+
+  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
+  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+  const prevBaseDataDir = process.env.BASE_DATA_DIR;
+  process.env.BASE_DATA_DIR = resources.instanceDir;
+  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+  if (ngrokChild?.pid) {
+    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+  }
+  if (prevBaseDataDir !== undefined) {
+    process.env.BASE_DATA_DIR = prevBaseDataDir;
+  } else {
+    delete process.env.BASE_DATA_DIR;
   }
 
   console.log("Wake complete.");

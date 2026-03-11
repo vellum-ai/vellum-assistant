@@ -29,7 +29,6 @@ describe("integration-status", () => {
       const summary = getIntegrationSummary();
       expect(summary).toEqual([
         { name: "Gmail", category: "email", connected: false },
-        { name: "Twitter", category: "social", connected: false },
         { name: "Slack", category: "messaging", connected: false },
         { name: "Twilio", category: "telephony", connected: false },
         { name: "Telegram", category: "messaging", connected: false },
@@ -38,7 +37,6 @@ describe("integration-status", () => {
 
     test("returns all connected when all keys are set", () => {
       secureKeyValues.set("credential:integration:gmail:access_token", "tok");
-      secureKeyValues.set("credential:integration:twitter:access_token", "tok");
       secureKeyValues.set("credential:integration:slack:access_token", "tok");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set("credential:twilio:auth_token", "auth");
@@ -71,7 +69,6 @@ describe("integration-status", () => {
       ]);
       expect(disconnected.map((s: { name: string }) => s.name)).toEqual([
         "Gmail",
-        "Twitter",
         "Slack",
       ]);
     });
@@ -104,20 +101,19 @@ describe("integration-status", () => {
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2717 | Twitter \u2717 | Slack \u2717 | Twilio \u2713 | Telegram \u2713",
+        "Gmail \u2717 | Slack \u2717 | Twilio \u2713 | Telegram \u2713",
       );
     });
 
     test("all disconnected", () => {
       const result = formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2717 | Twitter \u2717 | Slack \u2717 | Twilio \u2717 | Telegram \u2717",
+        "Gmail \u2717 | Slack \u2717 | Twilio \u2717 | Telegram \u2717",
       );
     });
 
     test("all connected", () => {
       secureKeyValues.set("credential:integration:gmail:access_token", "tok");
-      secureKeyValues.set("credential:integration:twitter:access_token", "tok");
       secureKeyValues.set("credential:integration:slack:access_token", "tok");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set("credential:twilio:auth_token", "auth");
@@ -126,7 +122,7 @@ describe("integration-status", () => {
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2713 | Twitter \u2713 | Slack \u2713 | Twilio \u2713 | Telegram \u2713",
+        "Gmail \u2713 | Slack \u2713 | Twilio \u2713 | Telegram \u2713",
       );
     });
   });
@@ -134,7 +130,6 @@ describe("integration-status", () => {
   describe("hasCapability", () => {
     test("returns false when no integrations in category are connected", () => {
       expect(hasCapability("email")).toBe(false);
-      expect(hasCapability("social")).toBe(false);
       expect(hasCapability("messaging")).toBe(false);
     });
 

@@ -11,7 +11,7 @@ public struct VIconView: View {
     }
 
     public var body: some View {
-        icon.image
+        icon.image(size: size)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: size, height: size)

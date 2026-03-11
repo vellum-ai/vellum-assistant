@@ -445,9 +445,7 @@ export async function deleteMcpOAuthCredentials(
     { key: "client_info", result: clientResult },
     { key: "discovery", result: discoveryResult },
   ];
-  const errors = results
-    .filter((r) => r.result === "error")
-    .map((r) => r.key);
+  const errors = results.filter((r) => r.result === "error").map((r) => r.key);
   if (errors.length > 0) {
     log.warn(
       { serverId, failedKeys: errors },

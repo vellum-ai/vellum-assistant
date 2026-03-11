@@ -1046,4 +1046,20 @@ export async function stopLocalProcesses(
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
+
+  // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
+  // isVellumProcess() checks for /vellum|@vellumai|--vellum-gateway/ which
+  // won't match the ngrok binary — resulting in a no-op that leaves ngrok running.
+  const ngrokPidFile = join(vellumDir, "ngrok.pid");
+  if (existsSync(ngrokPidFile)) {
+    try {
+      const pid = parseInt(readFileSync(ngrokPidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {}
+      }
+      unlinkSync(ngrokPidFile);
+    } catch {}
+  }
 }

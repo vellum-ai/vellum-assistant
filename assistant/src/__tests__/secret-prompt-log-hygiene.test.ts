@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SecretRequest, ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  SecretRequest,
+  ServerMessage,
+} from "../daemon/message-protocol.js";
 
 // Capture all logger calls so we can verify secret values never appear
 const logCalls: Array<{ level: string; args: unknown[] }> = [];
@@ -100,10 +103,10 @@ describe("secret prompt log hygiene", () => {
     }
   });
 
-  test("sent IPC message contains value=undefined (value flows through IPC, not logs)", async () => {
+  test("sent message contains value=undefined (value flows through event, not logs)", async () => {
     const promise = prompter.prompt("svc", "tok", "Token");
     const msg = sentMessages[0] as SecretRequest & { value?: unknown };
-    // The IPC message should NOT contain a value field
+    // The message should NOT contain a value field
     expect(msg.value).toBeUndefined();
     prompter.resolveSecret(msg.requestId, undefined);
     await promise;

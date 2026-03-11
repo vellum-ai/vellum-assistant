@@ -9,11 +9,7 @@ import {
 } from "../../memory/attachments-store.js";
 import { addMessage } from "../../memory/conversation-crud.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
-import {
-  defineHandlers,
-  type HandlerContext,
-  log,
-} from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -501,7 +497,7 @@ export async function finalizeAndPublishRecording(params: {
   }
 
   // Restrict accepted file paths to the app's recordings directory to
-  // prevent attachment of arbitrary files via crafted IPC messages.
+  // prevent attachment of arbitrary files via crafted messages.
   let resolvedPath: string;
   try {
     resolvedPath = realpathSync(filePath);
@@ -725,7 +721,7 @@ export async function finalizeAndPublishRecording(params: {
  * after recording stops, broadcasting recording lifecycle events, and
  * triggering deferred recording restarts.
  *
- * Shared by both the IPC handler and the HTTP POST route.
+ * This is the supported entry point for both HTTP routes and tests.
  */
 export async function handleRecordingStatusCore(
   msg: RecordingStatus,
@@ -1049,19 +1045,3 @@ export function __resetRecordingState(): void {
   finalizedRecordingIds.clear();
   activeRestartToken = null;
 }
-
-// ─── IPC handler wrapper ─────────────────────────────────────────────────────
-
-/** IPC-compatible wrapper: ignores the socket (unused) and delegates to core. */
-async function handleRecordingStatusIpc(
-  msg: RecordingStatus,
-  ctx: HandlerContext,
-): Promise<void> {
-  return handleRecordingStatusCore(msg, ctx);
-}
-
-// ─── Export handler group ────────────────────────────────────────────────────
-
-export const recordingHandlers = defineHandlers({
-  recording_status: handleRecordingStatusIpc,
-});

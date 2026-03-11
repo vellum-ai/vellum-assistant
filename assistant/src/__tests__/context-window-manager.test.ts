@@ -20,11 +20,9 @@ function makeConfig(
   return {
     enabled: true,
     maxInputTokens: 450,
-    targetInputTokens: 300,
+    targetBudgetRatio: 0.67,
     compactThreshold: 0.6,
-    preserveRecentUserTurns: 2,
-    summaryMaxTokens: 128,
-    chunkTokens: 80,
+    summaryBudgetRatio: 0.05,
     overflowRecovery: {
       enabled: true,
       safetyMarginRatio: 0.05,
@@ -85,7 +83,7 @@ describe("ContextWindowManager", () => {
     const manager = new ContextWindowManager({
       provider,
       systemPrompt: "system prompt",
-      config: makeConfig(),
+      config: makeConfig({ maxInputTokens: 600 }),
     });
     const long = "x".repeat(240);
     const history: Message[] = [
@@ -117,28 +115,26 @@ describe("ContextWindowManager", () => {
     expect(userTexts.some((text) => text.startsWith("u3 "))).toBe(true);
   });
 
-  test("aggregates cache-aware summary usage across compaction chunks", async () => {
-    let summaryCalls = 0;
+  test("returns cache-aware summary usage from single-pass compaction", async () => {
     const provider = createProvider(() => {
-      summaryCalls += 1;
       return {
         content: [
-          { type: "text", text: `## Goals\n- summary chunk ${summaryCalls}` },
+          { type: "text", text: `## Goals\n- summary of full transcript` },
         ],
         model: "claude-opus-4-6",
         usage: {
-          inputTokens: 1_000 + summaryCalls,
-          outputTokens: 20 + summaryCalls,
-          cacheCreationInputTokens: 10 * summaryCalls,
-          cacheReadInputTokens: 100 * summaryCalls,
+          inputTokens: 5_000,
+          outputTokens: 80,
+          cacheCreationInputTokens: 50,
+          cacheReadInputTokens: 200,
         },
         rawResponse: {
           usage: {
             cache_creation: {
-              ephemeral_5m_input_tokens: 10 * summaryCalls,
+              ephemeral_5m_input_tokens: 50,
               ephemeral_1h_input_tokens: 0,
             },
-            cache_read_input_tokens: 100 * summaryCalls,
+            cache_read_input_tokens: 200,
           },
         },
         stopReason: "end_turn",
@@ -149,8 +145,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 7_000,
-        targetInputTokens: 2_500,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.41,
       }),
     });
     const long = "q".repeat(6_000);
@@ -165,19 +160,14 @@ describe("ContextWindowManager", () => {
     const result = await manager.maybeCompact(history);
 
     expect(result.compacted).toBe(true);
-    expect(result.summaryCalls).toBe(summaryCalls);
-    expect(result.summaryCalls).toBeGreaterThan(1);
-    expect(result.summaryCacheCreationInputTokens).toBe(
-      summaryCalls * (summaryCalls + 1) * 5,
-    );
-    expect(result.summaryCacheReadInputTokens).toBe(
-      summaryCalls * (summaryCalls + 1) * 50,
-    );
-    expect(result.summaryRawResponses).toHaveLength(summaryCalls);
+    expect(result.summaryCalls).toBe(1);
+    expect(result.summaryCacheCreationInputTokens).toBe(50);
+    expect(result.summaryCacheReadInputTokens).toBe(200);
+    expect(result.summaryRawResponses).toHaveLength(1);
     expect(result.summaryRawResponses?.[0]).toMatchObject({
       usage: {
-        cache_creation: { ephemeral_5m_input_tokens: 10 },
-        cache_read_input_tokens: 100,
+        cache_creation: { ephemeral_5m_input_tokens: 50 },
+        cache_read_input_tokens: 200,
       },
     });
   });
@@ -194,8 +184,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 300,
-        targetInputTokens: 160,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.58,
       }),
     });
     const long = "y".repeat(220);
@@ -234,8 +223,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 140,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.59,
       }),
     });
     const long = "z".repeat(220);
@@ -272,12 +260,11 @@ describe("ContextWindowManager", () => {
       provider,
       systemPrompt: "system prompt",
       config: makeConfig({
-        maxInputTokens: 280,
-        targetInputTokens: 150,
-        preserveRecentUserTurns: 1,
+        maxInputTokens: 550,
+        targetBudgetRatio: 0.59,
       }),
     });
-    const long = "f".repeat(220);
+    const long = "f".repeat(500);
     const history: Message[] = [
       {
         role: "user",
@@ -322,8 +309,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 320,
-        targetInputTokens: 170,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.58,
       }),
     });
     const long = "k".repeat(220);
@@ -370,8 +356,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 320,
-        targetInputTokens: 170,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.58,
       }),
     });
     const long = "k".repeat(220);
@@ -431,8 +416,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 2600,
-        targetInputTokens: 1500,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.63,
       }),
     });
     const long = "c".repeat(5000);
@@ -445,11 +429,11 @@ describe("ContextWindowManager", () => {
     const result = await manager.maybeCompact(history);
 
     expect(result.compacted).toBe(true);
-    expect(result.summaryCalls).toBe(2);
-    expect(result.summaryInputTokens).toBe(1000);
-    expect(result.summaryCacheCreationInputTokens).toBe(240);
-    expect(result.summaryCacheReadInputTokens).toBe(680);
-    expect(result.summaryRawResponses).toEqual([rawResponse, rawResponse]);
+    expect(result.summaryCalls).toBe(1);
+    expect(result.summaryInputTokens).toBe(500);
+    expect(result.summaryCacheCreationInputTokens).toBe(120);
+    expect(result.summaryCacheReadInputTokens).toBe(340);
+    expect(result.summaryRawResponses).toEqual([rawResponse]);
   });
 
   test("does not parse user-authored summary marker text as internal summary", () => {
@@ -476,8 +460,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 180,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.74,
       }),
     });
     const long = "c".repeat(220);
@@ -506,8 +489,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 320,
-        targetInputTokens: 180,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.61,
       }),
     });
     const long = "p".repeat(340);
@@ -538,8 +520,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 180,
-        preserveRecentUserTurns: 1,
+        targetBudgetRatio: 0.74,
       }),
     });
     const long = "c".repeat(220);
@@ -572,9 +553,8 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 7000,
-        targetInputTokens: 5000,
+        targetBudgetRatio: 0.76,
         compactThreshold: 0.8,
-        preserveRecentUserTurns: 1,
       }),
     });
 
@@ -624,8 +604,7 @@ describe("ContextWindowManager", () => {
       systemPrompt: "system prompt",
       config: makeConfig({
         maxInputTokens: 260,
-        targetInputTokens: 60,
-        preserveRecentUserTurns: 2,
+        targetBudgetRatio: 0.28,
       }),
     });
     const long = "e".repeat(220);
@@ -640,7 +619,7 @@ describe("ContextWindowManager", () => {
       minKeepRecentUserTurns: 0,
     });
     expect(result.compacted).toBe(true);
-    // With minKeepRecentUserTurns=0 and a tight targetInputTokens budget,
+    // With minKeepRecentUserTurns=0 and a tight target budget,
     // pickKeepBoundary drops keepTurns all the way to 0.
     // All three messages are compacted into a single summary message.
     expect(result.compactedMessages).toBe(3);
@@ -709,6 +688,115 @@ describe("ContextWindowManager", () => {
     expect(result.estimatedTokens).toBe(0);
   });
 
+  test("truncates tool results in kept turns to preserve more conversation", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- truncation summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+    // Budget is tight enough that full 8K tool results would force dropping turns,
+    // but truncated results (≤6K chars) should allow more turns to be kept.
+    const config = makeConfig({
+      maxInputTokens: 4000,
+      targetBudgetRatio: 0.7,
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+
+    const largeToolResult = "x".repeat(8000);
+    const history: Message[] = [
+      message("user", "u1"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "read_file",
+            input: { path: "/tmp/a" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1",
+            content: largeToolResult,
+          },
+        ],
+      },
+      message("assistant", "a1"),
+      message("user", "u2"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "read_file",
+            input: { path: "/tmp/b" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t2",
+            content: largeToolResult,
+          },
+        ],
+      },
+      message("assistant", "a2"),
+      message("user", "u3"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t3",
+            name: "read_file",
+            input: { path: "/tmp/c" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t3",
+            content: largeToolResult,
+          },
+        ],
+      },
+      message("assistant", "a3"),
+      message("user", "u4"),
+      message("assistant", "a4"),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+    expect(result.compacted).toBe(true);
+
+    // Verify tool results in output are truncated (should be < 8K chars each).
+    for (const msg of result.messages) {
+      for (const block of msg.content) {
+        if (block.type === "tool_result") {
+          expect(block.content.length).toBeLessThan(8000);
+        }
+      }
+    }
+  });
+
   test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- tight fit summary" }],
@@ -720,8 +808,7 @@ describe("ContextWindowManager", () => {
     // Use generous default target so normal compaction would keep all 3 user turns.
     const config = makeConfig({
       maxInputTokens: 1200,
-      targetInputTokens: 1000,
-      preserveRecentUserTurns: 3,
+      targetBudgetRatio: 0.88,
     });
     const long = "t".repeat(220);
     const history: Message[] = [

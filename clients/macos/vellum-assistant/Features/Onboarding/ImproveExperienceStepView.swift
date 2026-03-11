@@ -7,6 +7,7 @@ struct ImproveExperienceStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
     @State private var sharePerformanceMetrics: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? true
 
     var body: some View {
@@ -17,7 +18,7 @@ struct ImproveExperienceStepView: View {
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("To provide you the best experience, your assistant will ask you a couple of questions to get to know you better.")
+        Text("Send anonymised performance metrics to help us improve responsiveness. No personal data or message content is included.")
             .font(VFont.onboardingSubtitle)
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
@@ -25,23 +26,40 @@ struct ImproveExperienceStepView: View {
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
-        HStack {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+        VStack(spacing: VSpacing.md) {
+            HStack {
+                Text("Collect usage data")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                VToggle(isOn: Binding(
+                    get: { collectUsageData },
+                    set: { newValue in
+                        collectUsageData = newValue
+                        UserDefaults.standard.set(newValue, forKey: "collectUsageDataEnabled")
+                        UserDefaults.standard.set(true, forKey: "collectUsageDataExplicitlySet")
+                        if !newValue {
+                            sharePerformanceMetrics = false
+                            UserDefaults.standard.set(false, forKey: "sendPerformanceReports")
+                        }
+                    }
+                ))
+            }
+
+            HStack {
                 Text("Share performance metrics")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
-                Text("Send anonymised performance metrics to help us improve responsiveness. No personal data or message content is included.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                Spacer()
+                VToggle(isOn: Binding(
+                    get: { sharePerformanceMetrics },
+                    set: { newValue in
+                        sharePerformanceMetrics = newValue
+                        UserDefaults.standard.set(newValue, forKey: "sendPerformanceReports")
+                    }
+                ))
+                .disabled(!collectUsageData)
             }
-            Spacer()
-            VToggle(isOn: Binding(
-                get: { sharePerformanceMetrics },
-                set: { newValue in
-                    sharePerformanceMetrics = newValue
-                    UserDefaults.standard.set(newValue, forKey: "sendPerformanceReports")
-                }
-            ))
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.top, VSpacing.xl)
@@ -72,6 +90,9 @@ struct ImproveExperienceStepView: View {
         .offset(y: showContent ? 0 : 12)
         .onAppear {
             // Opt in by default during onboarding, but preserve any existing choice
+            if UserDefaults.standard.object(forKey: "collectUsageDataEnabled") == nil {
+                UserDefaults.standard.set(true, forKey: "collectUsageDataEnabled")
+            }
             if UserDefaults.standard.object(forKey: "sendPerformanceReports") == nil {
                 UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
             }

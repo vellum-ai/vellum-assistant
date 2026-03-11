@@ -58,7 +58,7 @@ final class SettingsStoreTelegramTests: XCTestCase {
     func testSaveTelegramTokenSendsSetAction() {
         store.saveTelegramToken(botToken: "  123456:ABC-DEF  ")
 
-        // Init sends model_get, twitter get, telegram get, vercel get.
+        // Init sends model_get, telegram get, vercel get.
         // saveTelegramToken adds a telegram_config set message.
         let telegramMessages = sentMessages.compactMap { $0 as? TelegramConfigRequestMessage }
         // Should have at least the init "get" + the "set" call

@@ -29,10 +29,9 @@ export function clearTaskRunRules(taskRunId: string): void {
  * default rules (50) so pre-approved tools aren't shadowed by default
  * `ask` rules (which would trigger prompting and auto-deny in
  * non-interactive task runs), but below user rules (100) so user deny
- * rules still take precedence. `allowHighRisk` is set because task runs
- * execute asynchronously without interactive confirmation — the client
- * pre-approves tools via the preflight flow before execution begins,
- * so there is no interactive prompt during the run itself.
+ * rules still take precedence. `allowHighRisk` is intentionally omitted:
+ * high-risk tool invocations still flow through the normal risk-classification
+ * path rather than being blanket-approved.
  */
 export function buildTaskRules(
   taskRunId: string,
@@ -45,7 +44,6 @@ export function buildTaskRules(
     pattern: "**",
     scope: "everywhere",
     decision: "allow" as const,
-    allowHighRisk: true,
     priority: 75,
     createdAt: Date.now(),
   }));

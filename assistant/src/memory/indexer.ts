@@ -1,16 +1,21 @@
 import { createHash } from "crypto";
 import { desc, eq } from "drizzle-orm";
 
+import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
+import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import {
   enqueueMemoryJob,
   enqueueResolvePendingConflictsForMessageJob,
 } from "./jobs-store.js";
-import { extractTextFromStoredMessageContent } from "./message-content.js";
+import {
+  extractMediaBlocks,
+  extractTextFromStoredMessageContent,
+} from "./message-content.js";
 import { bumpMemoryVersion } from "./recall-cache.js";
 import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
@@ -73,6 +78,13 @@ export function indexMessageNow(
   const shouldResolveConflicts =
     input.role === "user" && config.conflicts.enabled;
 
+  // Check if the resolved embedding backend supports multimodal input.
+  // Only enqueue embed_attachment jobs when it does (currently Gemini only).
+  const supportsMultimodal = selectedBackendSupportsMultimodal(getConfig());
+  const mediaBlocks = supportsMultimodal
+    ? extractMediaBlocks(input.content).filter((b) => b.type === "image")
+    : [];
+
   // Wrap all segment inserts and job enqueues in a single transaction so they
   // either all succeed or all roll back, preventing partial/orphaned state.
   let skippedEmbedJobs = 0;
@@ -119,6 +131,17 @@ export function indexMessageNow(
       } else {
         enqueueMemoryJob("embed_segment", { segmentId }, Date.now(), tx);
       }
+    }
+
+    // Enqueue embed_attachment jobs for image content blocks when the
+    // embedding provider supports multimodal (Gemini only).
+    for (const block of mediaBlocks) {
+      enqueueMemoryJob(
+        "embed_attachment",
+        { messageId: input.messageId, blockIndex: block.index },
+        Date.now(),
+        tx,
+      );
     }
 
     if (shouldExtract && isTrustedActor) {
@@ -168,6 +191,7 @@ export function indexMessageNow(
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +
+    mediaBlocks.length +
     (shouldExtract && !extractionGated ? 2 : 1) +
     (shouldResolveConflicts && !extractionGated ? 1 : 0);
   return {

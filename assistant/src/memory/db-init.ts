@@ -49,6 +49,7 @@ import {
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropRemindersTable,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -65,10 +66,12 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateRemindersToSchedules,
   migrateRenameGuardianVerificationValues,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
+  migrateScheduleOneShotRouting,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -327,6 +330,15 @@ export function initializeDb(): void {
 
   // 49. Drop the unused legacy accounts table after removing account_manage
   migrateDropAccountsTable(database);
+
+  // 50. Extend cron_jobs table with one-shot and routing support
+  migrateScheduleOneShotRouting(database);
+
+  // 51. Migrate existing reminders into cron_jobs as one-shot schedules
+  migrateRemindersToSchedules(database);
+
+  // 52. Drop the legacy reminders table after data migration
+  migrateDropRemindersTable(database);
 
   validateMigrationState(database);
 

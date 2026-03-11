@@ -46,6 +46,7 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import { HostBashProxy } from "./host-bash-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -82,10 +83,7 @@ import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
 } from "./session-process.js";
-import type {
-  QueueDrainReason,
-  QueueMetrics,
-} from "./session-queue-manager.js";
+import type { QueueDrainReason } from "./session-queue-manager.js";
 import { MessageQueue } from "./session-queue-manager.js";
 import type {
   ChannelCapabilities,
@@ -159,6 +157,7 @@ export class Session {
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
+  /** @internal */ hostBashProxy?: HostBashProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -374,6 +373,7 @@ export class Session {
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
+    this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
@@ -416,6 +416,7 @@ export class Session {
 
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
+    this.hostBashProxy?.dispose();
     disposeSession(this);
   }
 
@@ -443,7 +444,7 @@ export class Session {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; requestId: string } {
+  ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
       content,
@@ -460,10 +461,6 @@ export class Session {
 
   getQueueDepth(): number {
     return this.queue.length;
-  }
-
-  getQueueMetrics(): QueueMetrics {
-    return this.queue.getMetrics();
   }
 
   hasQueuedMessages(): boolean {
@@ -528,7 +525,7 @@ export class Session {
     // guardian trust-class and conversation context are available.
 
     // Emit authoritative confirmation state and activity transition centrally
-    // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
+    // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
       decision === "deny" || decision === "always_deny"
@@ -569,6 +566,25 @@ export class Session {
     delivery?: "store" | "transient_send",
   ): void {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
+  }
+
+  resolveHostBash(
+    requestId: string,
+    response: {
+      stdout: string;
+      stderr: string;
+      exitCode: number | null;
+      timedOut: boolean;
+    },
+  ): void {
+    this.hostBashProxy?.resolve(requestId, response);
+  }
+
+  setHostBashProxy(proxy: HostBashProxy | undefined): void {
+    if (this.hostBashProxy && this.hostBashProxy !== proxy) {
+      this.hostBashProxy.dispose();
+    }
+    this.hostBashProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────

@@ -31,7 +31,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(checkerTestDir, "test.sock"),
   getPidPath: () => join(checkerTestDir, "test.pid"),
   getDbPath: () => join(checkerTestDir, "test.db"),
   getLogPath: () => join(checkerTestDir, "test.log"),
@@ -3753,7 +3752,9 @@ describe("Permission Checker", () => {
         );
         expect(noMatchResult.decision).toBe("prompt");
         expect(noMatchResult.reason).toContain("ask rule");
-        expect(noMatchResult.matchedRule?.id).toBe("default:ask-host_bash-global");
+        expect(noMatchResult.matchedRule?.id).toBe(
+          "default:ask-host_bash-global",
+        );
       });
     });
 

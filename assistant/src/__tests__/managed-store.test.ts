@@ -20,6 +20,8 @@ import {
   test,
 } from "bun:test";
 
+import { parse as parseYaml } from "yaml";
+
 let TEST_DIR = "";
 
 mock.module("../util/platform.js", () => ({
@@ -104,11 +106,9 @@ describe("buildSkillMarkdown", () => {
       emoji: "🧪",
     });
     expect(result).toContain("metadata:");
-    const metadataLine = result
-      .split("\n")
-      .find((l) => l.startsWith("metadata:"));
-    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
-    expect(json.vellum.emoji).toBe("🧪");
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    expect(parsed.metadata.vellum.emoji).toBe("🧪");
   });
 
   test("includes user-invocable=false in metadata.vellum", () => {
@@ -118,11 +118,9 @@ describe("buildSkillMarkdown", () => {
       bodyMarkdown: "Body.",
       userInvocable: false,
     });
-    const metadataLine = result
-      .split("\n")
-      .find((l) => l.startsWith("metadata:"));
-    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
-    expect(json.vellum["user-invocable"]).toBe(false);
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    expect(parsed.metadata.vellum["user-invocable"]).toBe(false);
   });
 
   test("includes disable-model-invocation in metadata.vellum", () => {
@@ -132,11 +130,9 @@ describe("buildSkillMarkdown", () => {
       bodyMarkdown: "Body.",
       disableModelInvocation: true,
     });
-    const metadataLine = result
-      .split("\n")
-      .find((l) => l.startsWith("metadata:"));
-    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
-    expect(json.vellum["disable-model-invocation"]).toBe(true);
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    expect(parsed.metadata.vellum["disable-model-invocation"]).toBe(true);
   });
 
   test("escapes double quotes in name and description", () => {
@@ -201,18 +197,16 @@ describe("buildSkillMarkdown", () => {
     expect(skill!.name).toBe("path\\name");
   });
 
-  test("includes field emits JSON array in metadata.vellum", () => {
+  test("includes field emits YAML list in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Parent",
       description: "Has children",
       bodyMarkdown: "Body.",
       includes: ["child-a", "child-b"],
     });
-    const metadataLine = result
-      .split("\n")
-      .find((l) => l.startsWith("metadata:"));
-    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
-    expect(json.vellum.includes).toEqual(["child-a", "child-b"]);
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    expect(parsed.metadata.vellum.includes).toEqual(["child-a", "child-b"]);
   });
 
   test("omits metadata when no vellum fields provided", () => {
@@ -786,5 +780,84 @@ describe("validateManagedSkillId edge cases", () => {
 
   test("accepts ID with all allowed character types", () => {
     expect(validateManagedSkillId("a1.b2-c3_d4")).toBeNull();
+  });
+});
+
+describe("YAML metadata round-trip", () => {
+  test("all vellum fields round-trip through write and load", () => {
+    // Create a managed skill with every vellum metadata field populated
+    createManagedSkill({
+      id: "yaml-roundtrip-all",
+      name: "Full Metadata Skill",
+      description: "Tests all vellum fields round-trip correctly",
+      bodyMarkdown: "Full metadata body.",
+      emoji: "🔬",
+      userInvocable: false,
+      disableModelInvocation: true,
+      includes: ["child-a", "child-b"],
+    });
+
+    // Load it back via loadSkillCatalog
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "yaml-roundtrip-all");
+    expect(skill).toBeDefined();
+
+    // Verify all fields are correctly preserved
+    expect(skill!.name).toBe("Full Metadata Skill");
+    expect(skill!.description).toBe(
+      "Tests all vellum fields round-trip correctly",
+    );
+    expect(skill!.emoji).toBe("🔬");
+    expect(skill!.userInvocable).toBe(false);
+    expect(skill!.disableModelInvocation).toBe(true);
+    expect(skill!.includes).toEqual(["child-a", "child-b"]);
+  });
+
+  test("hand-authored YAML nested metadata parses correctly", () => {
+    // Manually write a SKILL.md with YAML-style nested metadata matching
+    // the format used in skills/ directory (bundled skills format)
+    const skillDir = join(TEST_DIR, "skills", "yaml-nested-test");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: yaml-nested-skill",
+        "description: Hand-authored YAML nested metadata test",
+        'compatibility: "Designed for Vellum personal assistants"',
+        "metadata:",
+        '  emoji: "🧪"',
+        "  vellum:",
+        '    display-name: "YAML Nested Skill"',
+        "    user-invocable: false",
+        "    disable-model-invocation: true",
+        "    os:",
+        `      - "${process.platform}"`,
+        "    includes:",
+        '      - "child-a"',
+        '      - "child-b"',
+        "---",
+        "",
+        "Hand-authored body content.",
+        "",
+      ].join("\n"),
+    );
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "yaml-nested-test");
+    expect(skill).toBeDefined();
+
+    // Verify all nested vellum fields are correctly parsed
+    expect(skill!.name).toBe("yaml-nested-skill");
+    expect(skill!.description).toBe("Hand-authored YAML nested metadata test");
+    expect(skill!.displayName).toBe("YAML Nested Skill");
+    expect(skill!.userInvocable).toBe(false);
+    expect(skill!.disableModelInvocation).toBe(true);
+    expect(skill!.emoji).toBe("🧪");
+    expect(skill!.includes).toEqual(["child-a", "child-b"]);
+
+    // Verify os is parsed into metadata
+    expect(skill!.metadata).toBeDefined();
+    expect(skill!.metadata!.os).toEqual([process.platform]);
   });
 });

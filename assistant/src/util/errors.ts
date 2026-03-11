@@ -14,9 +14,6 @@ export enum ErrorCode {
   // Daemon errors
   DAEMON_ERROR = "DAEMON_ERROR",
 
-  // IPC/socket errors
-  IPC_ERROR = "IPC_ERROR",
-
   // Platform-specific errors (clipboard, unsupported OS features)
   PLATFORM_ERROR = "PLATFORM_ERROR",
 
@@ -167,13 +164,6 @@ export class DaemonError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.DAEMON_ERROR, options);
     this.name = "DaemonError";
-  }
-}
-
-export class IpcError extends AssistantError {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, ErrorCode.IPC_ERROR, options);
-    this.name = "IpcError";
   }
 }
 

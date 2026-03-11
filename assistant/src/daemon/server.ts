@@ -56,6 +56,7 @@ import type {
   SessionCreateOptions,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
+import { HostBashProxy } from "./host-bash-proxy.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   DEFAULT_MEMORY_POLICY,
@@ -199,6 +200,12 @@ function makePendingInteractionRegistrar(
         conversationId,
         kind: "secret",
       });
+    } else if (msg.type === "host_bash_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
+      });
     }
   };
 }
@@ -291,7 +298,7 @@ export class DaemonServer {
         undefined,
         metadata,
       );
-      if (!enqueueResult.queued) {
+      if (!enqueueResult.queued && !enqueueResult.rejected) {
         const messageId = await parentSession.persistUserMessage(
           message,
           [],
@@ -629,6 +636,23 @@ export class DaemonServer {
     session.setChannelCapabilities(
       resolveChannelCapabilities(sourceChannel, sourceInterface),
     );
+    // Only create the host bash proxy for desktop client interfaces that can
+    // execute commands on the user's machine. Non-desktop sessions (CLI,
+    // channels, headless) fall back to local execution.
+    // Guard: don't replace an active proxy during concurrent turn races —
+    // another request may have started processing between the isProcessing()
+    // check above and the await on ensureActorScopedHistory().
+    if (!session.isProcessing() || !session.hostBashProxy) {
+      if (resolvedInterface === "macos" || resolvedInterface === "ios") {
+        session.setHostBashProxy(
+          new HostBashProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
+      } else {
+        session.setHostBashProxy(undefined);
+      }
+    }
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,

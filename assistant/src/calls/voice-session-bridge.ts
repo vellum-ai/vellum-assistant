@@ -471,7 +471,7 @@ export async function startVoiceTurn(
 
   // Fire-and-forget the agent loop
   const cleanup = () => {
-    // Reset channel capabilities so a subsequent IPC/desktop session on the
+    // Reset channel capabilities so a subsequent desktop session on the
     // same conversation is not incorrectly treated as a voice client.
     session.setChannelCapabilities(null);
     session.setTrustContext(null);
@@ -513,6 +513,8 @@ export async function startVoiceTurn(
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input);
           }
+          // Note: tool_use_preview_start is intentionally not handled here.
+          // Voice only reacts to the definitive tool_use_start event.
         },
       );
       if (lastError) {

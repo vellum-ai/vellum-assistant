@@ -188,7 +188,7 @@ export class SubagentManager {
       memoryPolicy,
     );
 
-    // Mark session as having no direct IPC client — it routes through parent.
+    // Mark session as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     session.updateClient(wrappedSendToClient, true);
 
@@ -398,6 +398,9 @@ export class SubagentManager {
       onEvent,
       requestId,
     );
+    if (result.rejected) {
+      return "sent"; // error event already delivered via onEvent
+    }
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = await managed.session.persistUserMessage(trimmed, []);

@@ -39,7 +39,7 @@ final class SurfaceViewModel: ObservableObject {
     }
 }
 
-/// Manages the lifecycle of surface windows (NSPanel) shown in response to daemon IPC messages.
+/// Manages the lifecycle of surface windows (NSPanel) shown in response to daemon messages.
 ///
 /// Each surface is displayed in a floating, non-activating panel positioned at the bottom-right
 /// of the screen, using a floating, non-activating NSPanel.

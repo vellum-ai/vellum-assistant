@@ -45,7 +45,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => testDbPath,
   getLogPath: () => join(testDir, "test.log"),
@@ -708,7 +707,7 @@ describe("route policy registration", () => {
     expect(policy?.requiredScopes).toContain("settings.write");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy?.allowedPrincipalTypes).toContain("ipc");
+    expect(policy?.allowedPrincipalTypes).toContain("local");
   });
 
   test("import-preflight policy matches validate/export policy shape", async () => {

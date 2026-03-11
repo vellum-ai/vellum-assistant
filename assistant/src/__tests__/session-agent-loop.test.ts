@@ -16,7 +16,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => "/tmp/test.sock",
   getDataDir: () => "/tmp",
 }));
 
@@ -229,12 +228,13 @@ mock.module("../daemon/session-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
 
+const resolveAssistantAttachmentsMock = mock(async () => ({
+  assistantAttachments: [],
+  emittedAttachments: [],
+  directiveWarnings: [],
+}));
 mock.module("../daemon/session-attachments.js", () => ({
-  resolveAssistantAttachments: async () => ({
-    assistantAttachments: [],
-    emittedAttachments: [],
-    directiveWarnings: [],
-  }),
+  resolveAssistantAttachments: resolveAssistantAttachmentsMock,
   approveHostAttachmentRead: async () => true,
   formatAttachmentWarnings: () => "",
 }));
@@ -1505,6 +1505,46 @@ describe("session-agent-loop", () => {
       // Should NOT emit a session_error for user cancellation
       const sessionError = events.find((e) => e.type === "session_error");
       expect(sessionError).toBeUndefined();
+    });
+
+    test("skips resolveAssistantAttachments when cancelled", async () => {
+      const events: ServerMessage[] = [];
+      const abortController = new AbortController();
+      resolveAssistantAttachmentsMock.mockClear();
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "partial" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        // Simulate abort after processing
+        abortController.abort();
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "partial" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun, abortController });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      const cancelled = events.find((e) => e.type === "generation_cancelled");
+      expect(cancelled).toBeDefined();
+      // resolveAssistantAttachments should NOT have been called
+      expect(resolveAssistantAttachmentsMock).not.toHaveBeenCalled();
     });
   });
 

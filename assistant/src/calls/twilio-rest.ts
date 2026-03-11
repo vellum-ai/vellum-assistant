@@ -2,7 +2,7 @@
  * Reusable Twilio REST API helpers.
  *
  * Provides low-level building blocks (auth header, base URL, credential
- * resolution) shared across the voice provider and IPC
+ * resolution) shared across the voice provider and the
  * config handler. Uses fetch() directly — no twilio npm package.
  */
 

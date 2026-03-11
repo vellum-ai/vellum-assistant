@@ -72,7 +72,7 @@ public final class ToolConfirmationNotificationService {
 
     /// Called when the inline chat path already sent the confirmation response
     /// to the daemon. Resumes the continuation with a sentinel so that
-    /// `setupToolConfirmationNotifications` skips the duplicate IPC send.
+    /// `setupToolConfirmationNotifications` skips the duplicate send.
     public func handleInlineResponse(requestId: String) {
         guard let continuation = pendingRequests.removeValue(forKey: requestId) else {
             log.warning("No pending request for inline response: requestId=\(requestId, privacy: .public)")
@@ -133,6 +133,28 @@ public final class ToolConfirmationNotificationService {
             }
             return command.count > 200 ? String(command.prefix(197)) + "..." : command
         }
+        // For all other tools, prefer the human-readable reason
+        if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
+            let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
+            // Filter out `reason` key so commandPreview doesn't duplicate it
+            let nonReasonInput = message.input.filter { $0.key != "reason" && $0.key != "reasoning" }
+            let preview = commandPreview(toolName: message.toolName, input: nonReasonInput)
+            if !preview.isEmpty {
+                let body = "\(capitalizedReason)\n\(preview)"
+                if body.count <= 200 { return body }
+                // Truncate reason first to preserve the target preview
+                let previewBudget = min(preview.count, 200)
+                let reasonBudget = 200 - previewBudget - 1 // 1 for newline
+                if reasonBudget >= 4 {
+                    let truncatedReason = String(capitalizedReason.prefix(reasonBudget - 3)) + "..."
+                    let truncatedBody = "\(truncatedReason)\n\(preview)"
+                    if truncatedBody.count <= 200 { return truncatedBody }
+                }
+                // Preview alone exceeds the limit — truncate it
+                return preview.count > 200 ? String(preview.prefix(197)) + "..." : preview
+            }
+            return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : String(capitalizedReason)
+        }
         let preview = commandPreview(toolName: message.toolName, input: message.input)
         if preview.count > 200 {
             return String(preview.prefix(197)) + "..."
@@ -150,9 +172,6 @@ public final class ToolConfirmationNotificationService {
         case "schedule_update": return "Update Schedule"
         case "schedule_delete": return "Delete Schedule"
         case "schedule_list":   return "List Schedules"
-        case "reminder_create":  return "Create Reminder"
-        case "reminder_list":    return "List Reminders"
-        case "reminder_cancel":  return "Cancel Reminder"
         default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -189,23 +208,6 @@ public final class ToolConfirmationNotificationService {
             return parts.isEmpty ? "\(verb) schedule" : "\(verb): \(parts.joined(separator: " — "))"
         case "schedule_delete":
             return (input["job_id"]?.value as? String) ?? "schedule"
-        case "reminder_create":
-            let msg = (input["message"]?.value as? String) ?? ""
-            let at = (input["at"]?.value as? String) ?? ""
-            let delay = (input["delay"]?.value as? String) ?? ""
-            var parts: [String] = []
-            if !msg.isEmpty {
-                let truncated = msg.count > 60 ? String(msg.prefix(57)) + "..." : msg
-                parts.append("\"\(truncated)\"")
-            }
-            if !at.isEmpty { parts.append("at \(at)") }
-            else if !delay.isEmpty { parts.append("in \(delay)") }
-            return parts.isEmpty ? "Set reminder" : parts.joined(separator: " ")
-        case "reminder_list":
-            return "List reminders"
-        case "reminder_cancel":
-            let id = (input["reminder_id"]?.value as? String) ?? ""
-            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         default:
             // Prefer semantically meaningful keys over arbitrary dictionary order
             let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]

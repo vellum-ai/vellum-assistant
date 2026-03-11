@@ -225,7 +225,10 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../config/skill-state.js", () => ({
-  skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
+  skillFlagKey: (skill: { featureFlag?: string }) =>
+    skill.featureFlag
+      ? `feature_flags.${skill.featureFlag}.enabled`
+      : undefined,
 }));
 
 // ---------------------------------------------------------------------------

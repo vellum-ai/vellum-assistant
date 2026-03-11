@@ -21,7 +21,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
@@ -93,7 +92,7 @@ function writeSkill(
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.md"),
-    `---\nname: "${name}"\ndescription: "${description}"\n---\n\n${body}\n`,
+    `---\nname: "${name}"\ndescription: "${description}"\nmetadata: {"vellum":{"feature-flag":"${skillId}"}}\n---\n\n${body}\n`,
   );
 }
 

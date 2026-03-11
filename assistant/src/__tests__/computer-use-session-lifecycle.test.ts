@@ -17,18 +17,18 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 180000,
-      targetInputTokens: 110000,
-      compactThreshold: 0.8,
-      preserveRecentUserTurns: 8,
-      summaryMaxTokens: 1200,
-      chunkTokens: 12000,
+      targetBudgetRatio: 0.30,
+      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
     },
   }),
   invalidateConfigCache: () => {},
 }));
 
 import { ComputerUseSession } from "../daemon/computer-use-session.js";
-import type { CuObservation, ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  CuObservation,
+  ServerMessage,
+} from "../daemon/message-protocol.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 
 function createProvider(responses: ProviderResponse[]): {

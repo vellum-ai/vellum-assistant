@@ -398,14 +398,14 @@ describe("composeThreadSeed", () => {
 
   describe("empty copy fallback", () => {
     test("falls back to event name when both title and body are empty", () => {
-      const signal = makeSignal({ sourceEventName: "reminder.fired" });
+      const signal = makeSignal({ sourceEventName: "schedule.notify" });
       const copy = makeCopy({ title: "", body: "" });
       const seed = composeThreadSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
       );
-      expect(seed).toBe("Reminder fired");
+      expect(seed).toBe("Schedule notify");
     });
 
     test('falls back to event name when title is "Notification" and body is empty', () => {
@@ -421,7 +421,7 @@ describe("composeThreadSeed", () => {
 
     test('uses context payload "message" field in fallback when available', () => {
       const signal = makeSignal({
-        sourceEventName: "reminder.fired",
+        sourceEventName: "schedule.notify",
         contextPayload: { message: "Take out the trash" },
       });
       const copy = makeCopy({ title: "", body: "" });
@@ -430,7 +430,7 @@ describe("composeThreadSeed", () => {
         "vellum" as NotificationChannel,
         copy,
       );
-      expect(seed).toBe("Reminder fired: Take out the trash");
+      expect(seed).toBe("Schedule notify: Take out the trash");
     });
 
     test('uses context payload "summary" field in fallback', () => {
@@ -463,7 +463,7 @@ describe("composeThreadSeed", () => {
 
     test("fallback is consistent across rich and compact channels", () => {
       const signal = makeSignal({
-        sourceEventName: "reminder.fired",
+        sourceEventName: "schedule.notify",
         contextPayload: { message: "Call the doctor" },
       });
       const copy = makeCopy({ title: "", body: "" });

@@ -33,7 +33,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspacePromptPath: (file: string) => join(WORKSPACE_DIR, file),
   ensureDataDir: () => {},
   getDataDir: () => join(WORKSPACE_DIR, "data"),
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(WORKSPACE_DIR, "data", "assistant.db"),
   getLogPath: () => join(WORKSPACE_DIR, "data", "logs", "vellum.log"),

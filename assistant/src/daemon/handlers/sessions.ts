@@ -34,6 +34,7 @@ import * as externalConversationStore from "../../memory/external-conversation-s
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { truncate } from "../../util/truncate.js";
+import { HostBashProxy } from "../host-bash-proxy.js";
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -55,13 +56,6 @@ import {
   classifySessionError,
 } from "../session-error.js";
 import {
-  handleConversationSearch,
-  handleHistoryRequest,
-  handleMessageContentRequest,
-} from "./session-history.js";
-import { handleUserMessage } from "./session-user-message.js";
-import {
-  defineHandlers,
   type HandlerContext,
   log,
   pendingStandaloneSecrets,
@@ -85,7 +79,7 @@ function parseBindingSourceChannel(
   return null;
 }
 
-export function syncCanonicalStatusFromIpcConfirmationDecision(
+export function syncCanonicalStatusFromConfirmationDecision(
   requestId: string,
   decision: ConfirmationResponse["decision"],
 ): void {
@@ -101,12 +95,12 @@ export function syncCanonicalStatusFromIpcConfirmationDecision(
   } catch (err) {
     log.debug(
       { err, requestId, targetStatus },
-      "Failed to resolve canonical request from IPC confirmation response",
+      "Failed to resolve canonical request from local confirmation response",
     );
   }
 }
 
-export function makeIpcEventSender(params: {
+export function makeEventSender(params: {
   ctx: HandlerContext;
   session: Session;
   conversationId: string;
@@ -149,7 +143,7 @@ export function makeIpcEventSender(params: {
       } catch (err) {
         log.debug(
           { err, requestId: event.requestId, conversationId },
-          "Failed to create canonical request from IPC confirmation event",
+          "Failed to create canonical request from local confirmation event",
         );
       }
     } else if (event.type === "secret_request") {
@@ -157,6 +151,12 @@ export function makeIpcEventSender(params: {
         session,
         conversationId,
         kind: "secret",
+      });
+    } else if (event.type === "host_bash_request") {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
       });
     }
 
@@ -182,10 +182,7 @@ export function handleConfirmationResponse(
         undefined,
         { source: "button" },
       );
-      syncCanonicalStatusFromIpcConfirmationDecision(
-        msg.requestId,
-        msg.decision,
-      );
+      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
@@ -200,10 +197,7 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
-      syncCanonicalStatusFromIpcConfirmationDecision(
-        msg.requestId,
-        msg.decision,
-      );
+      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
@@ -332,7 +326,7 @@ export function handleSessionList(
  */
 export function clearAllSessions(ctx: HandlerContext): number {
   const cleared = ctx.clearAllSessions();
-  // Also clear DB conversations. When a new IPC connection triggers
+  // Also clear DB conversations. When a new local connection triggers
   // sendInitialSession, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
@@ -340,9 +334,7 @@ export function clearAllSessions(ctx: HandlerContext): number {
   return cleared;
 }
 
-export function handleSessionsClear(
-  ctx: HandlerContext,
-): void {
+export function handleSessionsClear(ctx: HandlerContext): void {
   const cleared = clearAllSessions(ctx);
   ctx.send({ type: "sessions_clear_response", cleared });
 }
@@ -389,7 +381,7 @@ export async function handleSessionCreate(
     if (title === GENERATING_TITLE) {
       queueGenerateConversationTitle({
         conversationId: conversation.id,
-        context: { origin: "ipc" },
+        context: { origin: "local" },
         userMessage: msg.initialMessage,
         onTitleUpdated: (newTitle) => {
           ctx.send({
@@ -404,13 +396,12 @@ export async function handleSessionCreate(
     const requestId = uuid();
     const transportChannel =
       parseChannelId(msg.transport?.channelId) ?? "vellum";
-    const sendEvent = makeIpcEventSender({
+    const sendEvent = makeEventSender({
       ctx,
       session,
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });
-    session.updateClient(sendEvent, false);
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
@@ -421,6 +412,16 @@ export async function handleSessionCreate(
       userMessageInterface: transportInterface,
       assistantMessageInterface: transportInterface,
     });
+    // Only create the host bash proxy for desktop client interfaces that can
+    // execute commands on the user's machine. Set before updateClient so
+    // updateClient's call to hostBashProxy.updateSender targets the new proxy.
+    if (transportInterface === "macos" || transportInterface === "ios") {
+      const proxy = new HostBashProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostBashProxy(proxy);
+    }
+    session.updateClient(sendEvent, false);
     session
       .processMessage(msg.initialMessage, [], sendEvent, requestId)
       .catch((err) => {
@@ -520,10 +521,7 @@ export async function handleSessionSwitch(
 /**
  * Rename a session/conversation. Returns true on success, false if not found.
  */
-export function renameSession(
-  sessionId: string,
-  name: string,
-): boolean {
+export function renameSession(sessionId: string, name: string): boolean {
   const conversation = getConversation(sessionId);
   if (!conversation) {
     return false;
@@ -572,10 +570,7 @@ export function cancelGeneration(
   return true;
 }
 
-export function handleCancel(
-  msg: CancelRequest,
-  ctx: HandlerContext,
-): void {
+export function handleCancel(msg: CancelRequest, ctx: HandlerContext): void {
   const sessionId = msg.sessionId;
   if (sessionId) {
     cancelGeneration(sessionId, ctx);
@@ -598,10 +593,7 @@ export function undoLastMessage(
   return { removedCount };
 }
 
-export function handleUndo(
-  msg: UndoRequest,
-  ctx: HandlerContext,
-): void {
+export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
   const result = undoLastMessage(msg.sessionId, ctx);
   if (!result) {
     ctx.send({ type: "error", message: "No active session" });
@@ -616,7 +608,7 @@ export function handleUndo(
 
 /**
  * Regenerate the last assistant response for a session. The caller provides
- * a `sendEvent` callback for delivering streaming events (IPC or HTTP/SSE).
+ * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
  * Returns null if the session is not found. Throws on regeneration errors.
  */
 export async function regenerateResponse(
@@ -667,7 +659,7 @@ export async function handleRegenerate(
   const regenerateChannel =
     parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
     "vellum";
-  const sendEvent = makeIpcEventSender({
+  const sendEvent = makeEventSender({
     ctx,
     session,
     conversationId: msg.sessionId,
@@ -717,8 +709,12 @@ export function handleUsageRequest(
 export function deleteQueuedMessage(
   sessionId: string,
   requestId: string,
-  findSession: (id: string) => { removeQueuedMessage(requestId: string): boolean } | undefined,
-): { removed: true } | { removed: false; reason: "session_not_found" | "message_not_found" } {
+  findSession: (
+    id: string,
+  ) => { removeQueuedMessage(requestId: string): boolean } | undefined,
+):
+  | { removed: true }
+  | { removed: false; reason: "session_not_found" | "message_not_found" } {
   const session = findSession(sessionId);
   if (!session) {
     log.warn(
@@ -731,25 +727,20 @@ export function deleteQueuedMessage(
   if (removed) {
     return { removed: true };
   }
-  log.warn(
-    { sessionId, requestId },
-    "Queued message not found for deletion",
-  );
+  log.warn({ sessionId, requestId }, "Queued message not found for deletion");
   return { removed: false, reason: "message_not_found" };
 }
 
 // ---------------------------------------------------------------------------
-// IPC handler (delegates to shared logic)
+// HTTP handler (delegates to shared logic)
 // ---------------------------------------------------------------------------
 
 export function handleDeleteQueuedMessage(
   msg: DeleteQueuedMessage,
   ctx: HandlerContext,
 ): void {
-  const result = deleteQueuedMessage(
-    msg.sessionId,
-    msg.requestId,
-    (id) => ctx.sessions.get(id),
+  const result = deleteQueuedMessage(msg.sessionId, msg.requestId, (id) =>
+    ctx.sessions.get(id),
   );
   if (result.removed) {
     ctx.send({
@@ -775,24 +766,3 @@ export function handleReorderThreads(
     })),
   );
 }
-
-export const sessionHandlers = defineHandlers({
-  user_message: handleUserMessage,
-  confirmation_response: handleConfirmationResponse,
-  secret_response: handleSecretResponse,
-  session_list: (msg, ctx) =>
-    handleSessionList(ctx, msg.offset ?? 0, msg.limit ?? 50),
-  session_create: handleSessionCreate,
-  sessions_clear: (_msg, ctx) => handleSessionsClear(ctx),
-  session_switch: handleSessionSwitch,
-  session_rename: handleSessionRename,
-  cancel: handleCancel,
-  delete_queued_message: handleDeleteQueuedMessage,
-  history_request: handleHistoryRequest,
-  message_content_request: handleMessageContentRequest,
-  undo: handleUndo,
-  regenerate: handleRegenerate,
-  usage_request: handleUsageRequest,
-  conversation_search: handleConversationSearch,
-  reorder_threads: handleReorderThreads,
-});

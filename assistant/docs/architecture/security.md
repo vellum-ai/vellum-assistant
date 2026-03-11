@@ -179,7 +179,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
 | `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
-| `assistant/src/permissions/prompter.ts`       | IPC prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                   |
+| `assistant/src/permissions/prompter.ts`       | HTTP prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                   |
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
@@ -220,30 +220,30 @@ sequenceDiagram
     participant Model as LLM
     participant Vault as credential_store tool
     participant Prompter as SecretPrompter
-    participant IPC as IPC Socket
+    participant HTTP as HTTP Transport
     participant UI as SecretPromptManager (Swift)
     participant Keychain as macOS Keychain
 
     Model->>Vault: action: "prompt", service, field, label
     Vault->>Prompter: requestSecret(service, field, label, ...)
-    Prompter->>IPC: secret_request {requestId, service, field, label, allowOneTimeSend}
-    IPC->>UI: Show SecretPromptView (floating panel)
+    Prompter->>HTTP: secret_request {requestId, service, field, label, allowOneTimeSend}
+    HTTP->>UI: Show SecretPromptView (floating panel)
     UI->>UI: User enters value in SecureField
     alt Store (default)
-        UI->>IPC: secret_response {requestId, value, delivery: "store"}
-        IPC->>Prompter: resolve(value, "store")
+        UI->>HTTP: secret_response {requestId, value, delivery: "store"}
+        HTTP->>Prompter: resolve(value, "store")
         Prompter->>Vault: {value, delivery: "store"}
         Vault->>Keychain: setSecureKey("credential:svc:field", value)
         Vault->>Model: "Credential stored securely" (no value in output)
     else One-Time Send (if enabled)
-        UI->>IPC: secret_response {requestId, value, delivery: "transient_send"}
-        IPC->>Prompter: resolve(value, "transient_send")
+        UI->>HTTP: secret_response {requestId, value, delivery: "transient_send"}
+        HTTP->>Prompter: resolve(value, "transient_send")
         Prompter->>Vault: {value, delivery: "transient_send"}
         Note over Vault: Hands value to CredentialBroker<br/>for single-use consumption
         Vault->>Model: "One-time credential provided" (no value in output)
     else Cancel
-        UI->>IPC: secret_response {requestId, value: null}
-        IPC->>Prompter: resolve(null)
+        UI->>HTTP: secret_response {requestId, value: null}
+        HTTP->>Prompter: resolve(null)
         Prompter->>Vault: null
         Vault->>Model: "User cancelled"
     end
@@ -303,7 +303,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
 | `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
-| `assistant/src/permissions/secret-prompter.ts`       | IPC secret_request/secret_response flow                               |
+| `assistant/src/permissions/secret-prompter.ts`       | HTTP secret_request/secret_response flow                               |
 | `assistant/src/security/secret-scanner.ts`           | Regex + entropy-based secret detection                                |
 | `assistant/src/security/secret-ingress.ts`           | Inbound message secret blocking                                       |
 | `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                         |

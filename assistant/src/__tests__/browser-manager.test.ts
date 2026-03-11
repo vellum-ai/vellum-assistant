@@ -84,7 +84,9 @@ describe("sanitizeDownloadFilename", () => {
       "authorized_keys",
     );
     expect(
-      sanitizeDownloadFilename("..\\..\\windows\\system32\\drivers\\etc\\hosts"),
+      sanitizeDownloadFilename(
+        "..\\..\\windows\\system32\\drivers\\etc\\hosts",
+      ),
     ).toBe("hosts");
   });
 

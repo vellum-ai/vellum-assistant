@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "schedule_create",
-      "description": "Create a recurring scheduled automation that sends a message at a cron or RRULE interval. ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"weekly on Mondays\", \"every hour\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" \u2014 use task_list_add for those requests instead.",
+      "description": "Create a scheduled automation. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" — use task_list_add for those requests instead.",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -16,11 +16,15 @@
           "syntax": {
             "type": "string",
             "enum": ["cron", "rrule"],
-            "description": "Schedule syntax type. Auto-detected if omitted."
+            "description": "Schedule syntax type for recurring schedules. Auto-detected if omitted. Ignored when fire_at is provided."
           },
           "expression": {
             "type": "string",
-            "description": "Schedule expression (cron or RRULE)"
+            "description": "Schedule expression (cron or RRULE) for recurring schedules. Not needed when fire_at is provided."
+          },
+          "fire_at": {
+            "type": "string",
+            "description": "ISO 8601 timestamp for a one-time schedule (e.g. \"2025-06-15T09:00:00Z\"). Must be in the future. When provided, expression/syntax are ignored."
           },
           "timezone": {
             "type": "string",
@@ -34,6 +38,20 @@
             "type": "boolean",
             "description": "Whether the job is enabled immediately. Defaults to true."
           },
+          "mode": {
+            "type": "string",
+            "enum": ["notify", "execute"],
+            "description": "Whether to notify the user or execute autonomously when triggered. Defaults to \"execute\"."
+          },
+          "routing_intent": {
+            "type": "string",
+            "enum": ["single_channel", "multi_channel", "all_channels"],
+            "description": "How to route the triggered message across channels. Defaults to \"all_channels\"."
+          },
+          "routing_hints": {
+            "type": "object",
+            "description": "Additional routing metadata (e.g. preferred channel identifiers)"
+          },
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -46,7 +64,7 @@
     },
     {
       "name": "schedule_list",
-      "description": "List recurring scheduled automations (cron jobs or RRULE schedules), or show details and recent runs for a specific one. For the user's task queue, use task_list_show instead.",
+      "description": "List scheduled automations (recurring cron/RRULE schedules and one-time scheduled events), or show details and recent runs for a specific one. For the user's task queue, use task_list_show instead.",
       "category": "schedule",
       "risk": "low",
       "input_schema": {
@@ -72,7 +90,7 @@
     },
     {
       "name": "schedule_update",
-      "description": "Update an existing recurring scheduled automation (expression, syntax, message, name, or enabled state)",
+      "description": "Update an existing scheduled automation (expression, syntax, message, name, enabled state, mode, or routing)",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -107,6 +125,20 @@
             "type": "boolean",
             "description": "Enable or disable the job"
           },
+          "mode": {
+            "type": "string",
+            "enum": ["notify", "execute"],
+            "description": "Whether to notify the user or execute autonomously when triggered"
+          },
+          "routing_intent": {
+            "type": "string",
+            "enum": ["single_channel", "multi_channel", "all_channels"],
+            "description": "How to route the triggered message across channels"
+          },
+          "routing_hints": {
+            "type": "object",
+            "description": "Additional routing metadata (e.g. preferred channel identifiers)"
+          },
           "reason": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -119,7 +151,7 @@
     },
     {
       "name": "schedule_delete",
-      "description": "Delete a recurring scheduled automation and all its run history",
+      "description": "Delete a scheduled automation and all its run history",
       "category": "schedule",
       "risk": "high",
       "input_schema": {

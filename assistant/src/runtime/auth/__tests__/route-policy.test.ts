@@ -129,13 +129,13 @@ describe("enforcePolicy", () => {
     expect(result!.status).toBe(403);
   });
 
-  test("standard actor endpoints allow actor, svc_gateway, and ipc", () => {
+  test("standard actor endpoints allow actor, svc_gateway, and local", () => {
     authDisabled = false;
     const policy = getPolicy("messages:POST");
     expect(policy).toBeDefined();
     expect(policy!.allowedPrincipalTypes).toContain("actor");
     expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).toContain("ipc");
+    expect(policy!.allowedPrincipalTypes).toContain("local");
   });
 
   test("dev bypass allows all requests through regardless of policy", () => {

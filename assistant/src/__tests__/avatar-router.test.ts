@@ -67,9 +67,6 @@ function managedResponse() {
       bytes: 1024,
       sha256: "abc",
     },
-    usage: { billable: false, class_name: "assistant_avatar_system" },
-    generation_source: "vertex",
-    profile: "avatar_v1",
     correlation_id: "test-correlation-id",
   };
 }
@@ -179,6 +176,43 @@ describe("avatar-router", () => {
   test("defaults to local_only when config key is absent", () => {
     mockStrategy = undefined;
     expect(getAvatarStrategy()).toBe("local_only");
+  });
+
+  // 10. managed_required passes model to generateManagedAvatar
+  test("managed_required forwards model to generateManagedAvatar", async () => {
+    mockStrategy = "managed_required";
+    const result = await routedGenerateAvatar("a cute cat", {
+      model: "imagen-3.0-generate-002",
+    });
+    expect(generateManagedAvatarFn).toHaveBeenCalledTimes(1);
+    expect(generateManagedAvatarFn).toHaveBeenCalledWith("a cute cat", {
+      correlationId: undefined,
+      model: "imagen-3.0-generate-002",
+    });
+    expect(result.model).toBe("imagen-3.0-generate-002");
+    expect(result.pathUsed).toBe("managed");
+  });
+
+  // 11. managed_prefer passes model to generateManagedAvatar on success
+  test("managed_prefer forwards model to generateManagedAvatar on success", async () => {
+    mockStrategy = "managed_prefer";
+    const result = await routedGenerateAvatar("a cute cat", {
+      model: "imagen-3.0-generate-002",
+    });
+    expect(generateManagedAvatarFn).toHaveBeenCalledTimes(1);
+    expect(generateManagedAvatarFn).toHaveBeenCalledWith("a cute cat", {
+      correlationId: undefined,
+      model: "imagen-3.0-generate-002",
+    });
+    expect(result.model).toBe("imagen-3.0-generate-002");
+    expect(result.pathUsed).toBe("managed");
+  });
+
+  // 12. model is undefined in result when not provided
+  test("managed_required result has no model when none provided", async () => {
+    mockStrategy = "managed_required";
+    const result = await routedGenerateAvatar("a cute cat");
+    expect(result.model).toBeUndefined();
   });
 
   // 9. Removed: Invalid strategy values are now rejected at config parse time

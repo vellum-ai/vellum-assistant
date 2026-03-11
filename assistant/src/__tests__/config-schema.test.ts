@@ -97,11 +97,9 @@ describe("AssistantConfigSchema", () => {
     expect(result.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 200000,
-      targetInputTokens: 110000,
+      targetBudgetRatio: 0.3,
       compactThreshold: 0.8,
-      preserveRecentUserTurns: 8,
-      summaryMaxTokens: 1200,
-      chunkTokens: 12000,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -322,18 +320,18 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects contextWindow targetInputTokens >= maxInputTokens", () => {
+  test("rejects contextWindow targetBudgetRatio >= compactThreshold", () => {
     const result = AssistantConfigSchema.safeParse({
-      contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 },
+      contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(
         result.error.issues.some(
           (issue) =>
-            issue.path.join(".") === "contextWindow.targetInputTokens" &&
+            issue.path.join(".") === "contextWindow.targetBudgetRatio" &&
             issue.message.includes(
-              "must be less than contextWindow.maxInputTokens",
+              "must be less than contextWindow.compactThreshold",
             ),
         ),
       ).toBe(true);
@@ -1102,11 +1100,9 @@ describe("loadConfig with schema validation", () => {
     expect(config.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 200000,
-      targetInputTokens: 110000,
+      targetBudgetRatio: 0.3,
       compactThreshold: 0.8,
-      preserveRecentUserTurns: 8,
-      summaryMaxTokens: 1200,
-      chunkTokens: 12000,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -1196,11 +1192,11 @@ describe("loadConfig with schema validation", () => {
 
   test("falls back for invalid contextWindow relationship", () => {
     writeConfig({
-      contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 },
+      contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
     });
     const config = loadConfig();
-    expect(config.contextWindow.maxInputTokens).toBe(200000);
-    expect(config.contextWindow.targetInputTokens).toBe(110000);
+    expect(config.contextWindow.targetBudgetRatio).toBe(0.3);
+    expect(config.contextWindow.compactThreshold).toBe(0.8);
   });
 
   test("falls back for invalid rateLimit values", () => {

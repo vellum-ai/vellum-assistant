@@ -441,7 +441,6 @@ async function recoverFromCurlFailure(
   } catch {}
 }
 
-
 export async function hatchGcp(
   species: Species,
   detached: boolean,

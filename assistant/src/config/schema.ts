@@ -329,16 +329,29 @@ export const AssistantConfigSchema = z
   })
   .superRefine((config, ctx) => {
     if (
-      config.contextWindow?.targetInputTokens != null &&
-      config.contextWindow?.maxInputTokens != null &&
-      config.contextWindow.targetInputTokens >=
-        config.contextWindow.maxInputTokens
+      config.contextWindow?.targetBudgetRatio != null &&
+      config.contextWindow?.compactThreshold != null &&
+      config.contextWindow.targetBudgetRatio >=
+        config.contextWindow.compactThreshold
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetInputTokens"],
+        path: ["contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens",
+          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
+      });
+    }
+    if (
+      config.contextWindow?.targetBudgetRatio != null &&
+      config.contextWindow?.summaryBudgetRatio != null &&
+      config.contextWindow.targetBudgetRatio <=
+        config.contextWindow.summaryBudgetRatio
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contextWindow", "targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
       });
     }
     const segmentation = config.memory?.segmentation;

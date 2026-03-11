@@ -95,7 +95,13 @@ export interface ProviderResponse {
 export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "input_json_delta"; toolName: string; accumulatedJson: string };
+  | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
+  | {
+      type: "input_json_delta";
+      toolName: string;
+      toolUseId: string;
+      accumulatedJson: string;
+    };
 
 export interface SendMessageConfig {
   model?: string;

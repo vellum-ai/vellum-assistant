@@ -11,7 +11,6 @@ import type {
 import { MODEL_TO_PROVIDER } from "../session-slash.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
-  defineHandlers,
   type HandlerContext,
   log,
 } from "./shared.js";
@@ -42,10 +41,13 @@ export function getModelInfo(): ModelInfo {
 
 /**
  * Minimal interface for the side-effects needed by setModel / setImageGenModel.
- * Keeps the business logic decoupled from IPC-specific HandlerContext.
+ * Keeps the business logic decoupled from transport-specific HandlerContext.
  */
 export interface ModelSetContext {
-  sessions: Map<string, { isProcessing(): boolean; dispose(): void; markStale(): void }>;
+  sessions: Map<
+    string,
+    { isProcessing(): boolean; dispose(): void; markStale(): void }
+  >;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
@@ -128,10 +130,7 @@ export function setModel(modelId: string, ctx: ModelSetContext): ModelInfo {
 /**
  * Set the image generation model. Throws on failure.
  */
-export function setImageGenModel(
-  modelId: string,
-  ctx: ModelSetContext,
-): void {
+export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
   const raw = loadRawConfig();
   raw.imageGenModel = modelId;
 
@@ -156,7 +155,7 @@ export function setImageGenModel(
 }
 
 // ---------------------------------------------------------------------------
-// IPC handlers (delegate to shared logic)
+// HTTP handlers (delegate to shared logic)
 // ---------------------------------------------------------------------------
 
 export function handleModelGet(ctx: HandlerContext): void {
@@ -195,8 +194,3 @@ export function handleImageGenModelSet(
   }
 }
 
-export const modelHandlers = defineHandlers({
-  model_get: (_msg, ctx) => handleModelGet(ctx),
-  model_set: handleModelSet,
-  image_gen_model_set: handleImageGenModelSet,
-});

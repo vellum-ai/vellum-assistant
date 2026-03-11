@@ -54,7 +54,6 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
 const WORKSPACE_GITIGNORE_RULES = [
   "data/db/",
   "data/qdrant/",
-  "data/ipc-blobs/",
   "logs/",
   "*.log",
   "*.sock",
@@ -67,7 +66,6 @@ const WORKSPACE_GITIGNORE_RULES = [
   "*.db-journal",
   "*.db-wal",
   "*.db-shm",
-  "vellum.sock",
   "vellum.pid",
   "session-token",
 ];

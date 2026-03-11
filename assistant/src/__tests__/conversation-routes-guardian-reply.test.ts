@@ -86,7 +86,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcTrustContext: () => ({
+  resolveLocalTrustContext: () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
@@ -157,6 +157,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
       denyAllPendingConfirmations: () => {},
@@ -167,6 +169,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: () => false,
+      setHostBashProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -228,6 +231,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => false,
       denyAllPendingConfirmations: () => {},
@@ -238,6 +243,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: () => false,
+      setHostBashProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -294,6 +300,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
       denyAllPendingConfirmations: () => {},
@@ -305,6 +313,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       trustContext: undefined,
       hasPendingConfirmation: (requestId: string) =>
         requestId === "tool-approval-live",
+      setHostBashProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -366,6 +375,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
       denyAllPendingConfirmations: () => {},
@@ -376,6 +387,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "tool-req-code-1",
+      setHostBashProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -433,6 +445,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
       denyAllPendingConfirmations: () => {},
@@ -443,6 +457,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "pending-reject-1",
+      setHostBashProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -494,6 +509,8 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
       isProcessing: () => false,
       hasAnyPendingConfirmation: () => true,
       denyAllPendingConfirmations: () => {},
@@ -504,6 +521,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       assistantId: "self",
       trustContext: undefined,
       hasPendingConfirmation: (id: string) => id === "pending-1",
+      setHostBashProxy: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {

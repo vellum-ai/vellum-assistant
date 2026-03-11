@@ -84,7 +84,7 @@ Dynamic name prefixes (from IDENTITY.md) are stripped during classification, so 
 
 Recording intent resolution follows a precedence chain:
 
-### 1. `commandIntent` (structured IPC) — highest priority
+### 1. `commandIntent` (structured command) — highest priority
 
 The macOS client can send structured intents with `domain: 'screen_recording'` and `action: 'start' | 'stop' | 'restart' | 'pause' | 'resume'`. These bypass text parsing entirely. The assistant checks for `commandIntent` before any text analysis.
 

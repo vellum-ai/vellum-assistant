@@ -244,7 +244,7 @@ describe("assistant ID boundary", () => {
     // Excluded:
     //   - Test files (they may legitimately assert against the value)
     //   - Migration files (SQL literals like DEFAULT 'self' are fine)
-    //   - IPC contract files (comments documenting default values are fine)
+    //   - Message contract files (comments documenting default values are fine)
     //   - CSP headers ('self' in Content-Security-Policy has nothing to do with assistant IDs)
     const pattern = `(assistantId|assistant_id).*['"]self['"]`;
 
@@ -307,21 +307,21 @@ describe("assistant ID boundary", () => {
   // -------------------------------------------------------------------------
   // Rule (e): No assistantId on daemon control-plane request/param types
   //
-  // Daemon IPC contracts and guardian outbound param interfaces must not
+  // Daemon message contracts and guardian outbound param interfaces must not
   // accept an assistantId field -- the daemon always uses
   // DAEMON_INTERNAL_ASSISTANT_ID internally. Accepting assistantId on these
   // surfaces invites callers to pass external IDs into daemon scoping.
   // -------------------------------------------------------------------------
 
-  test("IPC contract types do not contain assistantId for guardian requests", () => {
-    const ipcContractPath = join(
+  test("message contract types do not contain assistantId for guardian requests", () => {
+    const contractPath = join(
       import.meta.dir,
       "..",
       "daemon",
       "message-types",
       "integrations.ts",
     );
-    const content = readFileSync(ipcContractPath, "utf-8");
+    const content = readFileSync(contractPath, "utf-8");
 
     // Extract the interface blocks for the request types and verify
     // none of them declare an assistantId property.
@@ -334,7 +334,7 @@ describe("assistant ID boundary", () => {
       const typeIndex = content.indexOf(typeName);
       expect(
         typeIndex,
-        `Expected to find ${typeName} in IPC contract`,
+        `Expected to find ${typeName} in message contract`,
       ).toBeGreaterThan(-1);
 
       // Extract from the type declaration to the next '}' line

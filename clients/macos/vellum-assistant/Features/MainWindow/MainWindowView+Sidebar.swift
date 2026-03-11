@@ -189,6 +189,9 @@ extension MainWindowView {
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps)) {
                 windowState.showAppsPanel()
             }
+            SidebarNavRow(icon: VIcon.clipboardList.rawValue, label: "Tasks", isActive: windowState.selection == .panel(.taskQueue)) {
+                windowState.togglePanel(.taskQueue)
+            }
 
             // Divider between nav items and threads
             sidebarSectionDivider(isExpanded: true)
@@ -478,6 +481,9 @@ extension MainWindowView {
             }
             SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
                 windowState.showAppsPanel()
+            }
+            SidebarNavRow(icon: VIcon.clipboardList.rawValue, label: "Tasks", isActive: windowState.selection == .panel(.taskQueue), isExpanded: false) {
+                windowState.togglePanel(.taskQueue)
             }
 
             sidebarSectionDivider(isExpanded: false)

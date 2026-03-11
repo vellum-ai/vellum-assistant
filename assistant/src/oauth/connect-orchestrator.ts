@@ -47,7 +47,7 @@ export interface OAuthConnectOptions {
   isInteractive: boolean;
   /** Open a URL in the user's browser (interactive path). */
   openUrl?: (url: string) => void;
-  /** Send a message to the client (e.g. open_url IPC). */
+  /** Send a message to the client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** Tools allowed to use the resulting credential. */
   allowedTools?: string[];

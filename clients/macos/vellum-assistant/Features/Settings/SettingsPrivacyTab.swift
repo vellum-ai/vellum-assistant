@@ -61,8 +61,12 @@ struct SettingsPrivacyTab: View {
                 VToggle(isOn: Binding(
                     get: { collectUsageData },
                     set: { newValue in
+                        let previousPerfMetrics = store.sendPerformanceReports
                         collectUsageData = newValue
-                        Task { await setCollectUsageData(newValue) }
+                        if !newValue {
+                            store.sendPerformanceReports = false
+                        }
+                        Task { await setCollectUsageData(newValue, previousPerfMetrics: previousPerfMetrics) }
                     }
                 ))
                 .disabled(isLoading || isUpdating || daemonClient == nil)
@@ -115,7 +119,7 @@ struct SettingsPrivacyTab: View {
         isLoading = false
     }
 
-    private func setCollectUsageData(_ enabled: Bool) async {
+    private func setCollectUsageData(_ enabled: Bool, previousPerfMetrics: Bool = false) async {
         guard let daemonClient else { return }
         isUpdating = true
         do {
@@ -135,8 +139,13 @@ struct SettingsPrivacyTab: View {
                 MetricKitManager.closeSentry()
             }
         } catch {
-            // Revert the optimistic toggle on failure
+            // Revert the optimistic toggle on failure, including the
+            // cascaded performance metrics toggle — restore to its
+            // previous value rather than blindly setting true.
             collectUsageData = !enabled
+            if !enabled {
+                store.sendPerformanceReports = previousPerfMetrics
+            }
             loadError = "Could not save privacy setting: \(error.localizedDescription)"
         }
         isUpdating = false

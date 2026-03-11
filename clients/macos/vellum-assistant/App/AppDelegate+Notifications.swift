@@ -314,7 +314,7 @@ extension AppDelegate {
         errorCode: String?
     ) {
         guard let deliveryId else { return }
-        let result = IPCNotificationIntentResult(
+        let result = NotificationIntentResult(
             type: "notification_intent_result",
             deliveryId: deliveryId,
             success: success,
@@ -374,7 +374,7 @@ extension AppDelegate {
     }
 
     /// Schedules a fallback local notification for any notification_thread_created
-    /// event. If the corresponding notification_intent IPC arrives within the
+    /// event. If the corresponding notification_intent event arrives within the
     /// delay window, the fallback is cancelled (preventing duplicates). Guardian
     /// questions use a specific body; all other event types use a generic body.
     func scheduleNotificationFallback(
@@ -411,14 +411,14 @@ extension AppDelegate {
         }
     }
 
-    /// Send a `conversation_seen_signal` IPC message to the daemon.
+    /// Send a `conversation_seen_signal` message to the daemon.
     func sendConversationSeenSignal(
         conversationId: String,
         signalType: String,
         source: String,
         evidenceText: String? = nil
     ) {
-        let signal = IPCConversationSeenSignal(
+        let signal = ConversationSeenSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
             signalType: signalType,

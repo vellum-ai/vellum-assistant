@@ -231,7 +231,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/ride-shotgun-handler.ts", // learn session cookie persistence
       "daemon/session-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
-      "twitter/platform-proxy-client.ts", // managed Twitter proxy auth token lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -316,13 +315,13 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
         );
       });
     } else if (tc.component === "ipc_decode") {
-      // PR 24 — IPC decode log hygiene: the TS daemon's IPC parser must
+      // PR 24 — message decode log hygiene: the TS daemon's message parser must
       // not log raw message content that could contain secrets.
       // Logging metadata (line length, error type) is acceptable; logging
       // the raw line, trimmed content, or error.message is not.
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
-        const ipcSrc = readFileSync(
+        const protocolSrc = readFileSync(
           resolve(thisDir, "../daemon/message-protocol.ts"),
           "utf-8",
         );
@@ -333,11 +332,11 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
         // helper calls like formatErr(err)) don't terminate the match
         // early — avoiding false negatives — while still scoping each
         // pattern to a single line (no cross-statement matching).
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*trimmed[^.]/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*line[^L]/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*data\b/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*buffer\b/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*err\.message\b/);
+        expect(protocolSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*trimmed[^.]/);
+        expect(protocolSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*line[^L]/);
+        expect(protocolSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*data\b/);
+        expect(protocolSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*buffer\b/);
+        expect(protocolSrc).not.toMatch(/\blog\.\w+\([^\n]*err\.message\b/);
       });
     } else {
       // PR 25 — secret prompter log hygiene: verify the prompter source

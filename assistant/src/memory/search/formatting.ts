@@ -99,15 +99,25 @@ function buildStructuredInjectedText(candidates: Candidate[]): string {
   for (const candidate of ordered) {
     const absolute = formatAbsoluteTime(candidate.createdAt);
     const relative = formatRelativeTime(candidate.createdAt);
-    parts.push(
-      `<entry kind="${escapeXmlAttr(candidate.kind)}" type="${
-        candidate.type
-      }" confidence="${candidate.confidence.toFixed(
-        2,
-      )}" time="${absolute} (${relative})">` +
-        escapeXmlTags(truncate(candidate.text, 320)) +
-        "</entry>",
-    );
+    if (candidate.type === "media") {
+      const modality = candidate.modality ?? "media";
+      const subject = candidate.kind !== "media" ? ` (${candidate.kind})` : "";
+      parts.push(
+        `<entry kind="${escapeXmlAttr(candidate.kind)}" type="media" confidence="${candidate.confidence.toFixed(
+          2,
+        )}" time="${absolute} (${relative})">[Recalled ${modality}${subject}]</entry>`,
+      );
+    } else {
+      parts.push(
+        `<entry kind="${escapeXmlAttr(candidate.kind)}" type="${
+          candidate.type
+        }" confidence="${candidate.confidence.toFixed(
+          2,
+        )}" time="${absolute} (${relative})">` +
+          escapeXmlTags(truncate(candidate.text, 320)) +
+          "</entry>",
+      );
+    }
   }
   parts.push("</entries>");
   parts.push(MEMORY_RECALL_CLOSE_TAG);
@@ -146,11 +156,26 @@ export function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
 }
 
 function formatCandidateLine(candidate: Candidate): string {
+  if (candidate.type === "media") {
+    return formatMediaCandidateLine(candidate);
+  }
   const absolute = formatAbsoluteTime(candidate.createdAt);
   const relative = formatRelativeTime(candidate.createdAt);
   return `- <kind>${candidate.kind}</kind> ${escapeXmlTags(
     truncate(candidate.text, 320),
   )} (${absolute} \u00b7 ${relative})`;
+}
+
+/**
+ * Format a media candidate as a descriptive reference. Since the LLM can't
+ * see the actual image/audio from memory recall text, we provide a reference
+ * that gives awareness of relevant media in memory.
+ */
+function formatMediaCandidateLine(candidate: Candidate): string {
+  const modality = candidate.modality ?? "media";
+  const subject = candidate.kind !== "media" ? ` (${candidate.kind})` : "";
+  const relative = formatRelativeTime(candidate.createdAt);
+  return `- [Recalled ${modality}${subject} from ${relative}]`;
 }
 
 /**

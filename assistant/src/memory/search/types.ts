@@ -1,4 +1,4 @@
-export type CandidateType = "segment" | "item" | "summary";
+export type CandidateType = "segment" | "item" | "summary" | "media";
 export type CandidateSource =
   | "lexical"
   | "semantic"
@@ -14,6 +14,7 @@ export interface Candidate {
   source: CandidateSource;
   text: string;
   kind: string;
+  modality?: "text" | "image" | "audio" | "video";
   confidence: number;
   importance: number;
   createdAt: number;

@@ -594,7 +594,7 @@ final class SessionTests: XCTestCase {
         }
     }
 
-    // MARK: - IPC Message Sending
+    // MARK: - Message Sending
 
     @MainActor
     func testSessionCreate_sentOnStart() async {

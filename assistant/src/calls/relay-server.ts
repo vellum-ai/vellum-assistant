@@ -155,7 +155,7 @@ let globalBroadcast:
   | ((msg: import("../daemon/message-protocol.js").ServerMessage) => void)
   | undefined;
 
-/** Register a broadcast function so RelayConnection can forward IPC events. */
+/** Register a broadcast function so RelayConnection can forward events to connected clients. */
 export function setRelayBroadcast(
   fn: (msg: import("../daemon/message-protocol.js").ServerMessage) => void,
 ): void {

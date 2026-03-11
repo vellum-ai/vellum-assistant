@@ -13,7 +13,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => "/tmp/test.sock",
   getDataDir: () => "/tmp",
 }));
 
@@ -32,11 +31,8 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 100000,
-      targetInputTokens: 80000,
-      compactThreshold: 0.8,
-      preserveRecentUserTurns: 8,
-      summaryMaxTokens: 512,
-      chunkTokens: 12000,
+      targetBudgetRatio: 0.30,
+      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},

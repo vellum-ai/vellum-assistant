@@ -13,8 +13,8 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /**
- * A single assistant event wrapping an IPC ServerMessage payload.
- * The `message` field is intentionally unchanged from the IPC form so that
+ * A single assistant event wrapping a ServerMessage payload.
+ * The `message` field preserves the original form so that
  * delta semantics (text deltas, tool input deltas, etc.) are preserved.
  */
 export interface AssistantEvent {
@@ -26,7 +26,7 @@ export interface AssistantEvent {
   sessionId?: string;
   /** ISO-8601 timestamp of when the event was emitted. */
   emittedAt: string;
-  /** Unchanged IPC outbound message payload. */
+  /** Outbound server message payload. */
   message: ServerMessage;
 }
 
@@ -36,7 +36,7 @@ export interface AssistantEvent {
  * Construct an `AssistantEvent` envelope around a `ServerMessage`.
  *
  * @param assistantId  The logical assistant identifier (e.g. from the daemon or HTTP route).
- * @param message      The unchanged IPC outbound message payload.
+ * @param message      The outbound server message payload.
  * @param sessionId    Optional conversation/session id — pass when known.
  */
 export function buildAssistantEvent(

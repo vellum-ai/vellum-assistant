@@ -87,6 +87,9 @@ export { migrateRenameVerificationSessionIdColumn } from "./142-rename-verificat
 export { migrateRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
 export { migrateRenameVoiceToPhone } from "./144-rename-voice-to-phone.js";
 export { migrateDropAccountsTable } from "./145-drop-accounts-table.js";
+export { migrateScheduleOneShotRouting } from "./146-schedule-oneshot-routing.js";
+export { migrateRemindersToSchedules } from "./147-migrate-reminders-to-schedules.js";
+export { migrateDropRemindersTable } from "./148-drop-reminders-table.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

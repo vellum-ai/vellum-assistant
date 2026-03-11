@@ -26,7 +26,7 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 1. **Secret scanning** — Detects plain text keys, tokens, passwords, and other sensitive information
 2. **Prettier formatting** — Runs `prettier --check` on staged files in `assistant/`, `cli/`, and `gateway/`
 3. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, and `gateway/`
-4. **IPC contract verification** — When IPC contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
+4. **Message contract verification** — When message contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
 5. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires Team Jarvis approval, see `assistant/src/tools/AGENTS.md`)
 
 **Behavior:**
@@ -37,7 +37,7 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 - Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
 - Ignores checksum/hash fixture fields (for example `nonceSha256`) while still scanning adjacent lines
 - Runs prettier and eslint on staged files in assistant, cli, and gateway directories
-- When IPC contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
+- When message contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
 - Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
 
 **Verification:**

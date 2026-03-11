@@ -105,7 +105,7 @@ final class RideShotgunSession: ObservableObject, Identifiable {
     func cancel() {
         // Send ride_shotgun_stop so the daemon terminates the capture session
         // immediately rather than running to timeout.  Use the watchId if we
-        // have one; if we cancelled before watch_started arrived, skip the IPC
+        // have one; if we cancelled before watch_started arrived, skip the send
         // (the daemon will time out on its own shortly after never receiving
         // any client activity).
         if let watchId = expectedWatchId, let daemonClient {

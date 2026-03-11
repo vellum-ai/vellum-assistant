@@ -240,6 +240,18 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
 }
 
 /**
+ * Unregister all MCP-origin tools from the registry.
+ */
+export function unregisterAllMcpTools(): void {
+  for (const [name, tool] of tools) {
+    if (tool.origin === "mcp") {
+      tools.delete(name);
+      log.info({ name }, "MCP tool unregistered (reload)");
+    }
+  }
+}
+
+/**
  * Unregister all tools belonging to a specific MCP server.
  */
 export function unregisterMcpTools(serverId: string): void {
@@ -258,6 +270,17 @@ export function getMcpToolNames(): string[] {
   return Array.from(tools.values())
     .filter((t) => t.origin === "mcp")
     .map((t) => t.name);
+}
+
+/**
+ * Return tool definitions for all currently registered MCP-origin tools.
+ * Used by the session resolver to dynamically pick up MCP tools that
+ * were registered after session creation (e.g. via `vellum mcp reload`).
+ */
+export function getMcpToolDefinitions(): ToolDefinition[] {
+  return Array.from(tools.values())
+    .filter((t) => t.origin === "mcp")
+    .map((t) => t.getDefinition());
 }
 
 /**

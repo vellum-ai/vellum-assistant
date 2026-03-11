@@ -1,14 +1,15 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Blank page with a centered loading spinner, shown over the chat area
-/// while waiting for the daemon to connect.
+/// Skeleton placeholder shown over the chat area while waiting for the
+/// daemon to connect.
 struct DaemonLoadingChatSkeleton: View {
     var body: some View {
         ZStack {
             VColor.backgroundSubtle
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            VLoadingIndicator(size: 24, color: VColor.textMuted)
+            ChatLoadingSkeleton()
+                .padding(VSpacing.lg)
         }
         .accessibilityHidden(true)
     }

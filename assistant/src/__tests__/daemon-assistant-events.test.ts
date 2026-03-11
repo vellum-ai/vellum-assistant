@@ -1,5 +1,5 @@
 /**
- * Tests that daemon IPC outbound messages are mirrored into the
+ * Tests that daemon outbound messages are mirrored into the
  * assistant-events hub as AssistantEvent objects.
  *
  * Tests:
@@ -10,7 +10,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => "/tmp/test-daemon-events.sock",
   getSessionTokenPath: () => "/tmp/test-token",
   getRootDir: () => "/tmp/test",
   getDataDir: () => "/tmp/test",
@@ -85,7 +84,7 @@ describe("daemon send → one mirrored assistant event", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_ipc" }, (e) => {
+    hub.subscribe({ assistantId: "ast_test" }, (e) => {
       received.push(e);
     });
 
@@ -94,11 +93,11 @@ describe("daemon send → one mirrored assistant event", () => {
       sessionId: "sess_a",
       text: "hello",
     };
-    const event = buildAssistantEvent("ast_ipc", msg, "sess_a");
+    const event = buildAssistantEvent("ast_test", msg, "sess_a");
     await hub.publish(event);
 
     expect(received).toHaveLength(1);
-    expect(received[0].assistantId).toBe("ast_ipc");
+    expect(received[0].assistantId).toBe("ast_test");
     expect(received[0].sessionId).toBe("sess_a");
     expect(received[0].message.type).toBe("assistant_text_delta");
   });
@@ -107,12 +106,12 @@ describe("daemon send → one mirrored assistant event", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_ipc" }, (e) => {
+    hub.subscribe({ assistantId: "ast_test" }, (e) => {
       received.push(e);
     });
 
     const msg: ServerMessage = { type: "pong" }; // no sessionId field
-    const event = buildAssistantEvent("ast_ipc", msg, "sess_explicit");
+    const event = buildAssistantEvent("ast_test", msg, "sess_explicit");
 
     await hub.publish(event);
 

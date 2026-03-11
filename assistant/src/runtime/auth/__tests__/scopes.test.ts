@@ -42,7 +42,7 @@ describe("resolveScopeProfile", () => {
     const scopes = resolveScopeProfile("actor_client_v1");
     expect(scopes.has("ingress.write")).toBe(false);
     expect(scopes.has("internal.write")).toBe(false);
-    expect(scopes.has("ipc.all")).toBe(false);
+    expect(scopes.has("local.all")).toBe(false);
   });
 
   test("gateway_ingress_v1 includes ingress and internal scopes", () => {
@@ -64,9 +64,9 @@ describe("resolveScopeProfile", () => {
     expect(scopes.size).toBe(7);
   });
 
-  test("ipc_v1 includes only ipc.all", () => {
-    const scopes = resolveScopeProfile("ipc_v1");
-    expect(scopes.has("ipc.all")).toBe(true);
+  test("local_v1 includes only local.all", () => {
+    const scopes = resolveScopeProfile("local_v1");
+    expect(scopes.has("local.all")).toBe(true);
     expect(scopes.size).toBe(1);
   });
 });
@@ -82,9 +82,9 @@ describe("hasScope", () => {
     expect(hasScope(ctx, "ingress.write")).toBe(false);
   });
 
-  test("returns true for ipc.all on ipc_v1 profile", () => {
-    const ctx = makeCtx("ipc_v1");
-    expect(hasScope(ctx, "ipc.all")).toBe(true);
+  test("returns true for local.all on local_v1 profile", () => {
+    const ctx = makeCtx("local_v1");
+    expect(hasScope(ctx, "local.all")).toBe(true);
   });
 });
 

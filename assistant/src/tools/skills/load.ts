@@ -69,7 +69,8 @@ export class SkillLoadTool implements Tool {
 
     // Assistant feature flag gate: reject loading if the skill's flag is OFF
     const config = getConfig();
-    if (!isAssistantFeatureFlagEnabled(skillFlagKey(skill.id), config)) {
+    const flagKey = skillFlagKey(skill);
+    if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
       return {
         content: `Error: skill "${skill.id}" is currently unavailable (disabled by feature flag)`,
         isError: true,
@@ -122,7 +123,11 @@ export class SkillLoadTool implements Tool {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
-        if (!isAssistantFeatureFlagEnabled(skillFlagKey(childId), config))
+        const childFlagKey = skillFlagKey(child);
+        if (
+          childFlagKey &&
+          !isAssistantFeatureFlagEnabled(childFlagKey, config)
+        )
           continue;
 
         childLines.push(
@@ -162,7 +167,11 @@ export class SkillLoadTool implements Tool {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
-        if (!isAssistantFeatureFlagEnabled(skillFlagKey(childId), config))
+        const childFlagKey2 = skillFlagKey(child);
+        if (
+          childFlagKey2 &&
+          !isAssistantFeatureFlagEnabled(childFlagKey2, config)
+        )
           continue;
         let childHash: string | undefined;
         try {

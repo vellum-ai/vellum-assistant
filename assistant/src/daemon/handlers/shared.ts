@@ -13,7 +13,6 @@ import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { ComputerUseSession } from "../computer-use-session.js";
 import type {
-  ClientMessage,
   ServerMessage,
   SessionTransportMetadata,
 } from "../message-protocol.js";
@@ -41,7 +40,7 @@ export const pendingStandaloneSecrets = new Map<
   }
 >();
 
-// Pending IPC signing responses (bundle signing orchestration), keyed by unique requestId
+// Pending signing responses (bundle signing orchestration), keyed by unique requestId
 interface PendingSigningResolve {
   resolve: (result: {
     signature: string;
@@ -132,7 +131,7 @@ export interface SessionCreateOptions {
   transport?: SessionTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
-  /** Normalized auth context for the session (IPC or HTTP-derived). */
+  /** Normalized auth context for the session. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
@@ -169,29 +168,6 @@ export interface HandlerContext {
   touchSession(sessionId: string): void;
   /** Optional heartbeat service reference for "Run Now" support. */
   heartbeatService?: HeartbeatService;
-}
-
-// ─── Typed dispatch ──────────────────────────────────────────────────────────
-
-type MessageType = ClientMessage["type"];
-// 'auth' is handled at the transport layer (server.ts) and never reaches dispatch.
-export type DispatchableType = Exclude<MessageType, "auth">;
-type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
-type MessageHandler<T extends MessageType> = (
-  msg: MessageOfType<T>,
-  ctx: HandlerContext,
-) => void | Promise<void>;
-export type DispatchMap = { [T in DispatchableType]: MessageHandler<T> };
-
-/**
- * Type-safe handler group definition. Preserves exact key types so the
- * combined spread in index.ts can be checked for exhaustiveness via
- * `satisfies DispatchMap` instead of an unsafe `as DispatchMap` cast.
- */
-export function defineHandlers<K extends DispatchableType>(
-  handlers: Pick<DispatchMap, K>,
-): Pick<DispatchMap, K> {
-  return handlers;
 }
 
 /**
@@ -276,7 +252,10 @@ export function wireEscalationHandler(
         }
         ctx.cuSessions.delete(sid);
         ctx.cuObservationParseSequence.delete(sid);
-        log.info({ sessionId: sid }, "Computer-use session cleaned up after terminal state");
+        log.info(
+          { sessionId: sid },
+          "Computer-use session cleaned up after terminal state",
+        );
       };
 
       const cuSession = new ComputerUseSession(
@@ -623,7 +602,7 @@ const SIGNING_TIMEOUT_MS = 30_000;
 
 /**
  * Create a SigningCallback that sends `sign_bundle_payload` to the Swift client
- * over IPC and waits for the `sign_bundle_payload_response`.
+ * over HTTP and waits for the `sign_bundle_payload_response`.
  */
 export function createSigningCallback(
   ctx: HandlerContext,

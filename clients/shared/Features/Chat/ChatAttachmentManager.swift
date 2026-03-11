@@ -318,7 +318,7 @@ public final class ChatAttachmentManager: ObservableObject {
         }.value
     }
 
-    // MARK: - Static helpers (shared with ChatViewModel+Attachments and mapIPCAttachments)
+    // MARK: - Static helpers (shared with ChatViewModel+Attachments and mapMessageAttachments)
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
     nonisolated public static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
@@ -331,7 +331,7 @@ public final class ChatAttachmentManager: ObservableObject {
         // NSImage.lockFocus()/draw()/unlockFocus() must run on the main thread.
         // This helper is called from two contexts:
         //   1. Task.detached (background) — must hop to main via DispatchQueue.main.sync.
-        //   2. @MainActor callers (e.g. ChatViewModel.mapIPCAttachments) — already on the
+        //   2. @MainActor callers (e.g. ChatViewModel.mapMessageAttachments) — already on the
         //      main thread, so DispatchQueue.main.sync would deadlock. Execute inline.
         let drawBlock = {
             let resized = NSImage(size: newSize)

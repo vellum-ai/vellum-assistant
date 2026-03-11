@@ -112,7 +112,7 @@ When the user reports a problem, follow the appropriate decision tree:
 
 ### "Changed a setting but it didn't work"
 
-1. **IPC broadcast** — The setting should take effect immediately. If it didn't, suggest restarting the assistant.
+1. **Event broadcast** — The setting should take effect immediately. If it didn't, suggest restarting the assistant.
 2. **Verify** — Open the Voice settings tab with `navigate_settings_tab` to confirm the setting was persisted.
 
 ## Deep Debugging

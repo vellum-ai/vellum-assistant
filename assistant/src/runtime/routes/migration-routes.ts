@@ -115,7 +115,7 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
  *        with Content-Disposition header for download.
  *   500: Standard error envelope for unexpected failures.
  *
- * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, ipc.
+ * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
 export async function handleMigrationExport(req: Request): Promise<Response> {
   let description: string | undefined;
@@ -254,7 +254,7 @@ async function extractFileData(
  *   400: Standard error envelope for missing/empty body
  *   500: Standard error envelope for unexpected failures
  *
- * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, ipc.
+ * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
 export async function handleMigrationImportPreflight(
   req: Request,
@@ -339,7 +339,7 @@ export async function handleMigrationImportPreflight(
  *   400: Standard error envelope for missing/empty body
  *   500: Standard error envelope for unexpected failures
  *
- * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, ipc.
+ * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
 export async function handleMigrationImport(req: Request): Promise<Response> {
   const extracted = await extractFileData(req);

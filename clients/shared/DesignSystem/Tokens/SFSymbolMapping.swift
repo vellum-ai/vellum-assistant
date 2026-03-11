@@ -1,5 +1,5 @@
 /// Maps SF Symbol names to `VIcon` cases.
-/// Used by dynamic icon consumers (weather widget, IPC surfaces, trace views)
+/// Used by dynamic icon consumers (weather widget, HTTP surfaces, trace views)
 /// where the icon name arrives as a string at runtime.
 public enum SFSymbolMapping {
 
@@ -316,7 +316,7 @@ public enum SFSymbolMapping {
         "square.and.arrow.down": .arrowDownToLine,
         "qrcode": .qrCode,
 
-        // IPC / Composition
+        // HTTP / Composition
         "app.fill": .layoutGrid,
         "shippingbox.fill": .package,
     ]

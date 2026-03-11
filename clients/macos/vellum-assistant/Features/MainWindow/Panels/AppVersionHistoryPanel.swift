@@ -8,12 +8,12 @@ struct AppVersionHistoryPanel: View {
     let appName: String
     let onClose: () -> Void
 
-    @State private var versions: [IPCAppHistoryResponseVersion] = []
+    @State private var versions: [AppHistoryResponseVersion] = []
     @State private var isLoading = true
-    @State private var selectedVersion: IPCAppHistoryResponseVersion?
+    @State private var selectedVersion: AppHistoryResponseVersion?
     @State private var diffText: String?
     @State private var isDiffLoading = false
-    @State private var restoreConfirmVersion: IPCAppHistoryResponseVersion?
+    @State private var restoreConfirmVersion: AppHistoryResponseVersion?
     @State private var isRestoring = false
     @State private var restoreError: String?
     @State private var pendingDiffCommitHash: String?
@@ -123,7 +123,7 @@ struct AppVersionHistoryPanel: View {
         }
     }
 
-    private func versionRow(_ version: IPCAppHistoryResponseVersion, isFirst: Bool) -> some View {
+    private func versionRow(_ version: AppHistoryResponseVersion, isFirst: Bool) -> some View {
         let isSelected = selectedVersion?.commitHash == version.commitHash
         return Button(action: {
             if selectedVersion?.commitHash == version.commitHash {
@@ -181,7 +181,7 @@ struct AppVersionHistoryPanel: View {
     // MARK: - Diff Detail
 
     @ViewBuilder
-    private func diffDetailView(for version: IPCAppHistoryResponseVersion) -> some View {
+    private func diffDetailView(for version: AppHistoryResponseVersion) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // Diff header
             HStack {
@@ -282,7 +282,7 @@ struct AppVersionHistoryPanel: View {
         }
     }
 
-    private func selectVersion(_ version: IPCAppHistoryResponseVersion) {
+    private func selectVersion(_ version: AppHistoryResponseVersion) {
         selectedVersion = version
         isDiffLoading = true
         diffText = nil
@@ -314,7 +314,7 @@ struct AppVersionHistoryPanel: View {
         }
     }
 
-    private func restoreVersion(_ version: IPCAppHistoryResponseVersion) {
+    private func restoreVersion(_ version: AppHistoryResponseVersion) {
         isRestoring = true
         restoreError = nil
         restoreConfirmVersion = nil

@@ -61,7 +61,7 @@ graph LR
 | `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) try broker first. **Reads** fall back to the encrypted store when the broker is unavailable or key is not found. **Writes** return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
 | `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                                  |
 
-## IPC Contract
+## Message Contract
 
 ### Transport
 

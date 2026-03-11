@@ -11,10 +11,11 @@ export interface QdrantClientConfig {
   vectorSize: number;
   onDisk: boolean;
   quantization: "scalar" | "none";
+  embeddingModel?: string;
 }
 
 export interface QdrantPointPayload {
-  target_type: "segment" | "item" | "summary";
+  target_type: "segment" | "item" | "summary" | "media";
   target_id: string;
   text: string;
   kind?: string;
@@ -26,7 +27,9 @@ export interface QdrantPointPayload {
   last_seen_at?: number;
   conversation_id?: string;
   message_id?: string;
+  memory_scope_id?: string;
   entity_ids?: string[];
+  modality?: "text" | "image" | "audio" | "video";
 }
 
 export interface QdrantSearchResult {
@@ -59,7 +62,10 @@ export class VellumQdrantClient {
   private readonly vectorSize: number;
   private readonly onDisk: boolean;
   private readonly quantization: "scalar" | "none";
+  private readonly embeddingModel?: string;
   private collectionReady = false;
+
+  private readonly SENTINEL_ID = "00000000-0000-0000-0000-000000000000";
 
   constructor(config: QdrantClientConfig) {
     this.client = new QdrantRestClient({
@@ -70,6 +76,7 @@ export class VellumQdrantClient {
     this.vectorSize = config.vectorSize;
     this.onDisk = config.onDisk;
     this.quantization = config.quantization;
+    this.embeddingModel = config.embeddingModel;
   }
 
   async ensureCollection(): Promise<void> {
@@ -78,8 +85,51 @@ export class VellumQdrantClient {
     try {
       const exists = await this.client.collectionExists(this.collection);
       if (exists.exists) {
-        this.collectionReady = true;
-        return;
+        try {
+          const info = await this.client.getCollection(this.collection);
+          const currentSize = (
+            info.config?.params?.vectors as { size?: number }
+          )?.size;
+          const dimMismatch =
+            currentSize != null && currentSize !== this.vectorSize;
+
+          // Check model identity via a sentinel point that stores the embedding model
+          let modelMismatch = false;
+          if (this.embeddingModel) {
+            const sentinel = await this.readSentinel();
+            if (sentinel && sentinel !== this.embeddingModel) {
+              modelMismatch = true;
+            }
+          }
+
+          if (dimMismatch || modelMismatch) {
+            log.warn(
+              {
+                collection: this.collection,
+                currentSize,
+                expectedSize: this.vectorSize,
+                modelMismatch,
+              },
+              "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
+            );
+            await this.client.deleteCollection(this.collection);
+            // Fall through to collection creation below
+          } else {
+            if (await this.ensurePayloadIndexesSafe()) {
+              this.collectionReady = true;
+            }
+            return;
+          }
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to verify collection compatibility, assuming compatible",
+          );
+          if (await this.ensurePayloadIndexesSafe()) {
+            this.collectionReady = true;
+          }
+          return;
+        }
       }
     } catch {
       // Collection doesn't exist, create it
@@ -121,49 +171,30 @@ export class VellumQdrantClient {
         "status" in err &&
         (err as { status: number }).status === 409
       ) {
-        this.collectionReady = true;
+        if (await this.ensurePayloadIndexesSafe()) {
+          this.collectionReady = true;
+        }
         return;
       }
       throw err;
     }
 
-    // Create payload indexes for efficient filtering
-    await Promise.all([
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "target_type",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "target_id",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "kind",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "status",
-        field_schema: "keyword",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "created_at",
-        field_schema: "integer",
-      }),
-      this.client.createPayloadIndex(this.collection, {
-        field_name: "conversation_id",
-        field_schema: "keyword",
-      }),
-    ]);
+    if (await this.ensurePayloadIndexesSafe()) {
+      // Write sentinel point to record the active embedding model
+      if (this.embeddingModel) {
+        await this.writeSentinel(this.embeddingModel);
+      }
 
-    this.collectionReady = true;
-    log.info(
-      { collection: this.collection },
-      "Qdrant collection created with payload indexes",
-    );
+      this.collectionReady = true;
+      log.info(
+        { collection: this.collection },
+        "Qdrant collection created with payload indexes",
+      );
+    }
   }
 
   async upsert(
-    targetType: "segment" | "item" | "summary",
+    targetType: "segment" | "item" | "summary" | "media",
     targetId: string,
     vector: number[],
     payload: Omit<QdrantPointPayload, "target_type" | "target_id">,
@@ -257,7 +288,7 @@ export class VellumQdrantClient {
   async searchWithFilter(
     vector: number[],
     limit: number,
-    targetTypes: Array<"segment" | "item" | "summary">,
+    targetTypes: Array<"segment" | "item" | "summary" | "media">,
     excludeMessageIds?: string[],
   ): Promise<QdrantSearchResult[]> {
     const mustConditions: Array<Record<string, unknown>> = [
@@ -277,12 +308,17 @@ export class VellumQdrantClient {
               { key: "status", match: { value: "active" } },
             ],
           },
-          { key: "target_type", match: { any: ["segment", "summary"] } },
+          {
+            key: "target_type",
+            match: { any: ["segment", "summary", "media"] },
+          },
         ],
       });
     }
 
-    const mustNotConditions: Array<Record<string, unknown>> = [];
+    const mustNotConditions: Array<Record<string, unknown>> = [
+      { key: "_meta", match: { value: true } },
+    ];
     if (excludeMessageIds && excludeMessageIds.length > 0) {
       mustNotConditions.push({
         key: "message_id",
@@ -292,10 +328,8 @@ export class VellumQdrantClient {
 
     const filter: Record<string, unknown> = {
       must: mustConditions,
+      must_not: mustNotConditions,
     };
-    if (mustNotConditions.length > 0) {
-      filter.must_not = mustNotConditions;
-    }
 
     return this.search(vector, limit, filter);
   }
@@ -382,6 +416,87 @@ export class VellumQdrantClient {
       msg.includes("doesn't exist") ||
       msg.includes("not found")
     );
+  }
+
+  /**
+   * Wraps ensurePayloadIndexes so that a 404 (collection deleted between
+   * our existence check and index creation) resets collectionReady instead
+   * of propagating — the next operation will self-heal via ensureCollection.
+   */
+  private async ensurePayloadIndexesSafe(): Promise<boolean> {
+    try {
+      await this.ensurePayloadIndexes();
+      return true;
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  private async ensurePayloadIndexes(): Promise<void> {
+    await Promise.all([
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "target_type",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "target_id",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "kind",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "status",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "created_at",
+        field_schema: "integer",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "conversation_id",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "modality",
+        field_schema: "keyword",
+      }),
+    ]);
+  }
+
+  private async readSentinel(): Promise<string | null> {
+    try {
+      const points = await this.client.retrieve(this.collection, {
+        ids: [this.SENTINEL_ID],
+        with_payload: true,
+        with_vector: false,
+      });
+      if (points.length === 0) return null;
+      return (
+        ((points[0].payload as Record<string, unknown>)
+          ?.embedding_model as string) ?? null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeSentinel(model: string): Promise<void> {
+    await this.client.upsert(this.collection, {
+      wait: true,
+      points: [
+        {
+          id: this.SENTINEL_ID,
+          vector: new Array(this.vectorSize).fill(0), // zero vector, never matched in search
+          payload: { _meta: true, embedding_model: model },
+        },
+      ],
+    });
   }
 
   private async findByTarget(

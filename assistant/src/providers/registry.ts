@@ -226,8 +226,8 @@ export function initializeProviders(config: ProvidersConfig): void {
     );
     routingSources.set("anthropic", "user-key");
   } else {
-    // No user Anthropic key — try managed proxy fallback
-    const managedBaseUrl = buildManagedBaseUrl("anthropic");
+    // No user Anthropic key — route through Vertex managed proxy
+    const managedBaseUrl = buildManagedBaseUrl("vertex");
     if (managedBaseUrl) {
       const ctx = resolveManagedProxyContext();
       const model = resolveModel(config, "anthropic");

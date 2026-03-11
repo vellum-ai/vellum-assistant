@@ -34,9 +34,9 @@ final class ComposerReturnKeyRoutingTests: XCTestCase {
 
     // MARK: - Cmd-enter mode (cmdEnterToSend: true)
 
-    func testCmdEnterMode_plainReturn_defersToSubmit() {
+    func testCmdEnterMode_plainReturn_insertsNewline() {
         let action = ComposerReturnKeyRouting.resolve(cmdEnterToSend: true, modifiers: [])
-        XCTAssertEqual(action, .deferToSubmit)
+        XCTAssertEqual(action, .bridgeInsertNewline)
     }
 
     func testCmdEnterMode_cmdReturn_sends() {
@@ -44,14 +44,14 @@ final class ComposerReturnKeyRoutingTests: XCTestCase {
         XCTAssertEqual(action, .bridgeSend)
     }
 
-    func testCmdEnterMode_shiftReturn_defersToSubmit() {
+    func testCmdEnterMode_shiftReturn_insertsNewline() {
         let action = ComposerReturnKeyRouting.resolve(cmdEnterToSend: true, modifiers: [.shift])
-        XCTAssertEqual(action, .deferToSubmit)
+        XCTAssertEqual(action, .bridgeInsertNewline)
     }
 
-    func testCmdEnterMode_optionReturn_defersToSubmit() {
+    func testCmdEnterMode_optionReturn_insertsNewline() {
         let action = ComposerReturnKeyRouting.resolve(cmdEnterToSend: true, modifiers: [.option])
-        XCTAssertEqual(action, .deferToSubmit)
+        XCTAssertEqual(action, .bridgeInsertNewline)
     }
 
     // MARK: - Extra modifier flags (capsLock, function, etc.)
@@ -95,36 +95,6 @@ final class ComposerReturnKeyRoutingTests: XCTestCase {
         XCTAssertTrue(consumed)
         XCTAssertEqual(textView.string, "hello\n")
         XCTAssertEqual(sendCount, 0)
-    }
-
-    func testCmdEnterModeSubmitInsertsNewlineInsteadOfSending() {
-        let textView = makeTextView(with: "hello")
-        var sendCount = 0
-
-        ComposerReturnKeyRouting.handleSubmit(
-            cmdEnterToSend: true,
-            textView: textView
-        ) {
-            sendCount += 1
-        }
-
-        XCTAssertEqual(textView.string, "hello\n")
-        XCTAssertEqual(sendCount, 0)
-    }
-
-    func testDefaultModeSubmitSendsInsteadOfInsertingNewline() {
-        let textView = makeTextView(with: "hello")
-        var sendCount = 0
-
-        ComposerReturnKeyRouting.handleSubmit(
-            cmdEnterToSend: false,
-            textView: textView
-        ) {
-            sendCount += 1
-        }
-
-        XCTAssertEqual(textView.string, "hello")
-        XCTAssertEqual(sendCount, 1)
     }
 
     private func makeTextView(with text: String) -> NSTextView {

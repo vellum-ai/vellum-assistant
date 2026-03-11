@@ -38,7 +38,7 @@ final class VoiceInputManager {
     var daemonClient: (any DaemonClientProtocol)?
 
     /// Called when the daemon returns a dictation response (cleaned-up text + action plan).
-    var onDictationResponse: ((IPCDictationResponse) -> Void)?
+    var onDictationResponse: ((DictationResponse) -> Void)?
 
     /// Called when the daemon classifies dictation as an action (e.g. "Slack Alex about the standup").
     /// The callback receives the original transcription text for routing to a full agent session.
@@ -753,7 +753,7 @@ final class VoiceInputManager {
                 onTranscription?(text)
                 return
             }
-            let request = IPCDictationRequest(
+            let request = DictationRequest(
                 transcription: text,
                 context: .create(
                     bundleIdentifier: context.bundleIdentifier,
