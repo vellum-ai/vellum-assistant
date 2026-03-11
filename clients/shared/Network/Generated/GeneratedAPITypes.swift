@@ -9,7 +9,7 @@ import Foundation
 
 // MARK: - Generated message types
 
-public struct IPCAcceptStarterBundle: Codable, Sendable {
+public struct AcceptStarterBundle: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -17,7 +17,7 @@ public struct IPCAcceptStarterBundle: Codable, Sendable {
     }
 }
 
-public struct IPCAcceptStarterBundleResponse: Codable, Sendable {
+public struct AcceptStarterBundleResponse: Codable, Sendable {
     public let type: String
     public let accepted: Bool
     public let rulesAdded: Double
@@ -31,7 +31,7 @@ public struct IPCAcceptStarterBundleResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAddTrustRule: Codable, Sendable {
+public struct AddTrustRule: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let pattern: String
@@ -53,7 +53,7 @@ public struct IPCAddTrustRule: Codable, Sendable {
     }
 }
 
-public struct IPCAppDataRequest: Codable, Sendable {
+public struct AppDataRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
     public let callId: String
@@ -73,7 +73,7 @@ public struct IPCAppDataRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppDataResponse: Codable, Sendable {
+public struct AppDataResponse: Codable, Sendable {
     public let type: String
     public let surfaceId: String
     public let callId: String
@@ -91,7 +91,7 @@ public struct IPCAppDataResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAppDeleteRequest: Codable, Sendable {
+public struct AppDeleteRequest: Codable, Sendable {
     public let type: String
     public let appId: String
 
@@ -101,7 +101,7 @@ public struct IPCAppDeleteRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppDeleteResponse: Codable, Sendable {
+public struct AppDeleteResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
 
@@ -111,7 +111,7 @@ public struct IPCAppDeleteResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAppDiffRequest: Codable, Sendable {
+public struct AppDiffRequest: Codable, Sendable {
     public let type: String
     public let appId: String
     public let fromCommit: String
@@ -125,7 +125,7 @@ public struct IPCAppDiffRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppDiffResponse: Codable, Sendable {
+public struct AppDiffResponse: Codable, Sendable {
     public let type: String
     public let appId: String
     public let diff: String
@@ -137,7 +137,7 @@ public struct IPCAppDiffResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAppFileAtVersionRequest: Codable, Sendable {
+public struct AppFileAtVersionRequest: Codable, Sendable {
     public let type: String
     public let appId: String
     public let path: String
@@ -151,7 +151,7 @@ public struct IPCAppFileAtVersionRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppFileAtVersionResponse: Codable, Sendable {
+public struct AppFileAtVersionResponse: Codable, Sendable {
     public let type: String
     public let appId: String
     public let path: String
@@ -165,7 +165,7 @@ public struct IPCAppFileAtVersionResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAppFilesChanged: Codable, Sendable {
+public struct AppFilesChanged: Codable, Sendable {
     public let type: String
     public let appId: String
 
@@ -175,7 +175,7 @@ public struct IPCAppFilesChanged: Codable, Sendable {
     }
 }
 
-public struct IPCAppHistoryRequest: Codable, Sendable {
+public struct AppHistoryRequest: Codable, Sendable {
     public let type: String
     public let appId: String
     public let limit: Double?
@@ -187,19 +187,19 @@ public struct IPCAppHistoryRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppHistoryResponse: Codable, Sendable {
+public struct AppHistoryResponse: Codable, Sendable {
     public let type: String
     public let appId: String
-    public let versions: [IPCAppHistoryResponseVersion]
+    public let versions: [AppHistoryResponseVersion]
 
-    public init(type: String, appId: String, versions: [IPCAppHistoryResponseVersion]) {
+    public init(type: String, appId: String, versions: [AppHistoryResponseVersion]) {
         self.type = type
         self.appId = appId
         self.versions = versions
     }
 }
 
-public struct IPCAppHistoryResponseVersion: Codable, Sendable {
+public struct AppHistoryResponseVersion: Codable, Sendable {
     public let commitHash: String
     public let message: String
     public let timestamp: Double
@@ -211,7 +211,7 @@ public struct IPCAppHistoryResponseVersion: Codable, Sendable {
     }
 }
 
-public struct IPCAppOpenRequest: Codable, Sendable {
+public struct AppOpenRequest: Codable, Sendable {
     public let type: String
     public let appId: String
 
@@ -221,7 +221,7 @@ public struct IPCAppOpenRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppPreviewRequest: Codable, Sendable {
+public struct AppPreviewRequest: Codable, Sendable {
     public let type: String
     public let appId: String
 
@@ -231,7 +231,7 @@ public struct IPCAppPreviewRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppPreviewResponse: Codable, Sendable {
+public struct AppPreviewResponse: Codable, Sendable {
     public let type: String
     public let appId: String
     public let preview: String?
@@ -243,7 +243,7 @@ public struct IPCAppPreviewResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAppRestoreRequest: Codable, Sendable {
+public struct AppRestoreRequest: Codable, Sendable {
     public let type: String
     public let appId: String
     public let commitHash: String
@@ -255,7 +255,7 @@ public struct IPCAppRestoreRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppRestoreResponse: Codable, Sendable {
+public struct AppRestoreResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
@@ -267,7 +267,7 @@ public struct IPCAppRestoreResponse: Codable, Sendable {
     }
 }
 
-public struct IPCApprovedDeviceRemove: Codable, Sendable {
+public struct ApprovedDeviceRemove: Codable, Sendable {
     public let type: String
     public let hashedDeviceId: String
 
@@ -277,7 +277,7 @@ public struct IPCApprovedDeviceRemove: Codable, Sendable {
     }
 }
 
-public struct IPCApprovedDeviceRemoveResponse: Codable, Sendable {
+public struct ApprovedDeviceRemoveResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
 
@@ -287,7 +287,7 @@ public struct IPCApprovedDeviceRemoveResponse: Codable, Sendable {
     }
 }
 
-public struct IPCApprovedDevicesClear: Codable, Sendable {
+public struct ApprovedDevicesClear: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -295,7 +295,7 @@ public struct IPCApprovedDevicesClear: Codable, Sendable {
     }
 }
 
-public struct IPCApprovedDevicesList: Codable, Sendable {
+public struct ApprovedDevicesList: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -303,17 +303,17 @@ public struct IPCApprovedDevicesList: Codable, Sendable {
     }
 }
 
-public struct IPCApprovedDevicesListResponse: Codable, Sendable {
+public struct ApprovedDevicesListResponse: Codable, Sendable {
     public let type: String
-    public let devices: [IPCApprovedDevicesListResponseDevice]
+    public let devices: [ApprovedDevicesListResponseDevice]
 
-    public init(type: String, devices: [IPCApprovedDevicesListResponseDevice]) {
+    public init(type: String, devices: [ApprovedDevicesListResponseDevice]) {
         self.type = type
         self.devices = devices
     }
 }
 
-public struct IPCApprovedDevicesListResponseDevice: Codable, Sendable {
+public struct ApprovedDevicesListResponseDevice: Codable, Sendable {
     public let hashedDeviceId: String
     public let deviceName: String
     public let lastPairedAt: Int
@@ -325,7 +325,7 @@ public struct IPCApprovedDevicesListResponseDevice: Codable, Sendable {
     }
 }
 
-public struct IPCAppsListRequest: Codable, Sendable {
+public struct AppsListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -333,17 +333,17 @@ public struct IPCAppsListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppsListResponse: Codable, Sendable {
+public struct AppsListResponse: Codable, Sendable {
     public let type: String
-    public let apps: [IPCAppsListResponseApp]
+    public let apps: [AppsListResponseApp]
 
-    public init(type: String, apps: [IPCAppsListResponseApp]) {
+    public init(type: String, apps: [AppsListResponseApp]) {
         self.type = type
         self.apps = apps
     }
 }
 
-public struct IPCAppsListResponseApp: Codable, Sendable {
+public struct AppsListResponseApp: Codable, Sendable {
     public let id: String
     public let name: String
     public let description: String?
@@ -365,7 +365,7 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     }
 }
 
-public struct IPCAppUpdatePreviewRequest: Codable, Sendable {
+public struct AppUpdatePreviewRequest: Codable, Sendable {
     public let type: String
     public let appId: String
     /// Base64-encoded PNG screenshot thumbnail.
@@ -378,7 +378,7 @@ public struct IPCAppUpdatePreviewRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAppUpdatePreviewResponse: Codable, Sendable {
+public struct AppUpdatePreviewResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let appId: String
@@ -394,7 +394,7 @@ public struct IPCAppUpdatePreviewResponse: Codable, Sendable {
 /// 
 /// `activityVersion` is monotonically increasing per session. Clients must
 /// ignore events with a version older than their current known version.
-public struct IPCAssistantActivityState: Codable, Sendable {
+public struct AssistantActivityState: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let activityVersion: Int
@@ -419,7 +419,7 @@ public struct IPCAssistantActivityState: Codable, Sendable {
 }
 
 /// Attention state metadata for a conversation's latest assistant message.
-public struct IPCAssistantAttention: Codable, Sendable {
+public struct AssistantAttention: Codable, Sendable {
     public let hasUnseenLatestAssistantMessage: Bool
     public let latestAssistantMessageAt: Int?
     public let lastSeenAssistantMessageAt: Int?
@@ -435,7 +435,7 @@ public struct IPCAssistantAttention: Codable, Sendable {
     }
 }
 
-public struct IPCAssistantInboxEscalationRequest: Codable, Sendable {
+public struct AssistantInboxEscalationRequest: Codable, Sendable {
     public let type: String
     public let action: String
     /// Filter by assistant ID (list only).
@@ -460,16 +460,16 @@ public struct IPCAssistantInboxEscalationRequest: Codable, Sendable {
     }
 }
 
-public struct IPCAssistantInboxEscalationResponse: Codable, Sendable {
+public struct AssistantInboxEscalationResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
     /// List of escalations (returned on list).
-    public let escalations: [IPCAssistantInboxEscalationResponseEscalation]?
+    public let escalations: [AssistantInboxEscalationResponseEscalation]?
     /// Decision result (returned on decide).
-    public let decision: IPCAssistantInboxEscalationResponseDecision?
+    public let decision: AssistantInboxEscalationResponseDecision?
 
-    public init(type: String, success: Bool, error: String? = nil, escalations: [IPCAssistantInboxEscalationResponseEscalation]? = nil, decision: IPCAssistantInboxEscalationResponseDecision? = nil) {
+    public init(type: String, success: Bool, error: String? = nil, escalations: [AssistantInboxEscalationResponseEscalation]? = nil, decision: AssistantInboxEscalationResponseDecision? = nil) {
         self.type = type
         self.success = success
         self.error = error
@@ -478,7 +478,7 @@ public struct IPCAssistantInboxEscalationResponse: Codable, Sendable {
     }
 }
 
-public struct IPCAssistantInboxEscalationResponseDecision: Codable, Sendable {
+public struct AssistantInboxEscalationResponseDecision: Codable, Sendable {
     public let id: String
     public let status: String
     public let decidedAt: Int
@@ -490,7 +490,7 @@ public struct IPCAssistantInboxEscalationResponseDecision: Codable, Sendable {
     }
 }
 
-public struct IPCAssistantInboxEscalationResponseEscalation: Codable, Sendable {
+public struct AssistantInboxEscalationResponseEscalation: Codable, Sendable {
     public let id: String
     public let runId: String
     public let conversationId: String
@@ -514,7 +514,7 @@ public struct IPCAssistantInboxEscalationResponseEscalation: Codable, Sendable {
     }
 }
 
-public struct IPCAssistantTextDelta: Codable, Sendable {
+public struct AssistantTextDelta: Codable, Sendable {
     public let type: String
     public let text: String
     public let sessionId: String?
@@ -526,7 +526,7 @@ public struct IPCAssistantTextDelta: Codable, Sendable {
     }
 }
 
-public struct IPCAssistantThinkingDelta: Codable, Sendable {
+public struct AssistantThinkingDelta: Codable, Sendable {
     public let type: String
     public let thinking: String
 
@@ -536,7 +536,7 @@ public struct IPCAssistantThinkingDelta: Codable, Sendable {
     }
 }
 
-public struct IPCAuthMessage: Codable, Sendable {
+public struct AuthMessage: Codable, Sendable {
     public let type: String
     public let token: String
 
@@ -546,7 +546,7 @@ public struct IPCAuthMessage: Codable, Sendable {
     }
 }
 
-public struct IPCAuthResult: Codable, Sendable {
+public struct AuthResult: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let message: String?
@@ -559,7 +559,7 @@ public struct IPCAuthResult: Codable, Sendable {
 }
 
 /// Sent by the daemon after the avatar image has been regenerated and saved to disk.
-public struct IPCAvatarUpdated: Codable, Sendable {
+public struct AvatarUpdated: Codable, Sendable {
     public let type: String
     /// Absolute path to the updated avatar image file.
     public let avatarPath: String
@@ -570,7 +570,7 @@ public struct IPCAvatarUpdated: Codable, Sendable {
     }
 }
 
-public struct IPCBundleAppRequest: Codable, Sendable {
+public struct BundleAppRequest: Codable, Sendable {
     public let type: String
     public let appId: String
 
@@ -580,14 +580,14 @@ public struct IPCBundleAppRequest: Codable, Sendable {
     }
 }
 
-public struct IPCBundleAppResponse: Codable, Sendable {
+public struct BundleAppResponse: Codable, Sendable {
     public let type: String
     public let bundlePath: String
     /// Base64-encoded PNG of the generated app icon, if available.
     public let iconImageBase64: String?
-    public let manifest: IPCBundleAppResponseManifest
+    public let manifest: BundleAppResponseManifest
 
-    public init(type: String, bundlePath: String, iconImageBase64: String? = nil, manifest: IPCBundleAppResponseManifest) {
+    public init(type: String, bundlePath: String, iconImageBase64: String? = nil, manifest: BundleAppResponseManifest) {
         self.type = type
         self.bundlePath = bundlePath
         self.iconImageBase64 = iconImageBase64
@@ -595,7 +595,7 @@ public struct IPCBundleAppResponse: Codable, Sendable {
     }
 }
 
-public struct IPCBundleAppResponseManifest: Codable, Sendable {
+public struct BundleAppResponseManifest: Codable, Sendable {
     public let format_version: Int
     public let name: String
     public let description: String?
@@ -621,7 +621,7 @@ public struct IPCBundleAppResponseManifest: Codable, Sendable {
     }
 }
 
-public struct IPCCancelRequest: Codable, Sendable {
+public struct CancelRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String?
 
@@ -631,17 +631,17 @@ public struct IPCCancelRequest: Codable, Sendable {
     }
 }
 
-public struct IPCCardSurfaceData: Codable, Sendable {
+public struct CardSurfaceData: Codable, Sendable {
     public let title: String
     public let subtitle: String?
     public let body: String
-    public let metadata: [IPCCardSurfaceDataMetadata]?
+    public let metadata: [CardSurfaceDataMetadata]?
     /// Optional template name for specialized rendering (e.g. "weather_forecast").
     public let template: String?
     /// Arbitrary data consumed by the template renderer. Shape depends on template.
     public let templateData: [String: AnyCodable]?
 
-    public init(title: String, subtitle: String? = nil, body: String, metadata: [IPCCardSurfaceDataMetadata]? = nil, template: String? = nil, templateData: [String: AnyCodable]? = nil) {
+    public init(title: String, subtitle: String? = nil, body: String, metadata: [CardSurfaceDataMetadata]? = nil, template: String? = nil, templateData: [String: AnyCodable]? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.body = body
@@ -651,7 +651,7 @@ public struct IPCCardSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCCardSurfaceDataMetadata: Codable, Sendable {
+public struct CardSurfaceDataMetadata: Codable, Sendable {
     public let label: String
     public let value: String
 
@@ -662,7 +662,7 @@ public struct IPCCardSurfaceDataMetadata: Codable, Sendable {
 }
 
 /// Channel binding metadata exposed in session/conversation list APIs.
-public struct IPCChannelBinding: Codable, Sendable {
+public struct ChannelBinding: Codable, Sendable {
     public let sourceChannel: String
     public let externalChatId: String
     public let externalUserId: String?
@@ -678,7 +678,7 @@ public struct IPCChannelBinding: Codable, Sendable {
     }
 }
 
-public struct IPCChannelVerificationSessionRequest: Codable, Sendable {
+public struct ChannelVerificationSessionRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let channel: String?
@@ -706,7 +706,7 @@ public struct IPCChannelVerificationSessionRequest: Codable, Sendable {
     }
 }
 
-public struct IPCChannelVerificationSessionResponse: Codable, Sendable {
+public struct ChannelVerificationSessionResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let secret: String?
@@ -767,7 +767,7 @@ public struct IPCChannelVerificationSessionResponse: Codable, Sendable {
 }
 
 /// Sent by the daemon to update a client-side setting (e.g. activation key).
-public struct IPCClientSettingsUpdate: Codable, Sendable {
+public struct ClientSettingsUpdate: Codable, Sendable {
     public let type: String
     /// The setting key to update (e.g. "activationKey").
     public let key: String
@@ -782,7 +782,7 @@ public struct IPCClientSettingsUpdate: Codable, Sendable {
 }
 
 /// Structured command intent — bypasses text parsing when present.
-public struct IPCCommandIntent: Codable, Sendable {
+public struct CommandIntent: Codable, Sendable {
     public let domain: String
     public let action: String
 
@@ -792,16 +792,16 @@ public struct IPCCommandIntent: Codable, Sendable {
     }
 }
 
-public struct IPCConfirmationRequest: Codable, Sendable {
+public struct ConfirmationRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
     public let executionTarget: String?
-    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
-    public let scopeOptions: [IPCConfirmationRequestScopeOption]
-    public let diff: IPCConfirmationRequestDiff?
+    public let allowlistOptions: [ConfirmationRequestAllowlistOption]
+    public let scopeOptions: [ConfirmationRequestScopeOption]
+    public let diff: ConfirmationRequestDiff?
     public let sandboxed: Bool?
     public let sessionId: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
@@ -809,7 +809,7 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
     public let temporaryOptionsAvailable: [String]?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -826,7 +826,7 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     }
 }
 
-public struct IPCConfirmationRequestAllowlistOption: Codable, Sendable {
+public struct ConfirmationRequestAllowlistOption: Codable, Sendable {
     public let label: String
     public let description: String
     public let pattern: String
@@ -838,7 +838,7 @@ public struct IPCConfirmationRequestAllowlistOption: Codable, Sendable {
     }
 }
 
-public struct IPCConfirmationRequestDiff: Codable, Sendable {
+public struct ConfirmationRequestDiff: Codable, Sendable {
     public let filePath: String
     public let oldContent: String
     public let newContent: String
@@ -852,7 +852,7 @@ public struct IPCConfirmationRequestDiff: Codable, Sendable {
     }
 }
 
-public struct IPCConfirmationRequestScopeOption: Codable, Sendable {
+public struct ConfirmationRequestScopeOption: Codable, Sendable {
     public let label: String
     public let scope: String
 
@@ -862,7 +862,7 @@ public struct IPCConfirmationRequestScopeOption: Codable, Sendable {
     }
 }
 
-public struct IPCConfirmationResponse: Codable, Sendable {
+public struct ConfirmationResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let decision: String
@@ -882,7 +882,7 @@ public struct IPCConfirmationResponse: Codable, Sendable {
 /// 
 /// The client must use this event (not local phrase inference) to update
 /// confirmation bubble state.
-public struct IPCConfirmationStateChanged: Codable, Sendable {
+public struct ConfirmationStateChanged: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -907,7 +907,7 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
     }
 }
 
-public struct IPCConfirmationSurfaceData: Codable, Sendable {
+public struct ConfirmationSurfaceData: Codable, Sendable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
@@ -925,7 +925,7 @@ public struct IPCConfirmationSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCContactChannelPayload: Codable, Sendable {
+public struct ContactChannelPayload: Codable, Sendable {
     public let id: String
     public let type: String
     public let address: String
@@ -955,7 +955,7 @@ public struct IPCContactChannelPayload: Codable, Sendable {
     }
 }
 
-public struct IPCContactPayload: Codable, Sendable {
+public struct ContactPayload: Codable, Sendable {
     public let id: String
     public let displayName: String
     public let role: String
@@ -963,9 +963,9 @@ public struct IPCContactPayload: Codable, Sendable {
     public let contactType: String?
     public let lastInteraction: Double?
     public let interactionCount: Int
-    public let channels: [IPCContactChannelPayload]
+    public let channels: [ContactChannelPayload]
 
-    public init(id: String, displayName: String, role: String, notes: String? = nil, contactType: String? = nil, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
+    public init(id: String, displayName: String, role: String, notes: String? = nil, contactType: String? = nil, lastInteraction: Double? = nil, interactionCount: Int, channels: [ContactChannelPayload]) {
         self.id = id
         self.displayName = displayName
         self.role = role
@@ -978,7 +978,7 @@ public struct IPCContactPayload: Codable, Sendable {
 }
 
 /// Server push — lightweight invalidation signal: the contacts table has been mutated, refetch your list.
-public struct IPCContactsChanged: Codable, Sendable {
+public struct ContactsChanged: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -986,7 +986,7 @@ public struct IPCContactsChanged: Codable, Sendable {
     }
 }
 
-public struct IPCContactsInviteRequest: Codable, Sendable {
+public struct ContactsInviteRequest: Codable, Sendable {
     public let type: String
     public let action: String
     /// Source channel for the invite (required for create and redeem).
@@ -1032,16 +1032,16 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
     }
 }
 
-public struct IPCContactsInviteResponse: Codable, Sendable {
+public struct ContactsInviteResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
     /// Single invite (returned on create/revoke). Token field is only present on create.
-    public let invite: IPCContactsInviteResponseInvite?
+    public let invite: ContactsInviteResponseInvite?
     /// List of invites (returned on list).
-    public let invites: [IPCContactsInviteResponseInvite]?
+    public let invites: [ContactsInviteResponseInvite]?
 
-    public init(type: String, success: Bool, error: String? = nil, invite: IPCContactsInviteResponseInvite? = nil, invites: [IPCContactsInviteResponseInvite]? = nil) {
+    public init(type: String, success: Bool, error: String? = nil, invite: ContactsInviteResponseInvite? = nil, invites: [ContactsInviteResponseInvite]? = nil) {
         self.type = type
         self.success = success
         self.error = error
@@ -1050,7 +1050,7 @@ public struct IPCContactsInviteResponse: Codable, Sendable {
     }
 }
 
-public struct IPCContactsInviteResponseInvite: Codable, Sendable {
+public struct ContactsInviteResponseInvite: Codable, Sendable {
     public let id: String
     public let sourceChannel: String
     public let token: String?
@@ -1076,7 +1076,7 @@ public struct IPCContactsInviteResponseInvite: Codable, Sendable {
     }
 }
 
-public struct IPCContactsRequest: Codable, Sendable {
+public struct ContactsRequest: Codable, Sendable {
     public let type: String
     public let action: String
     /// Contact ID (get and delete).
@@ -1107,14 +1107,14 @@ public struct IPCContactsRequest: Codable, Sendable {
     }
 }
 
-public struct IPCContactsResponse: Codable, Sendable {
+public struct ContactsResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
-    public let contact: IPCContactPayload?
-    public let contacts: [IPCContactPayload]?
+    public let contact: ContactPayload?
+    public let contacts: [ContactPayload]?
 
-    public init(type: String, success: Bool, error: String? = nil, contact: IPCContactPayload? = nil, contacts: [IPCContactPayload]? = nil) {
+    public init(type: String, success: Bool, error: String? = nil, contact: ContactPayload? = nil, contacts: [ContactPayload]? = nil) {
         self.type = type
         self.success = success
         self.error = error
@@ -1123,7 +1123,7 @@ public struct IPCContactsResponse: Codable, Sendable {
     }
 }
 
-public struct IPCContextCompacted: Codable, Sendable {
+public struct ContextCompacted: Codable, Sendable {
     public let type: String
     public let previousEstimatedInputTokens: Int
     public let estimatedInputTokens: Int
@@ -1149,7 +1149,7 @@ public struct IPCContextCompacted: Codable, Sendable {
     }
 }
 
-public struct IPCConversationSearchMatchingMessage: Codable, Sendable {
+public struct ConversationSearchMatchingMessage: Codable, Sendable {
     public let messageId: String
     public let role: String
     /// Plain-text excerpt around the match, truncated to ~200 chars.
@@ -1164,7 +1164,7 @@ public struct IPCConversationSearchMatchingMessage: Codable, Sendable {
     }
 }
 
-public struct IPCConversationSearchRequest: Codable, Sendable {
+public struct ConversationSearchRequest: Codable, Sendable {
     public let type: String
     /// The search query string.
     public let query: String
@@ -1181,25 +1181,25 @@ public struct IPCConversationSearchRequest: Codable, Sendable {
     }
 }
 
-public struct IPCConversationSearchResponse: Codable, Sendable {
+public struct ConversationSearchResponse: Codable, Sendable {
     public let type: String
     public let query: String
-    public let results: [IPCConversationSearchResultItem]
+    public let results: [ConversationSearchResultItem]
 
-    public init(type: String, query: String, results: [IPCConversationSearchResultItem]) {
+    public init(type: String, query: String, results: [ConversationSearchResultItem]) {
         self.type = type
         self.query = query
         self.results = results
     }
 }
 
-public struct IPCConversationSearchResultItem: Codable, Sendable {
+public struct ConversationSearchResultItem: Codable, Sendable {
     public let conversationId: String
     public let conversationTitle: String?
     public let conversationUpdatedAt: Int
-    public let matchingMessages: [IPCConversationSearchMatchingMessage]
+    public let matchingMessages: [ConversationSearchMatchingMessage]
 
-    public init(conversationId: String, conversationTitle: String?, conversationUpdatedAt: Int, matchingMessages: [IPCConversationSearchMatchingMessage]) {
+    public init(conversationId: String, conversationTitle: String?, conversationUpdatedAt: Int, matchingMessages: [ConversationSearchMatchingMessage]) {
         self.conversationId = conversationId
         self.conversationTitle = conversationTitle
         self.conversationUpdatedAt = conversationUpdatedAt
@@ -1208,7 +1208,7 @@ public struct IPCConversationSearchResultItem: Codable, Sendable {
 }
 
 /// Client signal indicating the user has seen a conversation (e.g. opened it or clicked a notification).
-public struct IPCConversationSeenSignal: Codable, Sendable {
+public struct ConversationSeenSignal: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let sourceChannel: String
@@ -1233,7 +1233,7 @@ public struct IPCConversationSeenSignal: Codable, Sendable {
 }
 
 /// Client signal indicating the user wants a conversation marked unread again.
-public struct IPCConversationUnreadSignal: Codable, Sendable {
+public struct ConversationUnreadSignal: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let sourceChannel: String
@@ -1257,7 +1257,7 @@ public struct IPCConversationUnreadSignal: Codable, Sendable {
     }
 }
 
-public struct IPCCuAction: Codable, Sendable {
+public struct CuAction: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let toolName: String
@@ -1275,7 +1275,7 @@ public struct IPCCuAction: Codable, Sendable {
     }
 }
 
-public struct IPCCuComplete: Codable, Sendable {
+public struct CuComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let summary: String
@@ -1291,7 +1291,7 @@ public struct IPCCuComplete: Codable, Sendable {
     }
 }
 
-public struct IPCCuError: Codable, Sendable {
+public struct CuError: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let message: String
@@ -1303,7 +1303,7 @@ public struct IPCCuError: Codable, Sendable {
     }
 }
 
-public struct IPCCuObservation: Codable, Sendable {
+public struct CuObservation: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let axTree: String?
@@ -1324,12 +1324,12 @@ public struct IPCCuObservation: Codable, Sendable {
     public let captureDisplayId: Double?
     public let executionResult: String?
     public let executionError: String?
-    public let axTreeBlob: IPCIpcBlobRef?
-    public let screenshotBlob: IPCIpcBlobRef?
+    public let axTreeBlob: BlobRef?
+    public let screenshotBlob: BlobRef?
     /// Free-form guidance from the user, injected mid-turn to steer the agent.
     public let userGuidance: String?
 
-    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil, userGuidance: String? = nil) {
+    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: BlobRef? = nil, screenshotBlob: BlobRef? = nil, userGuidance: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.axTree = axTree
@@ -1350,7 +1350,7 @@ public struct IPCCuObservation: Codable, Sendable {
     }
 }
 
-public struct IPCCuSessionAbort: Codable, Sendable {
+public struct CuSessionAbort: Codable, Sendable {
     public let type: String
     public let sessionId: String
 
@@ -1360,16 +1360,16 @@ public struct IPCCuSessionAbort: Codable, Sendable {
     }
 }
 
-public struct IPCCuSessionCreate: Codable, Sendable {
+public struct CuSessionCreate: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let task: String
     public let screenWidth: Int
     public let screenHeight: Int
-    public let attachments: [IPCUserMessageAttachment]?
+    public let attachments: [UserMessageAttachment]?
     public let interactionType: String?
 
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil) {
+    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [UserMessageAttachment]? = nil, interactionType: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.task = task
@@ -1380,7 +1380,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     }
 }
 
-public struct IPCDaemonStatusMessage: Codable, Sendable {
+public struct DaemonStatusMessage: Codable, Sendable {
     public let type: String
     public let httpPort: Double?
     public let version: String?
@@ -1394,7 +1394,7 @@ public struct IPCDaemonStatusMessage: Codable, Sendable {
     }
 }
 
-public struct IPCDeleteQueuedMessage: Codable, Sendable {
+public struct DeleteQueuedMessage: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -1406,7 +1406,7 @@ public struct IPCDeleteQueuedMessage: Codable, Sendable {
     }
 }
 
-public struct IPCDiagnosticsExportRequest: Codable, Sendable {
+public struct DiagnosticsExportRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let anchorMessageId: String?
@@ -1418,7 +1418,7 @@ public struct IPCDiagnosticsExportRequest: Codable, Sendable {
     }
 }
 
-public struct IPCDiagnosticsExportResponse: Codable, Sendable {
+public struct DiagnosticsExportResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let filePath: String?
@@ -1432,7 +1432,7 @@ public struct IPCDiagnosticsExportResponse: Codable, Sendable {
     }
 }
 
-public struct IPCDictationContext: Codable, Sendable {
+public struct DictationContext: Codable, Sendable {
     public let bundleIdentifier: String
     public let appName: String
     public let windowTitle: String
@@ -1448,13 +1448,13 @@ public struct IPCDictationContext: Codable, Sendable {
     }
 }
 
-public struct IPCDictationRequest: Codable, Sendable {
+public struct DictationRequest: Codable, Sendable {
     public let type: String
     public let transcription: String
-    public let context: IPCDictationContext
+    public let context: DictationContext
     public let profileId: String?
 
-    public init(type: String, transcription: String, context: IPCDictationContext, profileId: String? = nil) {
+    public init(type: String, transcription: String, context: DictationContext, profileId: String? = nil) {
         self.type = type
         self.transcription = transcription
         self.context = context
@@ -1462,7 +1462,7 @@ public struct IPCDictationRequest: Codable, Sendable {
     }
 }
 
-public struct IPCDictationResponse: Codable, Sendable {
+public struct DictationResponse: Codable, Sendable {
     public let type: String
     public let text: String
     public let mode: String
@@ -1480,7 +1480,7 @@ public struct IPCDictationResponse: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentEditorShow: Codable, Sendable {
+public struct DocumentEditorShow: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -1496,7 +1496,7 @@ public struct IPCDocumentEditorShow: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentEditorUpdate: Codable, Sendable {
+public struct DocumentEditorUpdate: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -1512,7 +1512,7 @@ public struct IPCDocumentEditorUpdate: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentListRequest: Codable, Sendable {
+public struct DocumentListRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String?
 
@@ -1522,17 +1522,17 @@ public struct IPCDocumentListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentListResponse: Codable, Sendable {
+public struct DocumentListResponse: Codable, Sendable {
     public let type: String
-    public let documents: [IPCDocumentListResponseDocument]
+    public let documents: [DocumentListResponseDocument]
 
-    public init(type: String, documents: [IPCDocumentListResponseDocument]) {
+    public init(type: String, documents: [DocumentListResponseDocument]) {
         self.type = type
         self.documents = documents
     }
 }
 
-public struct IPCDocumentListResponseDocument: Codable, Sendable {
+public struct DocumentListResponseDocument: Codable, Sendable {
     public let surfaceId: String
     public let conversationId: String
     public let title: String
@@ -1550,7 +1550,7 @@ public struct IPCDocumentListResponseDocument: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentLoadRequest: Codable, Sendable {
+public struct DocumentLoadRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
 
@@ -1560,7 +1560,7 @@ public struct IPCDocumentLoadRequest: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentLoadResponse: Codable, Sendable {
+public struct DocumentLoadResponse: Codable, Sendable {
     public let type: String
     public let surfaceId: String
     public let conversationId: String
@@ -1586,7 +1586,7 @@ public struct IPCDocumentLoadResponse: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentPreviewSurfaceData: Codable, Sendable {
+public struct DocumentPreviewSurfaceData: Codable, Sendable {
     public let title: String
     public let surfaceId: String
     public let subtitle: String?
@@ -1598,7 +1598,7 @@ public struct IPCDocumentPreviewSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentSaveRequest: Codable, Sendable {
+public struct DocumentSaveRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
     public let conversationId: String
@@ -1616,7 +1616,7 @@ public struct IPCDocumentSaveRequest: Codable, Sendable {
     }
 }
 
-public struct IPCDocumentSaveResponse: Codable, Sendable {
+public struct DocumentSaveResponse: Codable, Sendable {
     public let type: String
     public let surfaceId: String
     public let success: Bool
@@ -1630,16 +1630,16 @@ public struct IPCDocumentSaveResponse: Codable, Sendable {
     }
 }
 
-public struct IPCDynamicPagePreview: Codable, Sendable {
+public struct DynamicPagePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String?
     public let description: String?
     public let icon: String?
-    public let metrics: [IPCDynamicPagePreviewMetric]?
+    public let metrics: [DynamicPagePreviewMetric]?
     public let context: String?
     public let previewImage: String?
 
-    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [IPCDynamicPagePreviewMetric]? = nil, context: String? = nil, previewImage: String? = nil) {
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [DynamicPagePreviewMetric]? = nil, context: String? = nil, previewImage: String? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
@@ -1650,7 +1650,7 @@ public struct IPCDynamicPagePreview: Codable, Sendable {
     }
 }
 
-public struct IPCDynamicPagePreviewMetric: Codable, Sendable {
+public struct DynamicPagePreviewMetric: Codable, Sendable {
     public let label: String
     public let value: String
 
@@ -1660,16 +1660,16 @@ public struct IPCDynamicPagePreviewMetric: Codable, Sendable {
     }
 }
 
-public struct IPCDynamicPageSurfaceData: Codable, Sendable {
+public struct DynamicPageSurfaceData: Codable, Sendable {
     public let html: String
     public let width: Int?
     public let height: Int?
     public let appId: String?
     public let reloadGeneration: Double?
     public let status: String?
-    public let preview: IPCDynamicPagePreview?
+    public let preview: DynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: DynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
@@ -1680,7 +1680,7 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCEnvVarsRequest: Codable, Sendable {
+public struct EnvVarsRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -1688,7 +1688,7 @@ public struct IPCEnvVarsRequest: Codable, Sendable {
     }
 }
 
-public struct IPCEnvVarsResponse: Codable, Sendable {
+public struct EnvVarsResponse: Codable, Sendable {
     public let type: String
     public let vars: [String: String]
 
@@ -1698,7 +1698,7 @@ public struct IPCEnvVarsResponse: Codable, Sendable {
     }
 }
 
-public struct IPCErrorMessage: Codable, Sendable {
+public struct ErrorMessage: Codable, Sendable {
     public let type: String
     public let message: String
     /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
@@ -1711,7 +1711,7 @@ public struct IPCErrorMessage: Codable, Sendable {
     }
 }
 
-public struct IPCFileUploadSurfaceData: Codable, Sendable {
+public struct FileUploadSurfaceData: Codable, Sendable {
     public let prompt: String
     public let acceptedTypes: [String]?
     public let maxFiles: Int?
@@ -1725,7 +1725,7 @@ public struct IPCFileUploadSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCForkSharedAppRequest: Codable, Sendable {
+public struct ForkSharedAppRequest: Codable, Sendable {
     public let type: String
     public let uuid: String
 
@@ -1735,7 +1735,7 @@ public struct IPCForkSharedAppRequest: Codable, Sendable {
     }
 }
 
-public struct IPCForkSharedAppResponse: Codable, Sendable {
+public struct ForkSharedAppResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let appId: String?
@@ -1751,16 +1751,16 @@ public struct IPCForkSharedAppResponse: Codable, Sendable {
     }
 }
 
-public struct IPCFormField: Codable, Sendable {
+public struct FormField: Codable, Sendable {
     public let id: String
     public let type: String
     public let label: String
     public let placeholder: String?
     public let required: Bool?
     public let defaultValue: AnyCodable?
-    public let options: [IPCFormFieldOption]?
+    public let options: [FormFieldOption]?
 
-    public init(id: String, type: String, label: String, placeholder: String? = nil, required: Bool? = nil, defaultValue: AnyCodable? = nil, options: [IPCFormFieldOption]? = nil) {
+    public init(id: String, type: String, label: String, placeholder: String? = nil, required: Bool? = nil, defaultValue: AnyCodable? = nil, options: [FormFieldOption]? = nil) {
         self.id = id
         self.type = type
         self.label = label
@@ -1771,7 +1771,7 @@ public struct IPCFormField: Codable, Sendable {
     }
 }
 
-public struct IPCFormFieldOption: Codable, Sendable {
+public struct FormFieldOption: Codable, Sendable {
     public let label: String
     public let value: String
 
@@ -1781,13 +1781,13 @@ public struct IPCFormFieldOption: Codable, Sendable {
     }
 }
 
-public struct IPCFormPage: Codable, Sendable {
+public struct FormPage: Codable, Sendable {
     public let id: String
     public let title: String
     public let description: String?
-    public let fields: [IPCFormField]
+    public let fields: [FormField]
 
-    public init(id: String, title: String, description: String? = nil, fields: [IPCFormField]) {
+    public init(id: String, title: String, description: String? = nil, fields: [FormField]) {
         self.id = id
         self.title = title
         self.description = description
@@ -1795,14 +1795,14 @@ public struct IPCFormPage: Codable, Sendable {
     }
 }
 
-public struct IPCFormSurfaceData: Codable, Sendable {
+public struct FormSurfaceData: Codable, Sendable {
     public let description: String?
-    public let fields: [IPCFormField]
+    public let fields: [FormField]
     public let submitLabel: String?
-    public let pages: [IPCFormPage]?
-    public let pageLabels: IPCFormSurfaceDataPageLabels?
+    public let pages: [FormPage]?
+    public let pageLabels: FormSurfaceDataPageLabels?
 
-    public init(description: String? = nil, fields: [IPCFormField], submitLabel: String? = nil, pages: [IPCFormPage]? = nil, pageLabels: IPCFormSurfaceDataPageLabels? = nil) {
+    public init(description: String? = nil, fields: [FormField], submitLabel: String? = nil, pages: [FormPage]? = nil, pageLabels: FormSurfaceDataPageLabels? = nil) {
         self.description = description
         self.fields = fields
         self.submitLabel = submitLabel
@@ -1811,7 +1811,7 @@ public struct IPCFormSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCFormSurfaceDataPageLabels: Codable, Sendable {
+public struct FormSurfaceDataPageLabels: Codable, Sendable {
     public let next: String?
     public let back: String?
     public let submit: String?
@@ -1823,7 +1823,7 @@ public struct IPCFormSurfaceDataPageLabels: Codable, Sendable {
     }
 }
 
-public struct IPCGalleryApp: Codable, Sendable {
+public struct GalleryApp: Codable, Sendable {
     public let id: String
     public let name: String
     public let description: String
@@ -1853,7 +1853,7 @@ public struct IPCGalleryApp: Codable, Sendable {
     }
 }
 
-public struct IPCGalleryCategory: Codable, Sendable {
+public struct GalleryCategory: Codable, Sendable {
     public let id: String
     public let name: String
     public let icon: String
@@ -1865,7 +1865,7 @@ public struct IPCGalleryCategory: Codable, Sendable {
     }
 }
 
-public struct IPCGalleryInstallRequest: Codable, Sendable {
+public struct GalleryInstallRequest: Codable, Sendable {
     public let type: String
     public let galleryAppId: String
 
@@ -1875,7 +1875,7 @@ public struct IPCGalleryInstallRequest: Codable, Sendable {
     }
 }
 
-public struct IPCGalleryInstallResponse: Codable, Sendable {
+public struct GalleryInstallResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let appId: String?
@@ -1891,7 +1891,7 @@ public struct IPCGalleryInstallResponse: Codable, Sendable {
     }
 }
 
-public struct IPCGalleryListRequest: Codable, Sendable {
+public struct GalleryListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -1899,23 +1899,23 @@ public struct IPCGalleryListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCGalleryListResponse: Codable, Sendable {
+public struct GalleryListResponse: Codable, Sendable {
     public let type: String
-    public let gallery: IPCGalleryManifest
+    public let gallery: GalleryManifest
 
-    public init(type: String, gallery: IPCGalleryManifest) {
+    public init(type: String, gallery: GalleryManifest) {
         self.type = type
         self.gallery = gallery
     }
 }
 
-public struct IPCGalleryManifest: Codable, Sendable {
+public struct GalleryManifest: Codable, Sendable {
     public let version: Int
     public let updatedAt: String
-    public let categories: [IPCGalleryCategory]
-    public let apps: [IPCGalleryApp]
+    public let categories: [GalleryCategory]
+    public let apps: [GalleryApp]
 
-    public init(version: Int, updatedAt: String, categories: [IPCGalleryCategory], apps: [IPCGalleryApp]) {
+    public init(version: Int, updatedAt: String, categories: [GalleryCategory], apps: [GalleryApp]) {
         self.version = version
         self.updatedAt = updatedAt
         self.categories = categories
@@ -1924,7 +1924,7 @@ public struct IPCGalleryManifest: Codable, Sendable {
 }
 
 /// Request from the client to generate a custom avatar via Gemini.
-public struct IPCGenerateAvatarRequest: Codable, Sendable {
+public struct GenerateAvatarRequest: Codable, Sendable {
     public let type: String
     /// Text description of the desired avatar appearance.
     public let description: String
@@ -1936,7 +1936,7 @@ public struct IPCGenerateAvatarRequest: Codable, Sendable {
 }
 
 /// Response to a generate_avatar request indicating success or failure.
-public struct IPCGenerateAvatarResponse: Codable, Sendable {
+public struct GenerateAvatarResponse: Codable, Sendable {
     public let type: String
     /// Whether the avatar was generated successfully.
     public let success: Bool
@@ -1950,7 +1950,7 @@ public struct IPCGenerateAvatarResponse: Codable, Sendable {
     }
 }
 
-public struct IPCGenerationCancelled: Codable, Sendable {
+public struct GenerationCancelled: Codable, Sendable {
     public let type: String
     public let sessionId: String?
 
@@ -1960,14 +1960,14 @@ public struct IPCGenerationCancelled: Codable, Sendable {
     }
 }
 
-public struct IPCGenerationHandoff: Codable, Sendable {
+public struct GenerationHandoff: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String?
     public let queuedCount: Int
-    public let attachments: [IPCUserMessageAttachment]?
+    public let attachments: [UserMessageAttachment]?
 
-    public init(type: String, sessionId: String, requestId: String? = nil, queuedCount: Int, attachments: [IPCUserMessageAttachment]? = nil) {
+    public init(type: String, sessionId: String, requestId: String? = nil, queuedCount: Int, attachments: [UserMessageAttachment]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
@@ -1976,7 +1976,7 @@ public struct IPCGenerationHandoff: Codable, Sendable {
     }
 }
 
-public struct IPCGetSigningIdentityRequest: Codable, Sendable {
+public struct GetSigningIdentityRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
 
@@ -1986,7 +1986,7 @@ public struct IPCGetSigningIdentityRequest: Codable, Sendable {
     }
 }
 
-public struct IPCGetSigningIdentityResponse: Codable, Sendable {
+public struct GetSigningIdentityResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let keyId: String?
@@ -2002,7 +2002,7 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     }
 }
 
-public struct IPCGuardianActionDecision: Codable, Sendable {
+public struct GuardianActionDecision: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let action: String
@@ -2016,7 +2016,7 @@ public struct IPCGuardianActionDecision: Codable, Sendable {
     }
 }
 
-public struct IPCGuardianActionDecisionResponse: Codable, Sendable {
+public struct GuardianActionDecisionResponse: Codable, Sendable {
     public let type: String
     public let applied: Bool
     public let reason: String?
@@ -2034,7 +2034,7 @@ public struct IPCGuardianActionDecisionResponse: Codable, Sendable {
     }
 }
 
-public struct IPCGuardianActionsPendingRequest: Codable, Sendable {
+public struct GuardianActionsPendingRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String
 
@@ -2044,25 +2044,25 @@ public struct IPCGuardianActionsPendingRequest: Codable, Sendable {
     }
 }
 
-public struct IPCGuardianActionsPendingResponse: Codable, Sendable {
+public struct GuardianActionsPendingResponse: Codable, Sendable {
     public let type: String
     public let conversationId: String
-    public let prompts: [IPCGuardianActionsPendingResponsePrompt]
+    public let prompts: [GuardianActionsPendingResponsePrompt]
 
-    public init(type: String, conversationId: String, prompts: [IPCGuardianActionsPendingResponsePrompt]) {
+    public init(type: String, conversationId: String, prompts: [GuardianActionsPendingResponsePrompt]) {
         self.type = type
         self.conversationId = conversationId
         self.prompts = prompts
     }
 }
 
-public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
+public struct GuardianActionsPendingResponsePrompt: Codable, Sendable {
     public let requestId: String
     public let requestCode: String
     public let state: String
     public let questionText: String
     public let toolName: String?
-    public let actions: [IPCGuardianActionsPendingResponsePromptAction]
+    public let actions: [GuardianActionsPendingResponsePromptAction]
     public let expiresAt: Int
     public let conversationId: String
     public let callSessionId: String?
@@ -2071,7 +2071,7 @@ public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
     /// store. Absent for legacy-only prompts.
     public let kind: String?
 
-    public init(requestId: String, requestCode: String, state: String, questionText: String, toolName: String?, actions: [IPCGuardianActionsPendingResponsePromptAction], expiresAt: Int, conversationId: String, callSessionId: String?, kind: String? = nil) {
+    public init(requestId: String, requestCode: String, state: String, questionText: String, toolName: String?, actions: [GuardianActionsPendingResponsePromptAction], expiresAt: Int, conversationId: String, callSessionId: String?, kind: String? = nil) {
         self.requestId = requestId
         self.requestCode = requestCode
         self.state = state
@@ -2085,7 +2085,7 @@ public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
     }
 }
 
-public struct IPCGuardianActionsPendingResponsePromptAction: Codable, Sendable {
+public struct GuardianActionsPendingResponsePromptAction: Codable, Sendable {
     public let action: String
     public let label: String
 
@@ -2095,7 +2095,7 @@ public struct IPCGuardianActionsPendingResponsePromptAction: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatAlert: Codable, Sendable {
+public struct HeartbeatAlert: Codable, Sendable {
     public let type: String
     public let title: String
     public let body: String
@@ -2107,7 +2107,7 @@ public struct IPCHeartbeatAlert: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatChecklistRead: Codable, Sendable {
+public struct HeartbeatChecklistRead: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -2115,7 +2115,7 @@ public struct IPCHeartbeatChecklistRead: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatChecklistResponse: Codable, Sendable {
+public struct HeartbeatChecklistResponse: Codable, Sendable {
     public let type: String
     public let content: String
     public let isDefault: Bool
@@ -2127,7 +2127,7 @@ public struct IPCHeartbeatChecklistResponse: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatChecklistWrite: Codable, Sendable {
+public struct HeartbeatChecklistWrite: Codable, Sendable {
     public let type: String
     public let content: String
 
@@ -2137,7 +2137,7 @@ public struct IPCHeartbeatChecklistWrite: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatChecklistWriteResponse: Codable, Sendable {
+public struct HeartbeatChecklistWriteResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
@@ -2149,7 +2149,7 @@ public struct IPCHeartbeatChecklistWriteResponse: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatConfig: Codable, Sendable {
+public struct HeartbeatConfig: Codable, Sendable {
     public let type: String
     public let action: String
     public let enabled: Bool?
@@ -2167,7 +2167,7 @@ public struct IPCHeartbeatConfig: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatConfigResponse: Codable, Sendable {
+public struct HeartbeatConfigResponse: Codable, Sendable {
     public let type: String
     public let enabled: Bool
     public let intervalMs: Double
@@ -2189,7 +2189,7 @@ public struct IPCHeartbeatConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatRunNow: Codable, Sendable {
+public struct HeartbeatRunNow: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -2197,7 +2197,7 @@ public struct IPCHeartbeatRunNow: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatRunNowResponse: Codable, Sendable {
+public struct HeartbeatRunNowResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
@@ -2209,7 +2209,7 @@ public struct IPCHeartbeatRunNowResponse: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatRunsList: Codable, Sendable {
+public struct HeartbeatRunsList: Codable, Sendable {
     public let type: String
     public let limit: Double?
 
@@ -2219,17 +2219,17 @@ public struct IPCHeartbeatRunsList: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatRunsListResponse: Codable, Sendable {
+public struct HeartbeatRunsListResponse: Codable, Sendable {
     public let type: String
-    public let runs: [IPCHeartbeatRunsListResponseRun]
+    public let runs: [HeartbeatRunsListResponseRun]
 
-    public init(type: String, runs: [IPCHeartbeatRunsListResponseRun]) {
+    public init(type: String, runs: [HeartbeatRunsListResponseRun]) {
         self.type = type
         self.runs = runs
     }
 }
 
-public struct IPCHeartbeatRunsListResponseRun: Codable, Sendable {
+public struct HeartbeatRunsListResponseRun: Codable, Sendable {
     public let id: String
     public let title: String
     public let createdAt: Int
@@ -2245,7 +2245,7 @@ public struct IPCHeartbeatRunsListResponseRun: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryRequest: Codable, Sendable {
+public struct HistoryRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     /// Max messages to return. When omitted, all messages are returned (unlimited).
@@ -2282,10 +2282,10 @@ public struct IPCHistoryRequest: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryResponse: Codable, Sendable {
+public struct HistoryResponse: Codable, Sendable {
     public let type: String
     public let sessionId: String
-    public let messages: [IPCHistoryResponseMessage]
+    public let messages: [HistoryResponseMessage]
     /// Whether older messages exist beyond the returned page.
     public let hasMore: Bool
     /// Timestamp of the oldest message in the response (client uses as next pagination cursor).
@@ -2293,7 +2293,7 @@ public struct IPCHistoryResponse: Codable, Sendable {
     /// ID of the oldest message in the response (tie-breaker for same-millisecond cursors).
     public let oldestMessageId: String?
 
-    public init(type: String, sessionId: String, messages: [IPCHistoryResponseMessage], hasMore: Bool, oldestTimestamp: Double? = nil, oldestMessageId: String? = nil) {
+    public init(type: String, sessionId: String, messages: [HistoryResponseMessage], hasMore: Bool, oldestTimestamp: Double? = nil, oldestMessageId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.messages = messages
@@ -2303,27 +2303,27 @@ public struct IPCHistoryResponse: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryResponseMessage: Codable, Sendable {
+public struct HistoryResponseMessage: Codable, Sendable {
     public let id: String?
     public let role: String
     public let text: String
     public let timestamp: Double
-    public let toolCalls: [IPCHistoryResponseToolCall]?
+    public let toolCalls: [HistoryResponseToolCall]?
     /// True when tool_use blocks appeared before any text block in the original content.
     public let toolCallsBeforeText: Bool?
-    public let attachments: [IPCUserMessageAttachment]?
+    public let attachments: [UserMessageAttachment]?
     /// Text segments split by tool-call boundaries. Preserves interleaving order.
     public let textSegments: [String]?
     /// Content block ordering using "text:N", "tool:N", "surface:N" encoding.
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
-    public let surfaces: [IPCHistoryResponseSurface]?
+    public let surfaces: [HistoryResponseSurface]?
     /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
-    public let subagentNotification: IPCHistoryResponseMessageSubagentNotification?
+    public let subagentNotification: HistoryResponseMessageSubagentNotification?
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [IPCUserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [IPCHistoryResponseSurface]? = nil, subagentNotification: IPCHistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -2339,7 +2339,7 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
+public struct HistoryResponseMessageSubagentNotification: Codable, Sendable {
     public let subagentId: String
     public let label: String
     public let status: String
@@ -2355,15 +2355,15 @@ public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryResponseSurface: Codable, Sendable {
+public struct HistoryResponseSurface: Codable, Sendable {
     public let surfaceId: String
     public let surfaceType: String
     public let title: String?
     public let data: [String: AnyCodable]
-    public let actions: [IPCHistoryResponseSurfaceAction]?
+    public let actions: [HistoryResponseSurfaceAction]?
     public let display: String?
 
-    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [IPCHistoryResponseSurfaceAction]? = nil, display: String? = nil) {
+    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [HistoryResponseSurfaceAction]? = nil, display: String? = nil) {
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
         self.title = title
@@ -2373,7 +2373,7 @@ public struct IPCHistoryResponseSurface: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryResponseSurfaceAction: Codable, Sendable {
+public struct HistoryResponseSurfaceAction: Codable, Sendable {
     public let id: String
     public let label: String
     public let style: String?
@@ -2387,7 +2387,7 @@ public struct IPCHistoryResponseSurfaceAction: Codable, Sendable {
     }
 }
 
-public struct IPCHistoryResponseToolCall: Codable, Sendable {
+public struct HistoryResponseToolCall: Codable, Sendable {
     public let name: String
     public let input: [String: AnyCodable]
     public let result: String?
@@ -2416,7 +2416,7 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     }
 }
 
-public struct IPCHomeBaseGetRequest: Codable, Sendable {
+public struct HomeBaseGetRequest: Codable, Sendable {
     public let type: String
     /// If true, daemon ensures a durable Home Base link exists before responding.
     public let ensureLinked: Bool?
@@ -2427,24 +2427,24 @@ public struct IPCHomeBaseGetRequest: Codable, Sendable {
     }
 }
 
-public struct IPCHomeBaseGetResponse: Codable, Sendable {
+public struct HomeBaseGetResponse: Codable, Sendable {
     public let type: String
-    public let homeBase: IPCHomeBaseGetResponseHomeBase?
+    public let homeBase: HomeBaseGetResponseHomeBase?
 
-    public init(type: String, homeBase: IPCHomeBaseGetResponseHomeBase?) {
+    public init(type: String, homeBase: HomeBaseGetResponseHomeBase?) {
         self.type = type
         self.homeBase = homeBase
     }
 }
 
-public struct IPCHomeBaseGetResponseHomeBase: Codable, Sendable {
+public struct HomeBaseGetResponseHomeBase: Codable, Sendable {
     public let appId: String
     public let source: String
     public let starterTasks: [String]
     public let onboardingTasks: [String]
-    public let preview: IPCHomeBaseGetResponseHomeBasePreview
+    public let preview: HomeBaseGetResponseHomeBasePreview
 
-    public init(appId: String, source: String, starterTasks: [String], onboardingTasks: [String], preview: IPCHomeBaseGetResponseHomeBasePreview) {
+    public init(appId: String, source: String, starterTasks: [String], onboardingTasks: [String], preview: HomeBaseGetResponseHomeBasePreview) {
         self.appId = appId
         self.source = source
         self.starterTasks = starterTasks
@@ -2453,14 +2453,14 @@ public struct IPCHomeBaseGetResponseHomeBase: Codable, Sendable {
     }
 }
 
-public struct IPCHomeBaseGetResponseHomeBasePreview: Codable, Sendable {
+public struct HomeBaseGetResponseHomeBasePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String
     public let description: String
     public let icon: String
-    public let metrics: [IPCHomeBaseGetResponseHomeBasePreviewMetric]
+    public let metrics: [HomeBaseGetResponseHomeBasePreviewMetric]
 
-    public init(title: String, subtitle: String, description: String, icon: String, metrics: [IPCHomeBaseGetResponseHomeBasePreviewMetric]) {
+    public init(title: String, subtitle: String, description: String, icon: String, metrics: [HomeBaseGetResponseHomeBasePreviewMetric]) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
@@ -2469,7 +2469,7 @@ public struct IPCHomeBaseGetResponseHomeBasePreview: Codable, Sendable {
     }
 }
 
-public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
+public struct HomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
     public let label: String
     public let value: String
 
@@ -2480,7 +2480,7 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
 }
 
 /// Server push — broadcast when IDENTITY.md changes on disk.
-public struct IPCIdentityChanged: Codable, Sendable {
+public struct IdentityChanged: Codable, Sendable {
     public let type: String
     public let name: String
     public let role: String
@@ -2498,7 +2498,7 @@ public struct IPCIdentityChanged: Codable, Sendable {
     }
 }
 
-public struct IPCIdentityGetRequest: Codable, Sendable {
+public struct IdentityGetRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -2506,7 +2506,7 @@ public struct IPCIdentityGetRequest: Codable, Sendable {
     }
 }
 
-public struct IPCIdentityGetResponse: Codable, Sendable {
+public struct IdentityGetResponse: Codable, Sendable {
     public let type: String
     /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults.
     public let found: Bool
@@ -2535,7 +2535,7 @@ public struct IPCIdentityGetResponse: Codable, Sendable {
     }
 }
 
-public struct IPCImageGenModelSetRequest: Codable, Sendable {
+public struct ImageGenModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String
 
@@ -2545,7 +2545,7 @@ public struct IPCImageGenModelSetRequest: Codable, Sendable {
     }
 }
 
-public struct IPCIngressConfigRequest: Codable, Sendable {
+public struct IngressConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let publicBaseUrl: String?
@@ -2559,7 +2559,7 @@ public struct IPCIngressConfigRequest: Codable, Sendable {
     }
 }
 
-public struct IPCIngressConfigResponse: Codable, Sendable {
+public struct IngressConfigResponse: Codable, Sendable {
     public let type: String
     public let enabled: Bool
     public let publicBaseUrl: String
@@ -2578,7 +2578,7 @@ public struct IPCIngressConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCIntegrationConnectRequest: Codable, Sendable {
+public struct IntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String
 
@@ -2588,7 +2588,7 @@ public struct IPCIntegrationConnectRequest: Codable, Sendable {
     }
 }
 
-public struct IPCIntegrationConnectResult: Codable, Sendable {
+public struct IntegrationConnectResult: Codable, Sendable {
     public let type: String
     public let integrationId: String
     public let success: Bool
@@ -2610,7 +2610,7 @@ public struct IPCIntegrationConnectResult: Codable, Sendable {
     }
 }
 
-public struct IPCIntegrationDisconnectRequest: Codable, Sendable {
+public struct IntegrationDisconnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String
 
@@ -2620,7 +2620,7 @@ public struct IPCIntegrationDisconnectRequest: Codable, Sendable {
     }
 }
 
-public struct IPCIntegrationListRequest: Codable, Sendable {
+public struct IntegrationListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -2628,17 +2628,17 @@ public struct IPCIntegrationListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCIntegrationListResponse: Codable, Sendable {
+public struct IntegrationListResponse: Codable, Sendable {
     public let type: String
-    public let integrations: [IPCIntegrationListResponseIntegration]
+    public let integrations: [IntegrationListResponseIntegration]
 
-    public init(type: String, integrations: [IPCIntegrationListResponseIntegration]) {
+    public init(type: String, integrations: [IntegrationListResponseIntegration]) {
         self.type = type
         self.integrations = integrations
     }
 }
 
-public struct IPCIntegrationListResponseIntegration: Codable, Sendable {
+public struct IntegrationListResponseIntegration: Codable, Sendable {
     public let id: String
     public let connected: Bool
     public let accountInfo: String?
@@ -2656,7 +2656,7 @@ public struct IPCIntegrationListResponseIntegration: Codable, Sendable {
     }
 }
 
-public struct IPCIpcBlobProbe: Codable, Sendable {
+public struct BlobProbe: Codable, Sendable {
     public let type: String
     public let probeId: String
     public let nonceSha256: String
@@ -2668,7 +2668,7 @@ public struct IPCIpcBlobProbe: Codable, Sendable {
     }
 }
 
-public struct IPCIpcBlobProbeResult: Codable, Sendable {
+public struct BlobProbeResult: Codable, Sendable {
     public let type: String
     public let probeId: String
     public let ok: Bool
@@ -2684,7 +2684,7 @@ public struct IPCIpcBlobProbeResult: Codable, Sendable {
     }
 }
 
-public struct IPCIpcBlobRef: Codable, Sendable {
+public struct BlobRef: Codable, Sendable {
     public let id: String
     public let kind: String
     public let encoding: String
@@ -2700,7 +2700,7 @@ public struct IPCIpcBlobRef: Codable, Sendable {
     }
 }
 
-public struct IPCLinkOpenRequest: Codable, Sendable {
+public struct LinkOpenRequest: Codable, Sendable {
     public let type: String
     public let url: String
     public let metadata: [String: AnyCodable]?
@@ -2712,7 +2712,7 @@ public struct IPCLinkOpenRequest: Codable, Sendable {
     }
 }
 
-public struct IPCListItem: Codable, Sendable {
+public struct ListItem: Codable, Sendable {
     public let id: String
     public let title: String
     public let subtitle: String?
@@ -2728,17 +2728,17 @@ public struct IPCListItem: Codable, Sendable {
     }
 }
 
-public struct IPCListSurfaceData: Codable, Sendable {
-    public let items: [IPCListItem]
+public struct ListSurfaceData: Codable, Sendable {
+    public let items: [ListItem]
     public let selectionMode: String
 
-    public init(items: [IPCListItem], selectionMode: String) {
+    public init(items: [ListItem], selectionMode: String) {
         self.items = items
         self.selectionMode = selectionMode
     }
 }
 
-public struct IPCManagedPrerequisites: Codable, Sendable {
+public struct ManagedPrerequisites: Codable, Sendable {
     /// Whether twitter.integrationMode is set to "managed" in config.
     public let integrationModeManaged: Bool
     /// Whether the assistant API key credential exists in secure storage.
@@ -2753,11 +2753,11 @@ public struct IPCManagedPrerequisites: Codable, Sendable {
     }
 }
 
-public struct IPCMemoryRecalled: Codable, Sendable {
+public struct MemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String
     public let model: String
-    public let degradation: IPCMemoryRecalledDegradation?
+    public let degradation: MemoryRecalledDegradation?
     public let lexicalHits: Double
     public let semanticHits: Double
     public let recencyHits: Double
@@ -2772,9 +2772,9 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let rerankApplied: Bool
     public let injectedTokens: Int
     public let latencyMs: Double
-    public let topCandidates: [IPCMemoryRecalledCandidateDebug]
+    public let topCandidates: [MemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, degradation: IPCMemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
@@ -2797,7 +2797,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     }
 }
 
-public struct IPCMemoryRecalledCandidateDebug: Codable, Sendable {
+public struct MemoryRecalledCandidateDebug: Codable, Sendable {
     public let key: String
     public let type: String
     public let kind: String
@@ -2817,7 +2817,7 @@ public struct IPCMemoryRecalledCandidateDebug: Codable, Sendable {
     }
 }
 
-public struct IPCMemoryRecalledDegradation: Codable, Sendable {
+public struct MemoryRecalledDegradation: Codable, Sendable {
     public let semanticUnavailable: Bool
     public let reason: String
     public let fallbackSources: [String]
@@ -2829,11 +2829,11 @@ public struct IPCMemoryRecalledDegradation: Codable, Sendable {
     }
 }
 
-public struct IPCMemoryStatus: Codable, Sendable {
+public struct MemoryStatus: Codable, Sendable {
     public let type: String
     public let enabled: Bool
     public let degraded: Bool
-    public let degradation: IPCMemoryRecalledDegradation?
+    public let degradation: MemoryRecalledDegradation?
     public let reason: String?
     public let provider: String?
     public let model: String?
@@ -2845,7 +2845,7 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let cleanupResolvedJobsCompleted24h: Double
     public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, degradation: IPCMemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -2863,19 +2863,19 @@ public struct IPCMemoryStatus: Codable, Sendable {
     }
 }
 
-public struct IPCMessageComplete: Codable, Sendable {
+public struct MessageComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String?
-    public let attachments: [IPCUserMessageAttachment]?
+    public let attachments: [UserMessageAttachment]?
 
-    public init(type: String, sessionId: String? = nil, attachments: [IPCUserMessageAttachment]? = nil) {
+    public init(type: String, sessionId: String? = nil, attachments: [UserMessageAttachment]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.attachments = attachments
     }
 }
 
-public struct IPCMessageContentRequest: Codable, Sendable {
+public struct MessageContentRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let messageId: String
@@ -2887,14 +2887,14 @@ public struct IPCMessageContentRequest: Codable, Sendable {
     }
 }
 
-public struct IPCMessageContentResponse: Codable, Sendable {
+public struct MessageContentResponse: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let messageId: String
     public let text: String?
-    public let toolCalls: [IPCMessageContentResponseToolCall]?
+    public let toolCalls: [MessageContentResponseToolCall]?
 
-    public init(type: String, sessionId: String, messageId: String, text: String? = nil, toolCalls: [IPCMessageContentResponseToolCall]? = nil) {
+    public init(type: String, sessionId: String, messageId: String, text: String? = nil, toolCalls: [MessageContentResponseToolCall]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.messageId = messageId
@@ -2903,7 +2903,7 @@ public struct IPCMessageContentResponse: Codable, Sendable {
     }
 }
 
-public struct IPCMessageContentResponseToolCall: Codable, Sendable {
+public struct MessageContentResponseToolCall: Codable, Sendable {
     public let name: String
     public let result: String?
     public let input: [String: AnyCodable]?
@@ -2915,7 +2915,7 @@ public struct IPCMessageContentResponseToolCall: Codable, Sendable {
     }
 }
 
-public struct IPCMessageDequeued: Codable, Sendable {
+public struct MessageDequeued: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -2927,7 +2927,7 @@ public struct IPCMessageDequeued: Codable, Sendable {
     }
 }
 
-public struct IPCMessageQueued: Codable, Sendable {
+public struct MessageQueued: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -2941,7 +2941,7 @@ public struct IPCMessageQueued: Codable, Sendable {
     }
 }
 
-public struct IPCMessageQueuedDeleted: Codable, Sendable {
+public struct MessageQueuedDeleted: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -2958,7 +2958,7 @@ public struct IPCMessageQueuedDeleted: Codable, Sendable {
 /// Unlike `message_complete`, this does not imply the active assistant turn
 /// has completed. It is used for paths that consume a request inline while a
 /// separate in-flight turn may still be running.
-public struct IPCMessageRequestComplete: Codable, Sendable {
+public struct MessageRequestComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -2973,7 +2973,7 @@ public struct IPCMessageRequestComplete: Codable, Sendable {
     }
 }
 
-public struct IPCModelGetRequest: Codable, Sendable {
+public struct ModelGetRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -2981,7 +2981,7 @@ public struct IPCModelGetRequest: Codable, Sendable {
     }
 }
 
-public struct IPCModelInfo: Codable, Sendable {
+public struct ModelInfo: Codable, Sendable {
     public let type: String
     public let model: String
     public let provider: String
@@ -2995,7 +2995,7 @@ public struct IPCModelInfo: Codable, Sendable {
     }
 }
 
-public struct IPCModelSetRequest: Codable, Sendable {
+public struct ModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String
 
@@ -3005,7 +3005,7 @@ public struct IPCModelSetRequest: Codable, Sendable {
     }
 }
 
-public struct IPCNavigateSettings: Codable, Sendable {
+public struct NavigateSettings: Codable, Sendable {
     public let type: String
     public let tab: String
 
@@ -3016,7 +3016,7 @@ public struct IPCNavigateSettings: Codable, Sendable {
 }
 
 /// Broadcast to connected macOS clients when a notification should be displayed.
-public struct IPCNotificationIntent: Codable, Sendable {
+public struct NotificationIntent: Codable, Sendable {
     public let type: String
     /// Delivery audit record ID so the client can correlate ack messages.
     public let deliveryId: String?
@@ -3042,7 +3042,7 @@ public struct IPCNotificationIntent: Codable, Sendable {
 }
 
 /// Client ack sent after UNUserNotificationCenter.add() completes (or fails).
-public struct IPCNotificationIntentResult: Codable, Sendable {
+public struct NotificationIntentResult: Codable, Sendable {
     public let type: String
     public let deliveryId: String
     public let success: Bool
@@ -3059,7 +3059,7 @@ public struct IPCNotificationIntentResult: Codable, Sendable {
 }
 
 /// Server push — broadcast when a notification creates a new vellum conversation thread.
-public struct IPCNotificationThreadCreated: Codable, Sendable {
+public struct NotificationThreadCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let title: String
@@ -3077,7 +3077,7 @@ public struct IPCNotificationThreadCreated: Codable, Sendable {
     }
 }
 
-public struct IPCOAuthConnectResultResponse: Codable, Sendable {
+public struct OAuthConnectResultResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let grantedScopes: [String]?
@@ -3093,7 +3093,7 @@ public struct IPCOAuthConnectResultResponse: Codable, Sendable {
     }
 }
 
-public struct IPCOAuthConnectStartRequest: Codable, Sendable {
+public struct OAuthConnectStartRequest: Codable, Sendable {
     public let type: String
     public let service: String
     public let requestedScopes: [String]?
@@ -3105,7 +3105,7 @@ public struct IPCOAuthConnectStartRequest: Codable, Sendable {
     }
 }
 
-public struct IPCOpenBundleRequest: Codable, Sendable {
+public struct OpenBundleRequest: Codable, Sendable {
     public let type: String
     public let filePath: String
 
@@ -3115,14 +3115,14 @@ public struct IPCOpenBundleRequest: Codable, Sendable {
     }
 }
 
-public struct IPCOpenBundleResponse: Codable, Sendable {
+public struct OpenBundleResponse: Codable, Sendable {
     public let type: String
-    public let manifest: IPCOpenBundleResponseManifest
-    public let scanResult: IPCOpenBundleResponseScanResult
-    public let signatureResult: IPCOpenBundleResponseSignatureResult
+    public let manifest: OpenBundleResponseManifest
+    public let scanResult: OpenBundleResponseScanResult
+    public let signatureResult: OpenBundleResponseSignatureResult
     public let bundleSizeBytes: Int
 
-    public init(type: String, manifest: IPCOpenBundleResponseManifest, scanResult: IPCOpenBundleResponseScanResult, signatureResult: IPCOpenBundleResponseSignatureResult, bundleSizeBytes: Int) {
+    public init(type: String, manifest: OpenBundleResponseManifest, scanResult: OpenBundleResponseScanResult, signatureResult: OpenBundleResponseSignatureResult, bundleSizeBytes: Int) {
         self.type = type
         self.manifest = manifest
         self.scanResult = scanResult
@@ -3131,7 +3131,7 @@ public struct IPCOpenBundleResponse: Codable, Sendable {
     }
 }
 
-public struct IPCOpenBundleResponseManifest: Codable, Sendable {
+public struct OpenBundleResponseManifest: Codable, Sendable {
     public let format_version: Int
     public let name: String
     public let description: String?
@@ -3153,7 +3153,7 @@ public struct IPCOpenBundleResponseManifest: Codable, Sendable {
     }
 }
 
-public struct IPCOpenBundleResponseScanResult: Codable, Sendable {
+public struct OpenBundleResponseScanResult: Codable, Sendable {
     public let passed: Bool
     public let blocked: [String]
     public let warnings: [String]
@@ -3165,7 +3165,7 @@ public struct IPCOpenBundleResponseScanResult: Codable, Sendable {
     }
 }
 
-public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
+public struct OpenBundleResponseSignatureResult: Codable, Sendable {
     public let trustTier: String
     public let signerKeyId: String?
     public let signerDisplayName: String?
@@ -3179,7 +3179,7 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     }
 }
 
-public struct IPCOpenUrl: Codable, Sendable {
+public struct OpenUrl: Codable, Sendable {
     public let type: String
     public let url: String
     public let title: String?
@@ -3191,7 +3191,7 @@ public struct IPCOpenUrl: Codable, Sendable {
     }
 }
 
-public struct IPCPairingApprovalRequest: Codable, Sendable {
+public struct PairingApprovalRequest: Codable, Sendable {
     public let type: String
     public let pairingRequestId: String
     public let deviceId: String
@@ -3205,7 +3205,7 @@ public struct IPCPairingApprovalRequest: Codable, Sendable {
     }
 }
 
-public struct IPCPairingApprovalResponse: Codable, Sendable {
+public struct PairingApprovalResponse: Codable, Sendable {
     public let type: String
     public let pairingRequestId: String
     public let decision: String
@@ -3217,7 +3217,7 @@ public struct IPCPairingApprovalResponse: Codable, Sendable {
     }
 }
 
-public struct IPCPingMessage: Codable, Sendable {
+public struct PingMessage: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3225,7 +3225,7 @@ public struct IPCPingMessage: Codable, Sendable {
     }
 }
 
-public struct IPCPlatformConfigRequest: Codable, Sendable {
+public struct PlatformConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let baseUrl: String?
@@ -3237,7 +3237,7 @@ public struct IPCPlatformConfigRequest: Codable, Sendable {
     }
 }
 
-public struct IPCPlatformConfigResponse: Codable, Sendable {
+public struct PlatformConfigResponse: Codable, Sendable {
     public let type: String
     public let baseUrl: String
     public let success: Bool
@@ -3251,7 +3251,7 @@ public struct IPCPlatformConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCPongMessage: Codable, Sendable {
+public struct PongMessage: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3259,7 +3259,7 @@ public struct IPCPongMessage: Codable, Sendable {
     }
 }
 
-public struct IPCPublishPageRequest: Codable, Sendable {
+public struct PublishPageRequest: Codable, Sendable {
     public let type: String
     public let html: String
     public let title: String?
@@ -3273,7 +3273,7 @@ public struct IPCPublishPageRequest: Codable, Sendable {
     }
 }
 
-public struct IPCPublishPageResponse: Codable, Sendable {
+public struct PublishPageResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let publicUrl: String?
@@ -3292,7 +3292,7 @@ public struct IPCPublishPageResponse: Codable, Sendable {
 }
 
 /// Recording options shared across standalone and CU recording flows.
-public struct IPCRecordingOptions: Codable, Sendable {
+public struct RecordingOptions: Codable, Sendable {
     public let captureScope: String?
     public let displayId: String?
     public let windowId: Double?
@@ -3311,7 +3311,7 @@ public struct IPCRecordingOptions: Codable, Sendable {
 }
 
 /// Server → Client: pause the active recording.
-public struct IPCRecordingPause: Codable, Sendable {
+public struct RecordingPause: Codable, Sendable {
     public let type: String
     public let recordingId: String
 
@@ -3322,7 +3322,7 @@ public struct IPCRecordingPause: Codable, Sendable {
 }
 
 /// Server → Client: resume a paused recording.
-public struct IPCRecordingResume: Codable, Sendable {
+public struct RecordingResume: Codable, Sendable {
     public let type: String
     public let recordingId: String
 
@@ -3333,16 +3333,16 @@ public struct IPCRecordingResume: Codable, Sendable {
 }
 
 /// Server → Client: start a recording.
-public struct IPCRecordingStart: Codable, Sendable {
+public struct RecordingStart: Codable, Sendable {
     public let type: String
     public let recordingId: String
     public let attachToConversationId: String?
     /// Recording options shared across standalone and CU recording flows.
-    public let options: IPCRecordingOptions?
+    public let options: RecordingOptions?
     /// Operation token for restart race hardening — stale completions with mismatched tokens are rejected.
     public let operationToken: String?
 
-    public init(type: String, recordingId: String, attachToConversationId: String? = nil, options: IPCRecordingOptions? = nil, operationToken: String? = nil) {
+    public init(type: String, recordingId: String, attachToConversationId: String? = nil, options: RecordingOptions? = nil, operationToken: String? = nil) {
         self.type = type
         self.recordingId = recordingId
         self.attachToConversationId = attachToConversationId
@@ -3352,7 +3352,7 @@ public struct IPCRecordingStart: Codable, Sendable {
 }
 
 /// Client → Server: recording lifecycle status update.
-public struct IPCRecordingStatus: Codable, Sendable {
+public struct RecordingStatus: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let status: String
@@ -3376,7 +3376,7 @@ public struct IPCRecordingStatus: Codable, Sendable {
 }
 
 /// Server → Client: stop a recording.
-public struct IPCRecordingStop: Codable, Sendable {
+public struct RecordingStop: Codable, Sendable {
     public let type: String
     public let recordingId: String
 
@@ -3386,7 +3386,7 @@ public struct IPCRecordingStop: Codable, Sendable {
     }
 }
 
-public struct IPCRegenerateRequest: Codable, Sendable {
+public struct RegenerateRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
 
@@ -3396,7 +3396,7 @@ public struct IPCRegenerateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCRemoveTrustRule: Codable, Sendable {
+public struct RemoveTrustRule: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -3406,17 +3406,17 @@ public struct IPCRemoveTrustRule: Codable, Sendable {
     }
 }
 
-public struct IPCReorderThreadsRequest: Codable, Sendable {
+public struct ReorderThreadsRequest: Codable, Sendable {
     public let type: String
-    public let updates: [IPCReorderThreadsRequestUpdate]
+    public let updates: [ReorderThreadsRequestUpdate]
 
-    public init(type: String, updates: [IPCReorderThreadsRequestUpdate]) {
+    public init(type: String, updates: [ReorderThreadsRequestUpdate]) {
         self.type = type
         self.updates = updates
     }
 }
 
-public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
+public struct ReorderThreadsRequestUpdate: Codable, Sendable {
     public let sessionId: String
     public let displayOrder: Double?
     public let isPinned: Bool
@@ -3429,7 +3429,7 @@ public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
 }
 
 /// Server → Client: bootstrap failure during learn-mode recording setup.
-public struct IPCRideShotgunError: Codable, Sendable {
+public struct RideShotgunError: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let sessionId: String
@@ -3443,7 +3443,7 @@ public struct IPCRideShotgunError: Codable, Sendable {
     }
 }
 
-public struct IPCRideShotgunProgress: Codable, Sendable {
+public struct RideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let message: String
@@ -3461,7 +3461,7 @@ public struct IPCRideShotgunProgress: Codable, Sendable {
     }
 }
 
-public struct IPCRideShotgunResult: Codable, Sendable {
+public struct RideShotgunResult: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let watchId: String
@@ -3481,7 +3481,7 @@ public struct IPCRideShotgunResult: Codable, Sendable {
     }
 }
 
-public struct IPCRideShotgunStart: Codable, Sendable {
+public struct RideShotgunStart: Codable, Sendable {
     public let type: String
     public let durationSeconds: Double
     public let intervalSeconds: Double
@@ -3502,7 +3502,7 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     }
 }
 
-public struct IPCRideShotgunStop: Codable, Sendable {
+public struct RideShotgunStop: Codable, Sendable {
     public let type: String
     public let watchId: String
 
@@ -3512,7 +3512,7 @@ public struct IPCRideShotgunStop: Codable, Sendable {
     }
 }
 
-public struct IPCScheduleRemove: Codable, Sendable {
+public struct ScheduleRemove: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -3522,7 +3522,7 @@ public struct IPCScheduleRemove: Codable, Sendable {
     }
 }
 
-public struct IPCScheduleCancel: Codable, Sendable {
+public struct ScheduleCancel: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -3532,7 +3532,7 @@ public struct IPCScheduleCancel: Codable, Sendable {
     }
 }
 
-public struct IPCScheduleRunNow: Codable, Sendable {
+public struct ScheduleRunNow: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -3542,7 +3542,7 @@ public struct IPCScheduleRunNow: Codable, Sendable {
     }
 }
 
-public struct IPCSchedulesList: Codable, Sendable {
+public struct SchedulesList: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3550,17 +3550,17 @@ public struct IPCSchedulesList: Codable, Sendable {
     }
 }
 
-public struct IPCSchedulesListResponse: Codable, Sendable {
+public struct SchedulesListResponse: Codable, Sendable {
     public let type: String
-    public let schedules: [IPCSchedulesListResponseSchedule]
+    public let schedules: [SchedulesListResponseSchedule]
 
-    public init(type: String, schedules: [IPCSchedulesListResponseSchedule]) {
+    public init(type: String, schedules: [SchedulesListResponseSchedule]) {
         self.type = type
         self.schedules = schedules
     }
 }
 
-public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
+public struct SchedulesListResponseSchedule: Codable, Sendable {
     public let id: String
     public let name: String
     public let enabled: Bool
@@ -3599,7 +3599,7 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
 }
 
 /// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
-public struct IPCScheduleThreadCreated: Codable, Sendable {
+public struct ScheduleThreadCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let scheduleJobId: String
@@ -3613,7 +3613,7 @@ public struct IPCScheduleThreadCreated: Codable, Sendable {
     }
 }
 
-public struct IPCScheduleToggle: Codable, Sendable {
+public struct ScheduleToggle: Codable, Sendable {
     public let type: String
     public let id: String
     public let enabled: Bool
@@ -3625,13 +3625,13 @@ public struct IPCScheduleToggle: Codable, Sendable {
     }
 }
 
-public struct IPCSecretDetected: Codable, Sendable {
+public struct SecretDetected: Codable, Sendable {
     public let type: String
     public let toolName: String
-    public let matches: [IPCSecretDetectedMatch]
+    public let matches: [SecretDetectedMatch]
     public let action: String
 
-    public init(type: String, toolName: String, matches: [IPCSecretDetectedMatch], action: String) {
+    public init(type: String, toolName: String, matches: [SecretDetectedMatch], action: String) {
         self.type = type
         self.toolName = toolName
         self.matches = matches
@@ -3639,7 +3639,7 @@ public struct IPCSecretDetected: Codable, Sendable {
     }
 }
 
-public struct IPCSecretDetectedMatch: Codable, Sendable {
+public struct SecretDetectedMatch: Codable, Sendable {
     public let type: String
     public let redactedValue: String
 
@@ -3649,7 +3649,7 @@ public struct IPCSecretDetectedMatch: Codable, Sendable {
     }
 }
 
-public struct IPCSecretRequest: Codable, Sendable {
+public struct SecretRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let service: String
@@ -3683,7 +3683,7 @@ public struct IPCSecretRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSecretResponse: Codable, Sendable {
+public struct SecretResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let value: String?
@@ -3698,21 +3698,21 @@ public struct IPCSecretResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSessionCreateRequest: Codable, Sendable {
+public struct SessionCreateRequest: Codable, Sendable {
     public let type: String
     public let title: String?
     public let systemPromptOverride: String?
     public let maxResponseTokens: Int?
     public let correlationId: String?
     /// Lightweight session transport metadata for channel identity and natural-language guidance.
-    public let transport: IPCSessionTransportMetadata?
+    public let transport: SessionTransportMetadata?
     public let threadType: String?
     /// Skill IDs to pre-activate in the new session (loaded before the first message).
     public let preactivatedSkillIds: [String]?
     /// If provided, automatically sent as the first user message after session creation.
     public let initialMessage: String?
 
-    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: SessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.type = type
         self.title = title
         self.systemPromptOverride = systemPromptOverride
@@ -3725,7 +3725,7 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSessionInfo: Codable, Sendable {
+public struct SessionInfo: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let title: String
@@ -3741,7 +3741,7 @@ public struct IPCSessionInfo: Codable, Sendable {
     }
 }
 
-public struct IPCSessionListRequest: Codable, Sendable {
+public struct SessionListRequest: Codable, Sendable {
     public let type: String
     /// Number of sessions to skip (for pagination). Defaults to 0.
     public let offset: Double?
@@ -3755,20 +3755,20 @@ public struct IPCSessionListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSessionListResponse: Codable, Sendable {
+public struct SessionListResponse: Codable, Sendable {
     public let type: String
-    public let sessions: [IPCSessionListResponseSession]
+    public let sessions: [SessionListResponseSession]
     /// Whether more sessions exist beyond the returned page.
     public let hasMore: Bool?
 
-    public init(type: String, sessions: [IPCSessionListResponseSession], hasMore: Bool? = nil) {
+    public init(type: String, sessions: [SessionListResponseSession], hasMore: Bool? = nil) {
         self.type = type
         self.sessions = sessions
         self.hasMore = hasMore
     }
 }
 
-public struct IPCSessionListResponseSession: Codable, Sendable {
+public struct SessionListResponseSession: Codable, Sendable {
     public let id: String
     public let title: String
     public let createdAt: Int?
@@ -3777,15 +3777,15 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let source: String?
     public let scheduleJobId: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
-    public let channelBinding: IPCChannelBinding?
+    public let channelBinding: ChannelBinding?
     public let conversationOriginChannel: String?
     public let conversationOriginInterface: String?
     /// Attention state metadata for a conversation's latest assistant message.
-    public let assistantAttention: IPCAssistantAttention?
+    public let assistantAttention: AssistantAttention?
     public let displayOrder: Double?
     public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3802,7 +3802,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     }
 }
 
-public struct IPCSessionRenameRequest: Codable, Sendable {
+public struct SessionRenameRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let title: String
@@ -3814,7 +3814,7 @@ public struct IPCSessionRenameRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSessionsClearRequest: Codable, Sendable {
+public struct SessionsClearRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3822,7 +3822,7 @@ public struct IPCSessionsClearRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSessionsClearResponse: Codable, Sendable {
+public struct SessionsClearResponse: Codable, Sendable {
     public let type: String
     public let cleared: Int
 
@@ -3832,7 +3832,7 @@ public struct IPCSessionsClearResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSessionSwitchRequest: Codable, Sendable {
+public struct SessionSwitchRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
 
@@ -3842,7 +3842,7 @@ public struct IPCSessionSwitchRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSessionTitleUpdated: Codable, Sendable {
+public struct SessionTitleUpdated: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let title: String
@@ -3855,7 +3855,7 @@ public struct IPCSessionTitleUpdated: Codable, Sendable {
 }
 
 /// Lightweight session transport metadata for channel identity and natural-language guidance.
-public struct IPCSessionTransportMetadata: Codable, Sendable {
+public struct SessionTransportMetadata: Codable, Sendable {
     /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").
     public let channelId: String
     /// Interface identifier for this transport (e.g. "macos", "ios", "cli").
@@ -3873,7 +3873,7 @@ public struct IPCSessionTransportMetadata: Codable, Sendable {
     }
 }
 
-public struct IPCShareAppCloudRequest: Codable, Sendable {
+public struct ShareAppCloudRequest: Codable, Sendable {
     public let type: String
     public let appId: String
 
@@ -3883,7 +3883,7 @@ public struct IPCShareAppCloudRequest: Codable, Sendable {
     }
 }
 
-public struct IPCShareAppCloudResponse: Codable, Sendable {
+public struct ShareAppCloudResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let shareToken: String?
@@ -3899,7 +3899,7 @@ public struct IPCShareAppCloudResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSharedAppDeleteRequest: Codable, Sendable {
+public struct SharedAppDeleteRequest: Codable, Sendable {
     public let type: String
     public let uuid: String
 
@@ -3909,7 +3909,7 @@ public struct IPCSharedAppDeleteRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSharedAppDeleteResponse: Codable, Sendable {
+public struct SharedAppDeleteResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
 
@@ -3919,7 +3919,7 @@ public struct IPCSharedAppDeleteResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSharedAppsListRequest: Codable, Sendable {
+public struct SharedAppsListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -3927,17 +3927,17 @@ public struct IPCSharedAppsListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSharedAppsListResponse: Codable, Sendable {
+public struct SharedAppsListResponse: Codable, Sendable {
     public let type: String
-    public let apps: [IPCSharedAppsListResponseApp]
+    public let apps: [SharedAppsListResponseApp]
 
-    public init(type: String, apps: [IPCSharedAppsListResponseApp]) {
+    public init(type: String, apps: [SharedAppsListResponseApp]) {
         self.type = type
         self.apps = apps
     }
 }
 
-public struct IPCSharedAppsListResponseApp: Codable, Sendable {
+public struct SharedAppsListResponseApp: Codable, Sendable {
     public let uuid: String
     public let name: String
     public let description: String?
@@ -3969,7 +3969,7 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
     }
 }
 
-public struct IPCSignBundlePayloadRequest: Codable, Sendable {
+public struct SignBundlePayloadRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let payload: String
@@ -3981,7 +3981,7 @@ public struct IPCSignBundlePayloadRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSignBundlePayloadResponse: Codable, Sendable {
+public struct SignBundlePayloadResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let signature: String?
@@ -3999,7 +3999,7 @@ public struct IPCSignBundlePayloadResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSkillDetailRequest: Codable, Sendable {
+public struct SkillDetailRequest: Codable, Sendable {
     public let type: String
     public let skillId: String
 
@@ -4009,7 +4009,7 @@ public struct IPCSkillDetailRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillDetailResponse: Codable, Sendable {
+public struct SkillDetailResponse: Codable, Sendable {
     public let type: String
     public let skillId: String
     public let body: String
@@ -4025,7 +4025,7 @@ public struct IPCSkillDetailResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsCheckUpdatesRequest: Codable, Sendable {
+public struct SkillsCheckUpdatesRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -4033,7 +4033,7 @@ public struct IPCSkillsCheckUpdatesRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsConfigureRequest: Codable, Sendable {
+public struct SkillsConfigureRequest: Codable, Sendable {
     public let type: String
     public let name: String
     public let env: [String: String]?
@@ -4049,7 +4049,7 @@ public struct IPCSkillsConfigureRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsCreateRequest: Codable, Sendable {
+public struct SkillsCreateRequest: Codable, Sendable {
     public let type: String
     public let skillId: String
     public let name: String
@@ -4073,7 +4073,7 @@ public struct IPCSkillsCreateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsDisableRequest: Codable, Sendable {
+public struct SkillsDisableRequest: Codable, Sendable {
     public let type: String
     public let name: String
 
@@ -4083,7 +4083,7 @@ public struct IPCSkillsDisableRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsDraftRequest: Codable, Sendable {
+public struct SkillsDraftRequest: Codable, Sendable {
     public let type: String
     public let sourceText: String
 
@@ -4093,14 +4093,14 @@ public struct IPCSkillsDraftRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsDraftResponse: Codable, Sendable {
+public struct SkillsDraftResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
-    public let draft: IPCSkillsDraftResponseDraft?
+    public let draft: SkillsDraftResponseDraft?
     public let warnings: [String]?
     public let error: String?
 
-    public init(type: String, success: Bool, draft: IPCSkillsDraftResponseDraft? = nil, warnings: [String]? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, draft: SkillsDraftResponseDraft? = nil, warnings: [String]? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.draft = draft
@@ -4109,7 +4109,7 @@ public struct IPCSkillsDraftResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsDraftResponseDraft: Codable, Sendable {
+public struct SkillsDraftResponseDraft: Codable, Sendable {
     public let skillId: String
     public let name: String
     public let description: String
@@ -4125,7 +4125,7 @@ public struct IPCSkillsDraftResponseDraft: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsEnableRequest: Codable, Sendable {
+public struct SkillsEnableRequest: Codable, Sendable {
     public let type: String
     public let name: String
 
@@ -4135,7 +4135,7 @@ public struct IPCSkillsEnableRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectRequest: Codable, Sendable {
+public struct SkillsInspectRequest: Codable, Sendable {
     public let type: String
     public let slug: String
 
@@ -4145,13 +4145,13 @@ public struct IPCSkillsInspectRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponse: Codable, Sendable {
+public struct SkillsInspectResponse: Codable, Sendable {
     public let type: String
     public let slug: String
-    public let data: IPCSkillsInspectResponseData?
+    public let data: SkillsInspectResponseData?
     public let error: String?
 
-    public init(type: String, slug: String, data: IPCSkillsInspectResponseData? = nil, error: String? = nil) {
+    public init(type: String, slug: String, data: SkillsInspectResponseData? = nil, error: String? = nil) {
         self.type = type
         self.slug = slug
         self.data = data
@@ -4159,17 +4159,17 @@ public struct IPCSkillsInspectResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponseData: Codable, Sendable {
-    public let skill: IPCSkillsInspectResponseDataSkill
-    public let owner: IPCSkillsInspectResponseDataOwner?
-    public let stats: IPCSkillsInspectResponseDataStats?
+public struct SkillsInspectResponseData: Codable, Sendable {
+    public let skill: SkillsInspectResponseDataSkill
+    public let owner: SkillsInspectResponseDataOwner?
+    public let stats: SkillsInspectResponseDataStats?
     public let createdAt: Int?
     public let updatedAt: Int?
-    public let latestVersion: IPCSkillsInspectResponseDataLatestVersion?
-    public let files: [IPCSkillsInspectResponseDataFile]?
+    public let latestVersion: SkillsInspectResponseDataLatestVersion?
+    public let files: [SkillsInspectResponseDataFile]?
     public let skillMdContent: String?
 
-    public init(skill: IPCSkillsInspectResponseDataSkill, owner: IPCSkillsInspectResponseDataOwner? = nil, stats: IPCSkillsInspectResponseDataStats? = nil, createdAt: Int? = nil, updatedAt: Int? = nil, latestVersion: IPCSkillsInspectResponseDataLatestVersion? = nil, files: [IPCSkillsInspectResponseDataFile]? = nil, skillMdContent: String? = nil) {
+    public init(skill: SkillsInspectResponseDataSkill, owner: SkillsInspectResponseDataOwner? = nil, stats: SkillsInspectResponseDataStats? = nil, createdAt: Int? = nil, updatedAt: Int? = nil, latestVersion: SkillsInspectResponseDataLatestVersion? = nil, files: [SkillsInspectResponseDataFile]? = nil, skillMdContent: String? = nil) {
         self.skill = skill
         self.owner = owner
         self.stats = stats
@@ -4181,7 +4181,7 @@ public struct IPCSkillsInspectResponseData: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponseDataFile: Codable, Sendable {
+public struct SkillsInspectResponseDataFile: Codable, Sendable {
     public let path: String
     public let size: Int
     public let contentType: String?
@@ -4193,7 +4193,7 @@ public struct IPCSkillsInspectResponseDataFile: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponseDataLatestVersion: Codable, Sendable {
+public struct SkillsInspectResponseDataLatestVersion: Codable, Sendable {
     public let version: String
     public let changelog: String?
 
@@ -4203,7 +4203,7 @@ public struct IPCSkillsInspectResponseDataLatestVersion: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponseDataOwner: Codable, Sendable {
+public struct SkillsInspectResponseDataOwner: Codable, Sendable {
     public let handle: String
     public let displayName: String
     public let image: String?
@@ -4215,7 +4215,7 @@ public struct IPCSkillsInspectResponseDataOwner: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponseDataSkill: Codable, Sendable {
+public struct SkillsInspectResponseDataSkill: Codable, Sendable {
     public let slug: String
     public let displayName: String
     public let summary: String
@@ -4227,7 +4227,7 @@ public struct IPCSkillsInspectResponseDataSkill: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInspectResponseDataStats: Codable, Sendable {
+public struct SkillsInspectResponseDataStats: Codable, Sendable {
     public let stars: Int
     public let installs: Int
     public let downloads: Int
@@ -4241,7 +4241,7 @@ public struct IPCSkillsInspectResponseDataStats: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsInstallRequest: Codable, Sendable {
+public struct SkillsInstallRequest: Codable, Sendable {
     public let type: String
     public let slug: String
     public let version: String?
@@ -4253,7 +4253,7 @@ public struct IPCSkillsInstallRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsListRequest: Codable, Sendable {
+public struct SkillsListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -4261,17 +4261,17 @@ public struct IPCSkillsListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsListResponse: Codable, Sendable {
+public struct SkillsListResponse: Codable, Sendable {
     public let type: String
-    public let skills: [IPCSkillsListResponseSkill]
+    public let skills: [SkillsListResponseSkill]
 
-    public init(type: String, skills: [IPCSkillsListResponseSkill]) {
+    public init(type: String, skills: [SkillsListResponseSkill]) {
         self.type = type
         self.skills = skills
     }
 }
 
-public struct IPCSkillsListResponseSkill: Codable, Sendable {
+public struct SkillsListResponseSkill: Codable, Sendable {
     public let id: String
     public let name: String
     public let description: String
@@ -4280,15 +4280,15 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
     public let source: String
     public let state: String
     public let degraded: Bool
-    public let missingRequirements: IPCSkillsListResponseSkillMissingRequirements?
+    public let missingRequirements: SkillsListResponseSkillMissingRequirements?
     public let installedVersion: String?
     public let latestVersion: String?
     public let updateAvailable: Bool
     public let userInvocable: Bool
-    public let clawhub: IPCSkillsListResponseSkillClawhub?
-    public let provenance: IPCSkillsListResponseSkillProvenance?
+    public let clawhub: SkillsListResponseSkillClawhub?
+    public let provenance: SkillsListResponseSkillProvenance?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub? = nil, provenance: IPCSkillsListResponseSkillProvenance? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: SkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: SkillsListResponseSkillClawhub? = nil, provenance: SkillsListResponseSkillProvenance? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4307,7 +4307,7 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsListResponseSkillClawhub: Codable, Sendable {
+public struct SkillsListResponseSkillClawhub: Codable, Sendable {
     public let author: String
     public let stars: Int
     public let installs: Int
@@ -4323,7 +4323,7 @@ public struct IPCSkillsListResponseSkillClawhub: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsListResponseSkillMissingRequirements: Codable, Sendable {
+public struct SkillsListResponseSkillMissingRequirements: Codable, Sendable {
     public let bins: [String]?
     public let env: [String]?
     public let permissions: [String]?
@@ -4335,7 +4335,7 @@ public struct IPCSkillsListResponseSkillMissingRequirements: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsListResponseSkillProvenance: Codable, Sendable {
+public struct SkillsListResponseSkillProvenance: Codable, Sendable {
     public let kind: String
     public let provider: String?
     public let originId: String?
@@ -4349,7 +4349,7 @@ public struct IPCSkillsListResponseSkillProvenance: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsOperationResponse: Codable, Sendable {
+public struct SkillsOperationResponse: Codable, Sendable {
     public let type: String
     public let operation: String
     public let success: Bool
@@ -4365,7 +4365,7 @@ public struct IPCSkillsOperationResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsSearchRequest: Codable, Sendable {
+public struct SkillsSearchRequest: Codable, Sendable {
     public let type: String
     public let query: String
 
@@ -4375,7 +4375,7 @@ public struct IPCSkillsSearchRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillStateChanged: Codable, Sendable {
+public struct SkillStateChanged: Codable, Sendable {
     public let type: String
     public let name: String
     public let state: String
@@ -4387,7 +4387,7 @@ public struct IPCSkillStateChanged: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsUninstallRequest: Codable, Sendable {
+public struct SkillsUninstallRequest: Codable, Sendable {
     public let type: String
     public let name: String
 
@@ -4397,7 +4397,7 @@ public struct IPCSkillsUninstallRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSkillsUpdateRequest: Codable, Sendable {
+public struct SkillsUpdateRequest: Codable, Sendable {
     public let type: String
     public let name: String
 
@@ -4407,7 +4407,7 @@ public struct IPCSkillsUpdateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSlackWebhookConfigRequest: Codable, Sendable {
+public struct SlackWebhookConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let webhookUrl: String?
@@ -4419,7 +4419,7 @@ public struct IPCSlackWebhookConfigRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSlackWebhookConfigResponse: Codable, Sendable {
+public struct SlackWebhookConfigResponse: Codable, Sendable {
     public let type: String
     public let webhookUrl: String?
     public let success: Bool
@@ -4433,7 +4433,7 @@ public struct IPCSlackWebhookConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentAbortRequest: Codable, Sendable {
+public struct SubagentAbortRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
 
@@ -4443,7 +4443,7 @@ public struct IPCSubagentAbortRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentDetailRequest: Codable, Sendable {
+public struct SubagentDetailRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let conversationId: String
@@ -4455,13 +4455,13 @@ public struct IPCSubagentDetailRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentDetailResponse: Codable, Sendable {
+public struct SubagentDetailResponse: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let objective: String?
-    public let events: [IPCSubagentDetailResponseEvent]
+    public let events: [SubagentDetailResponseEvent]
 
-    public init(type: String, subagentId: String, objective: String? = nil, events: [IPCSubagentDetailResponseEvent]) {
+    public init(type: String, subagentId: String, objective: String? = nil, events: [SubagentDetailResponseEvent]) {
         self.type = type
         self.subagentId = subagentId
         self.objective = objective
@@ -4469,7 +4469,7 @@ public struct IPCSubagentDetailResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentDetailResponseEvent: Codable, Sendable {
+public struct SubagentDetailResponseEvent: Codable, Sendable {
     public let type: String
     public let content: String
     public let toolName: String?
@@ -4483,7 +4483,7 @@ public struct IPCSubagentDetailResponseEvent: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentMessageRequest: Codable, Sendable {
+public struct SubagentMessageRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let content: String
@@ -4495,7 +4495,7 @@ public struct IPCSubagentMessageRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentSpawned: Codable, Sendable {
+public struct SubagentSpawned: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let parentSessionId: String
@@ -4511,14 +4511,14 @@ public struct IPCSubagentSpawned: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentStatusChanged: Codable, Sendable {
+public struct SubagentStatusChanged: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let status: String
     public let error: String?
-    public let usage: IPCUsageStats?
+    public let usage: UsageStats?
 
-    public init(type: String, subagentId: String, status: String, error: String? = nil, usage: IPCUsageStats? = nil) {
+    public init(type: String, subagentId: String, status: String, error: String? = nil, usage: UsageStats? = nil) {
         self.type = type
         self.subagentId = subagentId
         self.status = status
@@ -4527,7 +4527,7 @@ public struct IPCSubagentStatusChanged: Codable, Sendable {
     }
 }
 
-public struct IPCSubagentStatusRequest: Codable, Sendable {
+public struct SubagentStatusRequest: Codable, Sendable {
     public let type: String
     /// If omitted, returns all subagents for the session.
     public let subagentId: String?
@@ -4538,7 +4538,7 @@ public struct IPCSubagentStatusRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSuggestionRequest: Codable, Sendable {
+public struct SuggestionRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let requestId: String
@@ -4550,7 +4550,7 @@ public struct IPCSuggestionRequest: Codable, Sendable {
     }
 }
 
-public struct IPCSuggestionResponse: Codable, Sendable {
+public struct SuggestionResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let suggestion: String?
@@ -4564,7 +4564,7 @@ public struct IPCSuggestionResponse: Codable, Sendable {
     }
 }
 
-public struct IPCSurfaceAction: Codable, Sendable {
+public struct SurfaceAction: Codable, Sendable {
     public let id: String
     public let label: String
     public let style: String?
@@ -4579,7 +4579,7 @@ public struct IPCSurfaceAction: Codable, Sendable {
     }
 }
 
-public struct IPCTableCellValue: Codable, Sendable {
+public struct TableCellValue: Codable, Sendable {
     public let text: String
     public let icon: String?
     public let iconColor: String?
@@ -4591,7 +4591,7 @@ public struct IPCTableCellValue: Codable, Sendable {
     }
 }
 
-public struct IPCTableColumn: Codable, Sendable {
+public struct TableColumn: Codable, Sendable {
     public let id: String
     public let label: String
     public let width: Int?
@@ -4603,7 +4603,7 @@ public struct IPCTableColumn: Codable, Sendable {
     }
 }
 
-public struct IPCTableRow: Codable, Sendable {
+public struct TableRow: Codable, Sendable {
     public let id: String
     public let cells: [String: AnyCodable]
     public let selectable: Bool?
@@ -4617,13 +4617,13 @@ public struct IPCTableRow: Codable, Sendable {
     }
 }
 
-public struct IPCTableSurfaceData: Codable, Sendable {
-    public let columns: [IPCTableColumn]
-    public let rows: [IPCTableRow]
+public struct TableSurfaceData: Codable, Sendable {
+    public let columns: [TableColumn]
+    public let rows: [TableRow]
     public let selectionMode: String?
     public let caption: String?
 
-    public init(columns: [IPCTableColumn], rows: [IPCTableRow], selectionMode: String? = nil, caption: String? = nil) {
+    public init(columns: [TableColumn], rows: [TableRow], selectionMode: String? = nil, caption: String? = nil) {
         self.columns = columns
         self.rows = rows
         self.selectionMode = selectionMode
@@ -4631,7 +4631,7 @@ public struct IPCTableSurfaceData: Codable, Sendable {
     }
 }
 
-public struct IPCTaskRouted: Codable, Sendable {
+public struct TaskRouted: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let interactionType: String
@@ -4650,7 +4650,7 @@ public struct IPCTaskRouted: Codable, Sendable {
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
-public struct IPCTaskRunThreadCreated: Codable, Sendable {
+public struct TaskRunThreadCreated: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let workItemId: String
@@ -4665,7 +4665,7 @@ public struct IPCTaskRunThreadCreated: Codable, Sendable {
 }
 
 /// Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list.
-public struct IPCTasksChanged: Codable, Sendable {
+public struct TasksChanged: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -4673,17 +4673,17 @@ public struct IPCTasksChanged: Codable, Sendable {
     }
 }
 
-public struct IPCTaskSubmit: Codable, Sendable {
+public struct TaskSubmit: Codable, Sendable {
     public let type: String
     public let task: String
     public let screenWidth: Int
     public let screenHeight: Int
-    public let attachments: [IPCUserMessageAttachment]?
+    public let attachments: [UserMessageAttachment]?
     public let source: String?
     /// Structured command intent — bypasses text parsing when present.
-    public let commandIntent: IPCCommandIntent?
+    public let commandIntent: CommandIntent?
 
-    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil, commandIntent: IPCCommandIntent? = nil) {
+    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [UserMessageAttachment]? = nil, source: String? = nil, commandIntent: CommandIntent? = nil) {
         self.type = type
         self.task = task
         self.screenWidth = screenWidth
@@ -4694,13 +4694,13 @@ public struct IPCTaskSubmit: Codable, Sendable {
     }
 }
 
-public struct IPCTelegramConfigRequest: Codable, Sendable {
+public struct TelegramConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let botToken: String?
-    public let commands: [IPCTelegramConfigRequestCommand]?
+    public let commands: [TelegramConfigRequestCommand]?
 
-    public init(type: String, action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) {
+    public init(type: String, action: String, botToken: String? = nil, commands: [TelegramConfigRequestCommand]? = nil) {
         self.type = type
         self.action = action
         self.botToken = botToken
@@ -4708,7 +4708,7 @@ public struct IPCTelegramConfigRequest: Codable, Sendable {
     }
 }
 
-public struct IPCTelegramConfigRequestCommand: Codable, Sendable {
+public struct TelegramConfigRequestCommand: Codable, Sendable {
     public let command: String
     public let description: String
 
@@ -4718,7 +4718,7 @@ public struct IPCTelegramConfigRequestCommand: Codable, Sendable {
     }
 }
 
-public struct IPCTelegramConfigResponse: Codable, Sendable {
+public struct TelegramConfigResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let hasBotToken: Bool
@@ -4746,7 +4746,7 @@ public struct IPCTelegramConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCToolInputDelta: Codable, Sendable {
+public struct ToolInputDelta: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let content: String
@@ -4763,7 +4763,7 @@ public struct IPCToolInputDelta: Codable, Sendable {
     }
 }
 
-public struct IPCToolInputSchema: Codable, Sendable {
+public struct ToolInputSchema: Codable, Sendable {
     public let type: String
     public let properties: [String: AnyCodable]?
     public let required: [String]?
@@ -4775,7 +4775,7 @@ public struct IPCToolInputSchema: Codable, Sendable {
     }
 }
 
-public struct IPCToolNamesListRequest: Codable, Sendable {
+public struct ToolNamesListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -4783,7 +4783,7 @@ public struct IPCToolNamesListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCToolNamesListResponse: Codable, Sendable {
+public struct ToolNamesListResponse: Codable, Sendable {
     public let type: String
     /// Sorted list of all registered tool names.
     public let names: [String]
@@ -4797,7 +4797,7 @@ public struct IPCToolNamesListResponse: Codable, Sendable {
     }
 }
 
-public struct IPCToolOutputChunk: Codable, Sendable {
+public struct ToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
     public let sessionId: String?
@@ -4819,7 +4819,7 @@ public struct IPCToolOutputChunk: Codable, Sendable {
     }
 }
 
-public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
+public struct ToolPermissionSimulateRequest: Codable, Sendable {
     public let type: String
     /// Tool name to simulate (e.g. 'bash', 'file_write').
     public let toolName: String
@@ -4842,7 +4842,7 @@ public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
+public struct ToolPermissionSimulateResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     /// The simulated permission decision.
@@ -4852,7 +4852,7 @@ public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
     /// Human-readable reason for the decision.
     public let reason: String?
     /// When decision is 'prompt', the data needed to render a ToolConfirmationBubble.
-    public let promptPayload: IPCToolPermissionSimulateResponsePromptPayload?
+    public let promptPayload: ToolPermissionSimulateResponsePromptPayload?
     /// Resolved execution target for the tool.
     public let executionTarget: String?
     /// ID of the trust rule that matched (if any).
@@ -4860,7 +4860,7 @@ public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
     /// Error message when success is false.
     public let error: String?
 
-    public init(type: String, success: Bool, decision: String? = nil, riskLevel: String? = nil, reason: String? = nil, promptPayload: IPCToolPermissionSimulateResponsePromptPayload? = nil, executionTarget: String? = nil, matchedRuleId: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, decision: String? = nil, riskLevel: String? = nil, reason: String? = nil, promptPayload: ToolPermissionSimulateResponsePromptPayload? = nil, executionTarget: String? = nil, matchedRuleId: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.decision = decision
@@ -4873,19 +4873,19 @@ public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
     }
 }
 
-public struct IPCToolPermissionSimulateResponsePromptPayload: Codable, Sendable {
-    public let allowlistOptions: [IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption]
-    public let scopeOptions: [IPCToolPermissionSimulateResponsePromptPayloadScopeOption]
+public struct ToolPermissionSimulateResponsePromptPayload: Codable, Sendable {
+    public let allowlistOptions: [ToolPermissionSimulateResponsePromptPayloadAllowlistOption]
+    public let scopeOptions: [ToolPermissionSimulateResponsePromptPayloadScopeOption]
     public let persistentDecisionsAllowed: Bool
 
-    public init(allowlistOptions: [IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption], scopeOptions: [IPCToolPermissionSimulateResponsePromptPayloadScopeOption], persistentDecisionsAllowed: Bool) {
+    public init(allowlistOptions: [ToolPermissionSimulateResponsePromptPayloadAllowlistOption], scopeOptions: [ToolPermissionSimulateResponsePromptPayloadScopeOption], persistentDecisionsAllowed: Bool) {
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
     }
 }
 
-public struct IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption: Codable, Sendable {
+public struct ToolPermissionSimulateResponsePromptPayloadAllowlistOption: Codable, Sendable {
     public let label: String
     public let description: String
     public let pattern: String
@@ -4897,7 +4897,7 @@ public struct IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption: Cod
     }
 }
 
-public struct IPCToolPermissionSimulateResponsePromptPayloadScopeOption: Codable, Sendable {
+public struct ToolPermissionSimulateResponsePromptPayloadScopeOption: Codable, Sendable {
     public let label: String
     public let scope: String
 
@@ -4907,12 +4907,12 @@ public struct IPCToolPermissionSimulateResponsePromptPayloadScopeOption: Codable
     }
 }
 
-public struct IPCToolResult: Codable, Sendable {
+public struct ToolResult: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let result: String
     public let isError: Bool?
-    public let diff: IPCToolResultDiff?
+    public let diff: ToolResultDiff?
     public let status: String?
     public let sessionId: String?
     /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot).
@@ -4920,7 +4920,7 @@ public struct IPCToolResult: Codable, Sendable {
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: IPCToolResultDiff? = nil, status: String? = nil, sessionId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, sessionId: String? = nil, imageData: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4933,7 +4933,7 @@ public struct IPCToolResult: Codable, Sendable {
     }
 }
 
-public struct IPCToolResultDiff: Codable, Sendable {
+public struct ToolResultDiff: Codable, Sendable {
     public let filePath: String
     public let oldContent: String
     public let newContent: String
@@ -4947,7 +4947,7 @@ public struct IPCToolResultDiff: Codable, Sendable {
     }
 }
 
-public struct IPCToolUsePreviewStart: Codable, Sendable {
+public struct ToolUsePreviewStart: Codable, Sendable {
     public let type: String
     public let toolUseId: String
     public let toolName: String
@@ -4961,7 +4961,7 @@ public struct IPCToolUsePreviewStart: Codable, Sendable {
     }
 }
 
-public struct IPCToolUseStart: Codable, Sendable {
+public struct ToolUseStart: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let input: [String: AnyCodable]
@@ -4978,7 +4978,7 @@ public struct IPCToolUseStart: Codable, Sendable {
     }
 }
 
-public struct IPCTrustRulesList: Codable, Sendable {
+public struct TrustRulesList: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -4986,17 +4986,17 @@ public struct IPCTrustRulesList: Codable, Sendable {
     }
 }
 
-public struct IPCTrustRulesListResponse: Codable, Sendable {
+public struct TrustRulesListResponse: Codable, Sendable {
     public let type: String
-    public let rules: [IPCTrustRulesListResponseRule]
+    public let rules: [TrustRulesListResponseRule]
 
-    public init(type: String, rules: [IPCTrustRulesListResponseRule]) {
+    public init(type: String, rules: [TrustRulesListResponseRule]) {
         self.type = type
         self.rules = rules
     }
 }
 
-public struct IPCTrustRulesListResponseRule: Codable, Sendable {
+public struct TrustRulesListResponseRule: Codable, Sendable {
     public let id: String
     public let tool: String
     public let pattern: String
@@ -5016,7 +5016,7 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     }
 }
 
-public struct IPCTwitterAuthResult: Codable, Sendable {
+public struct TwitterAuthResult: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let accountInfo: String?
@@ -5033,7 +5033,7 @@ public struct IPCTwitterAuthResult: Codable, Sendable {
     }
 }
 
-public struct IPCTwitterAuthStartRequest: Codable, Sendable {
+public struct TwitterAuthStartRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -5041,7 +5041,7 @@ public struct IPCTwitterAuthStartRequest: Codable, Sendable {
     }
 }
 
-public struct IPCTwitterAuthStatusRequest: Codable, Sendable {
+public struct TwitterAuthStatusRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -5049,7 +5049,7 @@ public struct IPCTwitterAuthStatusRequest: Codable, Sendable {
     }
 }
 
-public struct IPCTwitterAuthStatusResponse: Codable, Sendable {
+public struct TwitterAuthStatusResponse: Codable, Sendable {
     public let type: String
     public let connected: Bool
     public let accountInfo: String?
@@ -5065,7 +5065,7 @@ public struct IPCTwitterAuthStatusResponse: Codable, Sendable {
     }
 }
 
-public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
+public struct TwitterIntegrationConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let mode: String?
@@ -5083,13 +5083,13 @@ public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
     }
 }
 
-public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
+public struct TwitterIntegrationConfigResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let mode: String?
     public let managedAvailable: Bool
     /// Detailed prerequisite status for managed Twitter availability.
-    public let managedPrerequisites: IPCManagedPrerequisites?
+    public let managedPrerequisites: ManagedPrerequisites?
     public let localClientConfigured: Bool
     public let connected: Bool
     public let accountInfo: String?
@@ -5098,7 +5098,7 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     public let strategyConfigured: Bool?
     public let error: String?
 
-    public init(type: String, success: Bool, mode: String? = nil, managedAvailable: Bool, managedPrerequisites: IPCManagedPrerequisites? = nil, localClientConfigured: Bool, connected: Bool, accountInfo: String? = nil, strategy: String? = nil, strategyConfigured: Bool? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, mode: String? = nil, managedAvailable: Bool, managedPrerequisites: ManagedPrerequisites? = nil, localClientConfigured: Bool, connected: Bool, accountInfo: String? = nil, strategy: String? = nil, strategyConfigured: Bool? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.mode = mode
@@ -5113,7 +5113,7 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceAction: Codable, Sendable {
+public struct UiSurfaceAction: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -5129,7 +5129,7 @@ public struct IPCUiSurfaceAction: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceComplete: Codable, Sendable {
+public struct UiSurfaceComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -5145,7 +5145,7 @@ public struct IPCUiSurfaceComplete: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceDismiss: Codable, Sendable {
+public struct UiSurfaceDismiss: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -5157,19 +5157,19 @@ public struct IPCUiSurfaceDismiss: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowCard: Codable, Sendable {
+public struct UiSurfaceShowCard: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCCardSurfaceData
+    public let data: CardSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCCardSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: CardSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5182,19 +5182,19 @@ public struct IPCUiSurfaceShowCard: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
+public struct UiSurfaceShowConfirmation: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCConfirmationSurfaceData
+    public let data: ConfirmationSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCConfirmationSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: ConfirmationSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5207,19 +5207,19 @@ public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowDocumentPreview: Codable, Sendable {
+public struct UiSurfaceShowDocumentPreview: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCDocumentPreviewSurfaceData
+    public let data: DocumentPreviewSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCDocumentPreviewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: DocumentPreviewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5232,19 +5232,19 @@ public struct IPCUiSurfaceShowDocumentPreview: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowDynamicPage: Codable, Sendable {
+public struct UiSurfaceShowDynamicPage: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCDynamicPageSurfaceData
+    public let data: DynamicPageSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCDynamicPageSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: DynamicPageSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5257,19 +5257,19 @@ public struct IPCUiSurfaceShowDynamicPage: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowFileUpload: Codable, Sendable {
+public struct UiSurfaceShowFileUpload: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCFileUploadSurfaceData
+    public let data: FileUploadSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCFileUploadSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: FileUploadSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5282,19 +5282,19 @@ public struct IPCUiSurfaceShowFileUpload: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowForm: Codable, Sendable {
+public struct UiSurfaceShowForm: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCFormSurfaceData
+    public let data: FormSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCFormSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: FormSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5307,19 +5307,19 @@ public struct IPCUiSurfaceShowForm: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowList: Codable, Sendable {
+public struct UiSurfaceShowList: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCListSurfaceData
+    public let data: ListSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCListSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: ListSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5332,19 +5332,19 @@ public struct IPCUiSurfaceShowList: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceShowTable: Codable, Sendable {
+public struct UiSurfaceShowTable: Codable, Sendable {
     public let surfaceType: String
-    public let data: IPCTableSurfaceData
+    public let data: TableSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String
     public let title: String?
-    public let actions: [IPCSurfaceAction]?
+    public let actions: [SurfaceAction]?
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCTableSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
+    public init(surfaceType: String, data: TableSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -5357,7 +5357,7 @@ public struct IPCUiSurfaceShowTable: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceUndoRequest: Codable, Sendable {
+public struct UiSurfaceUndoRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -5369,7 +5369,7 @@ public struct IPCUiSurfaceUndoRequest: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceUndoResult: Codable, Sendable {
+public struct UiSurfaceUndoResult: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -5386,7 +5386,7 @@ public struct IPCUiSurfaceUndoResult: Codable, Sendable {
     }
 }
 
-public struct IPCUiSurfaceUpdate: Codable, Sendable {
+public struct UiSurfaceUpdate: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -5400,7 +5400,7 @@ public struct IPCUiSurfaceUpdate: Codable, Sendable {
     }
 }
 
-public struct IPCUndoComplete: Codable, Sendable {
+public struct UndoComplete: Codable, Sendable {
     public let type: String
     public let removedCount: Int
     public let sessionId: String?
@@ -5412,7 +5412,7 @@ public struct IPCUndoComplete: Codable, Sendable {
     }
 }
 
-public struct IPCUndoRequest: Codable, Sendable {
+public struct UndoRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
 
@@ -5422,7 +5422,7 @@ public struct IPCUndoRequest: Codable, Sendable {
     }
 }
 
-public struct IPCUnpublishPageRequest: Codable, Sendable {
+public struct UnpublishPageRequest: Codable, Sendable {
     public let type: String
     public let deploymentId: String
 
@@ -5432,7 +5432,7 @@ public struct IPCUnpublishPageRequest: Codable, Sendable {
     }
 }
 
-public struct IPCUnpublishPageResponse: Codable, Sendable {
+public struct UnpublishPageResponse: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let error: String?
@@ -5444,7 +5444,7 @@ public struct IPCUnpublishPageResponse: Codable, Sendable {
     }
 }
 
-public struct IPCUpdateTrustRule: Codable, Sendable {
+public struct UpdateTrustRule: Codable, Sendable {
     public let type: String
     public let id: String
     public let tool: String?
@@ -5464,7 +5464,7 @@ public struct IPCUpdateTrustRule: Codable, Sendable {
     }
 }
 
-public struct IPCUsageRequest: Codable, Sendable {
+public struct UsageRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
 
@@ -5474,7 +5474,7 @@ public struct IPCUsageRequest: Codable, Sendable {
     }
 }
 
-public struct IPCUsageResponse: Codable, Sendable {
+public struct UsageResponse: Codable, Sendable {
     public let type: String
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
@@ -5490,7 +5490,7 @@ public struct IPCUsageResponse: Codable, Sendable {
     }
 }
 
-public struct IPCUsageStats: Codable, Sendable {
+public struct UsageStats: Codable, Sendable {
     public let inputTokens: Int
     public let outputTokens: Int
     public let estimatedCost: Double
@@ -5502,7 +5502,7 @@ public struct IPCUsageStats: Codable, Sendable {
     }
 }
 
-public struct IPCUsageUpdate: Codable, Sendable {
+public struct UsageUpdate: Codable, Sendable {
     public let type: String
     public let inputTokens: Int
     public let outputTokens: Int
@@ -5522,11 +5522,11 @@ public struct IPCUsageUpdate: Codable, Sendable {
     }
 }
 
-public struct IPCUserMessage: Codable, Sendable {
+public struct UserMessage: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let content: String?
-    public let attachments: [IPCUserMessageAttachment]?
+    public let attachments: [UserMessageAttachment]?
     public let activeSurfaceId: String?
     /// The page currently displayed in the WebView (e.g. "settings.html").
     public let currentPage: String?
@@ -5541,9 +5541,9 @@ public struct IPCUserMessage: Codable, Sendable {
     /// Whether the client has been granted microphone permission by the OS.
     public let microphonePermissionGranted: Bool?
     /// Structured command intent — bypasses text parsing when present.
-    public let commandIntent: IPCCommandIntent?
+    public let commandIntent: CommandIntent?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: IPCCommandIntent? = nil) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [UserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String, pttActivationKey: String? = nil, microphonePermissionGranted: Bool? = nil, commandIntent: CommandIntent? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5559,7 +5559,7 @@ public struct IPCUserMessage: Codable, Sendable {
     }
 }
 
-public struct IPCUserMessageAttachment: Codable, Sendable {
+public struct UserMessageAttachment: Codable, Sendable {
     public let id: String?
     public let filename: String
     public let mimeType: String
@@ -5584,7 +5584,7 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     }
 }
 
-public struct IPCUserMessageEcho: Codable, Sendable {
+public struct UserMessageEcho: Codable, Sendable {
     public let type: String
     public let text: String
     public let sessionId: String?
@@ -5596,7 +5596,7 @@ public struct IPCUserMessageEcho: Codable, Sendable {
     }
 }
 
-public struct IPCVercelApiConfigRequest: Codable, Sendable {
+public struct VercelApiConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let apiToken: String?
@@ -5608,7 +5608,7 @@ public struct IPCVercelApiConfigRequest: Codable, Sendable {
     }
 }
 
-public struct IPCVercelApiConfigResponse: Codable, Sendable {
+public struct VercelApiConfigResponse: Codable, Sendable {
     public let type: String
     public let hasToken: Bool
     public let success: Bool
@@ -5623,7 +5623,7 @@ public struct IPCVercelApiConfigResponse: Codable, Sendable {
 }
 
 /// Request from a session or client to change the voice activation key.
-public struct IPCVoiceConfigUpdateRequest: Codable, Sendable {
+public struct VoiceConfigUpdateRequest: Codable, Sendable {
     public let type: String
     /// The desired activation key (enum value or natural-language name).
     public let activationKey: String
@@ -5634,7 +5634,7 @@ public struct IPCVoiceConfigUpdateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWatchCompleteRequest: Codable, Sendable {
+public struct WatchCompleteRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let watchId: String
@@ -5646,7 +5646,7 @@ public struct IPCWatchCompleteRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWatchObservation: Codable, Sendable {
+public struct WatchObservation: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let sessionId: String
@@ -5672,7 +5672,7 @@ public struct IPCWatchObservation: Codable, Sendable {
     }
 }
 
-public struct IPCWatchStarted: Codable, Sendable {
+public struct WatchStarted: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let watchId: String
@@ -5688,7 +5688,7 @@ public struct IPCWatchStarted: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemApprovePermissionsRequest: Codable, Sendable {
+public struct WorkItemApprovePermissionsRequest: Codable, Sendable {
     public let type: String
     public let id: String
     public let approvedTools: [String]
@@ -5700,7 +5700,7 @@ public struct IPCWorkItemApprovePermissionsRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemApprovePermissionsResponse: Codable, Sendable {
+public struct WorkItemApprovePermissionsResponse: Codable, Sendable {
     public let type: String
     public let id: String
     public let success: Bool
@@ -5714,7 +5714,7 @@ public struct IPCWorkItemApprovePermissionsResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemCancelRequest: Codable, Sendable {
+public struct WorkItemCancelRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5724,7 +5724,7 @@ public struct IPCWorkItemCancelRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemCancelResponse: Codable, Sendable {
+public struct WorkItemCancelResponse: Codable, Sendable {
     public let type: String
     public let id: String
     public let success: Bool
@@ -5738,7 +5738,7 @@ public struct IPCWorkItemCancelResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemCompleteRequest: Codable, Sendable {
+public struct WorkItemCompleteRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5748,7 +5748,7 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemDeleteRequest: Codable, Sendable {
+public struct WorkItemDeleteRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5758,7 +5758,7 @@ public struct IPCWorkItemDeleteRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemDeleteResponse: Codable, Sendable {
+public struct WorkItemDeleteResponse: Codable, Sendable {
     public let type: String
     public let id: String
     public let success: Bool
@@ -5770,7 +5770,7 @@ public struct IPCWorkItemDeleteResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemGetRequest: Codable, Sendable {
+public struct WorkItemGetRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5780,17 +5780,17 @@ public struct IPCWorkItemGetRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemGetResponse: Codable, Sendable {
+public struct WorkItemGetResponse: Codable, Sendable {
     public let type: String
-    public let item: IPCWorkItemGetResponseItem?
+    public let item: WorkItemGetResponseItem?
 
-    public init(type: String, item: IPCWorkItemGetResponseItem?) {
+    public init(type: String, item: WorkItemGetResponseItem?) {
         self.type = type
         self.item = item
     }
 }
 
-public struct IPCWorkItemGetResponseItem: Codable, Sendable {
+public struct WorkItemGetResponseItem: Codable, Sendable {
     public let id: String
     public let taskId: String
     public let title: String
@@ -5824,7 +5824,7 @@ public struct IPCWorkItemGetResponseItem: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemOutputRequest: Codable, Sendable {
+public struct WorkItemOutputRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5834,14 +5834,14 @@ public struct IPCWorkItemOutputRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemOutputResponse: Codable, Sendable {
+public struct WorkItemOutputResponse: Codable, Sendable {
     public let type: String
     public let id: String
     public let success: Bool
     public let error: String?
-    public let output: IPCWorkItemOutputResponseOutput?
+    public let output: WorkItemOutputResponseOutput?
 
-    public init(type: String, id: String, success: Bool, error: String? = nil, output: IPCWorkItemOutputResponseOutput? = nil) {
+    public init(type: String, id: String, success: Bool, error: String? = nil, output: WorkItemOutputResponseOutput? = nil) {
         self.type = type
         self.id = id
         self.success = success
@@ -5850,7 +5850,7 @@ public struct IPCWorkItemOutputResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemOutputResponseOutput: Codable, Sendable {
+public struct WorkItemOutputResponseOutput: Codable, Sendable {
     public let title: String
     public let status: String
     public let runId: String?
@@ -5870,7 +5870,7 @@ public struct IPCWorkItemOutputResponseOutput: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemPreflightRequest: Codable, Sendable {
+public struct WorkItemPreflightRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5880,14 +5880,14 @@ public struct IPCWorkItemPreflightRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemPreflightResponse: Codable, Sendable {
+public struct WorkItemPreflightResponse: Codable, Sendable {
     public let type: String
     public let id: String
     public let success: Bool
     public let error: String?
-    public let permissions: [IPCWorkItemPreflightResponsePermission]?
+    public let permissions: [WorkItemPreflightResponsePermission]?
 
-    public init(type: String, id: String, success: Bool, error: String? = nil, permissions: [IPCWorkItemPreflightResponsePermission]? = nil) {
+    public init(type: String, id: String, success: Bool, error: String? = nil, permissions: [WorkItemPreflightResponsePermission]? = nil) {
         self.type = type
         self.id = id
         self.success = success
@@ -5896,7 +5896,7 @@ public struct IPCWorkItemPreflightResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
+public struct WorkItemPreflightResponsePermission: Codable, Sendable {
     public let tool: String
     public let description: String
     public let riskLevel: String
@@ -5910,7 +5910,7 @@ public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
+public struct WorkItemRunTaskRequest: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -5920,7 +5920,7 @@ public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemRunTaskResponse: Codable, Sendable {
+public struct WorkItemRunTaskResponse: Codable, Sendable {
     public let type: String
     public let id: String
     public let lastRunId: String
@@ -5939,7 +5939,7 @@ public struct IPCWorkItemRunTaskResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemsListRequest: Codable, Sendable {
+public struct WorkItemsListRequest: Codable, Sendable {
     public let type: String
     public let status: String?
 
@@ -5949,17 +5949,17 @@ public struct IPCWorkItemsListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemsListResponse: Codable, Sendable {
+public struct WorkItemsListResponse: Codable, Sendable {
     public let type: String
-    public let items: [IPCWorkItemsListResponseItem]
+    public let items: [WorkItemsListResponseItem]
 
-    public init(type: String, items: [IPCWorkItemsListResponseItem]) {
+    public init(type: String, items: [WorkItemsListResponseItem]) {
         self.type = type
         self.items = items
     }
 }
 
-public struct IPCWorkItemsListResponseItem: Codable, Sendable {
+public struct WorkItemsListResponseItem: Codable, Sendable {
     public let id: String
     public let taskId: String
     public let title: String
@@ -5994,17 +5994,17 @@ public struct IPCWorkItemsListResponseItem: Codable, Sendable {
 }
 
 /// Server push — broadcast when a work item status changes (e.g. running -> awaiting_review).
-public struct IPCWorkItemStatusChanged: Codable, Sendable {
+public struct WorkItemStatusChanged: Codable, Sendable {
     public let type: String
-    public let item: IPCWorkItemStatusChangedItem
+    public let item: WorkItemStatusChangedItem
 
-    public init(type: String, item: IPCWorkItemStatusChangedItem) {
+    public init(type: String, item: WorkItemStatusChangedItem) {
         self.type = type
         self.item = item
     }
 }
 
-public struct IPCWorkItemStatusChangedItem: Codable, Sendable {
+public struct WorkItemStatusChangedItem: Codable, Sendable {
     public let id: String
     public let taskId: String
     public let title: String
@@ -6026,7 +6026,7 @@ public struct IPCWorkItemStatusChangedItem: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemUpdateRequest: Codable, Sendable {
+public struct WorkItemUpdateRequest: Codable, Sendable {
     public let type: String
     public let id: String
     public let title: String?
@@ -6046,17 +6046,17 @@ public struct IPCWorkItemUpdateRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkItemUpdateResponse: Codable, Sendable {
+public struct WorkItemUpdateResponse: Codable, Sendable {
     public let type: String
-    public let item: IPCWorkItemUpdateResponseItem?
+    public let item: WorkItemUpdateResponseItem?
 
-    public init(type: String, item: IPCWorkItemUpdateResponseItem?) {
+    public init(type: String, item: WorkItemUpdateResponseItem?) {
         self.type = type
         self.item = item
     }
 }
 
-public struct IPCWorkItemUpdateResponseItem: Codable, Sendable {
+public struct WorkItemUpdateResponseItem: Codable, Sendable {
     public let id: String
     public let taskId: String
     public let title: String
@@ -6090,7 +6090,7 @@ public struct IPCWorkItemUpdateResponseItem: Codable, Sendable {
     }
 }
 
-public struct IPCWorkspaceFileReadRequest: Codable, Sendable {
+public struct WorkspaceFileReadRequest: Codable, Sendable {
     public let type: String
     /// Relative path within the workspace directory (e.g. "IDENTITY.md").
     public let path: String
@@ -6101,7 +6101,7 @@ public struct IPCWorkspaceFileReadRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkspaceFileReadResponse: Codable, Sendable {
+public struct WorkspaceFileReadResponse: Codable, Sendable {
     public let type: String
     public let path: String
     public let content: String?
@@ -6115,7 +6115,7 @@ public struct IPCWorkspaceFileReadResponse: Codable, Sendable {
     }
 }
 
-public struct IPCWorkspaceFilesListRequest: Codable, Sendable {
+public struct WorkspaceFilesListRequest: Codable, Sendable {
     public let type: String
 
     public init(type: String) {
@@ -6123,17 +6123,17 @@ public struct IPCWorkspaceFilesListRequest: Codable, Sendable {
     }
 }
 
-public struct IPCWorkspaceFilesListResponse: Codable, Sendable {
+public struct WorkspaceFilesListResponse: Codable, Sendable {
     public let type: String
-    public let files: [IPCWorkspaceFilesListResponseFile]
+    public let files: [WorkspaceFilesListResponseFile]
 
-    public init(type: String, files: [IPCWorkspaceFilesListResponseFile]) {
+    public init(type: String, files: [WorkspaceFilesListResponseFile]) {
         self.type = type
         self.files = files
     }
 }
 
-public struct IPCWorkspaceFilesListResponseFile: Codable, Sendable {
+public struct WorkspaceFilesListResponseFile: Codable, Sendable {
     /// Relative path within the workspace (e.g. "IDENTITY.md", "skills/my-skill").
     public let path: String
     /// Display name (e.g. "IDENTITY.md").
@@ -6147,3 +6147,1194 @@ public struct IPCWorkspaceFilesListResponseFile: Codable, Sendable {
         self.exists = exists
     }
 }
+
+// MARK: - Backward Compatibility Typealiases (remove after migration)
+
+@available(*, deprecated, renamed: "AcceptStarterBundle")
+public typealias IPCAcceptStarterBundle = AcceptStarterBundle
+
+@available(*, deprecated, renamed: "AcceptStarterBundleResponse")
+public typealias IPCAcceptStarterBundleResponse = AcceptStarterBundleResponse
+
+@available(*, deprecated, renamed: "AddTrustRule")
+public typealias IPCAddTrustRule = AddTrustRule
+
+@available(*, deprecated, renamed: "AppDataRequest")
+public typealias IPCAppDataRequest = AppDataRequest
+
+@available(*, deprecated, renamed: "AppDataResponse")
+public typealias IPCAppDataResponse = AppDataResponse
+
+@available(*, deprecated, renamed: "AppDeleteRequest")
+public typealias IPCAppDeleteRequest = AppDeleteRequest
+
+@available(*, deprecated, renamed: "AppDeleteResponse")
+public typealias IPCAppDeleteResponse = AppDeleteResponse
+
+@available(*, deprecated, renamed: "AppDiffRequest")
+public typealias IPCAppDiffRequest = AppDiffRequest
+
+@available(*, deprecated, renamed: "AppDiffResponse")
+public typealias IPCAppDiffResponse = AppDiffResponse
+
+@available(*, deprecated, renamed: "AppFileAtVersionRequest")
+public typealias IPCAppFileAtVersionRequest = AppFileAtVersionRequest
+
+@available(*, deprecated, renamed: "AppFileAtVersionResponse")
+public typealias IPCAppFileAtVersionResponse = AppFileAtVersionResponse
+
+@available(*, deprecated, renamed: "AppFilesChanged")
+public typealias IPCAppFilesChanged = AppFilesChanged
+
+@available(*, deprecated, renamed: "AppHistoryRequest")
+public typealias IPCAppHistoryRequest = AppHistoryRequest
+
+@available(*, deprecated, renamed: "AppHistoryResponse")
+public typealias IPCAppHistoryResponse = AppHistoryResponse
+
+@available(*, deprecated, renamed: "AppHistoryResponseVersion")
+public typealias IPCAppHistoryResponseVersion = AppHistoryResponseVersion
+
+@available(*, deprecated, renamed: "AppOpenRequest")
+public typealias IPCAppOpenRequest = AppOpenRequest
+
+@available(*, deprecated, renamed: "AppPreviewRequest")
+public typealias IPCAppPreviewRequest = AppPreviewRequest
+
+@available(*, deprecated, renamed: "AppPreviewResponse")
+public typealias IPCAppPreviewResponse = AppPreviewResponse
+
+@available(*, deprecated, renamed: "AppRestoreRequest")
+public typealias IPCAppRestoreRequest = AppRestoreRequest
+
+@available(*, deprecated, renamed: "AppRestoreResponse")
+public typealias IPCAppRestoreResponse = AppRestoreResponse
+
+@available(*, deprecated, renamed: "AppUpdatePreviewRequest")
+public typealias IPCAppUpdatePreviewRequest = AppUpdatePreviewRequest
+
+@available(*, deprecated, renamed: "AppUpdatePreviewResponse")
+public typealias IPCAppUpdatePreviewResponse = AppUpdatePreviewResponse
+
+@available(*, deprecated, renamed: "ApprovedDeviceRemove")
+public typealias IPCApprovedDeviceRemove = ApprovedDeviceRemove
+
+@available(*, deprecated, renamed: "ApprovedDeviceRemoveResponse")
+public typealias IPCApprovedDeviceRemoveResponse = ApprovedDeviceRemoveResponse
+
+@available(*, deprecated, renamed: "ApprovedDevicesClear")
+public typealias IPCApprovedDevicesClear = ApprovedDevicesClear
+
+@available(*, deprecated, renamed: "ApprovedDevicesList")
+public typealias IPCApprovedDevicesList = ApprovedDevicesList
+
+@available(*, deprecated, renamed: "ApprovedDevicesListResponse")
+public typealias IPCApprovedDevicesListResponse = ApprovedDevicesListResponse
+
+@available(*, deprecated, renamed: "ApprovedDevicesListResponseDevice")
+public typealias IPCApprovedDevicesListResponseDevice = ApprovedDevicesListResponseDevice
+
+@available(*, deprecated, renamed: "AppsListRequest")
+public typealias IPCAppsListRequest = AppsListRequest
+
+@available(*, deprecated, renamed: "AppsListResponse")
+public typealias IPCAppsListResponse = AppsListResponse
+
+@available(*, deprecated, renamed: "AppsListResponseApp")
+public typealias IPCAppsListResponseApp = AppsListResponseApp
+
+@available(*, deprecated, renamed: "AssistantActivityState")
+public typealias IPCAssistantActivityState = AssistantActivityState
+
+@available(*, deprecated, renamed: "AssistantAttention")
+public typealias IPCAssistantAttention = AssistantAttention
+
+@available(*, deprecated, renamed: "AssistantInboxEscalationRequest")
+public typealias IPCAssistantInboxEscalationRequest = AssistantInboxEscalationRequest
+
+@available(*, deprecated, renamed: "AssistantInboxEscalationResponse")
+public typealias IPCAssistantInboxEscalationResponse = AssistantInboxEscalationResponse
+
+@available(*, deprecated, renamed: "AssistantInboxEscalationResponseDecision")
+public typealias IPCAssistantInboxEscalationResponseDecision = AssistantInboxEscalationResponseDecision
+
+@available(*, deprecated, renamed: "AssistantInboxEscalationResponseEscalation")
+public typealias IPCAssistantInboxEscalationResponseEscalation = AssistantInboxEscalationResponseEscalation
+
+@available(*, deprecated, renamed: "AssistantTextDelta")
+public typealias IPCAssistantTextDelta = AssistantTextDelta
+
+@available(*, deprecated, renamed: "AssistantThinkingDelta")
+public typealias IPCAssistantThinkingDelta = AssistantThinkingDelta
+
+@available(*, deprecated, renamed: "AuthMessage")
+public typealias IPCAuthMessage = AuthMessage
+
+@available(*, deprecated, renamed: "AuthResult")
+public typealias IPCAuthResult = AuthResult
+
+@available(*, deprecated, renamed: "AvatarUpdated")
+public typealias IPCAvatarUpdated = AvatarUpdated
+
+@available(*, deprecated, renamed: "BundleAppRequest")
+public typealias IPCBundleAppRequest = BundleAppRequest
+
+@available(*, deprecated, renamed: "BundleAppResponse")
+public typealias IPCBundleAppResponse = BundleAppResponse
+
+@available(*, deprecated, renamed: "BundleAppResponseManifest")
+public typealias IPCBundleAppResponseManifest = BundleAppResponseManifest
+
+@available(*, deprecated, renamed: "CancelRequest")
+public typealias IPCCancelRequest = CancelRequest
+
+@available(*, deprecated, renamed: "CardSurfaceData")
+public typealias IPCCardSurfaceData = CardSurfaceData
+
+@available(*, deprecated, renamed: "CardSurfaceDataMetadata")
+public typealias IPCCardSurfaceDataMetadata = CardSurfaceDataMetadata
+
+@available(*, deprecated, renamed: "ChannelBinding")
+public typealias IPCChannelBinding = ChannelBinding
+
+@available(*, deprecated, renamed: "ChannelVerificationSessionRequest")
+public typealias IPCChannelVerificationSessionRequest = ChannelVerificationSessionRequest
+
+@available(*, deprecated, renamed: "ChannelVerificationSessionResponse")
+public typealias IPCChannelVerificationSessionResponse = ChannelVerificationSessionResponse
+
+@available(*, deprecated, renamed: "ClientSettingsUpdate")
+public typealias IPCClientSettingsUpdate = ClientSettingsUpdate
+
+@available(*, deprecated, renamed: "CommandIntent")
+public typealias IPCCommandIntent = CommandIntent
+
+@available(*, deprecated, renamed: "ConfirmationRequest")
+public typealias IPCConfirmationRequest = ConfirmationRequest
+
+@available(*, deprecated, renamed: "ConfirmationRequestAllowlistOption")
+public typealias IPCConfirmationRequestAllowlistOption = ConfirmationRequestAllowlistOption
+
+@available(*, deprecated, renamed: "ConfirmationRequestDiff")
+public typealias IPCConfirmationRequestDiff = ConfirmationRequestDiff
+
+@available(*, deprecated, renamed: "ConfirmationRequestScopeOption")
+public typealias IPCConfirmationRequestScopeOption = ConfirmationRequestScopeOption
+
+@available(*, deprecated, renamed: "ConfirmationResponse")
+public typealias IPCConfirmationResponse = ConfirmationResponse
+
+@available(*, deprecated, renamed: "ConfirmationStateChanged")
+public typealias IPCConfirmationStateChanged = ConfirmationStateChanged
+
+@available(*, deprecated, renamed: "ConfirmationSurfaceData")
+public typealias IPCConfirmationSurfaceData = ConfirmationSurfaceData
+
+@available(*, deprecated, renamed: "ContactChannelPayload")
+public typealias IPCContactChannelPayload = ContactChannelPayload
+
+@available(*, deprecated, renamed: "ContactPayload")
+public typealias IPCContactPayload = ContactPayload
+
+@available(*, deprecated, renamed: "ContactsChanged")
+public typealias IPCContactsChanged = ContactsChanged
+
+@available(*, deprecated, renamed: "ContactsInviteRequest")
+public typealias IPCContactsInviteRequest = ContactsInviteRequest
+
+@available(*, deprecated, renamed: "ContactsInviteResponse")
+public typealias IPCContactsInviteResponse = ContactsInviteResponse
+
+@available(*, deprecated, renamed: "ContactsInviteResponseInvite")
+public typealias IPCContactsInviteResponseInvite = ContactsInviteResponseInvite
+
+@available(*, deprecated, renamed: "ContactsRequest")
+public typealias IPCContactsRequest = ContactsRequest
+
+@available(*, deprecated, renamed: "ContactsResponse")
+public typealias IPCContactsResponse = ContactsResponse
+
+@available(*, deprecated, renamed: "ContextCompacted")
+public typealias IPCContextCompacted = ContextCompacted
+
+@available(*, deprecated, renamed: "ConversationSearchMatchingMessage")
+public typealias IPCConversationSearchMatchingMessage = ConversationSearchMatchingMessage
+
+@available(*, deprecated, renamed: "ConversationSearchRequest")
+public typealias IPCConversationSearchRequest = ConversationSearchRequest
+
+@available(*, deprecated, renamed: "ConversationSearchResponse")
+public typealias IPCConversationSearchResponse = ConversationSearchResponse
+
+@available(*, deprecated, renamed: "ConversationSearchResultItem")
+public typealias IPCConversationSearchResultItem = ConversationSearchResultItem
+
+@available(*, deprecated, renamed: "ConversationSeenSignal")
+public typealias IPCConversationSeenSignal = ConversationSeenSignal
+
+@available(*, deprecated, renamed: "ConversationUnreadSignal")
+public typealias IPCConversationUnreadSignal = ConversationUnreadSignal
+
+@available(*, deprecated, renamed: "CuAction")
+public typealias IPCCuAction = CuAction
+
+@available(*, deprecated, renamed: "CuComplete")
+public typealias IPCCuComplete = CuComplete
+
+@available(*, deprecated, renamed: "CuError")
+public typealias IPCCuError = CuError
+
+@available(*, deprecated, renamed: "CuObservation")
+public typealias IPCCuObservation = CuObservation
+
+@available(*, deprecated, renamed: "CuSessionAbort")
+public typealias IPCCuSessionAbort = CuSessionAbort
+
+@available(*, deprecated, renamed: "CuSessionCreate")
+public typealias IPCCuSessionCreate = CuSessionCreate
+
+@available(*, deprecated, renamed: "DaemonStatusMessage")
+public typealias IPCDaemonStatusMessage = DaemonStatusMessage
+
+@available(*, deprecated, renamed: "DeleteQueuedMessage")
+public typealias IPCDeleteQueuedMessage = DeleteQueuedMessage
+
+@available(*, deprecated, renamed: "DiagnosticsExportRequest")
+public typealias IPCDiagnosticsExportRequest = DiagnosticsExportRequest
+
+@available(*, deprecated, renamed: "DiagnosticsExportResponse")
+public typealias IPCDiagnosticsExportResponse = DiagnosticsExportResponse
+
+@available(*, deprecated, renamed: "DictationContext")
+public typealias IPCDictationContext = DictationContext
+
+@available(*, deprecated, renamed: "DictationRequest")
+public typealias IPCDictationRequest = DictationRequest
+
+@available(*, deprecated, renamed: "DictationResponse")
+public typealias IPCDictationResponse = DictationResponse
+
+@available(*, deprecated, renamed: "DocumentEditorShow")
+public typealias IPCDocumentEditorShow = DocumentEditorShow
+
+@available(*, deprecated, renamed: "DocumentEditorUpdate")
+public typealias IPCDocumentEditorUpdate = DocumentEditorUpdate
+
+@available(*, deprecated, renamed: "DocumentListRequest")
+public typealias IPCDocumentListRequest = DocumentListRequest
+
+@available(*, deprecated, renamed: "DocumentListResponse")
+public typealias IPCDocumentListResponse = DocumentListResponse
+
+@available(*, deprecated, renamed: "DocumentListResponseDocument")
+public typealias IPCDocumentListResponseDocument = DocumentListResponseDocument
+
+@available(*, deprecated, renamed: "DocumentLoadRequest")
+public typealias IPCDocumentLoadRequest = DocumentLoadRequest
+
+@available(*, deprecated, renamed: "DocumentLoadResponse")
+public typealias IPCDocumentLoadResponse = DocumentLoadResponse
+
+@available(*, deprecated, renamed: "DocumentPreviewSurfaceData")
+public typealias IPCDocumentPreviewSurfaceData = DocumentPreviewSurfaceData
+
+@available(*, deprecated, renamed: "DocumentSaveRequest")
+public typealias IPCDocumentSaveRequest = DocumentSaveRequest
+
+@available(*, deprecated, renamed: "DocumentSaveResponse")
+public typealias IPCDocumentSaveResponse = DocumentSaveResponse
+
+@available(*, deprecated, renamed: "DynamicPagePreview")
+public typealias IPCDynamicPagePreview = DynamicPagePreview
+
+@available(*, deprecated, renamed: "DynamicPagePreviewMetric")
+public typealias IPCDynamicPagePreviewMetric = DynamicPagePreviewMetric
+
+@available(*, deprecated, renamed: "DynamicPageSurfaceData")
+public typealias IPCDynamicPageSurfaceData = DynamicPageSurfaceData
+
+@available(*, deprecated, renamed: "EnvVarsRequest")
+public typealias IPCEnvVarsRequest = EnvVarsRequest
+
+@available(*, deprecated, renamed: "EnvVarsResponse")
+public typealias IPCEnvVarsResponse = EnvVarsResponse
+
+@available(*, deprecated, renamed: "ErrorMessage")
+public typealias IPCErrorMessage = ErrorMessage
+
+@available(*, deprecated, renamed: "FileUploadSurfaceData")
+public typealias IPCFileUploadSurfaceData = FileUploadSurfaceData
+
+@available(*, deprecated, renamed: "ForkSharedAppRequest")
+public typealias IPCForkSharedAppRequest = ForkSharedAppRequest
+
+@available(*, deprecated, renamed: "ForkSharedAppResponse")
+public typealias IPCForkSharedAppResponse = ForkSharedAppResponse
+
+@available(*, deprecated, renamed: "FormField")
+public typealias IPCFormField = FormField
+
+@available(*, deprecated, renamed: "FormFieldOption")
+public typealias IPCFormFieldOption = FormFieldOption
+
+@available(*, deprecated, renamed: "FormPage")
+public typealias IPCFormPage = FormPage
+
+@available(*, deprecated, renamed: "FormSurfaceData")
+public typealias IPCFormSurfaceData = FormSurfaceData
+
+@available(*, deprecated, renamed: "FormSurfaceDataPageLabels")
+public typealias IPCFormSurfaceDataPageLabels = FormSurfaceDataPageLabels
+
+@available(*, deprecated, renamed: "GalleryApp")
+public typealias IPCGalleryApp = GalleryApp
+
+@available(*, deprecated, renamed: "GalleryCategory")
+public typealias IPCGalleryCategory = GalleryCategory
+
+@available(*, deprecated, renamed: "GalleryInstallRequest")
+public typealias IPCGalleryInstallRequest = GalleryInstallRequest
+
+@available(*, deprecated, renamed: "GalleryInstallResponse")
+public typealias IPCGalleryInstallResponse = GalleryInstallResponse
+
+@available(*, deprecated, renamed: "GalleryListRequest")
+public typealias IPCGalleryListRequest = GalleryListRequest
+
+@available(*, deprecated, renamed: "GalleryListResponse")
+public typealias IPCGalleryListResponse = GalleryListResponse
+
+@available(*, deprecated, renamed: "GalleryManifest")
+public typealias IPCGalleryManifest = GalleryManifest
+
+@available(*, deprecated, renamed: "GenerateAvatarRequest")
+public typealias IPCGenerateAvatarRequest = GenerateAvatarRequest
+
+@available(*, deprecated, renamed: "GenerateAvatarResponse")
+public typealias IPCGenerateAvatarResponse = GenerateAvatarResponse
+
+@available(*, deprecated, renamed: "GenerationCancelled")
+public typealias IPCGenerationCancelled = GenerationCancelled
+
+@available(*, deprecated, renamed: "GenerationHandoff")
+public typealias IPCGenerationHandoff = GenerationHandoff
+
+@available(*, deprecated, renamed: "GetSigningIdentityRequest")
+public typealias IPCGetSigningIdentityRequest = GetSigningIdentityRequest
+
+@available(*, deprecated, renamed: "GetSigningIdentityResponse")
+public typealias IPCGetSigningIdentityResponse = GetSigningIdentityResponse
+
+@available(*, deprecated, renamed: "GuardianActionDecision")
+public typealias IPCGuardianActionDecision = GuardianActionDecision
+
+@available(*, deprecated, renamed: "GuardianActionDecisionResponse")
+public typealias IPCGuardianActionDecisionResponse = GuardianActionDecisionResponse
+
+@available(*, deprecated, renamed: "GuardianActionsPendingRequest")
+public typealias IPCGuardianActionsPendingRequest = GuardianActionsPendingRequest
+
+@available(*, deprecated, renamed: "GuardianActionsPendingResponse")
+public typealias IPCGuardianActionsPendingResponse = GuardianActionsPendingResponse
+
+@available(*, deprecated, renamed: "GuardianActionsPendingResponsePrompt")
+public typealias IPCGuardianActionsPendingResponsePrompt = GuardianActionsPendingResponsePrompt
+
+@available(*, deprecated, renamed: "GuardianActionsPendingResponsePromptAction")
+public typealias IPCGuardianActionsPendingResponsePromptAction = GuardianActionsPendingResponsePromptAction
+
+@available(*, deprecated, renamed: "HeartbeatAlert")
+public typealias IPCHeartbeatAlert = HeartbeatAlert
+
+@available(*, deprecated, renamed: "HeartbeatChecklistRead")
+public typealias IPCHeartbeatChecklistRead = HeartbeatChecklistRead
+
+@available(*, deprecated, renamed: "HeartbeatChecklistResponse")
+public typealias IPCHeartbeatChecklistResponse = HeartbeatChecklistResponse
+
+@available(*, deprecated, renamed: "HeartbeatChecklistWrite")
+public typealias IPCHeartbeatChecklistWrite = HeartbeatChecklistWrite
+
+@available(*, deprecated, renamed: "HeartbeatChecklistWriteResponse")
+public typealias IPCHeartbeatChecklistWriteResponse = HeartbeatChecklistWriteResponse
+
+@available(*, deprecated, renamed: "HeartbeatConfig")
+public typealias IPCHeartbeatConfig = HeartbeatConfig
+
+@available(*, deprecated, renamed: "HeartbeatConfigResponse")
+public typealias IPCHeartbeatConfigResponse = HeartbeatConfigResponse
+
+@available(*, deprecated, renamed: "HeartbeatRunNow")
+public typealias IPCHeartbeatRunNow = HeartbeatRunNow
+
+@available(*, deprecated, renamed: "HeartbeatRunNowResponse")
+public typealias IPCHeartbeatRunNowResponse = HeartbeatRunNowResponse
+
+@available(*, deprecated, renamed: "HeartbeatRunsList")
+public typealias IPCHeartbeatRunsList = HeartbeatRunsList
+
+@available(*, deprecated, renamed: "HeartbeatRunsListResponse")
+public typealias IPCHeartbeatRunsListResponse = HeartbeatRunsListResponse
+
+@available(*, deprecated, renamed: "HeartbeatRunsListResponseRun")
+public typealias IPCHeartbeatRunsListResponseRun = HeartbeatRunsListResponseRun
+
+@available(*, deprecated, renamed: "HistoryRequest")
+public typealias IPCHistoryRequest = HistoryRequest
+
+@available(*, deprecated, renamed: "HistoryResponse")
+public typealias IPCHistoryResponse = HistoryResponse
+
+@available(*, deprecated, renamed: "HistoryResponseMessage")
+public typealias IPCHistoryResponseMessage = HistoryResponseMessage
+
+@available(*, deprecated, renamed: "HistoryResponseMessageSubagentNotification")
+public typealias IPCHistoryResponseMessageSubagentNotification = HistoryResponseMessageSubagentNotification
+
+@available(*, deprecated, renamed: "HistoryResponseSurface")
+public typealias IPCHistoryResponseSurface = HistoryResponseSurface
+
+@available(*, deprecated, renamed: "HistoryResponseSurfaceAction")
+public typealias IPCHistoryResponseSurfaceAction = HistoryResponseSurfaceAction
+
+@available(*, deprecated, renamed: "HistoryResponseToolCall")
+public typealias IPCHistoryResponseToolCall = HistoryResponseToolCall
+
+@available(*, deprecated, renamed: "HomeBaseGetRequest")
+public typealias IPCHomeBaseGetRequest = HomeBaseGetRequest
+
+@available(*, deprecated, renamed: "HomeBaseGetResponse")
+public typealias IPCHomeBaseGetResponse = HomeBaseGetResponse
+
+@available(*, deprecated, renamed: "HomeBaseGetResponseHomeBase")
+public typealias IPCHomeBaseGetResponseHomeBase = HomeBaseGetResponseHomeBase
+
+@available(*, deprecated, renamed: "HomeBaseGetResponseHomeBasePreview")
+public typealias IPCHomeBaseGetResponseHomeBasePreview = HomeBaseGetResponseHomeBasePreview
+
+@available(*, deprecated, renamed: "HomeBaseGetResponseHomeBasePreviewMetric")
+public typealias IPCHomeBaseGetResponseHomeBasePreviewMetric = HomeBaseGetResponseHomeBasePreviewMetric
+
+@available(*, deprecated, renamed: "IdentityChanged")
+public typealias IPCIdentityChanged = IdentityChanged
+
+@available(*, deprecated, renamed: "IdentityGetRequest")
+public typealias IPCIdentityGetRequest = IdentityGetRequest
+
+@available(*, deprecated, renamed: "IdentityGetResponse")
+public typealias IPCIdentityGetResponse = IdentityGetResponse
+
+@available(*, deprecated, renamed: "ImageGenModelSetRequest")
+public typealias IPCImageGenModelSetRequest = ImageGenModelSetRequest
+
+@available(*, deprecated, renamed: "IngressConfigRequest")
+public typealias IPCIngressConfigRequest = IngressConfigRequest
+
+@available(*, deprecated, renamed: "IngressConfigResponse")
+public typealias IPCIngressConfigResponse = IngressConfigResponse
+
+@available(*, deprecated, renamed: "IntegrationConnectRequest")
+public typealias IPCIntegrationConnectRequest = IntegrationConnectRequest
+
+@available(*, deprecated, renamed: "IntegrationConnectResult")
+public typealias IPCIntegrationConnectResult = IntegrationConnectResult
+
+@available(*, deprecated, renamed: "IntegrationDisconnectRequest")
+public typealias IPCIntegrationDisconnectRequest = IntegrationDisconnectRequest
+
+@available(*, deprecated, renamed: "IntegrationListRequest")
+public typealias IPCIntegrationListRequest = IntegrationListRequest
+
+@available(*, deprecated, renamed: "IntegrationListResponse")
+public typealias IPCIntegrationListResponse = IntegrationListResponse
+
+@available(*, deprecated, renamed: "IntegrationListResponseIntegration")
+public typealias IPCIntegrationListResponseIntegration = IntegrationListResponseIntegration
+
+@available(*, deprecated, renamed: "BlobProbe")
+public typealias IPCIpcBlobProbe = BlobProbe
+
+@available(*, deprecated, renamed: "BlobProbeResult")
+public typealias IPCIpcBlobProbeResult = BlobProbeResult
+
+@available(*, deprecated, renamed: "BlobRef")
+public typealias IPCIpcBlobRef = BlobRef
+
+@available(*, deprecated, renamed: "LinkOpenRequest")
+public typealias IPCLinkOpenRequest = LinkOpenRequest
+
+@available(*, deprecated, renamed: "ListItem")
+public typealias IPCListItem = ListItem
+
+@available(*, deprecated, renamed: "ListSurfaceData")
+public typealias IPCListSurfaceData = ListSurfaceData
+
+@available(*, deprecated, renamed: "ManagedPrerequisites")
+public typealias IPCManagedPrerequisites = ManagedPrerequisites
+
+@available(*, deprecated, renamed: "MemoryRecalled")
+public typealias IPCMemoryRecalled = MemoryRecalled
+
+@available(*, deprecated, renamed: "MemoryRecalledCandidateDebug")
+public typealias IPCMemoryRecalledCandidateDebug = MemoryRecalledCandidateDebug
+
+@available(*, deprecated, renamed: "MemoryRecalledDegradation")
+public typealias IPCMemoryRecalledDegradation = MemoryRecalledDegradation
+
+@available(*, deprecated, renamed: "MemoryStatus")
+public typealias IPCMemoryStatus = MemoryStatus
+
+@available(*, deprecated, renamed: "MessageComplete")
+public typealias IPCMessageComplete = MessageComplete
+
+@available(*, deprecated, renamed: "MessageContentRequest")
+public typealias IPCMessageContentRequest = MessageContentRequest
+
+@available(*, deprecated, renamed: "MessageContentResponse")
+public typealias IPCMessageContentResponse = MessageContentResponse
+
+@available(*, deprecated, renamed: "MessageContentResponseToolCall")
+public typealias IPCMessageContentResponseToolCall = MessageContentResponseToolCall
+
+@available(*, deprecated, renamed: "MessageDequeued")
+public typealias IPCMessageDequeued = MessageDequeued
+
+@available(*, deprecated, renamed: "MessageQueued")
+public typealias IPCMessageQueued = MessageQueued
+
+@available(*, deprecated, renamed: "MessageQueuedDeleted")
+public typealias IPCMessageQueuedDeleted = MessageQueuedDeleted
+
+@available(*, deprecated, renamed: "MessageRequestComplete")
+public typealias IPCMessageRequestComplete = MessageRequestComplete
+
+@available(*, deprecated, renamed: "ModelGetRequest")
+public typealias IPCModelGetRequest = ModelGetRequest
+
+@available(*, deprecated, renamed: "ModelInfo")
+public typealias IPCModelInfo = ModelInfo
+
+@available(*, deprecated, renamed: "ModelSetRequest")
+public typealias IPCModelSetRequest = ModelSetRequest
+
+@available(*, deprecated, renamed: "NavigateSettings")
+public typealias IPCNavigateSettings = NavigateSettings
+
+@available(*, deprecated, renamed: "NotificationIntent")
+public typealias IPCNotificationIntent = NotificationIntent
+
+@available(*, deprecated, renamed: "NotificationIntentResult")
+public typealias IPCNotificationIntentResult = NotificationIntentResult
+
+@available(*, deprecated, renamed: "NotificationThreadCreated")
+public typealias IPCNotificationThreadCreated = NotificationThreadCreated
+
+@available(*, deprecated, renamed: "OAuthConnectResultResponse")
+public typealias IPCOAuthConnectResultResponse = OAuthConnectResultResponse
+
+@available(*, deprecated, renamed: "OAuthConnectStartRequest")
+public typealias IPCOAuthConnectStartRequest = OAuthConnectStartRequest
+
+@available(*, deprecated, renamed: "OpenBundleRequest")
+public typealias IPCOpenBundleRequest = OpenBundleRequest
+
+@available(*, deprecated, renamed: "OpenBundleResponse")
+public typealias IPCOpenBundleResponse = OpenBundleResponse
+
+@available(*, deprecated, renamed: "OpenBundleResponseManifest")
+public typealias IPCOpenBundleResponseManifest = OpenBundleResponseManifest
+
+@available(*, deprecated, renamed: "OpenBundleResponseScanResult")
+public typealias IPCOpenBundleResponseScanResult = OpenBundleResponseScanResult
+
+@available(*, deprecated, renamed: "OpenBundleResponseSignatureResult")
+public typealias IPCOpenBundleResponseSignatureResult = OpenBundleResponseSignatureResult
+
+@available(*, deprecated, renamed: "OpenUrl")
+public typealias IPCOpenUrl = OpenUrl
+
+@available(*, deprecated, renamed: "PairingApprovalRequest")
+public typealias IPCPairingApprovalRequest = PairingApprovalRequest
+
+@available(*, deprecated, renamed: "PairingApprovalResponse")
+public typealias IPCPairingApprovalResponse = PairingApprovalResponse
+
+@available(*, deprecated, renamed: "PingMessage")
+public typealias IPCPingMessage = PingMessage
+
+@available(*, deprecated, renamed: "PlatformConfigRequest")
+public typealias IPCPlatformConfigRequest = PlatformConfigRequest
+
+@available(*, deprecated, renamed: "PlatformConfigResponse")
+public typealias IPCPlatformConfigResponse = PlatformConfigResponse
+
+@available(*, deprecated, renamed: "PongMessage")
+public typealias IPCPongMessage = PongMessage
+
+@available(*, deprecated, renamed: "PublishPageRequest")
+public typealias IPCPublishPageRequest = PublishPageRequest
+
+@available(*, deprecated, renamed: "PublishPageResponse")
+public typealias IPCPublishPageResponse = PublishPageResponse
+
+@available(*, deprecated, renamed: "RecordingOptions")
+public typealias IPCRecordingOptions = RecordingOptions
+
+@available(*, deprecated, renamed: "RecordingPause")
+public typealias IPCRecordingPause = RecordingPause
+
+@available(*, deprecated, renamed: "RecordingResume")
+public typealias IPCRecordingResume = RecordingResume
+
+@available(*, deprecated, renamed: "RecordingStart")
+public typealias IPCRecordingStart = RecordingStart
+
+@available(*, deprecated, renamed: "RecordingStatus")
+public typealias IPCRecordingStatus = RecordingStatus
+
+@available(*, deprecated, renamed: "RecordingStop")
+public typealias IPCRecordingStop = RecordingStop
+
+@available(*, deprecated, renamed: "RegenerateRequest")
+public typealias IPCRegenerateRequest = RegenerateRequest
+
+@available(*, deprecated, renamed: "RemoveTrustRule")
+public typealias IPCRemoveTrustRule = RemoveTrustRule
+
+@available(*, deprecated, renamed: "ReorderThreadsRequest")
+public typealias IPCReorderThreadsRequest = ReorderThreadsRequest
+
+@available(*, deprecated, renamed: "ReorderThreadsRequestUpdate")
+public typealias IPCReorderThreadsRequestUpdate = ReorderThreadsRequestUpdate
+
+@available(*, deprecated, renamed: "RideShotgunError")
+public typealias IPCRideShotgunError = RideShotgunError
+
+@available(*, deprecated, renamed: "RideShotgunProgress")
+public typealias IPCRideShotgunProgress = RideShotgunProgress
+
+@available(*, deprecated, renamed: "RideShotgunResult")
+public typealias IPCRideShotgunResult = RideShotgunResult
+
+@available(*, deprecated, renamed: "RideShotgunStart")
+public typealias IPCRideShotgunStart = RideShotgunStart
+
+@available(*, deprecated, renamed: "RideShotgunStop")
+public typealias IPCRideShotgunStop = RideShotgunStop
+
+@available(*, deprecated, renamed: "ScheduleCancel")
+public typealias IPCScheduleCancel = ScheduleCancel
+
+@available(*, deprecated, renamed: "ScheduleRemove")
+public typealias IPCScheduleRemove = ScheduleRemove
+
+@available(*, deprecated, renamed: "ScheduleRunNow")
+public typealias IPCScheduleRunNow = ScheduleRunNow
+
+@available(*, deprecated, renamed: "ScheduleThreadCreated")
+public typealias IPCScheduleThreadCreated = ScheduleThreadCreated
+
+@available(*, deprecated, renamed: "ScheduleToggle")
+public typealias IPCScheduleToggle = ScheduleToggle
+
+@available(*, deprecated, renamed: "SchedulesList")
+public typealias IPCSchedulesList = SchedulesList
+
+@available(*, deprecated, renamed: "SchedulesListResponse")
+public typealias IPCSchedulesListResponse = SchedulesListResponse
+
+@available(*, deprecated, renamed: "SchedulesListResponseSchedule")
+public typealias IPCSchedulesListResponseSchedule = SchedulesListResponseSchedule
+
+@available(*, deprecated, renamed: "SecretDetected")
+public typealias IPCSecretDetected = SecretDetected
+
+@available(*, deprecated, renamed: "SecretDetectedMatch")
+public typealias IPCSecretDetectedMatch = SecretDetectedMatch
+
+@available(*, deprecated, renamed: "SecretRequest")
+public typealias IPCSecretRequest = SecretRequest
+
+@available(*, deprecated, renamed: "SecretResponse")
+public typealias IPCSecretResponse = SecretResponse
+
+@available(*, deprecated, renamed: "SessionCreateRequest")
+public typealias IPCSessionCreateRequest = SessionCreateRequest
+
+@available(*, deprecated, renamed: "SessionInfo")
+public typealias IPCSessionInfo = SessionInfo
+
+@available(*, deprecated, renamed: "SessionListRequest")
+public typealias IPCSessionListRequest = SessionListRequest
+
+@available(*, deprecated, renamed: "SessionListResponse")
+public typealias IPCSessionListResponse = SessionListResponse
+
+@available(*, deprecated, renamed: "SessionListResponseSession")
+public typealias IPCSessionListResponseSession = SessionListResponseSession
+
+@available(*, deprecated, renamed: "SessionRenameRequest")
+public typealias IPCSessionRenameRequest = SessionRenameRequest
+
+@available(*, deprecated, renamed: "SessionSwitchRequest")
+public typealias IPCSessionSwitchRequest = SessionSwitchRequest
+
+@available(*, deprecated, renamed: "SessionTitleUpdated")
+public typealias IPCSessionTitleUpdated = SessionTitleUpdated
+
+@available(*, deprecated, renamed: "SessionTransportMetadata")
+public typealias IPCSessionTransportMetadata = SessionTransportMetadata
+
+@available(*, deprecated, renamed: "SessionsClearRequest")
+public typealias IPCSessionsClearRequest = SessionsClearRequest
+
+@available(*, deprecated, renamed: "SessionsClearResponse")
+public typealias IPCSessionsClearResponse = SessionsClearResponse
+
+@available(*, deprecated, renamed: "ShareAppCloudRequest")
+public typealias IPCShareAppCloudRequest = ShareAppCloudRequest
+
+@available(*, deprecated, renamed: "ShareAppCloudResponse")
+public typealias IPCShareAppCloudResponse = ShareAppCloudResponse
+
+@available(*, deprecated, renamed: "SharedAppDeleteRequest")
+public typealias IPCSharedAppDeleteRequest = SharedAppDeleteRequest
+
+@available(*, deprecated, renamed: "SharedAppDeleteResponse")
+public typealias IPCSharedAppDeleteResponse = SharedAppDeleteResponse
+
+@available(*, deprecated, renamed: "SharedAppsListRequest")
+public typealias IPCSharedAppsListRequest = SharedAppsListRequest
+
+@available(*, deprecated, renamed: "SharedAppsListResponse")
+public typealias IPCSharedAppsListResponse = SharedAppsListResponse
+
+@available(*, deprecated, renamed: "SharedAppsListResponseApp")
+public typealias IPCSharedAppsListResponseApp = SharedAppsListResponseApp
+
+@available(*, deprecated, renamed: "SignBundlePayloadRequest")
+public typealias IPCSignBundlePayloadRequest = SignBundlePayloadRequest
+
+@available(*, deprecated, renamed: "SignBundlePayloadResponse")
+public typealias IPCSignBundlePayloadResponse = SignBundlePayloadResponse
+
+@available(*, deprecated, renamed: "SkillDetailRequest")
+public typealias IPCSkillDetailRequest = SkillDetailRequest
+
+@available(*, deprecated, renamed: "SkillDetailResponse")
+public typealias IPCSkillDetailResponse = SkillDetailResponse
+
+@available(*, deprecated, renamed: "SkillStateChanged")
+public typealias IPCSkillStateChanged = SkillStateChanged
+
+@available(*, deprecated, renamed: "SkillsCheckUpdatesRequest")
+public typealias IPCSkillsCheckUpdatesRequest = SkillsCheckUpdatesRequest
+
+@available(*, deprecated, renamed: "SkillsConfigureRequest")
+public typealias IPCSkillsConfigureRequest = SkillsConfigureRequest
+
+@available(*, deprecated, renamed: "SkillsCreateRequest")
+public typealias IPCSkillsCreateRequest = SkillsCreateRequest
+
+@available(*, deprecated, renamed: "SkillsDisableRequest")
+public typealias IPCSkillsDisableRequest = SkillsDisableRequest
+
+@available(*, deprecated, renamed: "SkillsDraftRequest")
+public typealias IPCSkillsDraftRequest = SkillsDraftRequest
+
+@available(*, deprecated, renamed: "SkillsDraftResponse")
+public typealias IPCSkillsDraftResponse = SkillsDraftResponse
+
+@available(*, deprecated, renamed: "SkillsDraftResponseDraft")
+public typealias IPCSkillsDraftResponseDraft = SkillsDraftResponseDraft
+
+@available(*, deprecated, renamed: "SkillsEnableRequest")
+public typealias IPCSkillsEnableRequest = SkillsEnableRequest
+
+@available(*, deprecated, renamed: "SkillsInspectRequest")
+public typealias IPCSkillsInspectRequest = SkillsInspectRequest
+
+@available(*, deprecated, renamed: "SkillsInspectResponse")
+public typealias IPCSkillsInspectResponse = SkillsInspectResponse
+
+@available(*, deprecated, renamed: "SkillsInspectResponseData")
+public typealias IPCSkillsInspectResponseData = SkillsInspectResponseData
+
+@available(*, deprecated, renamed: "SkillsInspectResponseDataFile")
+public typealias IPCSkillsInspectResponseDataFile = SkillsInspectResponseDataFile
+
+@available(*, deprecated, renamed: "SkillsInspectResponseDataLatestVersion")
+public typealias IPCSkillsInspectResponseDataLatestVersion = SkillsInspectResponseDataLatestVersion
+
+@available(*, deprecated, renamed: "SkillsInspectResponseDataOwner")
+public typealias IPCSkillsInspectResponseDataOwner = SkillsInspectResponseDataOwner
+
+@available(*, deprecated, renamed: "SkillsInspectResponseDataSkill")
+public typealias IPCSkillsInspectResponseDataSkill = SkillsInspectResponseDataSkill
+
+@available(*, deprecated, renamed: "SkillsInspectResponseDataStats")
+public typealias IPCSkillsInspectResponseDataStats = SkillsInspectResponseDataStats
+
+@available(*, deprecated, renamed: "SkillsInstallRequest")
+public typealias IPCSkillsInstallRequest = SkillsInstallRequest
+
+@available(*, deprecated, renamed: "SkillsListRequest")
+public typealias IPCSkillsListRequest = SkillsListRequest
+
+@available(*, deprecated, renamed: "SkillsListResponse")
+public typealias IPCSkillsListResponse = SkillsListResponse
+
+@available(*, deprecated, renamed: "SkillsListResponseSkill")
+public typealias IPCSkillsListResponseSkill = SkillsListResponseSkill
+
+@available(*, deprecated, renamed: "SkillsListResponseSkillClawhub")
+public typealias IPCSkillsListResponseSkillClawhub = SkillsListResponseSkillClawhub
+
+@available(*, deprecated, renamed: "SkillsListResponseSkillMissingRequirements")
+public typealias IPCSkillsListResponseSkillMissingRequirements = SkillsListResponseSkillMissingRequirements
+
+@available(*, deprecated, renamed: "SkillsListResponseSkillProvenance")
+public typealias IPCSkillsListResponseSkillProvenance = SkillsListResponseSkillProvenance
+
+@available(*, deprecated, renamed: "SkillsOperationResponse")
+public typealias IPCSkillsOperationResponse = SkillsOperationResponse
+
+@available(*, deprecated, renamed: "SkillsSearchRequest")
+public typealias IPCSkillsSearchRequest = SkillsSearchRequest
+
+@available(*, deprecated, renamed: "SkillsUninstallRequest")
+public typealias IPCSkillsUninstallRequest = SkillsUninstallRequest
+
+@available(*, deprecated, renamed: "SkillsUpdateRequest")
+public typealias IPCSkillsUpdateRequest = SkillsUpdateRequest
+
+@available(*, deprecated, renamed: "SlackWebhookConfigRequest")
+public typealias IPCSlackWebhookConfigRequest = SlackWebhookConfigRequest
+
+@available(*, deprecated, renamed: "SlackWebhookConfigResponse")
+public typealias IPCSlackWebhookConfigResponse = SlackWebhookConfigResponse
+
+@available(*, deprecated, renamed: "SubagentAbortRequest")
+public typealias IPCSubagentAbortRequest = SubagentAbortRequest
+
+@available(*, deprecated, renamed: "SubagentDetailRequest")
+public typealias IPCSubagentDetailRequest = SubagentDetailRequest
+
+@available(*, deprecated, renamed: "SubagentDetailResponse")
+public typealias IPCSubagentDetailResponse = SubagentDetailResponse
+
+@available(*, deprecated, renamed: "SubagentDetailResponseEvent")
+public typealias IPCSubagentDetailResponseEvent = SubagentDetailResponseEvent
+
+@available(*, deprecated, renamed: "SubagentMessageRequest")
+public typealias IPCSubagentMessageRequest = SubagentMessageRequest
+
+@available(*, deprecated, renamed: "SubagentSpawned")
+public typealias IPCSubagentSpawned = SubagentSpawned
+
+@available(*, deprecated, renamed: "SubagentStatusChanged")
+public typealias IPCSubagentStatusChanged = SubagentStatusChanged
+
+@available(*, deprecated, renamed: "SubagentStatusRequest")
+public typealias IPCSubagentStatusRequest = SubagentStatusRequest
+
+@available(*, deprecated, renamed: "SuggestionRequest")
+public typealias IPCSuggestionRequest = SuggestionRequest
+
+@available(*, deprecated, renamed: "SuggestionResponse")
+public typealias IPCSuggestionResponse = SuggestionResponse
+
+@available(*, deprecated, renamed: "SurfaceAction")
+public typealias IPCSurfaceAction = SurfaceAction
+
+@available(*, deprecated, renamed: "TableCellValue")
+public typealias IPCTableCellValue = TableCellValue
+
+@available(*, deprecated, renamed: "TableColumn")
+public typealias IPCTableColumn = TableColumn
+
+@available(*, deprecated, renamed: "TableRow")
+public typealias IPCTableRow = TableRow
+
+@available(*, deprecated, renamed: "TableSurfaceData")
+public typealias IPCTableSurfaceData = TableSurfaceData
+
+@available(*, deprecated, renamed: "TaskRouted")
+public typealias IPCTaskRouted = TaskRouted
+
+@available(*, deprecated, renamed: "TaskRunThreadCreated")
+public typealias IPCTaskRunThreadCreated = TaskRunThreadCreated
+
+@available(*, deprecated, renamed: "TaskSubmit")
+public typealias IPCTaskSubmit = TaskSubmit
+
+@available(*, deprecated, renamed: "TasksChanged")
+public typealias IPCTasksChanged = TasksChanged
+
+@available(*, deprecated, renamed: "TelegramConfigRequest")
+public typealias IPCTelegramConfigRequest = TelegramConfigRequest
+
+@available(*, deprecated, renamed: "TelegramConfigRequestCommand")
+public typealias IPCTelegramConfigRequestCommand = TelegramConfigRequestCommand
+
+@available(*, deprecated, renamed: "TelegramConfigResponse")
+public typealias IPCTelegramConfigResponse = TelegramConfigResponse
+
+@available(*, deprecated, renamed: "ToolInputDelta")
+public typealias IPCToolInputDelta = ToolInputDelta
+
+@available(*, deprecated, renamed: "ToolInputSchema")
+public typealias IPCToolInputSchema = ToolInputSchema
+
+@available(*, deprecated, renamed: "ToolNamesListRequest")
+public typealias IPCToolNamesListRequest = ToolNamesListRequest
+
+@available(*, deprecated, renamed: "ToolNamesListResponse")
+public typealias IPCToolNamesListResponse = ToolNamesListResponse
+
+@available(*, deprecated, renamed: "ToolOutputChunk")
+public typealias IPCToolOutputChunk = ToolOutputChunk
+
+@available(*, deprecated, renamed: "ToolPermissionSimulateRequest")
+public typealias IPCToolPermissionSimulateRequest = ToolPermissionSimulateRequest
+
+@available(*, deprecated, renamed: "ToolPermissionSimulateResponse")
+public typealias IPCToolPermissionSimulateResponse = ToolPermissionSimulateResponse
+
+@available(*, deprecated, renamed: "ToolPermissionSimulateResponsePromptPayload")
+public typealias IPCToolPermissionSimulateResponsePromptPayload = ToolPermissionSimulateResponsePromptPayload
+
+@available(*, deprecated, renamed: "ToolPermissionSimulateResponsePromptPayloadAllowlistOption")
+public typealias IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption = ToolPermissionSimulateResponsePromptPayloadAllowlistOption
+
+@available(*, deprecated, renamed: "ToolPermissionSimulateResponsePromptPayloadScopeOption")
+public typealias IPCToolPermissionSimulateResponsePromptPayloadScopeOption = ToolPermissionSimulateResponsePromptPayloadScopeOption
+
+@available(*, deprecated, renamed: "ToolResult")
+public typealias IPCToolResult = ToolResult
+
+@available(*, deprecated, renamed: "ToolResultDiff")
+public typealias IPCToolResultDiff = ToolResultDiff
+
+@available(*, deprecated, renamed: "ToolUsePreviewStart")
+public typealias IPCToolUsePreviewStart = ToolUsePreviewStart
+
+@available(*, deprecated, renamed: "ToolUseStart")
+public typealias IPCToolUseStart = ToolUseStart
+
+@available(*, deprecated, renamed: "TrustRulesList")
+public typealias IPCTrustRulesList = TrustRulesList
+
+@available(*, deprecated, renamed: "TrustRulesListResponse")
+public typealias IPCTrustRulesListResponse = TrustRulesListResponse
+
+@available(*, deprecated, renamed: "TrustRulesListResponseRule")
+public typealias IPCTrustRulesListResponseRule = TrustRulesListResponseRule
+
+@available(*, deprecated, renamed: "TwitterAuthResult")
+public typealias IPCTwitterAuthResult = TwitterAuthResult
+
+@available(*, deprecated, renamed: "TwitterAuthStartRequest")
+public typealias IPCTwitterAuthStartRequest = TwitterAuthStartRequest
+
+@available(*, deprecated, renamed: "TwitterAuthStatusRequest")
+public typealias IPCTwitterAuthStatusRequest = TwitterAuthStatusRequest
+
+@available(*, deprecated, renamed: "TwitterAuthStatusResponse")
+public typealias IPCTwitterAuthStatusResponse = TwitterAuthStatusResponse
+
+@available(*, deprecated, renamed: "TwitterIntegrationConfigRequest")
+public typealias IPCTwitterIntegrationConfigRequest = TwitterIntegrationConfigRequest
+
+@available(*, deprecated, renamed: "TwitterIntegrationConfigResponse")
+public typealias IPCTwitterIntegrationConfigResponse = TwitterIntegrationConfigResponse
+
+@available(*, deprecated, renamed: "UiSurfaceAction")
+public typealias IPCUiSurfaceAction = UiSurfaceAction
+
+@available(*, deprecated, renamed: "UiSurfaceComplete")
+public typealias IPCUiSurfaceComplete = UiSurfaceComplete
+
+@available(*, deprecated, renamed: "UiSurfaceDismiss")
+public typealias IPCUiSurfaceDismiss = UiSurfaceDismiss
+
+@available(*, deprecated, renamed: "UiSurfaceShowCard")
+public typealias IPCUiSurfaceShowCard = UiSurfaceShowCard
+
+@available(*, deprecated, renamed: "UiSurfaceShowConfirmation")
+public typealias IPCUiSurfaceShowConfirmation = UiSurfaceShowConfirmation
+
+@available(*, deprecated, renamed: "UiSurfaceShowDocumentPreview")
+public typealias IPCUiSurfaceShowDocumentPreview = UiSurfaceShowDocumentPreview
+
+@available(*, deprecated, renamed: "UiSurfaceShowDynamicPage")
+public typealias IPCUiSurfaceShowDynamicPage = UiSurfaceShowDynamicPage
+
+@available(*, deprecated, renamed: "UiSurfaceShowFileUpload")
+public typealias IPCUiSurfaceShowFileUpload = UiSurfaceShowFileUpload
+
+@available(*, deprecated, renamed: "UiSurfaceShowForm")
+public typealias IPCUiSurfaceShowForm = UiSurfaceShowForm
+
+@available(*, deprecated, renamed: "UiSurfaceShowList")
+public typealias IPCUiSurfaceShowList = UiSurfaceShowList
+
+@available(*, deprecated, renamed: "UiSurfaceShowTable")
+public typealias IPCUiSurfaceShowTable = UiSurfaceShowTable
+
+@available(*, deprecated, renamed: "UiSurfaceUndoRequest")
+public typealias IPCUiSurfaceUndoRequest = UiSurfaceUndoRequest
+
+@available(*, deprecated, renamed: "UiSurfaceUndoResult")
+public typealias IPCUiSurfaceUndoResult = UiSurfaceUndoResult
+
+@available(*, deprecated, renamed: "UiSurfaceUpdate")
+public typealias IPCUiSurfaceUpdate = UiSurfaceUpdate
+
+@available(*, deprecated, renamed: "UndoComplete")
+public typealias IPCUndoComplete = UndoComplete
+
+@available(*, deprecated, renamed: "UndoRequest")
+public typealias IPCUndoRequest = UndoRequest
+
+@available(*, deprecated, renamed: "UnpublishPageRequest")
+public typealias IPCUnpublishPageRequest = UnpublishPageRequest
+
+@available(*, deprecated, renamed: "UnpublishPageResponse")
+public typealias IPCUnpublishPageResponse = UnpublishPageResponse
+
+@available(*, deprecated, renamed: "UpdateTrustRule")
+public typealias IPCUpdateTrustRule = UpdateTrustRule
+
+@available(*, deprecated, renamed: "UsageRequest")
+public typealias IPCUsageRequest = UsageRequest
+
+@available(*, deprecated, renamed: "UsageResponse")
+public typealias IPCUsageResponse = UsageResponse
+
+@available(*, deprecated, renamed: "UsageStats")
+public typealias IPCUsageStats = UsageStats
+
+@available(*, deprecated, renamed: "UsageUpdate")
+public typealias IPCUsageUpdate = UsageUpdate
+
+@available(*, deprecated, renamed: "UserMessage")
+public typealias IPCUserMessage = UserMessage
+
+@available(*, deprecated, renamed: "UserMessageAttachment")
+public typealias IPCUserMessageAttachment = UserMessageAttachment
+
+@available(*, deprecated, renamed: "UserMessageEcho")
+public typealias IPCUserMessageEcho = UserMessageEcho
+
+@available(*, deprecated, renamed: "VercelApiConfigRequest")
+public typealias IPCVercelApiConfigRequest = VercelApiConfigRequest
+
+@available(*, deprecated, renamed: "VercelApiConfigResponse")
+public typealias IPCVercelApiConfigResponse = VercelApiConfigResponse
+
+@available(*, deprecated, renamed: "VoiceConfigUpdateRequest")
+public typealias IPCVoiceConfigUpdateRequest = VoiceConfigUpdateRequest
+
+@available(*, deprecated, renamed: "WatchCompleteRequest")
+public typealias IPCWatchCompleteRequest = WatchCompleteRequest
+
+@available(*, deprecated, renamed: "WatchObservation")
+public typealias IPCWatchObservation = WatchObservation
+
+@available(*, deprecated, renamed: "WatchStarted")
+public typealias IPCWatchStarted = WatchStarted
+
+@available(*, deprecated, renamed: "WorkItemApprovePermissionsRequest")
+public typealias IPCWorkItemApprovePermissionsRequest = WorkItemApprovePermissionsRequest
+
+@available(*, deprecated, renamed: "WorkItemApprovePermissionsResponse")
+public typealias IPCWorkItemApprovePermissionsResponse = WorkItemApprovePermissionsResponse
+
+@available(*, deprecated, renamed: "WorkItemCancelRequest")
+public typealias IPCWorkItemCancelRequest = WorkItemCancelRequest
+
+@available(*, deprecated, renamed: "WorkItemCancelResponse")
+public typealias IPCWorkItemCancelResponse = WorkItemCancelResponse
+
+@available(*, deprecated, renamed: "WorkItemCompleteRequest")
+public typealias IPCWorkItemCompleteRequest = WorkItemCompleteRequest
+
+@available(*, deprecated, renamed: "WorkItemDeleteRequest")
+public typealias IPCWorkItemDeleteRequest = WorkItemDeleteRequest
+
+@available(*, deprecated, renamed: "WorkItemDeleteResponse")
+public typealias IPCWorkItemDeleteResponse = WorkItemDeleteResponse
+
+@available(*, deprecated, renamed: "WorkItemGetRequest")
+public typealias IPCWorkItemGetRequest = WorkItemGetRequest
+
+@available(*, deprecated, renamed: "WorkItemGetResponse")
+public typealias IPCWorkItemGetResponse = WorkItemGetResponse
+
+@available(*, deprecated, renamed: "WorkItemGetResponseItem")
+public typealias IPCWorkItemGetResponseItem = WorkItemGetResponseItem
+
+@available(*, deprecated, renamed: "WorkItemOutputRequest")
+public typealias IPCWorkItemOutputRequest = WorkItemOutputRequest
+
+@available(*, deprecated, renamed: "WorkItemOutputResponse")
+public typealias IPCWorkItemOutputResponse = WorkItemOutputResponse
+
+@available(*, deprecated, renamed: "WorkItemOutputResponseOutput")
+public typealias IPCWorkItemOutputResponseOutput = WorkItemOutputResponseOutput
+
+@available(*, deprecated, renamed: "WorkItemPreflightRequest")
+public typealias IPCWorkItemPreflightRequest = WorkItemPreflightRequest
+
+@available(*, deprecated, renamed: "WorkItemPreflightResponse")
+public typealias IPCWorkItemPreflightResponse = WorkItemPreflightResponse
+
+@available(*, deprecated, renamed: "WorkItemPreflightResponsePermission")
+public typealias IPCWorkItemPreflightResponsePermission = WorkItemPreflightResponsePermission
+
+@available(*, deprecated, renamed: "WorkItemRunTaskRequest")
+public typealias IPCWorkItemRunTaskRequest = WorkItemRunTaskRequest
+
+@available(*, deprecated, renamed: "WorkItemRunTaskResponse")
+public typealias IPCWorkItemRunTaskResponse = WorkItemRunTaskResponse
+
+@available(*, deprecated, renamed: "WorkItemStatusChanged")
+public typealias IPCWorkItemStatusChanged = WorkItemStatusChanged
+
+@available(*, deprecated, renamed: "WorkItemStatusChangedItem")
+public typealias IPCWorkItemStatusChangedItem = WorkItemStatusChangedItem
+
+@available(*, deprecated, renamed: "WorkItemUpdateRequest")
+public typealias IPCWorkItemUpdateRequest = WorkItemUpdateRequest
+
+@available(*, deprecated, renamed: "WorkItemUpdateResponse")
+public typealias IPCWorkItemUpdateResponse = WorkItemUpdateResponse
+
+@available(*, deprecated, renamed: "WorkItemUpdateResponseItem")
+public typealias IPCWorkItemUpdateResponseItem = WorkItemUpdateResponseItem
+
+@available(*, deprecated, renamed: "WorkItemsListRequest")
+public typealias IPCWorkItemsListRequest = WorkItemsListRequest
+
+@available(*, deprecated, renamed: "WorkItemsListResponse")
+public typealias IPCWorkItemsListResponse = WorkItemsListResponse
+
+@available(*, deprecated, renamed: "WorkItemsListResponseItem")
+public typealias IPCWorkItemsListResponseItem = WorkItemsListResponseItem
+
+@available(*, deprecated, renamed: "WorkspaceFileReadRequest")
+public typealias IPCWorkspaceFileReadRequest = WorkspaceFileReadRequest
+
+@available(*, deprecated, renamed: "WorkspaceFileReadResponse")
+public typealias IPCWorkspaceFileReadResponse = WorkspaceFileReadResponse
+
+@available(*, deprecated, renamed: "WorkspaceFilesListRequest")
+public typealias IPCWorkspaceFilesListRequest = WorkspaceFilesListRequest
+
+@available(*, deprecated, renamed: "WorkspaceFilesListResponse")
+public typealias IPCWorkspaceFilesListResponse = WorkspaceFilesListResponse
+
+@available(*, deprecated, renamed: "WorkspaceFilesListResponseFile")
+public typealias IPCWorkspaceFilesListResponseFile = WorkspaceFilesListResponseFile
+
