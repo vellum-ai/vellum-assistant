@@ -23,6 +23,7 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
@@ -137,9 +138,9 @@ function getClientSecret(
   rawService: string,
 ): string | undefined {
   return (
-    getSecureKey(`credential:${resolvedService}:client_secret`) ??
+    getSecureKey(credentialKey(resolvedService, "client_secret")) ??
     (resolvedService !== rawService
-      ? getSecureKey(`credential:${rawService}:client_secret`)
+      ? getSecureKey(credentialKey(rawService, "client_secret"))
       : undefined) ??
     undefined
   );

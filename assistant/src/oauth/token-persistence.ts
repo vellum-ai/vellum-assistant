@@ -6,6 +6,7 @@
  * orchestrator without duplicating storage logic.
  */
 
+import { credentialKey, migrateKeys } from "../security/credential-key.js";
 import type {
   OAuth2FlowResult,
   TokenEndpointAuthMethod,
@@ -53,6 +54,8 @@ export interface StoreOAuth2TokensParams {
 export async function storeOAuth2Tokens(
   params: StoreOAuth2TokensParams,
 ): Promise<{ accountInfo?: string }> {
+  migrateKeys();
+
   const {
     service,
     tokens,
@@ -68,7 +71,7 @@ export async function storeOAuth2Tokens(
   } = params;
 
   const tokenStored = await setSecureKeyAsync(
-    `credential:${service}:access_token`,
+    credentialKey(service, "access_token"),
     tokens.accessToken,
   );
   if (!tokenStored) {
@@ -98,7 +101,7 @@ export async function storeOAuth2Tokens(
   // secure store. token-manager.ts reads it from meta?.oauth2ClientId.
   if (clientSecret) {
     const clientSecretStored = await setSecureKeyAsync(
-      `credential:${service}:client_secret`,
+      credentialKey(service, "client_secret"),
       clientSecret,
     );
     if (!clientSecretStored) {
@@ -161,7 +164,7 @@ export async function storeOAuth2Tokens(
 
   if (tokens.refreshToken) {
     const refreshStored = await setSecureKeyAsync(
-      `credential:${service}:refresh_token`,
+      credentialKey(service, "refresh_token"),
       tokens.refreshToken,
     );
     if (refreshStored) {
@@ -173,7 +176,7 @@ export async function storeOAuth2Tokens(
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
-    await deleteSecureKeyAsync(`credential:${service}:refresh_token`);
+    await deleteSecureKeyAsync(credentialKey(service, "refresh_token"));
     upsertCredentialMetadata(service, "access_token", {
       hasRefreshToken: false,
     });

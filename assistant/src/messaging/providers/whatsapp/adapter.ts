@@ -14,6 +14,7 @@ import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
+import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKey } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
@@ -42,8 +43,8 @@ function getBearerToken(): string {
 /** Check whether WhatsApp credentials are stored. */
 function hasWhatsAppCredentials(): boolean {
   return (
-    !!getSecureKey("credential:whatsapp:phone_number_id") &&
-    !!getSecureKey("credential:whatsapp:access_token")
+    !!getSecureKey(credentialKey("whatsapp", "phone_number_id")) &&
+    !!getSecureKey(credentialKey("whatsapp", "access_token"))
   );
 }
 
@@ -73,7 +74,9 @@ export const whatsappMessagingProvider: MessagingProvider = {
       };
     }
 
-    const phoneNumberId = getSecureKey("credential:whatsapp:phone_number_id")!;
+    const phoneNumberId = getSecureKey(
+      credentialKey("whatsapp", "phone_number_id"),
+    )!;
 
     return {
       connected: true,

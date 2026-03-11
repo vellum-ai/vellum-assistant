@@ -21,6 +21,7 @@ import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
@@ -197,7 +198,9 @@ export async function resolveCallerIdentity(
     userNumber = getTwilioUserPhoneNumber()!;
     numberSource = "env_var";
   } else {
-    const secureKeyValue = getSecureKey("credential:twilio:user_phone_number");
+    const secureKeyValue = getSecureKey(
+      credentialKey("twilio", "user_phone_number"),
+    );
     if (secureKeyValue) {
       userNumber = secureKeyValue;
       numberSource = "secure_key";

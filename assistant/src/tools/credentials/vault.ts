@@ -7,6 +7,7 @@ import {
 } from "../../oauth/provider-profiles.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { credentialKey } from "../../security/credential-key.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
@@ -47,7 +48,7 @@ function findStoredOAuthSecret(
     if (alias === service) servicesToCheck.push(canonical);
   }
   for (const svc of servicesToCheck) {
-    const value = getSecureKey(`credential:${svc}:${field}`);
+    const value = getSecureKey(credentialKey(svc, field));
     if (value) return value;
   }
   return undefined;
@@ -376,7 +377,7 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        const key = `credential:${service}:${field}`;
+        const key = credentialKey(service, field);
         const ok = await setSecureKeyAsync(key, value);
         if (!ok) {
           return {
@@ -439,7 +440,7 @@ class CredentialStoreTool implements Tool {
         const entries = allMetadata
           .filter((m) => {
             if (secureKeySet)
-              return secureKeySet.has(`credential:${m.service}:${m.field}`);
+              return secureKeySet.has(credentialKey(m.service, m.field));
             return true;
           })
           .map((m) => {
@@ -489,7 +490,7 @@ class CredentialStoreTool implements Tool {
           };
         }
 
-        const key = `credential:${service}:${field}`;
+        const key = credentialKey(service, field);
         const result = await deleteSecureKeyAsync(key);
         if (result === "error") {
           return {
@@ -729,7 +730,7 @@ class CredentialStoreTool implements Tool {
         }
 
         // Default: persist to keychain
-        const key = `credential:${service}:${field}`;
+        const key = credentialKey(service, field);
         const ok = await setSecureKeyAsync(key, result.value);
         if (!ok) {
           return {

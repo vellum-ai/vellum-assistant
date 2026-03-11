@@ -3,6 +3,7 @@ import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getEmailService } from "../email/service.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
@@ -90,7 +91,7 @@ const telegramProbe: ChannelProbe = {
   runLocalChecks(): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
-    const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
+    const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
     results.push({
       name: "bot_token",
       passed: hasBotToken,
@@ -100,7 +101,7 @@ const telegramProbe: ChannelProbe = {
     });
 
     const hasWebhookSecret = !!getSecureKey(
-      "credential:telegram:webhook_secret",
+      credentialKey("telegram", "webhook_secret"),
     );
     results.push({
       name: "webhook_secret",
@@ -132,7 +133,8 @@ const emailProbe: ChannelProbe = {
     const results: ReadinessCheckResult[] = [];
 
     const hasApiKey = !!(
-      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+      getSecureKey("agentmail") ||
+      getSecureKey(credentialKey("agentmail", "api_key"))
     );
     results.push({
       name: "agentmail_api_key",
@@ -165,7 +167,8 @@ const emailProbe: ChannelProbe = {
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     // Only worth checking if the API key is present
     const hasApiKey = !!(
-      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+      getSecureKey("agentmail") ||
+      getSecureKey(credentialKey("agentmail", "api_key"))
     );
     if (!hasApiKey) return [];
 
@@ -202,7 +205,7 @@ const whatsappProbe: ChannelProbe = {
     const results: ReadinessCheckResult[] = [];
 
     const hasPhoneNumberId = !!getSecureKey(
-      "credential:whatsapp:phone_number_id",
+      credentialKey("whatsapp", "phone_number_id"),
     );
     results.push({
       name: "whatsapp_phone_number_id",
@@ -212,7 +215,9 @@ const whatsappProbe: ChannelProbe = {
         : "WhatsApp phone number ID is not configured",
     });
 
-    const hasAccessToken = !!getSecureKey("credential:whatsapp:access_token");
+    const hasAccessToken = !!getSecureKey(
+      credentialKey("whatsapp", "access_token"),
+    );
     results.push({
       name: "whatsapp_access_token",
       passed: hasAccessToken,
@@ -221,7 +226,9 @@ const whatsappProbe: ChannelProbe = {
         : "WhatsApp access token is not configured",
     });
 
-    const hasAppSecret = !!getSecureKey("credential:whatsapp:app_secret");
+    const hasAppSecret = !!getSecureKey(
+      credentialKey("whatsapp", "app_secret"),
+    );
     results.push({
       name: "whatsapp_app_secret",
       passed: hasAppSecret,
@@ -231,7 +238,7 @@ const whatsappProbe: ChannelProbe = {
     });
 
     const hasWebhookVerifyToken = !!getSecureKey(
-      "credential:whatsapp:webhook_verify_token",
+      credentialKey("whatsapp", "webhook_verify_token"),
     );
     results.push({
       name: "whatsapp_webhook_verify_token",
@@ -278,8 +285,12 @@ const whatsappProbe: ChannelProbe = {
 const slackProbe: ChannelProbe = {
   channel: "slack",
   runLocalChecks(): ReadinessCheckResult[] {
-    const hasBotToken = !!getSecureKey("credential:slack_channel:bot_token");
-    const hasAppToken = !!getSecureKey("credential:slack_channel:app_token");
+    const hasBotToken = !!getSecureKey(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    const hasAppToken = !!getSecureKey(
+      credentialKey("slack_channel", "app_token"),
+    );
     return [
       {
         name: "bot_token",

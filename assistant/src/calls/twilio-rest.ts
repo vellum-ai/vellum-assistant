@@ -7,6 +7,7 @@
  */
 
 import { loadConfig } from "../config/loader.js";
+import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
 
@@ -28,7 +29,7 @@ function resolveAccountSid(): string | undefined {
 
 /** Resolve the Twilio Auth Token from the credential store. */
 function resolveAuthToken(): string | undefined {
-  return getSecureKey("credential:twilio:auth_token") || undefined;
+  return getSecureKey(credentialKey("twilio", "auth_token")) || undefined;
 }
 
 /** Resolve Twilio credentials from config (SID) and credential store (token). Throws if not configured. */
