@@ -128,33 +128,24 @@ describe("tool registry host tools", () => {
 });
 
 describe("tool registry dynamic-tools tools", () => {
-  test("registers scaffold, delete, and skill_load tools", async () => {
+  test("registers skill_load tool", async () => {
     await initializeTools();
 
-    const dynamicToolNames = [
-      "scaffold_managed_skill",
-      "delete_managed_skill",
-      "skill_load",
-    ] as const;
-
-    for (const toolName of dynamicToolNames) {
-      const tool = getTool(toolName);
-      expect(tool).toBeDefined();
-    }
+    const tool = getTool("skill_load");
+    expect(tool).toBeDefined();
 
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
-    for (const toolName of dynamicToolNames) {
-      expect(definitionNames).toContain(toolName);
-    }
+    expect(definitionNames).toContain("skill_load");
   });
 
-  test("scaffold and delete are registered as High risk", async () => {
+  test("scaffold and delete are NOT in the core tool registry (moved to bundled skill)", async () => {
     await initializeTools();
-    for (const name of ["scaffold_managed_skill", "delete_managed_skill"]) {
-      const tool = getTool(name);
-      expect(tool).toBeDefined();
-      expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
-    }
+    // scaffold_managed_skill and delete_managed_skill moved to the
+    // skill-management bundled skill — they are no longer registered as core
+    // tools. Their High risk classification is handled by classifyRisk() in
+    // checker.ts so security behavior is preserved.
+    expect(getTool("scaffold_managed_skill")).toBeUndefined();
+    expect(getTool("delete_managed_skill")).toBeUndefined();
   });
 
   test("skill_load is registered as Low risk", async () => {
@@ -176,29 +167,31 @@ describe("tool manifest", () => {
   });
 
   test("manifest declares expected core lazy tools", () => {
-    // bash and swarm_delegate moved from lazy to eager registration
+    // bash moved from lazy to eager registration
+    // swarm_delegate moved to the orchestration bundled skill
     const lazyNames = new Set(lazyTools.map((t) => t.name));
     expect(lazyNames.has("bash")).toBe(false);
     expect(lazyNames.has("evaluate_typescript_code")).toBe(false);
     expect(lazyNames.has("claude_code")).toBe(false);
     expect(lazyNames.has("swarm_delegate")).toBe(false);
-    // Verify they are in eager tools instead
+    // bash is in eager tools; swarm_delegate is now a bundled skill tool
     expect(eagerModuleToolNames).toContain("bash");
-    expect(eagerModuleToolNames).toContain("swarm_delegate");
+    expect(eagerModuleToolNames).not.toContain("swarm_delegate");
     expect(eagerModuleToolNames).not.toContain("version");
   });
 
   test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(14);
+    expect(eagerModuleToolNames.length).toBe(11);
   });
 
-  test("explicit tools list includes memory, credential, and watch tools", () => {
+  test("explicit tools list includes memory and credential tools", () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain("memory_recall");
     expect(names).toContain("memory_save");
     expect(names).toContain("memory_update");
     expect(names).toContain("credential_store");
-    expect(names).toContain("start_screen_watch");
+    // start_screen_watch moved to the screen-watch bundled skill
+    expect(names).not.toContain("start_screen_watch");
   });
 
   test("registered tool count is at least eager + lazy + host", async () => {

@@ -484,6 +484,7 @@ export function createProxyApprovalCallback(
 const DEFAULT_PREACTIVATED_SKILL_IDS = [
   "tasks",
   "notifications",
+  "settings",
   "skill-management",
 ];
 
