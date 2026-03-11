@@ -103,7 +103,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
-  logFixtureState();
 
   return {
     teardown: async () => {
@@ -512,13 +511,30 @@ function buildDiagnostics(hatchOutput: string): string {
 }
 
 /**
- * Deletes BOOTSTRAP.md from the assistant workspace so the assistant
- * skips its first-run acclimation flow (name, personality, etc.).
+ * Deletes BOOTSTRAP.md and pre-populates workspace identity files so the
+ * assistant skips its first-run acclimation flow and starts with a known
+ * identity instead of thinking it is "really new".
  */
 function skipAssistantOnboarding(): void {
-  const bootstrapPath = path.join(getBaseDir(), ".vellum", "workspace", "BOOTSTRAP.md");
+  const workspaceDir = path.join(getBaseDir(), ".vellum", "workspace");
+  mkdirSync(workspaceDir, { recursive: true });
+
+  const bootstrapPath = path.join(workspaceDir, "BOOTSTRAP.md");
   if (existsSync(bootstrapPath)) {
     unlinkSync(bootstrapPath);
+  }
+
+  // Copy pre-built identity files so the assistant has a known identity.
+  const markdownDir = path.resolve(__dirname, "markdown");
+
+  const identityPath = path.join(workspaceDir, "IDENTITY.md");
+  if (!existsSync(identityPath)) {
+    copyFileSync(path.join(markdownDir, "IDENTITY.md"), identityPath);
+  }
+
+  const userPath = path.join(workspaceDir, "USER.md");
+  if (!existsSync(userPath)) {
+    copyFileSync(path.join(markdownDir, "USER.md"), userPath);
   }
 }
 
@@ -547,16 +563,10 @@ function ensureApiKeyInDefaults(): void {
     );
 
     // Verify the write is readable.
-    const readBack = execSync(
+    execSync(
       `defaults read ${domain} vellum_provider_anthropic`,
       { encoding: "utf-8", timeout: 5_000 },
     ).trim();
-
-    if (!readBack) {
-      console.error(
-        "[fixture] API key written but defaults read returned empty",
-      );
-    }
   } catch (err) {
     console.error(
       `[fixture] Failed to write/verify API key in defaults: ${err instanceof Error ? err.message : err}`,
@@ -583,7 +593,8 @@ function collectHatchLogs(): void {
 }
 
 /**
- * Collects the app's os_log output for lockfileCheck diagnostics.
+ * Collects the app's os_log output and writes it to the test artifact
+ * directory so it is uploaded alongside screenshots and traces.
  */
 function collectAppLogs(): void {
   try {
@@ -591,51 +602,16 @@ function collectAppLogs(): void {
       `log show --predicate 'subsystem == "com.vellum.vellum-assistant"' --last 5m --style compact 2>/dev/null | tail -100`,
       { encoding: "utf-8", timeout: 10_000 },
     ).trim();
-    if (logs) {
-      console.error(`[fixture] App os_log (last 5min, tail 100):\n${logs}`);
-    } else {
-      console.error("[fixture] No app os_log entries found");
-    }
+
+    const destDir = path.join(process.cwd(), "test-results", "agent-logs");
+    mkdirSync(destDir, { recursive: true });
+    writeFileSync(
+      path.join(destDir, "app-os-log.log"),
+      logs || "(no os_log entries found)",
+      "utf-8",
+    );
   } catch {
-    console.error("[fixture] Failed to collect app os_log");
-  }
-}
-
-/**
- * Logs fixture state for CI diagnostics without printing secret values.
- */
-function logFixtureState(): void {
-  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
-  const domain = defaultsDomain(0);
-
-  console.error(`[fixture] HOME=${os.homedir()}`);
-  console.error(`[fixture] BASE_DATA_DIR=${process.env.BASE_DATA_DIR ?? "(unset)"}`);
-  console.error(`[fixture] Lockfile path: ${lockfilePath}`);
-  console.error(`[fixture] Lockfile exists: ${existsSync(lockfilePath)}`);
-
-  if (existsSync(lockfilePath)) {
-    try {
-      const raw = readFileSync(lockfilePath, "utf-8");
-      const data = JSON.parse(raw) as { assistants?: unknown[] };
-      const count = Array.isArray(data.assistants) ? data.assistants.length : 0;
-      console.error(`[fixture] Lockfile assistant count: ${count}`);
-    } catch (err) {
-      console.error(`[fixture] Failed to read lockfile: ${err}`);
-    }
-  }
-
-  try {
-    const apiKey = execSync(
-      `defaults read ${domain} vellum_provider_anthropic 2>&1`,
-      { encoding: "utf-8", timeout: 5_000 },
-    ).trim();
-    console.error(
-      `[fixture] defaults read API key: ${apiKey ? `present (${apiKey.length} chars)` : "EMPTY"}`,
-    );
-  } catch (err) {
-    console.error(
-      `[fixture] defaults read API key FAILED: ${err instanceof Error ? err.message : err}`,
-    );
+    // Best-effort — log collection should never fail the test
   }
 }
 

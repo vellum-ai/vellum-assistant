@@ -153,7 +153,6 @@ extension AppDelegate {
             actorTokenBootstrapTask = nil
             ActorTokenManager.deleteToken()
 
-            assistantCli.stopMonitoring()
             hasSetupApp = false
             hasSetupDaemon = false
             showAuthWindow()
@@ -244,24 +243,19 @@ extension AppDelegate {
     /// restarts with the new assistant.
     ///
     /// The sequence is intentionally ordered to avoid stale references:
-    /// 1. Stop lifecycle monitoring
-    /// 2. Clear assistant-scoped runtime state (recording, windows, callbacks)
-    /// 3. Stop daemon processes and disconnect transport
-    /// 4. Persist the new assistant selection
-    /// 5. Reconfigure daemon transport and reconnect
-    /// 6. Resume monitoring and credential bootstrap
+    /// 1. Clear assistant-scoped runtime state (recording, windows, callbacks)
+    /// 2. Disconnect transport (leave old daemon running)
+    /// 3. Persist the new assistant selection
+    /// 4. Reconfigure daemon transport and reconnect
+    /// 5. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
-        // 1. Stop lifecycle monitoring
-        assistantCli.stopMonitoring()
-
-        // 2. Clear assistant-scoped runtime state while the daemon is still
+        // 1. Clear assistant-scoped runtime state while the daemon is still
         // running so forceStop can deliver a recording_status message.
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
 
-        // 3. Disconnect transport — leave the old daemon running so it stays
+        // 2. Disconnect transport — leave the old daemon running so it stays
         //    awake and can be switched back to without a cold start.
-        assistantCli.stopMonitoring()
         daemonClient.disconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
@@ -271,7 +265,7 @@ extension AppDelegate {
         bootstrapRetryTask?.cancel()
         bootstrapRetryTask = nil
 
-        // 4. Persist the new assistant selection
+        // 3. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
@@ -282,17 +276,17 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 5. Reconfigure daemon transport and reconnect
+        // 4. Reconfigure daemon transport and reconnect
         hasSetupDaemon = false
         setupDaemonClient()
 
-        // 6. Resume credential bootstrap and show UI
+        // 5. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
         ensureLocalAssistantApiKey()
 
-        // 7. Sync locally-stored API keys to the new daemon. The daemon may
+        // 6. Sync locally-stored API keys to the new daemon. The daemon may
         //    have started without ANTHROPIC_API_KEY in its environment (e.g.
         //    when the app was launched via Finder/open). Push keys from
         //    UserDefaults so the daemon can initialize its LLM providers.
@@ -377,9 +371,6 @@ extension AppDelegate {
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
                     // Daemon is still running — user can continue using the app.
-                    // retire() already set isStopping=true and stopped monitoring;
-                    // restart monitoring so the health check remains active.
-                    assistantCli.startMonitoring()
                     return false
                 }
                 // Retire failed but user chose Force Remove — stop the daemon
