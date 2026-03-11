@@ -44,6 +44,11 @@ export async function wake(): Promise<void> {
   }
   const resources = entry.resources;
 
+  // Default to local platform for `vel wake` (local dev)
+  if (!process.env.VELLUM_ASSISTANT_PLATFORM_URL) {
+    process.env.VELLUM_ASSISTANT_PLATFORM_URL = "http://localhost:8000";
+  }
+
   const pidFile = resources.pidFile;
 
   // Check if daemon is already running
