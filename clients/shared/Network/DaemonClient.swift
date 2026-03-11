@@ -880,7 +880,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         // Local daemon path — stream SSE from the daemon's /v1/btw endpoint.
         return AsyncThrowingStream { continuation in
-            Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
@@ -949,6 +949,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 
