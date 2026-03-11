@@ -122,7 +122,7 @@ mock.module("../daemon/session-process.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcTrustContext: () => ({
+  resolveLocalTrustContext: () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
