@@ -8,17 +8,17 @@
  * No messages are persisted. `session.processing` is never set or checked.
  */
 
+import { buildToolDefinitions } from "../../daemon/session-tool-setup.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import {
   createTimeout,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import { buildToolDefinitions } from "../../daemon/session-tool-setup.js";
+import { getLogger } from "../../util/logger.js";
+import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
-import type { AuthContext } from "../auth/types.js";
-import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("btw-routes");
 
@@ -78,37 +78,46 @@ async function handleBtw(
     start(controller) {
       (async () => {
         try {
-          await session.provider.sendMessage(messages, tools, session.systemPrompt, {
-            config: {
-              max_tokens: 1024,
-              tool_choice: { type: "none" },
+          await session.provider.sendMessage(
+            messages,
+            tools,
+            session.systemPrompt,
+            {
+              config: {
+                max_tokens: 1024,
+                tool_choice: { type: "none" },
+                modelIntent: "latency-optimized",
+              },
+              onEvent: (event) => {
+                if (event.type === "text_delta") {
+                  controller.enqueue(
+                    encoder.encode(
+                      `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
+                    ),
+                  );
+                }
+              },
+              signal: combinedSignal,
             },
-            onEvent: (event) => {
-              if (event.type === "text_delta") {
-                controller.enqueue(
-                  encoder.encode(
-                    `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
-                  ),
-                );
-              }
-            },
-            signal: combinedSignal,
-          });
+          );
 
           controller.enqueue(
             encoder.encode(`event: btw_complete\ndata: {}\n\n`),
           );
           controller.close();
         } catch (err: unknown) {
-          const message =
-            err instanceof Error ? err.message : "Unknown error";
+          const message = err instanceof Error ? err.message : "Unknown error";
           log.error({ err }, "btw side-chain streaming error");
-          controller.enqueue(
-            encoder.encode(
-              `event: btw_error\ndata: ${JSON.stringify({ error: message })}\n\n`,
-            ),
-          );
-          controller.close();
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `event: btw_error\ndata: ${JSON.stringify({ error: message })}\n\n`,
+              ),
+            );
+            controller.close();
+          } catch {
+            /* stream already closed */
+          }
         } finally {
           cleanupTimeout();
           timeoutSignal.removeEventListener("abort", onTimeoutAbort);
@@ -138,6 +147,7 @@ export function btwRouteDefinitions(deps: {
     {
       endpoint: "btw",
       method: "POST",
+      policyKey: "btw",
       handler: async ({ req, authContext }) =>
         handleBtw(req, deps, authContext),
     },
