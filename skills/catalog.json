@@ -67,19 +67,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "doordash",
-      "name": "doordash",
-      "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
-      "metadata": {
-        "emoji": "🍕",
-        "vellum": {
-          "display-name": "DoorDash",
-          "user-invocable": "true"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "document-writer",
       "name": "document-writer",
       "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
@@ -88,6 +75,23 @@
         "vellum": {
           "display-name": "Document Writer",
           "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "doordash",
+      "name": "doordash",
+      "description": "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration",
+      "metadata": {
+        "emoji": "🍕",
+        "vellum": {
+          "display-name": "DoorDash",
+          "user-invocable": "true",
+          "cli": {
+            "command": "doordash",
+            "entry": "scripts/doordash-entry.ts"
+          }
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
