@@ -71,6 +71,15 @@ export async function routedGenerateAvatar(
         model,
       };
     } catch (err) {
+      const config = getConfig();
+      const geminiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
+      if (!geminiKey) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "Managed avatar generation failed and no local Gemini key configured; re-throwing",
+        );
+        throw err;
+      }
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
         "Managed avatar generation failed, falling back to local Gemini",
