@@ -2,7 +2,7 @@
  * Regression tests for the ASK_GUARDIAN canonical notification path.
  *
  * Validates that guardian dispatch relies on the generic notification
- * pipeline (including thread-created callbacks) without a custom IPC path.
+ * pipeline (including thread-created callbacks) without a custom dispatch path.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -197,7 +197,7 @@ describe("ASK_GUARDIAN canonical notification path", () => {
     expect(payload.requestCode).toBeDefined();
   });
 
-  test("uses notification_thread_created callback instead of a guardian-specific IPC path", async () => {
+  test("uses notification_thread_created callback instead of a guardian-specific dispatch path", async () => {
     const convId = "conv-guardian-notif-2";
     ensureConversation(convId);
     mockThreadCreated = {

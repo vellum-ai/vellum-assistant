@@ -1,6 +1,6 @@
 /**
  * Tests for HTTP POST /v1/messages behavior after the legacy handleUserMessage
- * IPC entry point was retired.
+ * legacy entry point was retired.
  *
  * Secret ingress blocking has been ported to the HTTP path. Recording intent
  * interception has been deliberately retired — the HTTP path has dedicated
@@ -329,7 +329,7 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     // The HTTP path deliberately does not intercept recording commands.
     // Dedicated /v1/recording/* endpoints handle recording lifecycle.
     // Text-based recording intent interception was retired with the
-    // legacy IPC handleUserMessage entry point.
+    // legacy handleUserMessage entry point.
     const persistUserMessage = mock(async () => "persisted-msg-id");
     const runAgentLoop = mock(async () => undefined);
     const session = makeSession({ persistUserMessage, runAgentLoop });

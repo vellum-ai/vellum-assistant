@@ -336,7 +336,7 @@ describe("notification broadcaster", () => {
     expect(vellumAdapter.sent).toHaveLength(0);
   });
 
-  // ── Thread-created IPC emission ─────────────────────────────────────
+  // ── Thread-created event emission ───────────────────────────────────
 
   test("fires onThreadCreated when a new vellum conversation is created (start_new)", async () => {
     const vellumAdapter = new MockAdapter("vellum");
@@ -373,9 +373,9 @@ describe("notification broadcaster", () => {
   test("does NOT fire class-level onThreadCreated when reusing an existing thread", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const ipcCalls: ThreadCreatedInfo[] = [];
+    const eventCalls: ThreadCreatedInfo[] = [];
     const dispatchCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => ipcCalls.push(info));
+    broadcaster.setOnThreadCreated((info) => eventCalls.push(info));
 
     // Simulate a successful reuse by injecting a pairing result with
     // createdNewConversation=false. This bypasses the real conversation
@@ -403,10 +403,10 @@ describe("notification broadcaster", () => {
       onThreadCreated: (info) => dispatchCalls.push(info),
     });
 
-    // The class-level IPC callback should NOT fire because
+    // The class-level event callback should NOT fire because
     // createdNewConversation is false — the client already knows about
     // the reused conversation.
-    expect(ipcCalls).toHaveLength(0);
+    expect(eventCalls).toHaveLength(0);
 
     // The per-dispatch callback SHOULD fire for both new and reused
     // pairings (used by callers like dispatchGuardianQuestion for
@@ -489,8 +489,8 @@ describe("notification broadcaster", () => {
   test("reused thread via binding-key continuation does NOT emit class-level onThreadCreated", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const ipcCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => ipcCalls.push(info));
+    const eventCalls: ThreadCreatedInfo[] = [];
+    broadcaster.setOnThreadCreated((info) => eventCalls.push(info));
 
     // Simulate binding-key continuation: pairing reuses an existing bound
     // conversation (createdNewConversation=false, strategy=continue_existing_conversation)
@@ -507,21 +507,21 @@ describe("notification broadcaster", () => {
 
     await broadcaster.broadcastDecision(signal, decision);
 
-    // The class-level IPC callback should NOT fire because
+    // The class-level event callback should NOT fire because
     // createdNewConversation is false — the thread already exists
     // in the external channel and the client already knows about it.
-    expect(ipcCalls).toHaveLength(0);
+    expect(eventCalls).toHaveLength(0);
   });
 
   test("fresh conversation for continue_existing_conversation does NOT emit class-level onThreadCreated", async () => {
     const vellumAdapter = new MockAdapter("vellum");
     const broadcaster = new NotificationBroadcaster([vellumAdapter]);
-    const ipcCalls: ThreadCreatedInfo[] = [];
-    broadcaster.setOnThreadCreated((info) => ipcCalls.push(info));
+    const eventCalls: ThreadCreatedInfo[] = [];
+    broadcaster.setOnThreadCreated((info) => eventCalls.push(info));
 
     // First delivery to a new destination: creates a fresh conversation but
     // the strategy is continue_existing_conversation (not start_new_conversation),
-    // so the IPC event should NOT fire — these are background threads not
+    // so the event should NOT fire — these are background threads not
     // meant to appear in the sidebar.
     nextPairingResult = {
       conversationId: "conv-new-telegram-dest",
@@ -537,8 +537,8 @@ describe("notification broadcaster", () => {
     await broadcaster.broadcastDecision(signal, decision);
 
     // Even though createdNewConversation is true, the strategy is
-    // continue_existing_conversation, so the IPC gate rejects it.
-    expect(ipcCalls).toHaveLength(0);
+    // continue_existing_conversation, so the event gate rejects it.
+    expect(eventCalls).toHaveLength(0);
   });
 
   test("per-dispatch onThreadCreated fires for reused binding-key conversation", async () => {
