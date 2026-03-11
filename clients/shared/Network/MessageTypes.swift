@@ -1941,52 +1941,6 @@ extension ChannelVerificationSessionRequest {
 /// Backed by generated `ChannelVerificationSessionResponse`.
 public typealias ChannelVerificationSessionResponseMessage = ChannelVerificationSessionResponse
 
-// MARK: - Twitter Integration Config Messages
-
-/// Sent to get/set Twitter integration config.
-/// Backed by generated `TwitterIntegrationConfigRequest`.
-public typealias TwitterIntegrationConfigRequestMessage = TwitterIntegrationConfigRequest
-
-extension TwitterIntegrationConfigRequest {
-    public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil, strategy: String? = nil) {
-        self.init(type: "twitter_integration_config", action: action, mode: mode, clientId: clientId, clientSecret: clientSecret, strategy: strategy)
-    }
-}
-
-/// Response from Twitter integration config operations.
-/// Backed by generated `TwitterIntegrationConfigResponse`.
-public typealias TwitterIntegrationConfigResponseMessage = TwitterIntegrationConfigResponse
-
-// MARK: - Twitter Auth Messages
-
-/// Sent to start the Twitter OAuth connect flow.
-/// Backed by generated `TwitterAuthStartRequest`.
-public typealias TwitterAuthStartMessage = TwitterAuthStartRequest
-
-extension TwitterAuthStartRequest {
-    public init() {
-        self.init(type: "twitter_auth_start")
-    }
-}
-
-/// Sent to query Twitter auth status.
-/// Backed by generated `TwitterAuthStatusRequest`.
-public typealias TwitterAuthStatusRequestMessage = TwitterAuthStatusRequest
-
-extension TwitterAuthStatusRequest {
-    public init() {
-        self.init(type: "twitter_auth_status")
-    }
-}
-
-/// Result of a Twitter OAuth connect attempt.
-/// Backed by generated `TwitterAuthResult`.
-public typealias TwitterAuthResultMessage = TwitterAuthResult
-
-/// Response to a Twitter auth status query.
-/// Backed by generated `TwitterAuthStatusResponse`.
-public typealias TwitterAuthStatusResponseMessage = TwitterAuthStatusResponse
-
 /// Authentication result from the daemon after the client sends an `auth` message.
 /// Backed by generated `AuthResult`.
 public typealias AuthResultMessage = AuthResult
@@ -2201,9 +2155,6 @@ public enum ServerMessage: Decodable, Sendable {
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case channelVerificationSessionResponse(ChannelVerificationSessionResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
-    case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
-    case twitterAuthResult(TwitterAuthResultMessage)
-    case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
     case modelInfo(ModelInfoMessage)
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
@@ -2530,15 +2481,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)
-        case "twitter_integration_config_response":
-            let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
-            self = .twitterIntegrationConfigResponse(message)
-        case "twitter_auth_result":
-            let message = try TwitterAuthResultMessage(from: decoder)
-            self = .twitterAuthResult(message)
-        case "twitter_auth_status_response":
-            let message = try TwitterAuthStatusResponseMessage(from: decoder)
-            self = .twitterAuthStatusResponse(message)
         case "model_info":
             let message = try ModelInfoMessage(from: decoder)
             self = .modelInfo(message)

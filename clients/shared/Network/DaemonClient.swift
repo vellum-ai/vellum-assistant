@@ -472,15 +472,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
     public var onHeartbeatChecklistWriteResponse: ((HeartbeatChecklistWriteResponse) -> Void)?
 
-    /// Called when the daemon sends a `twitter_integration_config_response` message.
-    public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `twitter_auth_result` message.
-    public var onTwitterAuthResult: ((TwitterAuthResultMessage) -> Void)?
-
-    /// Called when the daemon sends a `twitter_auth_status_response` message.
-    public var onTwitterAuthStatusResponse: ((TwitterAuthStatusResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `model_info` message.
     public var onModelInfo: ((ModelInfoMessage) -> Void)?
 

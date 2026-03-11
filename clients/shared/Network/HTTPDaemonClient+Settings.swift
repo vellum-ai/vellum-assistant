@@ -96,16 +96,6 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Twitter Auth ---
-            if message is TwitterAuthStartMessage {
-                Task { await self.sendGenericPost(.integrationsTwitterAuthStart, label: "twitter_auth_start") }
-                return true
-            }
-            if message is TwitterAuthStatusRequestMessage {
-                Task { await self.sendGenericPost(.integrationsTwitterAuthStatus, method: "GET", label: "twitter_auth_status") }
-                return true
-            }
-
             // --- Suggestion ---
             if let msg = message as? SuggestionRequest {
                 Task { await self.sendEncodablePost(.suggestion, body: msg, label: "suggestion_request") }
@@ -175,15 +165,6 @@ extension HTTPTransport {
                 Task { await self.sendEncodablePost(.channelVerificationSessions, body: msg, label: "channel_verification_session") }
                 return true
             }
-            if let msg = message as? TwitterIntegrationConfigRequestMessage {
-                if msg.action == "get" {
-                    Task { await self.fetchTwitterAuthStatus() }
-                } else {
-                    Task { await self.sendEncodablePost(.integrationsTwitterAuthStart, body: msg, label: "twitter_integration_config") }
-                }
-                return true
-            }
-
             // --- Publishing ---
             if let msg = message as? PublishPageRequestMessage {
                 Task { await self.sendEncodablePost(.publishPage, body: msg, label: "publish_page") }
@@ -232,43 +213,6 @@ extension HTTPTransport {
             }
 
             return false
-        }
-    }
-
-    // MARK: - Twitter Auth Status
-
-    /// Fetch Twitter auth status via GET and route the response through the message router.
-    func fetchTwitterAuthStatus() async {
-        guard let url = buildURL(for: .integrationsTwitterAuthStatus) else {
-            log.error("Failed to build URL for twitter_auth_status")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                log.error("twitter_auth_status failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-                return
-            }
-
-            // Wrap the HTTP response with the envelope fields the router expects.
-            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                log.error("twitter_auth_status: unexpected response shape")
-                return
-            }
-            json["type"] = "twitter_integration_config_response"
-            json["success"] = true
-
-            let wrappedData = try JSONSerialization.data(withJSONObject: json)
-            let message = try JSONDecoder().decode(TwitterIntegrationConfigResponseMessage.self, from: wrappedData)
-            self.onMessage?(.twitterIntegrationConfigResponse(message))
-        } catch {
-            log.error("twitter_auth_status error: \(error.localizedDescription)")
         }
     }
 

@@ -79,15 +79,11 @@ struct SettingsPanel: View {
     @State private var perplexitySetupExpanded = false
     @State private var braveSetupExpanded = false
     @State private var imageGenSetupExpanded = false
-    @State private var twitterSetupExpanded = false
-
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
     @State private var showingHeartbeatConfig = false
     @State private var showingHeartbeatRuns = false
-    @State private var twitterClientId: String = ""
-    @State private var twitterClientSecret: String = ""
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var microphoneGranted: Bool = false
@@ -163,8 +159,6 @@ struct SettingsPanel: View {
         }
         .onAppear {
             store.refreshAPIKeyState()
-            store.refreshTwitterStatus()
-            store.refreshManagedTwitterStatus()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
@@ -217,9 +211,6 @@ struct SettingsPanel: View {
             Task { @MainActor in
                 await refreshPermissionStatus()
             }
-            // Refresh managed Twitter status when app regains focus (e.g. after
-            // completing the OAuth flow in the browser).
-            store.refreshManagedTwitterStatus()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -598,223 +589,8 @@ struct SettingsPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
-            // TWITTER / X section
-            twitterSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Twitter Section
-
-    private var twitterSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Twitter / X")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Post and read tweets as your assistant")
-                    .font(VFont.sectionDescription)
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            // Mode Picker
-            HStack {
-                Text("Integration mode")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VSegmentedControl(
-                    items: [
-                        (label: "Local (BYO App)", tag: "local_byo"),
-                        (label: "Managed", tag: "managed"),
-                    ],
-                    selection: $store.twitterMode,
-                    style: .pill
-                )
-                .fixedSize()
-                .onChange(of: store.twitterMode) { _, newValue in
-                    store.setTwitterMode(newValue)
-                }
-            }
-
-            // Managed mode status
-            if store.twitterMode == "managed" {
-                if !authManager.isAuthenticated {
-                    // State 1: Not signed in
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {}
-                            .disabled(true)
-                    }
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.info, size: 14)
-                            .foregroundStyle(VColor.textSecondary)
-                        Text("Sign in to Vellum to use Managed")
-                            .font(VFont.caption)
-                            .foregroundStyle(VColor.textSecondary)
-                    }
-                } else if !store.isManagedTwitterEligible {
-                    // State 2/3: Signed in but prerequisites not met
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {}
-                            .disabled(true)
-                    }
-                    if let reason = store.managedTwitterBlockReason {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(.info, size: 14)
-                                .foregroundStyle(VColor.textSecondary)
-                            Text(reason)
-                                .font(VFont.caption)
-                                .foregroundStyle(VColor.textSecondary)
-                        }
-                    }
-                } else if store.managedTwitterConnected {
-                    // State 5: Connected
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                            VButton(label: "Disconnect", style: .danger) {
-                                store.disconnectManagedTwitter()
-                            }
-                            .disabled(store.managedTwitterConnectInProgress)
-                        }
-                        if let account = store.managedTwitterAccountInfo {
-                            Text(account)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                    }
-                } else if store.managedTwitterConnectInProgress {
-                    // State 6: In progress
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {}
-                            .disabled(true)
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Opening browser...")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                } else {
-                    // State 4: Eligible + disconnected
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .primary) {
-                            store.connectManagedTwitter()
-                        }
-                        if let error = store.managedTwitterError {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.error)
-                        }
-                    }
-                }
-            }
-
-            // Set Up (local BYO) mode content
-            if store.twitterMode == "local_byo" {
-                if store.twitterConnected {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
-                            VButton(label: "Disconnect", style: .danger) {
-                                store.disconnectTwitter()
-                            }
-                        }
-                        if let account = store.twitterAccountInfo {
-                            Text(account)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                    }
-                } else if store.twitterLocalClientConfigured {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        if store.twitterAuthInProgress {
-                            HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary) {}
-                                    .disabled(true)
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Connecting...")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        } else {
-                            HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary) {
-                                    store.connectTwitter()
-                                }
-                                VButton(label: "Reconfigure", style: .secondary) {
-                                    store.clearTwitterLocalClient()
-                                    twitterClientId = ""
-                                    twitterClientSecret = ""
-                                    twitterSetupExpanded = true
-                                }
-                            }
-                        }
-
-                        if let error = store.twitterAuthError {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.error)
-                        }
-                    }
-                } else if twitterSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("OAuth Client ID")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        TextField("OAuth Client ID", text: $twitterClientId)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        Text("OAuth Client Secret (optional)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Create an app at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary) {
-                                store.saveTwitterLocalClient(
-                                    clientId: twitterClientId,
-                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
-                                )
-                                twitterClientId = ""
-                                twitterClientSecret = ""
-                                twitterSetupExpanded = false
-                            }
-                            .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary) {
-                                twitterSetupExpanded = false
-                                twitterClientId = ""
-                                twitterClientSecret = ""
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary) {
-                        twitterSetupExpanded = true
-                    }
-                }
-            }
-        }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Permissions Tab

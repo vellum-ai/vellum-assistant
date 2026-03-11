@@ -380,8 +380,6 @@ public final class HTTPTransport {
 
         // Integrations
         case integrationsOAuthStart
-        case integrationsTwitterAuthStart
-        case integrationsTwitterAuthStatus
         case integrationsSlackConfig
         case integrationsVercelConfig
         case integrationsTelegramConfig
@@ -773,10 +771,6 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("/v1/integrations/oauth/start", nil)
-        case .integrationsTwitterAuthStart:
-            return ("/v1/integrations/twitter/auth/start", nil)
-        case .integrationsTwitterAuthStatus:
-            return ("/v1/integrations/twitter/auth/status", nil)
         case .integrationsSlackConfig:
             return ("/v1/integrations/slack/config", nil)
         case .integrationsVercelConfig:
@@ -1160,10 +1154,6 @@ public final class HTTPTransport {
         // Integrations
         case .integrationsOAuthStart:
             return ("\(prefix)/integrations/oauth/start/", nil)
-        case .integrationsTwitterAuthStart:
-            return ("\(prefix)/integrations/twitter/auth/start/", nil)
-        case .integrationsTwitterAuthStatus:
-            return ("\(prefix)/integrations/twitter/auth/status/", nil)
         case .integrationsSlackConfig:
             return ("\(prefix)/integrations/slack/config/", nil)
         case .integrationsVercelConfig:

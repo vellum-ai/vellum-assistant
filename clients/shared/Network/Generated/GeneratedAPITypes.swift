@@ -2532,21 +2532,6 @@ public struct ListItem: Codable, Sendable {
     }
 }
 
-public struct ManagedPrerequisites: Codable, Sendable {
-    /// Whether twitter.integrationMode is set to "managed" in config.
-    public let integrationModeManaged: Bool
-    /// Whether the assistant API key credential exists in secure storage.
-    public let assistantApiKeyPresent: Bool
-    /// Whether the platform base URL is configured (platform registration resolvable).
-    public let platformAssistantIdResolvable: Bool
-
-    public init(integrationModeManaged: Bool, assistantApiKeyPresent: Bool, platformAssistantIdResolvable: Bool) {
-        self.integrationModeManaged = integrationModeManaged
-        self.assistantApiKeyPresent = assistantApiKeyPresent
-        self.platformAssistantIdResolvable = platformAssistantIdResolvable
-    }
-}
-
 public struct MemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String
@@ -4755,103 +4740,6 @@ public struct TrustRulesListResponseRule: Codable, Sendable {
         self.decision = decision
         self.priority = priority
         self.createdAt = createdAt
-    }
-}
-
-public struct TwitterAuthResult: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let accountInfo: String?
-    /// Machine-readable error code for programmatic handling (e.g. "managed_missing_api_key", "managed_auth_via_platform").
-    public let errorCode: String?
-    public let error: String?
-
-    public init(type: String, success: Bool, accountInfo: String? = nil, errorCode: String? = nil, error: String? = nil) {
-        self.type = type
-        self.success = success
-        self.accountInfo = accountInfo
-        self.errorCode = errorCode
-        self.error = error
-    }
-}
-
-public struct TwitterAuthStartRequest: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct TwitterAuthStatusRequest: Codable, Sendable {
-    public let type: String
-
-    public init(type: String) {
-        self.type = type
-    }
-}
-
-public struct TwitterAuthStatusResponse: Codable, Sendable {
-    public let type: String
-    public let connected: Bool
-    public let accountInfo: String?
-    public let mode: String?
-    public let error: String?
-
-    public init(type: String, connected: Bool, accountInfo: String? = nil, mode: String? = nil, error: String? = nil) {
-        self.type = type
-        self.connected = connected
-        self.accountInfo = accountInfo
-        self.mode = mode
-        self.error = error
-    }
-}
-
-public struct TwitterIntegrationConfigRequest: Codable, Sendable {
-    public let type: String
-    public let action: String
-    public let mode: String?
-    public let clientId: String?
-    public let clientSecret: String?
-    public let strategy: String?
-
-    public init(type: String, action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil, strategy: String? = nil) {
-        self.type = type
-        self.action = action
-        self.mode = mode
-        self.clientId = clientId
-        self.clientSecret = clientSecret
-        self.strategy = strategy
-    }
-}
-
-public struct TwitterIntegrationConfigResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let mode: String?
-    public let managedAvailable: Bool
-    /// Detailed prerequisite status for managed Twitter availability.
-    public let managedPrerequisites: ManagedPrerequisites?
-    public let localClientConfigured: Bool
-    public let connected: Bool
-    public let accountInfo: String?
-    public let strategy: String?
-    /// Whether the user has explicitly set a strategy (vs. relying on the default 'auto').
-    public let strategyConfigured: Bool?
-    public let error: String?
-
-    public init(type: String, success: Bool, mode: String? = nil, managedAvailable: Bool, managedPrerequisites: ManagedPrerequisites? = nil, localClientConfigured: Bool, connected: Bool, accountInfo: String? = nil, strategy: String? = nil, strategyConfigured: Bool? = nil, error: String? = nil) {
-        self.type = type
-        self.success = success
-        self.mode = mode
-        self.managedAvailable = managedAvailable
-        self.managedPrerequisites = managedPrerequisites
-        self.localClientConfigured = localClientConfigured
-        self.connected = connected
-        self.accountInfo = accountInfo
-        self.strategy = strategy
-        self.strategyConfigured = strategyConfigured
-        self.error = error
     }
 }
 
