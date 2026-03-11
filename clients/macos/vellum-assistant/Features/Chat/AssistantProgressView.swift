@@ -683,22 +683,13 @@ private struct StepDetailRow: View {
 
                     ZStack(alignment: .topTrailing) {
                         ScrollView {
-                            ScrollViewReader { proxy in
-                                VStack(alignment: .leading, spacing: 0) {
-                                    Text(toolCall.partialOutput)
-                                        .font(VFont.monoSmall)
-                                        .foregroundColor(VColor.textSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-
-                                    Text("")
-                                        .id("bottom")
-                                }
-                                .onChange(of: toolCall.partialOutput) {
-                                    proxy.scrollTo("bottom", anchor: .bottom)
-                                }
-                            }
+                            Text(toolCall.partialOutput)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
                         }
+                        .defaultScrollAnchor(.bottom)
                         .frame(maxHeight: 200)
                         .padding(VSpacing.sm)
                         .background(VColor.background.opacity(0.6))
