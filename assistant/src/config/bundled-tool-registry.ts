@@ -68,15 +68,14 @@ import * as followupResolve from "./bundled-skills/followups/tools/followup-reso
 // ── gmail ──────────────────────────────────────────────────────────────────────
 import * as gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
 import * as gmailArchiveByQuery from "./bundled-skills/gmail/tools/gmail-archive-by-query.js";
+import * as gmailAttachments from "./bundled-skills/gmail/tools/gmail-attachments.js";
 import * as gmailBatchArchive from "./bundled-skills/gmail/tools/gmail-batch-archive.js";
 import * as gmailBatchLabel from "./bundled-skills/gmail/tools/gmail-batch-label.js";
-import * as gmailDownloadAttachment from "./bundled-skills/gmail/tools/gmail-download-attachment.js";
 import * as gmailDraft from "./bundled-skills/gmail/tools/gmail-draft.js";
 import * as gmailFilters from "./bundled-skills/gmail/tools/gmail-filters.js";
 import * as gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js";
 import * as gmailForward from "./bundled-skills/gmail/tools/gmail-forward.js";
 import * as gmailLabel from "./bundled-skills/gmail/tools/gmail-label.js";
-import * as gmailListAttachments from "./bundled-skills/gmail/tools/gmail-list-attachments.js";
 import * as gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-outreach-scan.js";
 import * as gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
 import * as gmailSendWithAttachments from "./bundled-skills/gmail/tools/gmail-send-with-attachments.js";
@@ -302,6 +301,27 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["media-processing:tools/analyze-keyframes.ts", analyzeKeyframes],
   ["media-processing:tools/query-media-events.ts", queryMediaEvents],
   ["media-processing:tools/generate-clip.ts", generateClip],
+
+  // gmail
+  ["gmail:tools/gmail-archive.ts", gmailArchive],
+  ["gmail:tools/gmail-batch-archive.ts", gmailBatchArchive],
+  ["gmail:tools/gmail-archive-by-query.ts", gmailArchiveByQuery],
+  ["gmail:tools/gmail-label.ts", gmailLabel],
+  ["gmail:tools/gmail-batch-label.ts", gmailBatchLabel],
+  ["gmail:tools/gmail-trash.ts", gmailTrash],
+  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
+  ["gmail:tools/gmail-draft.ts", gmailDraft],
+  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
+  ["gmail:tools/gmail-attachments.ts", gmailAttachments],
+  ["gmail:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
+  ["gmail:tools/gmail-forward.ts", gmailForward],
+  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
+  ["gmail:tools/gmail-triage.ts", gmailTriage],
+  ["gmail:tools/gmail-filters.ts", gmailFilters],
+  ["gmail:tools/gmail-vacation.ts", gmailVacation],
+  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
+  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
+  ["gmail:tools/google-contacts.ts", googleContacts],
 
   // messaging
   ["messaging:tools/messaging-auth-test.ts", messagingAuthTest],
