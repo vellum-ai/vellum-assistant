@@ -782,3 +782,82 @@ describe("validateManagedSkillId edge cases", () => {
     expect(validateManagedSkillId("a1.b2-c3_d4")).toBeNull();
   });
 });
+
+describe("YAML metadata round-trip", () => {
+  test("all vellum fields round-trip through write and load", () => {
+    // Create a managed skill with every vellum metadata field populated
+    createManagedSkill({
+      id: "yaml-roundtrip-all",
+      name: "Full Metadata Skill",
+      description: "Tests all vellum fields round-trip correctly",
+      bodyMarkdown: "Full metadata body.",
+      emoji: "🔬",
+      userInvocable: false,
+      disableModelInvocation: true,
+      includes: ["child-a", "child-b"],
+    });
+
+    // Load it back via loadSkillCatalog
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "yaml-roundtrip-all");
+    expect(skill).toBeDefined();
+
+    // Verify all fields are correctly preserved
+    expect(skill!.name).toBe("Full Metadata Skill");
+    expect(skill!.description).toBe(
+      "Tests all vellum fields round-trip correctly",
+    );
+    expect(skill!.emoji).toBe("🔬");
+    expect(skill!.userInvocable).toBe(false);
+    expect(skill!.disableModelInvocation).toBe(true);
+    expect(skill!.includes).toEqual(["child-a", "child-b"]);
+  });
+
+  test("hand-authored YAML nested metadata parses correctly", () => {
+    // Manually write a SKILL.md with YAML-style nested metadata matching
+    // the format used in skills/ directory (bundled skills format)
+    const skillDir = join(TEST_DIR, "skills", "yaml-nested-test");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: yaml-nested-skill",
+        "description: Hand-authored YAML nested metadata test",
+        'compatibility: "Designed for Vellum personal assistants"',
+        "metadata:",
+        '  emoji: "🧪"',
+        "  vellum:",
+        '    display-name: "YAML Nested Skill"',
+        "    user-invocable: false",
+        "    disable-model-invocation: true",
+        "    os:",
+        `      - "${process.platform}"`,
+        "    includes:",
+        '      - "child-a"',
+        '      - "child-b"',
+        "---",
+        "",
+        "Hand-authored body content.",
+        "",
+      ].join("\n"),
+    );
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "yaml-nested-test");
+    expect(skill).toBeDefined();
+
+    // Verify all nested vellum fields are correctly parsed
+    expect(skill!.name).toBe("yaml-nested-skill");
+    expect(skill!.description).toBe("Hand-authored YAML nested metadata test");
+    expect(skill!.displayName).toBe("YAML Nested Skill");
+    expect(skill!.userInvocable).toBe(false);
+    expect(skill!.disableModelInvocation).toBe(true);
+    expect(skill!.emoji).toBe("🧪");
+    expect(skill!.includes).toEqual(["child-a", "child-b"]);
+
+    // Verify os is parsed into metadata
+    expect(skill!.metadata).toBeDefined();
+    expect(skill!.metadata!.os).toEqual([process.platform]);
+  });
+});
