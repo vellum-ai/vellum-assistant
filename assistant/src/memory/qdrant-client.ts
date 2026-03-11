@@ -115,8 +115,9 @@ export class VellumQdrantClient {
             await this.client.deleteCollection(this.collection);
             // Fall through to collection creation below
           } else {
-            await this.ensurePayloadIndexesSafe();
-            this.collectionReady = true;
+            if (await this.ensurePayloadIndexesSafe()) {
+              this.collectionReady = true;
+            }
             return;
           }
         } catch (err) {
@@ -124,8 +125,9 @@ export class VellumQdrantClient {
             { err },
             "Failed to verify collection compatibility, assuming compatible",
           );
-          await this.ensurePayloadIndexesSafe();
-          this.collectionReady = true;
+          if (await this.ensurePayloadIndexesSafe()) {
+            this.collectionReady = true;
+          }
           return;
         }
       }
@@ -169,21 +171,22 @@ export class VellumQdrantClient {
         "status" in err &&
         (err as { status: number }).status === 409
       ) {
-        await this.ensurePayloadIndexesSafe();
-        this.collectionReady = true;
+        if (await this.ensurePayloadIndexesSafe()) {
+          this.collectionReady = true;
+        }
         return;
       }
       throw err;
     }
 
-    await this.ensurePayloadIndexesSafe();
+    if (await this.ensurePayloadIndexesSafe()) {
+      // Write sentinel point to record the active embedding model
+      if (this.embeddingModel) {
+        await this.writeSentinel(this.embeddingModel);
+      }
 
-    // Write sentinel point to record the active embedding model
-    if (this.embeddingModel) {
-      await this.writeSentinel(this.embeddingModel);
+      this.collectionReady = true;
     }
-
-    this.collectionReady = true;
     log.info(
       { collection: this.collection },
       "Qdrant collection created with payload indexes",
@@ -305,7 +308,10 @@ export class VellumQdrantClient {
               { key: "status", match: { value: "active" } },
             ],
           },
-          { key: "target_type", match: { any: ["segment", "summary", "media"] } },
+          {
+            key: "target_type",
+            match: { any: ["segment", "summary", "media"] },
+          },
         ],
       });
     }
@@ -417,13 +423,14 @@ export class VellumQdrantClient {
    * our existence check and index creation) resets collectionReady instead
    * of propagating — the next operation will self-heal via ensureCollection.
    */
-  private async ensurePayloadIndexesSafe(): Promise<void> {
+  private async ensurePayloadIndexesSafe(): Promise<boolean> {
     try {
       await this.ensurePayloadIndexes();
+      return true;
     } catch (err) {
       if (this.isCollectionMissing(err)) {
         this.collectionReady = false;
-        return;
+        return false;
       }
       throw err;
     }
