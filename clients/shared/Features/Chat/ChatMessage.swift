@@ -1356,7 +1356,7 @@ public struct ChatAttachment: Identifiable {
     /// (e.g. recordings) where the file lives on the same Mac as the client.
     public let filePath: String?
 
-    /// Whether this attachment's binary data was omitted to keep the IPC payload small.
+    /// Whether this attachment's binary data was omitted to keep the payload small.
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 

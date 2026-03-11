@@ -1,4 +1,4 @@
-// Originally auto-generated from IPC contract types. Now maintained manually.
+// Originally auto-generated from message contract types. Now maintained manually.
 //
 // This file contains Swift Codable DTOs derived from the message-types contract.
 // The discriminated union enums (ClientMessage/ServerMessage) remain
@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - Generated IPC types
+// MARK: - Generated message types
 
 public struct IPCAcceptStarterBundle: Codable, Sendable {
     public let type: String
@@ -5622,7 +5622,7 @@ public struct IPCVercelApiConfigResponse: Codable, Sendable {
     }
 }
 
-/// Request from a session or IPC client to change the voice activation key.
+/// Request from a session or client to change the voice activation key.
 public struct IPCVoiceConfigUpdateRequest: Codable, Sendable {
     public let type: String
     /// The desired activation key (enum value or natural-language name).

@@ -100,7 +100,7 @@ final class AmbientAgentManager: ObservableObject {
         summaryTask?.cancel()
         summaryTask = nil
 
-        // iOS sends the ride_shotgun_start IPC message to the Mac daemon,
+        // iOS sends the ride_shotgun_start message to the Mac daemon,
         // which owns screen capture. The daemon will send back progress and
         // result messages over the same SSE connection.
         let session = RideShotgunSession(durationSeconds: durationSeconds)

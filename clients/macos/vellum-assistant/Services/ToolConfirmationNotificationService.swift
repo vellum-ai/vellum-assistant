@@ -72,7 +72,7 @@ public final class ToolConfirmationNotificationService {
 
     /// Called when the inline chat path already sent the confirmation response
     /// to the daemon. Resumes the continuation with a sentinel so that
-    /// `setupToolConfirmationNotifications` skips the duplicate IPC send.
+    /// `setupToolConfirmationNotifications` skips the duplicate send.
     public func handleInlineResponse(requestId: String) {
         guard let continuation = pendingRequests.removeValue(forKey: requestId) else {
             log.warning("No pending request for inline response: requestId=\(requestId, privacy: .public)")

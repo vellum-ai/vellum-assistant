@@ -67,7 +67,7 @@ extension DaemonClient {
 
         do {
             try await transport.connect()
-            isAuthenticated = true  // HTTP transport uses bearer token, no IPC auth needed
+            isAuthenticated = true  // HTTP transport uses bearer token, no additional auth needed
             isConnecting = false
             log.info("connect: transport connected successfully to \(baseURL, privacy: .public), SSE should be running")
         } catch {

@@ -316,7 +316,7 @@ extension ChatViewModel {
         return nil
     }
 
-    /// Map IPC attachment DTOs to ChatAttachment values, generating thumbnails for images.
+    /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
     func mapIPCAttachments(_ ipcAttachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
         ipcAttachments.compactMap { ipc in
             let id = ipc.id ?? UUID().uuidString
@@ -978,7 +978,7 @@ extension ChatViewModel {
         case .error(let err):
             log.error("Server error: \(err.message, privacy: .private)")
             // Only process errors relevant to this chat session. Generic daemon
-            // errors (e.g., IPC validation failures from unrelated message types
+            // errors (e.g., validation failures from unrelated message types
             // like work_item_delete) should not pollute the chat UI.
             guard isSending || isThinking || isCancelling || currentAssistantMessageId != nil || isWorkspaceRefinementInFlight else {
                 return
@@ -1045,7 +1045,7 @@ extension ChatViewModel {
                     } else if let blockedUserMessage {
                         secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct IPC attachments from the blocked user message's ChatAttachments
+                    // Reconstruct attachments from the blocked user message's ChatAttachments
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
                         secretBlockedAttachments = blockedUserMessage.attachments.map {
                             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)

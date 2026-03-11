@@ -319,7 +319,7 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     // MARK: - Actions
 
-    /// Build input from fields, send a simulate request via IPC, and update result state.
+    /// Build input from fields, send a simulate request via HTTP, and update result state.
     func simulate() {
         lastError = nil
         lastResult = nil
@@ -329,7 +329,7 @@ final class ToolPermissionTesterModel: ObservableObject {
 
         // Capture form values now so the snapshot reflects the state at
         // request time, not at response time (the user may edit the form
-        // while the IPC round-trip is in flight).
+        // while the HTTP round-trip is in flight).
         pendingSnapshotToolName = toolName
         pendingSnapshotInputJSON = buildInputJSONString()
 
@@ -356,21 +356,21 @@ final class ToolPermissionTesterModel: ObservableObject {
         }
     }
 
-    /// Local-only: mark the simulation result as "allowed" without touching IPC.
+    /// Local-only: mark the simulation result as "allowed" without touching the daemon.
     func allowOnce() {
         guard var result = lastResult else { return }
         result.localOverrideLabel = "Allowed (simulation)"
         lastResult = result
     }
 
-    /// Local-only: mark the simulation result as "denied" without touching IPC.
+    /// Local-only: mark the simulation result as "denied" without touching the daemon.
     func denyOnce() {
         guard var result = lastResult else { return }
         result.localOverrideLabel = "Denied (simulation)"
         lastResult = result
     }
 
-    /// Persist a trust rule via IPC, then re-simulate to show updated decision.
+    /// Persist a trust rule via HTTP, then re-simulate to show updated decision.
     ///
     /// Uses the snapshot captured at simulation time so the persisted rule
     /// matches the context that produced the prompt, not whatever the user

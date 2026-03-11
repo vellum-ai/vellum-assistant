@@ -93,7 +93,7 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 
 // MARK: - Helpers
 
-/// Build an IPCSessionListResponse via JSON round-trip.
+/// Build a SessionListResponseMessage via JSON round-trip.
 private func makeSessionListResponse(sessions: [(id: String, title: String, createdAt: Int, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
     let sessionDicts = sessions.map { session -> [String: Any] in
         var dict: [String: Any] = ["id": session.id, "title": session.title, "createdAt": session.createdAt, "updatedAt": session.updatedAt]
@@ -136,7 +136,7 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, upda
     makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, nil, nil) })
 }
 
-/// Build an IPCHistoryResponse via JSON round-trip.
+/// Build a HistoryResponseMessage via JSON round-trip.
 private func makeHistoryResponse(sessionId: String, messages: [(role: String, text: String)], hasMore: Bool = false) -> HistoryResponseMessage {
     let msgDicts = messages.map { msg -> [String: Any] in
         ["role": msg.role, "text": msg.text, "timestamp": 1000.0]
@@ -146,7 +146,7 @@ private func makeHistoryResponse(sessionId: String, messages: [(role: String, te
     return try! JSONDecoder().decode(HistoryResponseMessage.self, from: data)
 }
 
-/// Build an IPCSessionTitleUpdated via JSON round-trip.
+/// Build a SessionTitleUpdatedMessage via JSON round-trip.
 private func makeSessionTitleUpdated(sessionId: String, title: String) -> SessionTitleUpdatedMessage {
     let dict: [String: Any] = ["type": "session_title_updated", "sessionId": sessionId, "title": title]
     let data = try! JSONSerialization.data(withJSONObject: dict)

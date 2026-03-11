@@ -136,7 +136,7 @@ extension AppDelegate {
         }
         voiceInput?.start()
 
-        // Restart key monitors when the activation key is changed remotely via IPC
+        // Restart key monitors when the activation key is changed remotely via HTTP
         NotificationCenter.default.addObserver(
             forName: .activationKeyChanged,
             object: nil,

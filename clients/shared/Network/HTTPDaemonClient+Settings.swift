@@ -162,7 +162,7 @@ extension HTTPTransport {
                 return true
             }
             // ingress_config and platform_config do not have HTTP routes yet;
-            // they continue to use IPC-only handlers and are not dispatched here.
+            // they continue to use HTTP handlers and are not dispatched here.
             if let msg = message as? VercelApiConfigRequestMessage {
                 Task { await self.sendEncodablePost(.integrationsVercelConfig, body: msg, label: "vercel_api_config") }
                 return true
@@ -200,7 +200,7 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Workspace Files (legacy IPC) ---
+            // --- Workspace Files (legacy HTTP) ---
             if message is WorkspaceFilesListRequestMessage {
                 Task { await self.sendGenericPost(.workspaceFiles, method: "GET", label: "workspace_files_list") }
                 return true
@@ -256,7 +256,7 @@ extension HTTPTransport {
                 return
             }
 
-            // Wrap the HTTP response with the IPC envelope fields the router expects.
+            // Wrap the HTTP response with the envelope fields the router expects.
             guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 log.error("twitter_auth_status: unexpected response shape")
                 return

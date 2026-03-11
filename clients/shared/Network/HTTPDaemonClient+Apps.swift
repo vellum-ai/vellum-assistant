@@ -201,7 +201,7 @@ extension HTTPTransport {
                 }
             }
 
-            // REST returns { success, result, error? } — wrap into IPC envelope
+            // REST returns { success, result, error? } — wrap into HTTP envelope
             let rest = try decoder.decode(RESTAppDataResponse.self, from: data)
             let ipcResponse = IPCAppDataResponse(
                 type: "app_data_response",

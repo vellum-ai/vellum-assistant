@@ -10,7 +10,7 @@ import Foundation
 // ┌─────────────────────────────────┬──────────────────────────────────────────┐
 // │ Type                            │ Reason                                   │
 // ├─────────────────────────────────┼──────────────────────────────────────────┤
-// │ AnyCodable                      │ Infrastructure — not an IPC message type │
+// │ AnyCodable                      │ Infrastructure — not a message type      │
 // │ UiSurfaceShowMessage            │ Uses AnyCodable for `data` field and     │
 // │                                 │ custom SurfaceActionData array; the      │
 // │                                 │ contract type is skipped (SKIP_TYPES)    │
@@ -958,7 +958,7 @@ public struct UiSurfaceCompleteMessage: Decodable, Sendable {
     public let submittedData: [String: AnyCodable]?
 }
 
-/// Document editor messages — backed by generated types from IPC contract.
+/// Document editor messages — backed by generated types from the message contract.
 public typealias DocumentEditorShowMessage = IPCDocumentEditorShow
 public typealias DocumentEditorUpdateMessage = IPCDocumentEditorUpdate
 public typealias DocumentSaveRequestMessage = IPCDocumentSaveRequest
@@ -1130,7 +1130,7 @@ extension IPCWorkspaceFilesListResponseFile: Identifiable {
 /// Response containing a workspace file's content.
 public typealias WorkspaceFileReadResponseMessage = IPCWorkspaceFileReadResponse
 
-/// Request to fetch assistant identity info via IPC.
+/// Request to fetch assistant identity info via HTTP.
 public typealias IdentityGetRequestMessage = IPCIdentityGetRequest
 
 extension IPCIdentityGetRequest {
@@ -1664,7 +1664,7 @@ public typealias UnpublishPageResponseMessage = IPCUnpublishPageResponse
 // MARK: - Push Notification Device Token (Manual)
 
 /// Sent to register an APNS device token so the daemon can route push notifications.
-/// Kept hand-maintained — not yet part of the generated IPC contract.
+/// Kept hand-maintained — not yet part of the generated message contract.
 public struct RegisterDeviceTokenMessage: Encodable, Sendable {
     public let type: String = "register_device_token"
     public let token: String
@@ -1854,7 +1854,7 @@ extension IPCTelegramConfigRequest {
 /// Backed by generated `IPCTelegramConfigResponse`.
 public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
 
-// MARK: - Twilio Number Models (standalone, no IPC dependency)
+// MARK: - Twilio Number Models (standalone, no generated-type dependency)
 
 /// Capabilities of a Twilio phone number.
 public struct TwilioNumberCapabilities: Codable, Sendable {

@@ -73,9 +73,9 @@ public final class ChatMessageManager: ObservableObject {
 
     // MARK: - Model / provider
 
-    /// The currently active model ID, updated via `model_info` IPC messages.
+    /// The currently active model ID, updated via `model_info` messages.
     @Published public var selectedModel: String = "claude-opus-4-6"
-    /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
+    /// Set of provider keys with configured API keys, updated via `model_info` messages.
     @Published public var configuredProviders: Set<String> = ["anthropic"]
 
 }

@@ -17,7 +17,7 @@ private let kPendingKeyDeletionTombstones = "pendingKeyDeletionTombstones"
 public final class SettingsStore: ObservableObject {
     // MARK: - Navigation
 
-    /// Set externally (e.g. via IPC) to deep-link into a specific settings tab.
+    /// Set externally (e.g. via HTTP) to deep-link into a specific settings tab.
     /// SettingsPanel observes this and clears it after applying.
     @Published var pendingSettingsTab: SettingsTab?
 
@@ -262,12 +262,12 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config.
-    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by IPC.
+    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by HTTP.
     @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
         connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
     )
 
-    /// Set to `true` once the first ingress config IPC response arrives, so the
+    /// Set to `true` once the first ingress config response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
     @Published var ingressConfigLoaded: Bool = false
 
@@ -304,7 +304,7 @@ public final class SettingsStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
-    /// Guards against stale IPC `get` responses overwriting an optimistic
+    /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
     /// response arrives.
     private var pendingIngressEnabled: Bool?
@@ -489,7 +489,7 @@ public final class SettingsStore: ObservableObject {
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)
 
-        // Wire up Vercel API config IPC response
+        // Wire up Vercel API config response
         daemonClient?.onVercelApiConfigResponse = { [weak self] response in
             guard let self else { return }
             if response.success {
@@ -497,7 +497,7 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up model info IPC response
+        // Wire up model info response
         daemonClient?.onModelInfo = { [weak self] response in
             guard let self else { return }
             self.lastDaemonModel = response.model
@@ -507,7 +507,7 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up Twitter integration config IPC response
+        // Wire up Twitter integration config response
         daemonClient?.onTwitterIntegrationConfigResponse = { [weak self] response in
             guard let self else { return }
             if response.success {
@@ -520,7 +520,7 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up ingress config IPC response
+        // Wire up ingress config response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
             guard let self else { return }
             // For remote assistants, prefer the lockfile's runtimeUrl because the
@@ -561,7 +561,7 @@ public final class SettingsStore: ObservableObject {
             self.ingressConfigLoaded = true
         }
 
-        // Wire up platform config IPC response
+        // Wire up platform config response
         daemonClient?.onPlatformConfigResponse = { [weak self] response in
             guard let self else { return }
             if response.success {
@@ -580,7 +580,7 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up Twitter auth result IPC response
+        // Wire up Twitter auth result response
         daemonClient?.onTwitterAuthResult = { [weak self] response in
             guard let self else { return }
             self.twitterAuthInProgress = false
@@ -596,7 +596,7 @@ public final class SettingsStore: ObservableObject {
             self.refreshTwitterStatus()
         }
 
-        // Wire up Telegram config IPC response
+        // Wire up Telegram config response
         daemonClient?.onTelegramConfigResponse = { [weak self] response in
             guard let self else { return }
             self.telegramSaveInProgress = false
@@ -611,9 +611,9 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Twilio config is now handled via HTTP — no IPC callback wiring needed.
+        // Twilio config is now handled via HTTP — no callback wiring needed.
 
-        // Wire up channel verification IPC response
+        // Wire up channel verification response
         daemonClient?.onChannelVerificationSessionResponse = { [weak self] response in
             guard let self else { return }
             guard let channel = self.resolveVerificationResponseChannel(response.channel) else { return }
@@ -2417,7 +2417,7 @@ public final class SettingsStore: ObservableObject {
         do {
             try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: shouldEnable))
         } catch {
-            // IPC send failed — roll back the optimistic update
+            // Send failed — roll back the optimistic update
             ingressPublicBaseUrl = previous
             pendingIngressUrl = nil
             ingressReachable = previousReachable
@@ -2502,7 +2502,7 @@ public final class SettingsStore: ObservableObject {
         do {
             try daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
         } catch {
-            // IPC failed — restore optimistically removed devices
+            // Send failed — restore optimistically removed devices
             approvedDevices.append(contentsOf: removed)
         }
     }
@@ -2513,7 +2513,7 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendApprovedDevicesClear()
             approvedDevices = []
         } catch {
-            // IPC failed — don't clear local state
+            // Send failed — don't clear local state
         }
     }
 

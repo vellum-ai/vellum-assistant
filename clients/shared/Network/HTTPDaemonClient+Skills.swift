@@ -5,7 +5,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 // MARK: - Skills Domain Dispatcher
 
-/// Registers a domain dispatcher that translates skill-related IPC message
+/// Registers a domain dispatcher that translates skill-related message
 /// types into HTTP API calls. Handles:
 ///   skills_list, skills_enable, skills_disable, skills_configure,
 ///   skills_install, skills_uninstall, skills_update, skills_check_updates,

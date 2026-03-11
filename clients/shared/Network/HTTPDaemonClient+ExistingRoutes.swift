@@ -5,7 +5,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 // MARK: - Existing HTTP Route Dispatchers
 
-/// Registers domain dispatchers for the ~29 already-migrated IPC message types
+/// Registers domain dispatchers for the ~29 already-migrated message types
 /// that are transported over HTTP (user_message, confirmation_response, etc.).
 /// This keeps the main `send()` method thin and extensible — new domain
 /// dispatchers can be added in separate extension files without modifying the

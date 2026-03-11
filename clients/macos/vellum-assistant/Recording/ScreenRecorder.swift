@@ -413,7 +413,7 @@ final class ScreenRecorder: NSObject {
     private var telemetryDisplayID: UInt32?
 
     /// Callback invoked when the SCStream stops with an error mid-recording.
-    /// RecordingManager sets this to react to stream failures (update state, send IPC, clean up).
+    /// RecordingManager sets this to react to stream failures (update state, notify daemon, clean up).
     var onStreamError: ((RecorderError) -> Void)?
 
     /// When true, incoming sample buffers are silently dropped instead of being

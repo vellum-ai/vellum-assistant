@@ -235,12 +235,12 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.dismissedDocumentSurfaceIds }
         set { messageManager.dismissedDocumentSurfaceIds = newValue }
     }
-    /// The currently active model ID, updated via `model_info` IPC messages.
+    /// The currently active model ID, updated via `model_info` messages.
     public var selectedModel: String {
         get { messageManager.selectedModel }
         set { messageManager.selectedModel = newValue }
     }
-    /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
+    /// Set of provider keys with configured API keys, updated via `model_info` messages.
     public var configuredProviders: Set<String> {
         get { messageManager.configuredProviders }
         set { messageManager.configuredProviders = newValue }
@@ -377,7 +377,7 @@ public final class ChatViewModel: ObservableObject {
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
     /// Thread type sent with `session_create` (e.g. "private").
-    /// Set by `createSessionIfNeeded(threadType:)` and included in the IPC
+    /// Set by `createSessionIfNeeded(threadType:)` and included in the
     /// message so the daemon can persist the correct thread kind.
     public var threadType: String?
     /// Skill IDs to pre-activate in the session. Included in the
@@ -1330,7 +1330,7 @@ public final class ChatViewModel: ObservableObject {
             // task reference, which would cause duplicate subscriptions.
             if self?.messageLoopGeneration == generation {
                 self?.messageLoopTask = nil
-                // Reset spinner state — if IPC drops mid-turn the client
+                // Reset spinner state — if the connection drops mid-turn the client
                 // never receives message_complete, leaving the UI stuck.
                 self?.isThinking = false
                 self?.isSending = false
@@ -1389,7 +1389,7 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Model
 
-    /// Switch the active model via the daemon's `model_set` IPC command.
+    /// Switch the active model via the daemon's `model_set` command.
     public func setModel(_ modelId: String) {
         // Ensure the message loop is running so we receive the model_info response.
         // VMs restored with an existing sessionId may not have started it yet.
@@ -1988,7 +1988,7 @@ public final class ChatViewModel: ObservableObject {
             return
         }
         // Send the response to the daemon first, then update UI state only on success.
-        // This prevents the UI from showing a finalized decision when the IPC
+        // This prevents the UI from showing a finalized decision when the
         // message was never delivered (e.g. daemon disconnected).
         do {
             try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil))
@@ -1997,7 +1997,7 @@ public final class ChatViewModel: ObservableObject {
             errorText = "Failed to send confirmation response."
             return
         }
-        // IPC send succeeded — update the message state
+        // Send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_thread"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
@@ -2012,7 +2012,7 @@ public final class ChatViewModel: ObservableObject {
     /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
     /// so the backend atomically persists the trust rule alongside the confirmation response.
     /// If the daemon is disconnected, shows an error without attempting a fallback (since
-    /// respondToConfirmation would also fail). On IPC send errors, attempts a one-time allow
+    /// respondToConfirmation would also fail). On send errors, attempts a one-time allow
     /// fallback and only claims success if the fallback actually went through.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         guard daemonClient.isConnected else {
@@ -2023,7 +2023,7 @@ public final class ChatViewModel: ObservableObject {
         do {
             try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
         } catch {
-            log.warning("Always-allow IPC failed: \(error.localizedDescription)")
+            log.warning("Always-allow send failed: \(error.localizedDescription)")
             // Try one-time allow as fallback (daemon may still be connected)
             respondToConfirmation(requestId: requestId, decision: "allow")
             // respondToConfirmation sets errorText on failure; override with more context if it succeeded
@@ -2033,7 +2033,7 @@ public final class ChatViewModel: ObservableObject {
             }
             return
         }
-        // IPC send succeeded — update the message state
+        // Send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             messages[index].confirmation?.state = .approved
             messages[index].confirmation?.approvedDecision = decision
@@ -2059,7 +2059,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Send an add_trust_rule message to persist a trust rule.
-    /// Returns `true` if the IPC send succeeded, `false` otherwise.
+    /// Returns `true` if the send succeeded, `false` otherwise.
     public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
         guard daemonClient.isConnected else {
             log.warning("Cannot send add_trust_rule: daemon not connected")

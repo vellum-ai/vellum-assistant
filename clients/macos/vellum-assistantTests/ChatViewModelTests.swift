@@ -2031,7 +2031,7 @@ final class ChatViewModelTests: XCTestCase {
     func testRetryButtonAppearsForNonConnectionSendFailure() {
         viewModel.sessionId = "sess-1"
         daemonClient.isConnected = true
-        // Make the IPC send throw to simulate a non-connection send failure
+        // Make the send throw to simulate a non-connection send failure
         // (e.g. socket write error while technically connected).
         daemonClient.sendOverride = { _ in throw NSError(domain: "test", code: 1) }
 

@@ -690,7 +690,7 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
-                // Full message from daemon live IPC (AppDelegate path)
+                // Full message from daemon live event (AppDelegate path)
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
                 // Determine the app ID from the surface if available
@@ -705,7 +705,7 @@ struct MainWindowView: View {
                 }
             } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
                 // Lightweight ref from inline surface click — the daemon will
-                // send a fresh ui_surface_show via live IPC with the full payload.
+                // send a fresh ui_surface_show via SSE with the full payload.
                 // Use the real appId for the app_open_request when available,
                 // because surfaceId is a daemon-generated identifier
                 // (e.g. "app-open-<uuid>") that doesn't match any real app.

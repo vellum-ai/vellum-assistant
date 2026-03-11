@@ -1239,7 +1239,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Mark all visible (non-archived, non-private) threads as seen locally.
-    /// IPC signals are NOT sent immediately — call `commitPendingSeenSignals()`
+    /// Seen signals are NOT sent immediately — call `commitPendingSeenSignals()`
     /// after the undo window expires, or `cancelPendingSeenSignals()` if the
     /// user clicks Undo. Returns the IDs of threads that were actually marked.
     @discardableResult
@@ -1279,7 +1279,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return markedIds
     }
 
-    /// Send the deferred IPC seen signals that were collected by
+    /// Send the deferred seen signals that were collected by
     /// `markAllThreadsSeen()`. Called when the undo window expires
     /// (toast dismissed or auto-dismiss timer fires).
     internal func commitPendingSeenSignals() {
@@ -1293,14 +1293,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
-    /// Cancel any pending IPC seen signals (user clicked Undo).
+    /// Cancel any pending seen signals (user clicked Undo).
     internal func cancelPendingSeenSignals() {
         pendingSeenSessionIds = []
         pendingSeenSignalTask?.cancel()
         pendingSeenSignalTask = nil
     }
 
-    /// Schedule deferred IPC seen signals to fire after a delay.
+    /// Schedule deferred seen signals to fire after a delay.
     /// If the user clicks Undo before the delay, call
     /// `cancelPendingSeenSignals()` to prevent them from sending.
     /// The optional `onCommit` closure is called after the signals are sent,
@@ -1316,7 +1316,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Restore the unseen flag for the given thread IDs and cancel any
-    /// pending IPC seen signals (used by undo). Restores prior
+    /// pending seen signals (used by undo). Restores prior
     /// `lastSeenAssistantMessageAt` and `pendingAttentionOverrides`
     /// values captured by `markAllThreadsSeen()` instead of blindly
     /// clearing them.
@@ -1357,7 +1357,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     // MARK: - Private
 
-    /// Send a `conversation_seen_signal` IPC message to the daemon.
+    /// Send a `conversation_seen_signal` message to the daemon.
     private func emitConversationSeenSignal(conversationId: String) {
         let signal = IPCConversationSeenSignal(
             conversationId: conversationId,
@@ -1839,7 +1839,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// For the active thread, the seen signal is only emitted on meaningful
     /// transitions — when a new assistant message first appears (new messageId)
     /// or when streaming completes (isStreaming goes from true to false). This
-    /// avoids O(n) IPC calls per streaming response (one per text delta) while
+    /// avoids O(n) HTTP calls per streaming response (one per text delta) while
     /// still advancing the server-side seen cursor.
     private func handleAssistantMessageArrival(threadId: UUID, previousSnapshot: AssistantActivitySnapshot?, currentSnapshot: AssistantActivitySnapshot) {
         // Skip during thread restoration or history re-hydration —
@@ -1862,7 +1862,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
-            // Only emit the IPC seen signal on meaningful transitions:
+            // Only emit the seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming

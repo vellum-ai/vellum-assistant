@@ -284,7 +284,7 @@ extension AppDelegate {
     /// Creates the thread in the sidebar and applies urgency surfacing policy.
     /// Guardian questions are time-sensitive, so they are foregrounded when the
     /// app is active. All notification types get a fallback native alert when
-    /// backgrounded to guarantee delivery if the notification_intent IPC is late.
+    /// backgrounded to guarantee delivery if the notification_intent event is late.
     func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
         // Guardian scoping: skip thread creation for notifications targeted at
         // a different guardian identity. When the local principal is nil (not yet

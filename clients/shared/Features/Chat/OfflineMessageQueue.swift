@@ -28,7 +28,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
         }
     }
 
-    /// Reconstruct the IPC attachment list for dispatch.
+    /// Reconstruct the attachment list for dispatch.
     var ipcAttachments: [IPCAttachment]? {
         guard !attachments.isEmpty else { return nil }
         return attachments.map {

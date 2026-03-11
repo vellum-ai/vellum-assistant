@@ -142,7 +142,7 @@ extension AppDelegate {
 
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
                 // If the inline chat path already forwarded the response, skip
-                // the duplicate IPC send and state update.
+                // the duplicate send and state update.
                 guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                     return
                 }
@@ -151,7 +151,7 @@ extension AppDelegate {
                         requestId: msg.requestId,
                         decision: decision
                     )
-                    // Only sync the inline message state if the IPC send succeeded.
+                    // Only sync the inline message state if the send succeeded.
                     self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
                         requestId: msg.requestId,
                         decision: decision

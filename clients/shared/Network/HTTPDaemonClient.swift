@@ -97,7 +97,7 @@ public struct WorkspaceFileResponse: Codable, Sendable {
 /// Responsibilities:
 /// - Periodic health check via `GET /healthz` to drive connection status
 /// - SSE stream connection to `GET /v1/events?conversationKey=...` (on demand)
-/// - Translating IPC message types to HTTP API calls
+/// - Translating message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
 @MainActor
 public final class HTTPTransport {
@@ -409,7 +409,7 @@ public final class HTTPTransport {
         // Link Open
         case linkOpen
 
-        // Workspace Files (legacy IPC)
+        // Workspace Files (legacy HTTP)
         case workspaceFiles
         case workspaceFilesRead
 
@@ -806,7 +806,7 @@ public final class HTTPTransport {
         // Link Open
         case .linkOpen:
             return ("/v1/link/open", nil)
-        // Workspace Files (legacy IPC)
+        // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("/v1/workspace-files", nil)
         case .workspaceFilesRead:
@@ -1187,7 +1187,7 @@ public final class HTTPTransport {
         // Link Open
         case .linkOpen:
             return ("\(prefix)/link/open/", nil)
-        // Workspace Files (legacy IPC)
+        // Workspace Files (legacy HTTP)
         case .workspaceFiles:
             return ("\(prefix)/workspace-files/", nil)
         case .workspaceFilesRead:
@@ -1475,7 +1475,7 @@ public final class HTTPTransport {
 
     // MARK: - Send (HTTP API Calls)
 
-    /// Translate an IPC message to the appropriate HTTP API call.
+    /// Translate a message to the appropriate HTTP API call.
     /// Domain dispatchers are tried in registration order; the first match wins.
     /// If no dispatcher handles the message, it falls through to a default log.
     func send<T: Encodable>(_ message: T) throws {
@@ -2668,7 +2668,7 @@ public final class HTTPTransport {
             // The runtime's /v1/messages endpoint returns messages with `content`
             // (string) and `timestamp` (ISO 8601 string), but IPCHistoryResponseMessage
             // expects `text` and `timestamp` as a Double (ms since epoch). Transform
-            // the response to match the expected IPC format.
+            // the response to match the expected message format.
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let messages = json["messages"] as? [[String: Any]] {
@@ -3869,7 +3869,7 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 200 {
-                // The HTTP route returns { data: ... }. The IPC handler emits
+                // The HTTP route returns { data: ... }. The handler emits
                 // skills_operation_response with operation: "search".
                 // Try to decode the `data` field as ClawhubSearchData.
                 var searchData: ClawhubSearchData?
@@ -4041,7 +4041,7 @@ public final class HTTPTransport {
     }
 
     /// Inject a `"type"` field into a JSON response before decoding.
-    /// HTTP endpoints return raw payloads without the IPC `type` discriminator.
+    /// HTTP endpoints return raw payloads without the `type` discriminator.
     /// This helper patches the JSON so existing Codable types (which expect
     /// `type`) can decode unchanged.
     private func injectType(_ typeValue: String, into data: Data) -> Data {

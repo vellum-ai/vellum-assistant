@@ -5,7 +5,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 // MARK: - Session Domain Dispatcher
 
-/// Registers a domain dispatcher that translates session-related IPC message
+/// Registers a domain dispatcher that translates session-related message
 /// types into HTTP API calls. Handles:
 ///   session_switch, session_rename, sessions_clear, cancel, undo,
 ///   regenerate, model_get, model_set, image_gen_model_set,

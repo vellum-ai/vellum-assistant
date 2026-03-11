@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// ViewModel for the contacts list, providing daemon IPC integration
+/// ViewModel for the contacts list, providing daemon HTTP integration
 /// for loading and filtering contacts. Delegates data operations to
 /// the shared ContactsStore.
 @MainActor

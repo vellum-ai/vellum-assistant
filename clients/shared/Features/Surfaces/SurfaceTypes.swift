@@ -134,7 +134,7 @@ public enum FormFieldType: String, Sendable, Equatable {
 }
 
 /// A form field default value that can be a string, number, or boolean,
-/// matching the `string | number | boolean` union in ipc-protocol.ts.
+/// matching the `string | number | boolean` union in message-protocol.ts.
 public enum FormFieldDefault: Sendable, Equatable {
     case string(String)
     case number(Double)
@@ -154,7 +154,7 @@ public enum FormFieldDefault: Sendable, Equatable {
         }
     }
 
-    /// Parse from an untyped Any value coming from IPC JSON.
+    /// Parse from an untyped Any value coming from JSON.
     public static func from(_ value: Any?) -> FormFieldDefault? {
         guard let value = value else { return nil }
         // Check Bool before numeric types because Bool conforms to numeric protocols in Swift.
@@ -468,10 +468,10 @@ public struct Surface: Identifiable, Sendable {
     }
 }
 
-// MARK: - Parsing from IPC Messages
+// MARK: - Parsing from Messages
 
 public extension Surface {
-    /// Parse a `Surface` from a `UiSurfaceShowMessage` received over IPC.
+    /// Parse a `Surface` from a `UiSurfaceShowMessage` received from the daemon.
     /// The message carries an `AnyCodable` data payload whose shape depends on `surfaceType`.
     static func from(_ message: UiSurfaceShowMessage) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: message.surfaceType) else {
@@ -609,7 +609,7 @@ public extension Surface {
 
     /// Merge a partial update dict into existing `SurfaceData`, keeping fields that are not
     /// present in the update unchanged. This supports the `Partial<SurfaceData>` contract
-    /// from ipc-protocol.ts.
+    /// from message-protocol.ts.
     private static func mergeSurfaceData(existing: SurfaceData, update: [String: Any?]) -> SurfaceData? {
         switch existing {
         case .card(let card):

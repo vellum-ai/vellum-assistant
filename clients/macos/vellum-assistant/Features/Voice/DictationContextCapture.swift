@@ -5,7 +5,7 @@ import os
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "DictationContext")
 
 /// Context captured at Fn-hold activation time, describing the user's current app state.
-/// This is the Swift-side struct — it will be mapped to IPC types in M3.
+/// This is the Swift-side struct — it will be mapped to message types in M3.
 struct DictationContext {
     let bundleIdentifier: String
     let appName: String

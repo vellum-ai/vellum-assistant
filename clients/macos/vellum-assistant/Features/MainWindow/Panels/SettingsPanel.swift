@@ -32,9 +32,9 @@ enum SettingsTab: String {
         return tabs
     }
 
-    /// Maps legacy tab names (from IPC or saved state) to current tabs.
+    /// Maps legacy tab names (from HTTP or saved state) to current tabs.
     /// The `isDevMode` parameter gates dev-only tabs so external callers
-    /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
+    /// (e.g. daemon HTTP) cannot navigate to them when dev mode is off.
     static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false, sentryTestingEnabled: Bool = false) -> SettingsTab? {
         let tab: SettingsTab?
         // Try current values first

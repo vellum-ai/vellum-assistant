@@ -31,7 +31,7 @@ enum RecordingState: Equatable, Sendable {
 /// Centralized recording orchestration ensuring at most one active recording.
 ///
 /// Manages the recording lifecycle (start/stop), enforces the single-active
-/// guard, and sends `RecordingStatus` IPC messages back to the daemon.
+/// guard, and sends `RecordingStatus` messages back to the daemon.
 @MainActor
 final class RecordingManager: ObservableObject {
 
@@ -307,7 +307,7 @@ final class RecordingManager: ObservableObject {
         log.info("Force-stopped recording (synchronous cancel)")
     }
 
-    // MARK: - IPC
+    // MARK: - Daemon Communication
 
     private func sendStatus(
         sessionId: String,
