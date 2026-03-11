@@ -73,10 +73,6 @@ mock.module("../tools/browser/auto-navigate.js", () => ({
   autoNavigate: async () => [],
 }));
 
-mock.module("../tools/browser/x-auto-navigate.js", () => ({
-  navigateXPages: async () => [],
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
