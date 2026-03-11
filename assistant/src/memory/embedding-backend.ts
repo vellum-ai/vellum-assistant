@@ -548,6 +548,21 @@ function selectFallbackBackends(
   return backends;
 }
 
+/**
+ * Returns true when the currently resolved embedding backend supports
+ * multimodal inputs (images, audio, video). Today only Gemini does.
+ *
+ * This replaces the earlier heuristic that checked `auto + gemini key`,
+ * which was wrong because `auto` mode may resolve to a text-only backend
+ * (local, OpenAI) even when a Gemini key exists.
+ */
+export function selectedBackendSupportsMultimodal(
+  config: AssistantConfig,
+): boolean {
+  const { backend } = selectEmbeddingBackend(config);
+  return backend?.provider === "gemini";
+}
+
 function isOllamaConfigured(config: AssistantConfig): boolean {
   return (
     config.provider === "ollama" ||

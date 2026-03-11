@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb, rawExec } from "../db.js";
+import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { asString, BackendUnavailableError } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { extractMediaBlocks } from "../message-content.js";
@@ -53,16 +54,10 @@ export function rebuildIndexJob(): void {
     enqueueMemoryJob("embed_segment", { segmentId: segment.id });
   }
 
-  // Re-enqueue multimodal embedding jobs only when the embedding provider
-  // supports multimodal inputs (Gemini). Without this gate, embed_media and
-  // embed_attachment jobs would all fail for non-Gemini users.
-  const fullConfig = getConfig();
-  const embeddingProvider = fullConfig.memory.embeddings.provider;
-  const supportsMultimodal =
-    embeddingProvider === "gemini" ||
-    (embeddingProvider === "auto" && !!fullConfig.apiKeys.gemini);
-
-  if (supportsMultimodal) {
+  // Re-enqueue multimodal embedding jobs only when the resolved embedding
+  // backend supports multimodal inputs. Without this gate, embed_media and
+  // embed_attachment jobs would all fail for text-only backends.
+  if (selectedBackendSupportsMultimodal(getConfig())) {
     const assets = db
       .select({ id: mediaAssets.id })
       .from(mediaAssets)

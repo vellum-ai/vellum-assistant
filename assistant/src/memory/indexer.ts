@@ -7,6 +7,7 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
+import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import {
   enqueueMemoryJob,
   enqueueResolvePendingConflictsForMessageJob,
@@ -77,13 +78,9 @@ export function indexMessageNow(
   const shouldResolveConflicts =
     input.role === "user" && config.conflicts.enabled;
 
-  // Check if the embedding provider supports multimodal (only Gemini does).
-  // If so, scan for image blocks to enqueue embed_attachment jobs.
-  const embeddingProvider = config.embeddings.provider;
-  const fullConfig = getConfig();
-  const supportsMultimodal =
-    embeddingProvider === "gemini" ||
-    (embeddingProvider === "auto" && !!fullConfig.apiKeys.gemini);
+  // Check if the resolved embedding backend supports multimodal input.
+  // Only enqueue embed_attachment jobs when it does (currently Gemini only).
+  const supportsMultimodal = selectedBackendSupportsMultimodal(getConfig());
   const mediaBlocks = supportsMultimodal
     ? extractMediaBlocks(input.content).filter((b) => b.type === "image")
     : [];
