@@ -968,7 +968,6 @@ private struct MessageCellView: View {
     let configuredProviders: Set<String>
 
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
-    @State private var appearance = AvatarAppearanceManager.shared
 
     private func modelPickerView(for msg: ChatMessage) -> some View {
         ModelPickerBubble(
@@ -1055,8 +1054,6 @@ private struct MessageCellView: View {
                       conf.state != .pending else { return nil }
                 return conf
             }()
-
-            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
 
             ChatBubble(
                 message: message,
