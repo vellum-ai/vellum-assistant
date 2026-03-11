@@ -45,7 +45,6 @@ describe("Messaging skill split", () => {
     "gmail_draft",
     "gmail_send_draft",
     "gmail_attachments",
-    "gmail_send_with_attachments",
     "gmail_forward",
     "gmail_follow_up",
     "gmail_triage",

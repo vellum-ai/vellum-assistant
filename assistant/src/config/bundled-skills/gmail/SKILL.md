@@ -62,7 +62,7 @@ When a Gmail tool fails with a token or authorization error:
 ### Attachments
 
 - **Attachments**: `gmail_attachments` — list or download Gmail attachments. Use `action: "list"` to enumerate attachments on a message (returns filename, MIME type, size, and attachment ID), then `action: "download"` with `attachment_id` and `filename` to save a specific attachment to disk.
-- **Send with Attachments**: `gmail_send_with_attachments` — send an email with file attachments (reads files from disk, builds multipart MIME)
+- **Send with Attachments**: `messaging_send` with `attachment_paths` — create a Gmail draft with file attachments (reads files from disk, builds multipart MIME)
 
 Workflow: use `gmail_attachments` with `action: "list"` to discover attachments, then `gmail_attachments` with `action: "download"` to save them locally.
 
@@ -90,7 +90,7 @@ Gmail uses a **draft-first workflow**. All compose and reply tools create Gmail 
 - `messaging_send` (Gmail) → creates a draft in Gmail Drafts
 - `messaging_reply` (Gmail) → creates a threaded draft with reply-all recipients
 - `gmail_draft` → creates a draft
-- `gmail_send_with_attachments` → creates a draft with attachments
+- `messaging_send` with `attachment_paths` → creates a draft with attachments
 - `gmail_forward` → creates a forward draft
 
 **To actually send**: Use `gmail_send_draft` with the draft ID after the user has reviewed it. Only call `gmail_send_draft` when the user explicitly says "send it" or equivalent.
