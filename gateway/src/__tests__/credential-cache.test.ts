@@ -40,7 +40,7 @@ describe("CredentialCache", () => {
   test("returns the value from readCredential", async () => {
     const cache = new CredentialCache();
     const result = await cache.get(credentialKey("test", "key"));
-    expect(result).toBe("value-for-credential/test/key");
+    expect(result).toBe(`value-for-${credentialKey("test", "key")}`);
     expect(callCount).toBe(1);
   });
 

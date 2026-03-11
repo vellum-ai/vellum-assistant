@@ -112,9 +112,11 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
+import { credentialKey } from "../security/credential-key.js";
+
 const secureKeyStore: Record<string, string | undefined> = {
-  "credential/twilio/account_sid": "AC_test",
-  "credential/twilio/auth_token": "test_token",
+  [credentialKey("twilio", "account_sid")]: "AC_test",
+  [credentialKey("twilio", "auth_token")]: "test_token",
 };
 
 mock.module("../security/secure-keys.js", () => ({

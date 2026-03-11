@@ -2,8 +2,8 @@
 // Tracks request counts per key and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
-import type { HttpErrorResponse } from "../http-errors.js";
 import { getLogger } from "../../util/logger.js";
+import type { HttpErrorResponse } from "../http-errors.js";
 import { isPrivateAddress } from "./auth.js";
 
 const log = getLogger("rate-limiter");

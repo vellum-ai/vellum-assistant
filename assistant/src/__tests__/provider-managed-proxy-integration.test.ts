@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
 // Mock the underlying dependencies that the real context module relies on.
@@ -16,7 +17,7 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => {
-    if (key === "credential/vellum/assistant_api_key") {
+    if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
     return null;

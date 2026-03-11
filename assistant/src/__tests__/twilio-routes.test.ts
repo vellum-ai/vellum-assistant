@@ -47,12 +47,12 @@ function readMockTwilioAccountSid(): string | undefined {
   const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
   return (
     (twilio.accountSid as string | undefined) ??
-    mockSecureKeyStore["credential/twilio/account_sid"]
+    mockSecureKeyStore[credentialKey("twilio", "account_sid")]
   );
 }
 
 function readMockTwilioAuthToken(): string | undefined {
-  return mockSecureKeyStore["credential/twilio/auth_token"];
+  return mockSecureKeyStore[credentialKey("twilio", "auth_token")];
 }
 
 function readMockTwilioPhoneNumber(): string | undefined {
@@ -333,6 +333,7 @@ import {
   handleProvisionTwilioNumber,
   handleSetTwilioCredentials,
 } from "../runtime/routes/integrations/twilio.js";
+import { credentialKey } from "../security/credential-key.js";
 
 initializeDb();
 
@@ -429,8 +430,8 @@ describe("twilio webhook routes", () => {
       twilio: { accountSid: "AC_existing", phoneNumber: "+15550001111" },
     };
     mockSecureKeyStore = {
-      "credential/twilio/account_sid": "AC_existing",
-      "credential/twilio/auth_token": "test-auth-token",
+      [credentialKey("twilio", "account_sid")]: "AC_existing",
+      [credentialKey("twilio", "auth_token")]: "test-auth-token",
     };
     mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
     mockProvisionedNumber = { phoneNumber: "+15556667777" };

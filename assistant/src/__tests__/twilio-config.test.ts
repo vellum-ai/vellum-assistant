@@ -26,11 +26,12 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
 }));
 
 import { getTwilioConfig } from "../calls/twilio-config.js";
+import { credentialKey } from "../security/credential-key.js";
 
 describe("twilio-config", () => {
   beforeEach(() => {
     mockSecureKeys = {
-      "credential/twilio/auth_token": "test_auth_token",
+      [credentialKey("twilio", "auth_token")]: "test_auth_token",
     };
     mockLoadConfigResult = {
       twilio: {

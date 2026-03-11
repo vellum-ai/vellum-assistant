@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
+import { credentialKey } from "../credential-key.js";
 
 // ---------------------------------------------------------------------------
 // Logger mock — captures all log calls so the secret-leak test can inspect them
@@ -23,7 +24,6 @@ mock.module("../logger.js", () => ({
     }),
 }));
 
-import { credentialKey } from "../credential-key.js";
 import {
   readCredential,
   readTelegramCredentials,
@@ -356,7 +356,7 @@ describe("readCredential broker integration", () => {
   });
 
   test("falls back to encrypted store when broker returns not found", async () => {
-    // Broker has no entry for credentialKey("test", "key")
+    // Broker has no entry for the test credential key
     const broker = createMockBroker({});
     try {
       process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;

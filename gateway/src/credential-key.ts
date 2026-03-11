@@ -1,11 +1,10 @@
 /**
- * Single source of truth for credential key format in the gateway's secure store access.
+ * Single source of truth for credential key format in the secure store.
  *
  * Keys follow the pattern: credential/{service}/{field}
  *
- * This mirrors the helper in assistant/src/security/credential-key.ts.
- * The gateway is a separate package and cannot import from the assistant
- * directly, so we maintain a lightweight copy here.
+ * This mirrors the assistant's credential-key.ts helper to ensure both
+ * packages use the same key format when reading/writing credentials.
  */
 
 /**

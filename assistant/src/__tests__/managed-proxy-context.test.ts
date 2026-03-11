@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { credentialKey } from "../security/credential-key.js";
+
 // Mock logger to suppress output
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -18,7 +20,7 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => {
-    if (key === "credential/vellum/assistant_api_key") {
+    if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
     return null;
