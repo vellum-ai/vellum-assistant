@@ -503,7 +503,7 @@ extension AppDelegate {
     /// Shows a confirmation alert before proceeding. Each local assistant is
     /// retired sequentially via the CLI; failures are logged but do not block
     /// subsequent retires or the final app removal.
-    func performUninstall() {
+    public func performUninstall() {
         let alert = NSAlert()
         alert.messageText = "Uninstall Vellum"
         alert.informativeText = "This will retire all local assistants and move Vellum to the Trash. This action cannot be undone."
