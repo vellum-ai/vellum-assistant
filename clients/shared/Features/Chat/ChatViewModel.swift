@@ -1142,6 +1142,8 @@ public final class ChatViewModel: ObservableObject {
                     guard !Task.isCancelled else { return }
                     self.btwResponse = (self.btwResponse ?? "") + delta
                 }
+            } catch is CancellationError {
+                // Stream was cancelled via dismiss — no error to show.
             } catch {
                 guard !Task.isCancelled else { return }
                 self.btwResponse = "Failed to get response: \(error.localizedDescription)"
@@ -1150,7 +1152,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Clear btw side-chain state.
+    /// Clear btw side-chain state and cancel any in-flight stream.
     public func dismissBtw() {
         btwTask?.cancel()
         btwTask = nil

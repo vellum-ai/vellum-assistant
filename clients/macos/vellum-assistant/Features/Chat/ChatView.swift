@@ -290,6 +290,7 @@ struct ChatView: View {
             .overlay(alignment: .bottom) {
                 btwOverlay
             }
+            .animation(VAnimation.fast, value: btwResponse != nil)
 
             // Drop target overlay
             if isDropTargeted {
@@ -365,9 +366,8 @@ struct ChatView: View {
             .cornerRadius(VRadius.md)
             .vShadow(VShadow.sm)
             .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, 80)
+            .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
-            .animation(VAnimation.fast, value: btwResponse != nil)
         }
     }
 
