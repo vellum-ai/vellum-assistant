@@ -7,6 +7,7 @@ enum SettingsTab: String {
     case voice = "Voice"
     case permissionsAndPrivacy = "Permissions & Privacy"
     case contacts = "Contacts"
+    case archivedThreads = "Archived Threads"
     case developer = "Developer"
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
@@ -18,6 +19,7 @@ enum SettingsTab: String {
         if contactsEnabled {
             tabs.append(.contacts)
         }
+        tabs.append(.archivedThreads)
         return tabs
     }
 
@@ -246,6 +248,7 @@ struct SettingsPanel: View {
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
+        // .archivedThreads is already included via primaryTabs()
         return tabs
     }
 
@@ -285,6 +288,8 @@ struct SettingsPanel: View {
             permissionsAndPrivacyContent
         case .contacts:
             ContactsContainerView(daemonClient: daemonClient, store: store)
+        case .archivedThreads:
+            SettingsArchivedThreadsTab(threadManager: threadManager)
         case .developer:
             SettingsDeveloperTab(store: store, daemonClient: daemonClient, authManager: authManager, onClose: onClose)
         }
