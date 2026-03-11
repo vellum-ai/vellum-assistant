@@ -1748,7 +1748,7 @@ public final class HTTPTransport {
                                 if let text = parsed["text"] as? String {
                                     continuation.yield(text)
                                 }
-                                if let type = parsed["type"] as? String, type == "btw_complete" {
+                                if currentEventType == "btw_complete" {
                                     break
                                 }
                             }
