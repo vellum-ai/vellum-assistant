@@ -14,10 +14,6 @@ import {
   memoryUpdateTool,
 } from "./memory/register.js";
 import type { LazyToolDescriptor } from "./registry.js";
-import { setAvatarTool } from "./system/avatar-generator.js";
-import { navigateSettingsTabTool } from "./system/navigate-settings.js";
-import { openSystemSettingsTool } from "./system/open-system-settings.js";
-import { voiceConfigUpdateTool } from "./system/voice-config.js";
 import type { Tool } from "./types.js";
 import { screenWatchTool } from "./watch/screen-watch.js";
 
@@ -83,10 +79,6 @@ export const explicitTools: Tool[] = [
   memoryRecallTool,
   credentialStoreTool,
   screenWatchTool,
-  voiceConfigUpdateTool,
-  setAvatarTool,
-  openSystemSettingsTool,
-  navigateSettingsTabTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
