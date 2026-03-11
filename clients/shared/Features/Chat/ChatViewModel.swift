@@ -879,6 +879,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
+                    self?.discardPartialOutputBuffer()
                     self?.reconnectDebounceTask?.cancel()
                     self?.reconnectDebounceTask = Task { @MainActor [weak self] in
                         defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
@@ -1413,6 +1414,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 self?.currentAssistantMessageId = nil
                 self?.discardStreamingBuffer()
+                self?.discardPartialOutputBuffer()
                 // If a send-direct was pending when the stream dropped,
                 // dispatch it now so the message isn't silently lost.
                 self?.dispatchPendingSendDirect()
@@ -1610,6 +1612,7 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1656,6 +1659,7 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1719,6 +1723,7 @@ public final class ChatViewModel: ObservableObject {
             self.currentAssistantHasText = false
             self.lastContentWasToolCall = false
             self.discardStreamingBuffer()
+            self.discardPartialOutputBuffer()
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]
@@ -2479,6 +2484,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        discardPartialOutputBuffer()
         cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
