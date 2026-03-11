@@ -222,6 +222,11 @@ private class ResizeGripView: NSView {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        layer?.zPosition = 1000
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Pass all mouse events through so the window frame handles resize.
         return nil
@@ -490,7 +495,7 @@ public final class MainWindow {
         let grip = ResizeGripView(frame: .zero)
         grip.translatesAutoresizingMaskIntoConstraints = false
         grip.wantsLayer = true
-        contentView.addSubview(grip)
+        contentView.addSubview(grip, positioned: .above, relativeTo: nil)
         NSLayoutConstraint.activate([
             grip.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             grip.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
