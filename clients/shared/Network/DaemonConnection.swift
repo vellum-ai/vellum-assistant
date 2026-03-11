@@ -32,10 +32,15 @@ extension DaemonClient {
         let tokenEnv = config.instanceDir.map { ["BASE_DATA_DIR": $0] }
         let resolvedToken = bearerToken ?? (try? String(contentsOfFile: resolveHttpTokenPath(environment: tokenEnv), encoding: .utf8)).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+        // Use the persisted conversationKey if one was set via switchConversationKey,
+        // otherwise fall back to the config value. This ensures reconnects after
+        // transport teardown preserve the active thread's conversation key.
+        let effectiveConversationKey = currentConversationKey ?? conversationKey
+
         let transport = HTTPTransport(
             baseURL: baseURL,
             bearerToken: resolvedToken,
-            conversationKey: conversationKey,
+            conversationKey: effectiveConversationKey,
             transportMetadata: config.transportMetadata
         )
 
@@ -93,7 +98,9 @@ extension DaemonClient {
     /// Switch the conversation key on the active HTTP transport.
     /// Updates the key used for SSE subscriptions and message sending,
     /// and reconnects the SSE stream to the new conversation.
+    /// The key is persisted so reconnects (via `connect()`) use the same key.
     public func switchConversationKey(_ newKey: String) {
+        currentConversationKey = newKey
         httpTransport?.switchConversationKey(newKey)
     }
 

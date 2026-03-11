@@ -621,6 +621,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// HTTP transport for communicating with the assistant.
     public var httpTransport: HTTPTransport?
 
+    /// Persisted conversation key set via `switchConversationKey`.
+    /// Used when `connect()` recreates HTTPTransport so the active thread's
+    /// key survives reconnects. `nil` means use the config default.
+    var currentConversationKey: String?
+
     public private(set) var config: DaemonConfig
 
     // MARK: - Init

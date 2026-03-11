@@ -33,11 +33,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Switching to a real thread discards any draft
                 draftViewModel = nil
 
-                // Scope the HTTP transport's conversationKey to this thread so
-                // SSE events and outgoing messages target the correct backend
-                // conversation instead of sharing a single global one.
-                daemonClient.switchConversationKey(activeThreadId.uuidString)
-
                 let activeViewModel = getOrCreateViewModel(for: activeThreadId)
                 activeViewModel?.ensureMessageLoopStarted()
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
@@ -50,6 +45,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Notify the daemon so it rebinds the socket to this thread's session.
                 // Without this, socketToSession stays stale after thread switches,
                 // causing ownership checks (e.g. subagent abort) to fail.
+                // Send session switch BEFORE switchConversationKey so the backend
+                // registers the key before the SSE stream reconnects.
                 if let sessionId = activeViewModel?.sessionId {
                     do {
                         try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
@@ -57,6 +54,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                         log.error("Failed to send session switch request: \(error)")
                     }
                 }
+
+                // Scope the HTTP transport's conversationKey to this thread so
+                // SSE events and outgoing messages target the correct backend
+                // conversation instead of sharing a single global one.
+                // Use sessionId as conversationKey for restored threads (stable across restarts),
+                // fall back to thread UUID for new threads without a session yet.
+                let conversationKey = activeViewModel?.sessionId ?? activeThreadId.uuidString
+                daemonClient.switchConversationKey(conversationKey)
             } else {
                 // Only clear the persisted thread ID outside of restoration.
                 // During init, enterDraftMode() sets activeThreadId = nil before
