@@ -79,13 +79,18 @@ export function getByConversation(
 }
 
 /**
- * Remove all pending interactions (confirmation, secret, and host_bash)
- * for a given session. Used when auto-denying all pending interactions
- * (e.g. new user message).
+ * Remove pending confirmation and secret interactions for a given session.
+ * Used when auto-denying all pending interactions (e.g. new user message).
+ *
+ * host_bash interactions are intentionally skipped — they represent in-flight
+ * tool executions proxied to the client, not confirmations to auto-deny.
+ * Removing them would orphan the request: the client would POST to
+ * /v1/host-bash-result after completing the command, get a 404, and the
+ * proxy timer would fire with a spurious timeout error.
  */
 export function removeBySession(session: Session): void {
   for (const [requestId, interaction] of pending) {
-    if (interaction.session === session) {
+    if (interaction.session === session && interaction.kind !== "host_bash") {
       pending.delete(requestId);
     }
   }
