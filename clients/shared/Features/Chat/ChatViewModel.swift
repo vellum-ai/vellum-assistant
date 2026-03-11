@@ -539,6 +539,8 @@ public final class ChatViewModel: ObservableObject {
     @Published public var btwResponse: String?
     /// True while a /btw request is in flight.
     @Published public var btwLoading: Bool = false
+    /// The in-flight btw streaming task, stored for cancellation.
+    private var btwTask: Task<Void, Never>?
 
     /// Whether there are more messages above the current display window.
     /// True when either:
@@ -978,6 +980,8 @@ public final class ChatViewModel: ObservableObject {
         if text.hasPrefix("/btw ") {
             let question = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             inputText = ""
+            pendingAttachments = []
+            pendingSkillInvocation = nil
             flushCoalescedPublish()
             sendBtwMessage(question: question)
             return
@@ -1120,10 +1124,14 @@ public final class ChatViewModel: ObservableObject {
     /// Send a /btw side-chain question and stream the response into `btwResponse`.
     public func sendBtwMessage(question: String) {
         guard !question.isEmpty else { return }
+
+        // Cancel any in-flight btw task to prevent interleaved deltas.
+        btwTask?.cancel()
+
         btwLoading = true
         btwResponse = ""
 
-        Task { @MainActor [weak self] in
+        btwTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let stream = self.daemonClient.sendBtwMessage(
@@ -1131,9 +1139,11 @@ public final class ChatViewModel: ObservableObject {
                     conversationKey: self.sessionId ?? ""
                 )
                 for try await delta in stream {
+                    guard !Task.isCancelled else { return }
                     self.btwResponse = (self.btwResponse ?? "") + delta
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 self.btwResponse = "Failed to get response: \(error.localizedDescription)"
             }
             self.btwLoading = false
@@ -1142,6 +1152,8 @@ public final class ChatViewModel: ObservableObject {
 
     /// Clear btw side-chain state.
     public func dismissBtw() {
+        btwTask?.cancel()
+        btwTask = nil
         btwResponse = nil
         btwLoading = false
     }
