@@ -58,7 +58,10 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../config/skill-state.js", () => ({
-  skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
+  skillFlagKey: (skill: { featureFlag?: string }) =>
+    skill.featureFlag
+      ? `feature_flags.${skill.featureFlag}.enabled`
+      : undefined,
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -221,7 +224,7 @@ const { projectSkillTools, resetSkillToolProjection } =
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeSkill(id: string): SkillSummary {
+function makeSkill(id: string, featureFlag?: string): SkillSummary {
   return {
     id,
     name: id,
@@ -232,6 +235,7 @@ function makeSkill(id: string): SkillSummary {
     userInvocable: true,
     disableModelInvocation: false,
     source: "managed",
+    featureFlag,
   };
 }
 
@@ -293,7 +297,7 @@ describe("projectSkillTools feature flag enforcement", () => {
   });
 
   test("no skill tools projected for flag OFF skill even with old markers", () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID)];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate", "browser_click"]),
     };
@@ -317,7 +321,7 @@ describe("projectSkillTools feature flag enforcement", () => {
   });
 
   test("skill tools projected normally when flag is ON", () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID)];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate", "browser_click"]),
     };
@@ -334,34 +338,41 @@ describe("projectSkillTools feature flag enforcement", () => {
       previouslyActiveSkillIds: prevActive,
     });
 
-    expect(result.toolDefinitions).toHaveLength(2);
+    // Tool definitions are no longer returned (dispatched via skill_execute),
+    // but allowedToolNames should contain the registered tool names.
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(2);
     expect(result.allowedToolNames.has("browser_navigate")).toBe(true);
     expect(result.allowedToolNames.has("browser_click")).toBe(true);
   });
 
-  test("skill tools projected normally when flag key is absent (defaults to enabled)", () => {
+  test("skill tools projected normally when no featureFlag declared (never gated)", () => {
     mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
     mockManifests = { [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]) };
 
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
-    // No overrides — should default to enabled
+    // No overrides — skill has no featureFlag so it's never gated
     currentConfig = {};
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
     });
 
-    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(1);
     expect(result.allowedToolNames.has("browser_navigate")).toBe(true);
   });
 
   test("mixed flag-on and flag-off skills — only flag-on tools projected", () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
+    mockCatalog = [
+      makeSkill(DECLARED_SKILL_ID, DECLARED_SKILL_ID),
+      makeSkill("plain-skill"),
+    ];
     mockManifests = {
       [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]),
-      twitter: makeManifest(["twitter_post"]),
+      "plain-skill": makeManifest(["plain_action"]),
     };
 
     const history: Message[] = [
@@ -393,7 +404,7 @@ describe("projectSkillTools feature flag enforcement", () => {
             type: "tool_use",
             id: "tu-2",
             name: "skill_load",
-            input: { skill: "twitter" },
+            input: { skill: "plain-skill" },
           },
         ],
       },
@@ -404,14 +415,14 @@ describe("projectSkillTools feature flag enforcement", () => {
             type: "tool_result",
             tool_use_id: "tu-2",
             content:
-              '<loaded_skill id="twitter" version="v1:default-hash-twitter" />',
+              '<loaded_skill id="plain-skill" version="v1:default-hash-plain-skill" />',
           },
         ],
       },
     ];
     const prevActive = new Map<string, string>();
 
-    // Declared skill is OFF, twitter is undeclared with no persisted override so remains ON.
+    // Declared skill is OFF, plain-skill is undeclared with no persisted override so remains ON.
     currentConfig = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
@@ -420,8 +431,8 @@ describe("projectSkillTools feature flag enforcement", () => {
       previouslyActiveSkillIds: prevActive,
     });
 
-    const toolNames = result.toolDefinitions.map((t) => t.name);
-    expect(toolNames).toContain("twitter_post");
-    expect(toolNames).not.toContain("browser_navigate");
+    // Tool definitions are no longer returned; check allowedToolNames instead
+    expect(result.allowedToolNames.has("plain_action")).toBe(true);
+    expect(result.allowedToolNames.has("browser_navigate")).toBe(false);
   });
 });

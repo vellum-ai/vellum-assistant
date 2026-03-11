@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -69,6 +70,7 @@ const VellumMetadataSchema = z
     "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
     includes: z.array(z.string()).optional(),
     "credential-setup-for": z.string().optional(),
+    "feature-flag": z.string().optional(),
   })
   .passthrough();
 
@@ -136,6 +138,8 @@ export interface SkillSummary {
   includes?: string[];
   /** Declares which credential this skill sets up (e.g. "vercel:api_token"). */
   credentialSetupFor?: string;
+  /** Feature flag ID declared in frontmatter. Only skills with this field are subject to feature flag gating. */
+  featureFlag?: string;
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -329,6 +333,7 @@ interface ParsedFrontmatter {
   metadata?: VellumMetadata;
   includes?: string[];
   credentialSetupFor?: string;
+  featureFlag?: string;
 }
 
 function parseFrontmatter(
@@ -343,8 +348,11 @@ function parseFrontmatter(
 
   const { fields, body } = result;
 
-  const name = fields.name?.trim();
-  const description = fields.description?.trim();
+  const name = typeof fields.name === "string" ? fields.name.trim() : undefined;
+  const description =
+    typeof fields.description === "string"
+      ? fields.description.trim()
+      : undefined;
   if (!name || !description) {
     log.warn(
       { skillFilePath },
@@ -353,25 +361,31 @@ function parseFrontmatter(
     return null;
   }
 
-  // Parse metadata as single-line JSON string, validate with Zod schema
+  // metadata is already a parsed object from YAML — validate with Zod schema
   let metadata: VellumMetadata | undefined;
   let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
   let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
 
-  const metadataRaw = fields.metadata?.trim();
-  if (metadataRaw) {
-    try {
-      const json = JSON.parse(metadataRaw);
-      const result = SkillMetadataSchema.safeParse(json);
-      if (result.success) {
-        parsedMeta = result.data;
+  const metadataRaw = fields.metadata;
+  if (metadataRaw != null) {
+    if (typeof metadataRaw === "string") {
+      // metadata is a string — this means someone wrote inline JSON or a
+      // bare string value. YAML metadata must be a nested object.
+      log.warn(
+        { skillFilePath },
+        "Metadata must be a YAML object, not a string; ignoring metadata field",
+      );
+    } else if (typeof metadataRaw === "object") {
+      const zodResult = SkillMetadataSchema.safeParse(metadataRaw);
+      if (zodResult.success) {
+        parsedMeta = zodResult.data;
         vellum = parsedMeta.vellum;
         if (parsedMeta.vellum) {
           metadata = parsedMeta.vellum as VellumMetadata;
         }
         // Inject top-level emoji into metadata when metadata.vellum doesn't
         // carry its own emoji. The Agent Skills spec places emoji at the
-        // top level of the metadata JSON, so bundled skills that follow
+        // top level of the metadata object, so bundled skills that follow
         // this convention would otherwise lose their emoji value.
         if (parsedMeta.emoji) {
           if (metadata && !metadata.emoji) {
@@ -381,27 +395,30 @@ function parseFrontmatter(
           }
         }
       } else {
-        // Zod validation failed — fall back to raw JSON so we don't lose
-        // all metadata because of a single bad field value.  We coerce
+        // Zod validation failed — fall back to raw parsed object so we don't
+        // lose all metadata because of a single bad field value.  We coerce
         // critical array fields so downstream code that iterates them
         // (e.g. `.join()`, `for...of`, `.some()`) won't crash.
         log.warn(
-          { err: result.error, skillFilePath },
-          "Metadata failed schema validation; falling back to raw JSON",
+          { err: zodResult.error, skillFilePath },
+          "Metadata failed schema validation; falling back to raw object",
         );
-        parsedMeta = json;
-        vellum = json?.vellum;
-        if (json?.vellum && typeof json.vellum === "object") {
-          const raw = json.vellum as Record<string, unknown>;
+        const raw = metadataRaw as Record<string, unknown>;
+        parsedMeta = raw as z.infer<typeof SkillMetadataSchema>;
+        vellum = raw?.vellum as z.infer<typeof VellumMetadataSchema>;
+        if (raw?.vellum && typeof raw.vellum === "object") {
+          const vellumRaw = raw.vellum as Record<string, unknown>;
 
           // Coerce `os` to string[] — a bare string is wrapped in an array.
-          if (raw.os !== undefined) {
-            raw.os = Array.isArray(raw.os) ? raw.os : [raw.os];
+          if (vellumRaw.os !== undefined) {
+            vellumRaw.os = Array.isArray(vellumRaw.os)
+              ? vellumRaw.os
+              : [vellumRaw.os];
           }
 
           // Coerce `requires` sub-fields to arrays.
-          if (raw.requires && typeof raw.requires === "object") {
-            const req = raw.requires as Record<string, unknown>;
+          if (vellumRaw.requires && typeof vellumRaw.requires === "object") {
+            const req = vellumRaw.requires as Record<string, unknown>;
             for (const key of ["bins", "anyBins", "env", "config"] as const) {
               if (req[key] !== undefined && !Array.isArray(req[key])) {
                 req[key] = typeof req[key] === "string" ? [req[key]] : [];
@@ -409,14 +426,9 @@ function parseFrontmatter(
             }
           }
 
-          metadata = raw as unknown as VellumMetadata;
+          metadata = vellumRaw as unknown as VellumMetadata;
         }
       }
-    } catch (err) {
-      log.warn(
-        { err, skillFilePath },
-        "Failed to parse metadata JSON in frontmatter",
-      );
     }
   }
 
@@ -459,6 +471,11 @@ function parseFrontmatter(
       ? vellum["credential-setup-for"]
       : undefined;
 
+  const featureFlag =
+    typeof vellum?.["feature-flag"] === "string"
+      ? vellum["feature-flag"]
+      : undefined;
+
   const displayName =
     (typeof vellum?.["display-name"] === "string"
       ? vellum["display-name"]
@@ -474,6 +491,7 @@ function parseFrontmatter(
     metadata,
     includes,
     credentialSetupFor,
+    featureFlag,
   };
 }
 
@@ -628,6 +646,7 @@ function readSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
+      featureFlag: parsed.featureFlag,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read skill file");
@@ -678,6 +697,7 @@ function readBundledSkillFromDirectory(
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
+      featureFlag: parsed.featureFlag,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
@@ -736,6 +756,7 @@ function loadBundledSkills(): SkillSummary[] {
       toolManifest: skill.toolManifest,
       includes: skill.includes,
       credentialSetupFor: skill.credentialSetupFor,
+      featureFlag: skill.featureFlag,
     });
   }
 
@@ -873,6 +894,7 @@ function skillSummaryFromDefinition(
     toolManifest: skill.toolManifest,
     includes: skill.includes,
     credentialSetupFor: skill.credentialSetupFor,
+    featureFlag: skill.featureFlag,
   };
 }
 
@@ -925,6 +947,7 @@ export function loadSkillCatalog(
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
             credentialSetupFor: parsed.credentialSetupFor,
+            featureFlag: parsed.featureFlag,
           });
         } catch (err) {
           log.warn({ err, directory }, "Failed to read skill from extraDirs");
@@ -1021,6 +1044,7 @@ export function loadSkillCatalog(
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
           credentialSetupFor: parsed.credentialSetupFor,
+          featureFlag: parsed.featureFlag,
         };
 
         if (seenIds.has(id)) {
@@ -1081,23 +1105,50 @@ function applyFeatureGatedSections(body: string): string {
 }
 
 /**
+ * Returns true if `filePath` is a symlink whose resolved real path escapes
+ * `rootDir`. Symlinks that stay within `rootDir` are allowed; only those that
+ * point outside are considered unsafe.
+ */
+function isEscapingSymlink(filePath: string, rootDir: string): boolean {
+  try {
+    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    const real = realpathSync(filePath);
+    const normalizedRoot = getCanonicalPath(rootDir);
+    return (
+      real !== normalizedRoot &&
+      !real.startsWith(normalizedRoot + "/") &&
+      !real.startsWith(normalizedRoot + "\\")
+    );
+  } catch {
+    // If we can't resolve (e.g. dangling symlink), treat as escaping.
+    return true;
+  }
+}
+
+/**
  * Scan for a `references/` subdirectory within a skill directory and append
  * the contents of any `.md` files found there to the skill body. Each
  * reference file is labeled with a `--- Reference: <Name> ---` header.
  * Files are appended in alphabetical order for deterministic output.
- * Non-`.md` files are ignored. Errors are logged as warnings and the
- * original body is returned unchanged.
+ * Non-`.md` files are ignored. Symlinks that resolve outside the skill
+ * directory are skipped. Errors are logged as warnings and the original body
+ * is returned unchanged.
  */
 function appendReferenceFiles(body: string, directoryPath: string): string {
   try {
     const refsDir = join(directoryPath, "references");
-    if (!existsSync(refsDir) || !statSync(refsDir).isDirectory()) {
+    if (
+      !existsSync(refsDir) ||
+      isEscapingSymlink(refsDir, directoryPath) ||
+      !statSync(refsDir).isDirectory()
+    ) {
       return body;
     }
 
     const entries = readdirSync(refsDir);
     const mdFiles = entries
       .filter((f) => f.toLowerCase().endsWith(".md"))
+      .filter((f) => !isEscapingSymlink(join(refsDir, f), directoryPath))
       .sort((a, b) => a.localeCompare(b));
 
     if (mdFiles.length === 0) return body;

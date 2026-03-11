@@ -24,7 +24,6 @@ Commands:
   email [options]                          Email operations (provider-agnostic)
   contacts [options]                       Manage and query the contact graph
   channel-verification-sessions [options]  Manage channel verification sessions
-  amazon [options]                         Shop on Amazon and Amazon Fresh. Requires an active session (use "refresh" to authenticate).
   autonomy [options]                       View and configure autonomy tiers
   completions <shell>                      Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)
   notifications [options]                  Send and inspect notifications through the unified notification router
@@ -32,7 +31,6 @@ Commands:
   oauth [options]                          Manage OAuth tokens for connected integrations
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
-  x|twitter [options]                      Post on X and manage connections. Supports managed (platform proxy) and OAuth (official API) paths.
   map [options] <domain>                   Auto-navigate a domain and produce a deduplicated API map. Launches Chrome with CDP, starts a Ride Shotgun learn session, then analyzes captured network traffic.
   sequence [options]                       Manage email sequences
 `;

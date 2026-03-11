@@ -128,7 +128,7 @@ final class VoiceInputManagerTests: XCTestCase {
         manager.handleFinalTranscription("take a note")
 
         XCTAssertEqual(mockDaemon.sentMessages.count, 1)
-        let sent = mockDaemon.sentMessages.first as? IPCDictationRequest
+        let sent = mockDaemon.sentMessages.first as? DictationRequest
         XCTAssertNotNil(sent)
         XCTAssertEqual(sent?.transcription, "take a note")
         XCTAssertEqual(sent?.context.appName, "Notes")
@@ -154,7 +154,7 @@ final class VoiceInputManagerTests: XCTestCase {
 
         manager.handleFinalTranscription("replace this")
 
-        let sent = mockDaemon.sentMessages.first as? IPCDictationRequest
+        let sent = mockDaemon.sentMessages.first as? DictationRequest
         XCTAssertEqual(sent?.context.selectedText, "selected snippet")
     }
 
@@ -178,7 +178,7 @@ final class VoiceInputManagerTests: XCTestCase {
 
         manager.handleFinalTranscription("search for this")
 
-        let sent = mockDaemon.sentMessages.first as? IPCDictationRequest
+        let sent = mockDaemon.sentMessages.first as? DictationRequest
         XCTAssertEqual(sent?.context.bundleIdentifier, "com.apple.Safari")
     }
 
@@ -190,7 +190,7 @@ final class VoiceInputManagerTests: XCTestCase {
 
         manager.handleFinalTranscription("type something")
 
-        let sent = mockDaemon.sentMessages.first as? IPCDictationRequest
+        let sent = mockDaemon.sentMessages.first as? DictationRequest
         XCTAssertEqual(sent?.context.cursorInTextField, false)
     }
 

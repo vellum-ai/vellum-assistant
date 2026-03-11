@@ -1,21 +1,5 @@
 import { z } from "zod";
 
-export const VALID_AVATAR_STRATEGIES = [
-  "managed_required",
-  "managed_prefer",
-  "local_only",
-] as const;
-
-export const AvatarConfigSchema = z.object({
-  generationStrategy: z
-    .enum(VALID_AVATAR_STRATEGIES, {
-      error: `avatar.generationStrategy must be one of: ${VALID_AVATAR_STRATEGIES.join(", ")}`,
-    })
-    .default("local_only"),
-});
-
-export type AvatarConfig = z.infer<typeof AvatarConfigSchema>;
-
 export const PlatformConfigSchema = z.object({
   baseUrl: z
     .string({ error: "platform.baseUrl must be a string" })

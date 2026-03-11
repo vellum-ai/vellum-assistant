@@ -157,7 +157,7 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
         SubCategoryDef(label: "People", emoji: "\u{1F465}", skillIds: ["contacts", "followups"]),
     ],
     .productivity: [
-        SubCategoryDef(label: "Planning", emoji: "\u{1F4C5}", skillIds: ["google-calendar", "schedule", "reminder"]),
+        SubCategoryDef(label: "Planning", emoji: "\u{1F4C5}", skillIds: ["google-calendar", "schedule"]),
         SubCategoryDef(label: "Work", emoji: "\u{1F4CB}", skillIds: ["document", "tasks", "playbooks"]),
     ],
     .development: [
@@ -169,7 +169,7 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
         SubCategoryDef(label: "Triggers", emoji: "\u{23F0}", skillIds: ["watcher", "time-based-actions"]),
     ],
     .webSocial: [
-        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["twitter", "influencer"]),
+        SubCategoryDef(label: "Social", emoji: "\u{1F4F1}", skillIds: ["influencer"]),
         SubCategoryDef(label: "Services", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
     ],
     .knowledge: [

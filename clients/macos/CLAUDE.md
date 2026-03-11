@@ -100,12 +100,12 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 
 </details>
 
-### Network Layer (`IPC/`)
+### Network Layer (`Network/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
 - `DaemonClient` — `@MainActor`, HTTP+SSE transport; auto-reconnect, `AsyncStream<ServerMessage>`
-- `IPCMessages.swift` — Codable structs for HTTP request/response types: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
-- `IPC/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
+- `MessageTypes.swift` — Codable structs for HTTP request/response types: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
+- `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
 ### Ambient Agent (`Ambient/`)
 
@@ -253,7 +253,7 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 
 - **QR Code Pairing (v4):** Settings > Connect > Show QR Code generates a v4 payload containing a one-time `pairingRequestId` and `pairingSecret` (no bearer token in the QR). The QR is pre-registered with the daemon. iOS scans the QR, sends a pairing request, and waits for Mac-side approval.
 - **Approval flow:** When iOS sends a pairing request, macOS shows a floating approval prompt with Deny, Approve Once, and Always Allow options. "Always Allow" persists the device in `~/.vellum/protected/approved-devices.json` for auto-approval on future pairings.
-- **LAN pairing:** Works automatically. The QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
+- **LAN pairing:** Disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`. When enabled, the QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
 - **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, SMS, Voice).
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 

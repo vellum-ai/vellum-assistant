@@ -1,11 +1,13 @@
 ---
-name: "google-oauth-setup"
-description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation"
-compatibility: "Requires browser automation and public ingress for OAuth callback"
+name: google-oauth-setup
+description: Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation
+compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"
   vellum:
+    display-name: "Google OAuth Setup"
     user-invocable: true
+    includes: ["browser", "public-ingress"]
     credential-setup-for: "gmail"
 ---
 

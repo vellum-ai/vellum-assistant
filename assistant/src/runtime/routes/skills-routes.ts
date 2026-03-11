@@ -1,7 +1,7 @@
 /**
  * Route handlers for skill management operations.
  *
- * These HTTP routes expose the same business logic as the IPC skill handlers,
+ * These HTTP routes expose the same business logic as the skill handlers,
  * using the standalone functions extracted in `../../daemon/handlers/skills.ts`.
  */
 
@@ -173,12 +173,13 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
         if (!body.sourceText || typeof body.sourceText !== "string") {
           return httpError("BAD_REQUEST", "sourceText is required", 400);
         }
-        const result = await draftSkill(
-          { sourceText: body.sourceText },
-          ctx(),
-        );
+        const result = await draftSkill({ sourceText: body.sourceText }, ctx());
         if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error ?? "Draft failed", 500);
+          return httpError(
+            "INTERNAL_ERROR",
+            result.error ?? "Draft failed",
+            500,
+          );
         }
         return Response.json(result);
       },

@@ -11,7 +11,7 @@ extension AppDelegate {
     ///
     /// Checks screen recording permission, optionally shows the source picker,
     /// and starts recording via the RecordingManager.
-    func handleRecordingStart(_ msg: IPCRecordingStart) {
+    func handleRecordingStart(_ msg: RecordingStart) {
         // Check screen recording permission
         let permissionStatus = PermissionManager.screenRecordingStatus()
         guard permissionStatus == .granted else {
@@ -19,7 +19,7 @@ extension AppDelegate {
             PermissionManager.requestScreenRecordingAccess()
 
             // Notify daemon that recording failed due to permission
-            let statusMsg = IPCRecordingStatus(
+            let statusMsg = RecordingStatus(
                 type: "recording_status",
                 sessionId: msg.recordingId,
                 status: "failed",
@@ -52,7 +52,7 @@ extension AppDelegate {
     }
 
     /// Handle a `recording_pause` message from the daemon.
-    func handleRecordingPause(_ msg: IPCRecordingPause) {
+    func handleRecordingPause(_ msg: RecordingPause) {
         let paused = recordingManager.pause(sessionId: msg.recordingId)
         if paused {
             recordingHUDWindow?.setPaused(true)
@@ -60,7 +60,7 @@ extension AppDelegate {
     }
 
     /// Handle a `recording_resume` message from the daemon.
-    func handleRecordingResume(_ msg: IPCRecordingResume) {
+    func handleRecordingResume(_ msg: RecordingResume) {
         let resumed = recordingManager.resume(sessionId: msg.recordingId)
         if resumed {
             recordingHUDWindow?.setPaused(false)
@@ -94,7 +94,7 @@ extension AppDelegate {
                 if operationToken != nil {
                     // Restart flow: picker dismissed without selection —
                     // send restart_cancelled so the daemon knows to abort.
-                    let statusMsg = IPCRecordingStatus(
+                    let statusMsg = RecordingStatus(
                         type: "recording_status",
                         sessionId: recordingId,
                         status: "restart_cancelled",
@@ -105,7 +105,7 @@ extension AppDelegate {
                     log.info("Restart cancelled — source picker dismissed for session \(recordingId, privacy: .public)")
                 } else {
                     // Normal start flow: picker cancelled
-                    let statusMsg = IPCRecordingStatus(
+                    let statusMsg = RecordingStatus(
                         type: "recording_status",
                         sessionId: recordingId,
                         status: "failed",
@@ -120,7 +120,7 @@ extension AppDelegate {
     /// Start recording and show the recording HUD only after recording is confirmed.
     private func startRecording(
         recordingId: String,
-        options: IPCRecordingOptions?,
+        options: RecordingOptions?,
         attachToConversationId: String?,
         promptForSource: Bool = false,
         operationToken: String? = nil
@@ -153,7 +153,7 @@ extension AppDelegate {
                 }
             }
             // Rebuild options with the resolved mic permission
-            let effectiveOptions = IPCRecordingOptions(
+            let effectiveOptions = RecordingOptions(
                 captureScope: options?.captureScope,
                 displayId: options?.displayId,
                 windowId: options?.windowId,

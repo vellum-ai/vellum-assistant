@@ -4,24 +4,24 @@ import XCTest
 @MainActor
 final class MainWindowAppsNavigationTests: XCTestCase {
 
-    // MARK: - showAppsPanel()
+    // MARK: - showPanel(.apps)
 
     func testShowAppsPanelSetsSelectionToApps() {
         let state = MainWindowState(hasAPIKey: false)
         state.selection = .thread(UUID())
 
-        state.showAppsPanel()
+        state.showPanel(.apps)
 
         XCTAssertEqual(state.selection, .panel(.apps))
     }
 
     func testShowAppsPanelIsIdempotent() {
         let state = MainWindowState(hasAPIKey: false)
-        state.showAppsPanel()
+        state.showPanel(.apps)
         XCTAssertEqual(state.selection, .panel(.apps))
 
         // Calling again should remain on apps, not toggle away.
-        state.showAppsPanel()
+        state.showPanel(.apps)
         XCTAssertEqual(state.selection, .panel(.apps))
     }
 
@@ -33,10 +33,10 @@ final class MainWindowAppsNavigationTests: XCTestCase {
         state.selection = .appEditing(appId: "test-app", threadId: threadId)
 
         // Now navigate to apps panel.
-        state.showAppsPanel()
+        state.showPanel(.apps)
 
         XCTAssertEqual(state.selection, .panel(.apps))
-        // isConversationVisible should be false for apps panel after showAppsPanel.
+        // isConversationVisible should be false for apps panel after showPanel(.apps).
         XCTAssertFalse(state.isConversationVisible)
     }
 
@@ -51,7 +51,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
         state.dismissOverlay()
 
         // After dismissing, navigating to apps should not show conversation.
-        state.showAppsPanel()
+        state.showPanel(.apps)
         XCTAssertFalse(state.isConversationVisible)
     }
 
@@ -63,7 +63,7 @@ final class MainWindowAppsNavigationTests: XCTestCase {
         state.closeDynamicPanel()
 
         // After closing dynamic panel, apps should not show conversation.
-        state.showAppsPanel()
+        state.showPanel(.apps)
         XCTAssertFalse(state.isConversationVisible)
     }
 }

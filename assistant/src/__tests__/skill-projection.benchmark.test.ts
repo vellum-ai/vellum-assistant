@@ -68,7 +68,10 @@ mock.module("../config/skills.js", () => ({
 // Mock skill-state.js to break the transitive import chain — the benchmark
 // only needs skillFlagKey and doesn't exercise resolveSkillStates.
 mock.module("../config/skill-state.js", () => ({
-  skillFlagKey: (id: string) => `feature_flags.${id}.enabled`,
+  skillFlagKey: (skill: { featureFlag?: string }) =>
+    skill.featureFlag
+      ? `feature_flags.${skill.featureFlag}.enabled`
+      : undefined,
   resolveSkillStates: () => [],
 }));
 
@@ -276,7 +279,6 @@ describe("Skill projection benchmark", () => {
 
     const elapsed = timeMs(() => {
       const result = projectSkillTools(history);
-      expect(result.toolDefinitions.length).toBeGreaterThan(0);
       expect(result.allowedToolNames.size).toBeGreaterThan(0);
     });
 
@@ -327,12 +329,12 @@ describe("Skill projection benchmark", () => {
     expect(cache.derived!.entries.length).toBe(entriesCountAfterWarm);
     expect(cache.derived!.seenIds.size).toBe(seenIdsSizeAfterWarm);
 
-    // Assert tool definitions are identical between warm and cached calls
-    expect(cachedResult!.toolDefinitions.length).toBe(
-      warmResult.toolDefinitions.length,
+    // Assert allowed tool names are identical between warm and cached calls
+    expect(cachedResult!.allowedToolNames.size).toBe(
+      warmResult.allowedToolNames.size,
     );
-    const warmNames = warmResult.toolDefinitions.map((t) => t.name).sort();
-    const cachedNames = cachedResult!.toolDefinitions.map((t) => t.name).sort();
+    const warmNames = [...warmResult.allowedToolNames].sort();
+    const cachedNames = [...cachedResult!.allowedToolNames].sort();
     expect(cachedNames).toEqual(warmNames);
 
     console.log(`  Cached projection (no change): ${elapsed.toFixed(2)}ms`);
@@ -373,12 +375,12 @@ describe("Skill projection benchmark", () => {
       expect(cache.derived!.entries.length).toBe(snapshotEntriesCount);
       expect(cache.derived!.seenIds.size).toBe(snapshotSeenIdsSize);
 
-      // Tool definitions must match the first call exactly
-      expect(result.toolDefinitions.length).toBe(
-        firstResult.toolDefinitions.length,
+      // Allowed tool names must match the first call exactly
+      expect(result.allowedToolNames.size).toBe(
+        firstResult.allowedToolNames.size,
       );
-      expect(result.toolDefinitions.map((t) => t.name).sort()).toEqual(
-        firstResult.toolDefinitions.map((t) => t.name).sort(),
+      expect([...result.allowedToolNames].sort()).toEqual(
+        [...firstResult.allowedToolNames].sort(),
       );
     }
   });
@@ -396,7 +398,6 @@ describe("Skill projection benchmark", () => {
 
     const elapsed = timeMs(() => {
       const result = projectSkillTools(history);
-      expect(result.toolDefinitions.length).toBeGreaterThan(0);
       expect(result.allowedToolNames.size).toBeGreaterThan(0);
     });
 
@@ -429,7 +430,7 @@ describe("Skill projection benchmark", () => {
         cache,
         previouslyActiveSkillIds: prevActive,
       });
-      expect(result.toolDefinitions.length).toBeGreaterThan(0);
+      expect(result.allowedToolNames.size).toBeGreaterThan(0);
     });
 
     console.log(`  Incremental scan (10 new msgs): ${elapsed.toFixed(2)}ms`);

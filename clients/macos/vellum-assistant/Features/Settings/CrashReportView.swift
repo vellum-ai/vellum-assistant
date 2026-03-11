@@ -112,12 +112,12 @@ struct CrashReportView: View {
 
             // Attach the full crash log file and any companion files (e.g. spindump
             // .tar.gz archives) so they are available in Sentry for download.
-            var attachments: [Attachment] = [
-                Attachment(path: urlCopy.path, filename: urlCopy.lastPathComponent),
+            var attachments: [Sentry.Attachment] = [
+                Sentry.Attachment(path: urlCopy.path, filename: urlCopy.lastPathComponent),
             ]
             for companion in companions {
                 attachments.append(
-                    Attachment(path: companion.path, filename: companion.lastPathComponent)
+                    Sentry.Attachment(path: companion.path, filename: companion.lastPathComponent)
                 )
             }
 

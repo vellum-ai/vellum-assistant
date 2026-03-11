@@ -444,7 +444,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // Should set error text when daemon is not connected
         XCTAssertNotNil(viewModel.errorText)
-        // No IPC messages should have been sent
+        // No messages should have been sent
         let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
         XCTAssertTrue(confirmations.isEmpty)
     }

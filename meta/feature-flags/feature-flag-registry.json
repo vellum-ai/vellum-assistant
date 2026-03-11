@@ -26,14 +26,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "twitter",
-      "scope": "assistant",
-      "key": "feature_flags.twitter.enabled",
-      "label": "Twitter",
-      "description": "Enable X (Twitter) skill section in the system prompt",
-      "defaultEnabled": false
-    },
-    {
       "id": "messaging",
       "scope": "assistant",
       "key": "feature_flags.messaging.enabled",
@@ -63,7 +55,7 @@
       "key": "feature_flags.collect-usage-data.enabled",
       "label": "Collect usage data",
       "description": "Send crash reports and error diagnostics to help improve the app",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "user-hosted-enabled",
@@ -112,6 +104,22 @@
       "label": "Sentry Testing",
       "description": "Show the Sentry Testing tab in Settings for triggering test crash reports and error events",
       "defaultEnabled": false
+    },
+    {
+      "id": "gmail",
+      "scope": "assistant",
+      "key": "feature_flags.gmail.enabled",
+      "label": "Gmail",
+      "description": "Enable Gmail management skill (archive, label, declutter)",
+      "defaultEnabled": true
+    },
+    {
+      "id": "sequences",
+      "scope": "assistant",
+      "key": "feature_flags.sequences.enabled",
+      "label": "Email Sequences",
+      "description": "Enable email sequence management skill",
+      "defaultEnabled": true
     }
   ]
 }

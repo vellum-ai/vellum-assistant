@@ -127,17 +127,14 @@ export {
 export type { NotificationsConfig } from "./schemas/notifications.js";
 export { NotificationsConfigSchema } from "./schemas/notifications.js";
 export type {
-  AvatarConfig,
   DaemonConfig,
   PlatformConfig,
   UiConfig,
 } from "./schemas/platform.js";
 export {
-  AvatarConfigSchema,
   DaemonConfigSchema,
   PlatformConfigSchema,
   UiConfigSchema,
-  VALID_AVATAR_STRATEGIES,
 } from "./schemas/platform.js";
 export type { SandboxConfig } from "./schemas/sandbox.js";
 export { SandboxConfigSchema } from "./schemas/sandbox.js";
@@ -202,7 +199,6 @@ import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import {
-  AvatarConfigSchema,
   DaemonConfigSchema,
   PlatformConfigSchema,
   UiConfigSchema,
@@ -274,11 +270,6 @@ export const AssistantConfigSchema = z
       .int("maxTokens must be an integer")
       .positive("maxTokens must be a positive integer")
       .default(16000),
-    maxToolUseTurns: z
-      .number({ error: "maxToolUseTurns must be a number" })
-      .int("maxToolUseTurns must be an integer")
-      .nonnegative("maxToolUseTurns must be a non-negative integer")
-      .default(40),
     effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
@@ -321,7 +312,6 @@ export const AssistantConfigSchema = z
     notifications: NotificationsConfigSchema.default(
       NotificationsConfigSchema.parse({}),
     ),
-    avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
     assistantFeatureFlagValues: z
       .record(
@@ -334,16 +324,29 @@ export const AssistantConfigSchema = z
   })
   .superRefine((config, ctx) => {
     if (
-      config.contextWindow?.targetInputTokens != null &&
-      config.contextWindow?.maxInputTokens != null &&
-      config.contextWindow.targetInputTokens >=
-        config.contextWindow.maxInputTokens
+      config.contextWindow?.targetBudgetRatio != null &&
+      config.contextWindow?.compactThreshold != null &&
+      config.contextWindow.targetBudgetRatio >=
+        config.contextWindow.compactThreshold
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetInputTokens"],
+        path: ["contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens",
+          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
+      });
+    }
+    if (
+      config.contextWindow?.targetBudgetRatio != null &&
+      config.contextWindow?.summaryBudgetRatio != null &&
+      config.contextWindow.targetBudgetRatio <=
+        config.contextWindow.summaryBudgetRatio
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contextWindow", "targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
       });
     }
     const segmentation = config.memory?.segmentation;

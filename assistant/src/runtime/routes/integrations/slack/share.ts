@@ -2,7 +2,7 @@
  * Route handlers for Slack channel listing and direct sharing.
  *
  * These endpoints let the UI post app links directly to Slack channels
- * without going through the legacy IPC-based Slack share flow.
+ * without going through the legacy Slack share flow.
  */
 
 import { getApp } from "../../../../memory/app-store.js";

@@ -83,6 +83,11 @@ extension AppDelegate {
             self.startSession(task: text, source: TaskSubmission.voiceActionSource)
         }
         voiceInput?.onAmplitudeChanged = { [weak self] amplitude in
+            // Lazy-acquire recordingViewModel if it wasn't set during onRecordingStateChanged
+            // (can happen when dictation starts before the view model lookup resolves).
+            if self?.recordingViewModel == nil {
+                self?.recordingViewModel = self?.mainWindow?.activeViewModel
+            }
             self?.recordingViewModel?.recordingAmplitude = amplitude
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
@@ -131,7 +136,7 @@ extension AppDelegate {
         }
         voiceInput?.start()
 
-        // Restart key monitors when the activation key is changed remotely via IPC
+        // Restart key monitors when the activation key is changed remotely via HTTP
         NotificationCenter.default.addObserver(
             forName: .activationKeyChanged,
             object: nil,

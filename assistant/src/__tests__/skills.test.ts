@@ -23,7 +23,6 @@ mock.module("../util/platform.js", () => ({
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
@@ -621,56 +620,14 @@ describe("bundled browser skill", () => {
   });
 });
 
-describe("bundled public-ingress skill", () => {
-  beforeEach(() => {
-    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-  });
-
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
-  });
-
-  test("public-ingress skill appears in full catalog (including bundled)", () => {
-    const catalog = loadSkillCatalog();
-    const skill = catalog.find((s) => s.id === "public-ingress");
-    expect(skill).toBeDefined();
-    expect(skill!.name).toBe("public-ingress");
-    expect(skill!.displayName).toBe("Public Ingress");
-    expect(skill!.bundled).toBe(true);
-  });
-
-  test("public-ingress skill has correct description", () => {
-    const catalog = loadSkillCatalog();
-    const skill = catalog.find((s) => s.id === "public-ingress");
-    expect(skill).toBeDefined();
-    expect(skill!.description).toContain("ngrok");
-    expect(skill!.description).toContain("ingress.publicBaseUrl");
-  });
-
-  test("public-ingress skill is user-invocable", () => {
-    const catalog = loadSkillCatalog();
-    const skill = catalog.find((s) => s.id === "public-ingress");
-    expect(skill).toBeDefined();
-    expect(skill!.userInvocable).toBe(true);
-  });
-
-  test("public-ingress skill has no tool manifest (instructions-only)", () => {
-    const catalog = loadSkillCatalog();
-    const skill = catalog.find((s) => s.id === "public-ingress");
-    expect(skill).toBeDefined();
-    expect(skill!.toolManifest).toBeUndefined();
-  });
-});
-
 describe("ingress-dependent setup skills declare public-ingress", () => {
   const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
-  const BUNDLED_SKILLS_DIR = join(
+  const FIRST_PARTY_SKILLS_DIR = join(
     import.meta.dir,
     "..",
-    "config",
-    "bundled-skills",
+    "..",
+    "..",
+    "skills",
   );
 
   function readSkillIncludes(
@@ -710,14 +667,17 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
   }
 
   test("telegram-setup includes public-ingress", () => {
-    const includes = readSkillIncludes(BUNDLED_SKILLS_DIR, "telegram-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "telegram-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("public-ingress");
   });
 
   test("google-oauth-setup includes public-ingress", () => {
     const includes = readSkillIncludes(
-      BUNDLED_SKILLS_DIR,
+      FIRST_PARTY_SKILLS_DIR,
       "google-oauth-setup",
     );
     expect(includes).toBeDefined();
@@ -725,7 +685,10 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
   });
 
   test("slack-oauth-setup includes browser", () => {
-    const includes = readSkillIncludes(BUNDLED_SKILLS_DIR, "slack-oauth-setup");
+    const includes = readSkillIncludes(
+      FIRST_PARTY_SKILLS_DIR,
+      "slack-oauth-setup",
+    );
     expect(includes).toBeDefined();
     expect(includes).toContain("browser");
   });
@@ -772,11 +735,9 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.toolManifest).toBeDefined();
     expect(cuSkill!.toolManifest!.present).toBe(true);
     expect(cuSkill!.toolManifest!.valid).toBe(true);
-    expect(cuSkill!.toolManifest!.toolCount).toBe(12);
+    expect(cuSkill!.toolManifest!.toolCount).toBe(10);
     expect(cuSkill!.toolManifest!.toolNames).toEqual([
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",

@@ -224,7 +224,7 @@ describe("notification deep-link metadata", () => {
 
     test("returns success: false when broadcast throws", async () => {
       const adapter = new VellumAdapter(() => {
-        throw new Error("IPC connection lost");
+        throw new Error("connection lost");
       });
 
       const result = await adapter.send(
@@ -236,10 +236,10 @@ describe("notification deep-link metadata", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("IPC connection lost");
+      expect(result.error).toContain("connection lost");
     });
 
-    test("sourceEventName is included in the IPC payload", async () => {
+    test("sourceEventName is included in the event payload", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
@@ -306,7 +306,7 @@ describe("notification deep-link metadata", () => {
       // for a newly created notification thread (start_new path)
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Take out the trash" },
           deepLinkTarget: { conversationId: "conv-new-thread-001" },
         },
@@ -326,7 +326,7 @@ describe("notification deep-link metadata", () => {
       // for a reused notification thread (reuse_existing path)
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: {
             title: "Follow-up",
             body: "Still need to take out the trash",
@@ -399,7 +399,7 @@ describe("notification deep-link metadata", () => {
 
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "First" },
           deepLinkTarget: { conversationId, messageId: "msg-a" },
         },
@@ -408,7 +408,7 @@ describe("notification deep-link metadata", () => {
 
       await adapter.send(
         {
-          sourceEventName: "reminder.fired",
+          sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Second" },
           deepLinkTarget: { conversationId, messageId: "msg-b" },
         },

@@ -1,9 +1,8 @@
 /**
  * HTTP client helpers for the built-in CLI.
  *
- * Provides authenticated HTTP communication with the daemon's HTTP server,
- * replacing the previous Unix socket IPC transport. Patterns are adapted
- * from `cli/src/lib/http-client.ts` (external CLI).
+ * Provides authenticated HTTP communication with the daemon's HTTP server.
+ * Patterns are adapted from `cli/src/lib/http-client.ts` (external CLI).
  */
 
 import { readFileSync } from "node:fs";

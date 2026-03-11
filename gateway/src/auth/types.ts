@@ -13,7 +13,7 @@ export type ScopeProfile =
   | "actor_client_v1"
   | "gateway_ingress_v1"
   | "gateway_service_v1"
-  | "ipc_v1"
+  | "local_v1"
   | "ui_page_v1";
 
 // ---------------------------------------------------------------------------
@@ -35,13 +35,13 @@ export type Scope =
   | "internal.write"
   | "feature_flags.read"
   | "feature_flags.write"
-  | "ipc.all";
+  | "local.all";
 
 // ---------------------------------------------------------------------------
 // Principal types — derived from the sub pattern
 // ---------------------------------------------------------------------------
 
-export type PrincipalType = "actor" | "svc_gateway" | "svc_daemon" | "ipc";
+export type PrincipalType = "actor" | "svc_gateway" | "svc_daemon" | "local";
 
 // ---------------------------------------------------------------------------
 // Token audience — which service the JWT is intended for

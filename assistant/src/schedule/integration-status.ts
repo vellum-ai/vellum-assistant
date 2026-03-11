@@ -16,12 +16,6 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
       !!getSecureKey("credential:integration:gmail:access_token"),
   },
   {
-    name: "Twitter",
-    category: "social",
-    isConnected: () =>
-      !!getSecureKey("credential:integration:twitter:access_token"),
-  },
-  {
     name: "Slack",
     category: "messaging",
     isConnected: () =>

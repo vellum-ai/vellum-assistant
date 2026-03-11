@@ -219,6 +219,7 @@ public final class MainWindow {
     let appListManager = AppListManager()
     let traceStore = TraceStore()
     let usageDashboardStore: UsageDashboardStore
+    let taskQueueViewModel: TaskQueueViewModel
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
     var onMicrophoneToggle: (() -> Void)?
@@ -265,6 +266,7 @@ public final class MainWindow {
             isFirstLaunch: isFirstLaunch
         )
         self.usageDashboardStore = UsageDashboardStore(client: services.daemonClient)
+        self.taskQueueViewModel = TaskQueueViewModel(daemonClient: services.daemonClient)
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
@@ -373,7 +375,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, taskQueueViewModel: taskQueueViewModel, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

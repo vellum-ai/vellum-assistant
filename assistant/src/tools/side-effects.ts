@@ -23,8 +23,6 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "browser_fill_credential",
   "document_create",
   "document_update",
-  "reminder_create",
-  "reminder_cancel",
   "schedule_create",
   "schedule_update",
   "schedule_delete",

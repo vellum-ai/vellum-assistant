@@ -36,14 +36,18 @@ import type {
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./session-slash.js";
+import {
+  isProviderShortcut,
+  resolveSlash,
+  type SlashContext,
+} from "./session-slash.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("session-process");
 
 /** Build a model_info event with fresh config data. */
-function buildModelInfoEvent(): ServerMessage {
+export function buildModelInfoEvent(): ServerMessage {
   const config = getConfig();
   const configured = Object.keys(config.apiKeys).filter(
     (k) => !!config.apiKeys[k],
@@ -58,7 +62,7 @@ function buildModelInfoEvent(): ServerMessage {
 }
 
 /** True when the trimmed content is a /model or /models slash command. */
-function isModelSlashCommand(content: string): boolean {
+export function isModelSlashCommand(content: string): boolean {
   const trimmed = content.trim();
   return (
     trimmed === "/model" ||
@@ -114,6 +118,10 @@ export interface ProcessSessionContext {
   setTurnChannelContext(ctx: TurnChannelContext): void;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
+  /** Mark host proxies as unavailable so tool execution uses local fallback. */
+  clearProxyAvailability(): void;
+  /** Restore host proxy availability based on whether a real client is connected. */
+  restoreProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -131,7 +139,8 @@ export interface ProcessSessionContext {
       | "confirmation_resolved"
       | "message_complete"
       | "generation_cancelled"
-      | "error_terminal",
+      | "error_terminal"
+      | "preview_start",
     anchor?: "assistant_turn" | "user_turn" | "global",
     requestId?: string,
     statusText?: string,
@@ -260,6 +269,23 @@ export async function drainQueue(
     session.setTurnInterfaceContext(queuedInterfaceCtx);
   }
 
+  // Non-interactive queued messages (channel requests) must not execute tools
+  // via the desktop host proxy. Clear proxy availability so isAvailable()
+  // returns false and tool execution falls back to local.
+  if (next.isInteractive === false) {
+    session.clearProxyAvailability();
+  } else {
+    // Restore proxy availability only for desktop-originating turns (macos/ios)
+    // in case a prior non-interactive drain disabled it. Non-desktop interactive
+    // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
+    const interfaceCtx =
+      queuedInterfaceCtx ?? session.getTurnInterfaceContext();
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    if (sourceInterface === "macos" || sourceInterface === "ios") {
+      session.restoreProxyAvailability();
+    }
+  }
+
   // Resolve slash commands for queued messages
   const slashResult = resolveSlash(next.content, buildSlashContext(session));
 
@@ -326,7 +352,10 @@ export async function drainQueue(
 
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model or /models UI.
-      if (isModelSlashCommand(next.content)) {
+      if (
+        isModelSlashCommand(next.content) ||
+        isProviderShortcut(next.content)
+      ) {
         next.onEvent(buildModelInfoEvent());
       }
       next.onEvent({ type: "assistant_text_delta", text: slashResult.message });
@@ -510,7 +539,7 @@ export async function drainQueue(
 
 /**
  * Convenience function that persists a user message and runs the agent loop
- * in a single call. Used by the IPC path where blocking is expected.
+ * in a single call. Used by the message-handler path where blocking is expected.
  */
 export async function processMessage(
   session: ProcessSessionContext,
@@ -676,7 +705,7 @@ export async function processMessage(
 
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.
-    if (isModelSlashCommand(content)) {
+    if (isModelSlashCommand(content) || isProviderShortcut(content)) {
       onEvent(buildModelInfoEvent());
     }
     onEvent({ type: "assistant_text_delta", text: slashResult.message });

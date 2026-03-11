@@ -52,7 +52,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => join(testDir, "test.sock"),
   getDataDir: () => testDir,
 }));
 

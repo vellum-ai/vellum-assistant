@@ -426,9 +426,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testOpeningUnreadConnectedThreadMarksItSeenAndEmitsSignal() {
         let daemonClient = DaemonClient()
-        var sentSignals: [IPCConversationSeenSignal] = []
+        var sentSignals: [ConversationSeenSignal] = []
         daemonClient.sendOverride = { message in
-            if let signal = message as? IPCConversationSeenSignal {
+            if let signal = message as? ConversationSeenSignal {
                 sentSignals.append(signal)
             }
         }
@@ -479,9 +479,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testOpeningAlreadySeenConnectedThreadDoesNotEmitSignal() {
         let daemonClient = DaemonClient()
-        var sentSignals: [IPCConversationSeenSignal] = []
+        var sentSignals: [ConversationSeenSignal] = []
         daemonClient.sendOverride = { message in
-            if let signal = message as? IPCConversationSeenSignal {
+            if let signal = message as? ConversationSeenSignal {
                 sentSignals.append(signal)
             }
         }
@@ -513,9 +513,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testMarkingSeenConnectedThreadUnreadUpdatesLocalStateAndEmitsSignal() {
         let daemonClient = DaemonClient()
-        var sentSignals: [IPCConversationUnreadSignal] = []
+        var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
-            if let signal = message as? IPCConversationUnreadSignal {
+            if let signal = message as? ConversationUnreadSignal {
                 sentSignals.append(signal)
             }
         }
@@ -567,9 +567,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testMarkingAlreadyUnreadConnectedThreadUnreadDoesNothing() {
         let daemonClient = DaemonClient()
-        var sentSignals: [IPCConversationUnreadSignal] = []
+        var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
-            if let signal = message as? IPCConversationUnreadSignal {
+            if let signal = message as? ConversationUnreadSignal {
                 sentSignals.append(signal)
             }
         }
@@ -640,9 +640,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testMarkingThreadWithoutAssistantReplyUnreadDoesNothing() {
         let daemonClient = DaemonClient()
-        var sentSignals: [IPCConversationUnreadSignal] = []
+        var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
-            if let signal = message as? IPCConversationUnreadSignal {
+            if let signal = message as? ConversationUnreadSignal {
                 sentSignals.append(signal)
             }
         }
@@ -672,9 +672,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testMarkingThreadWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
         let daemonClient = DaemonClient()
-        var sentSignals: [IPCConversationUnreadSignal] = []
+        var sentSignals: [ConversationUnreadSignal] = []
         daemonClient.sendOverride = { message in
-            if let signal = message as? IPCConversationUnreadSignal {
+            if let signal = message as? ConversationUnreadSignal {
                 sentSignals.append(signal)
             }
         }
@@ -815,9 +815,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [IPCReorderThreadsRequest] = []
+        var reorderRequests: [ReorderThreadsRequest] = []
         daemonClient.sendOverride = { message in
-            if let request = message as? IPCReorderThreadsRequest {
+            if let request = message as? ReorderThreadsRequest {
                 reorderRequests.append(request)
             }
         }
@@ -906,9 +906,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
     func testUnpinningConnectedThreadRecompactsPinnedOrderAndEmitsReorder() {
         let daemonClient = DaemonClient()
-        var reorderRequests: [IPCReorderThreadsRequest] = []
+        var reorderRequests: [ReorderThreadsRequest] = []
         daemonClient.sendOverride = { message in
-            if let request = message as? IPCReorderThreadsRequest {
+            if let request = message as? ReorderThreadsRequest {
                 reorderRequests.append(request)
             }
         }

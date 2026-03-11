@@ -160,7 +160,7 @@ struct AppSharePanelView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(hoveredServiceIndex == index ? VColor.navHover : Color.clear)
+            .background(VColor.navHover.opacity(hoveredServiceIndex == index ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

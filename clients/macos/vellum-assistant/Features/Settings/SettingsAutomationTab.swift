@@ -12,7 +12,7 @@ struct SettingsAutomationTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Reminders section (from old Schedules tab)
+            // Reminders section — one-shot schedules shown as reminders
             if daemonClient != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Reminders")

@@ -1,7 +1,7 @@
 /**
- * IPC parity tests for the SSE assistant-events endpoint.
+ * HTTP parity tests for the SSE assistant-events endpoint.
  *
- * Asserts that every streaming/delta IPC ServerMessage type is preserved
+ * Asserts that every streaming/delta ServerMessage type is preserved
  * exactly — field-for-field — when delivered through the SSE route.
  *
  * Message types covered:
@@ -30,7 +30,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -125,7 +124,7 @@ async function publishAndReadFrame(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("SSE IPC parity — streaming/delta message types", () => {
+describe("SSE HTTP parity — streaming/delta message types", () => {
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM conversation_keys");

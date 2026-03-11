@@ -126,6 +126,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Conversation / messaging
   { endpoint: "messages:GET", scopes: ["chat.read"] },
   { endpoint: "messages:POST", scopes: ["chat.write"] },
+  { endpoint: "btw", scopes: ["chat.write"] },
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations:DELETE", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
@@ -144,6 +145,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "confirm", scopes: ["approval.write"] },
   { endpoint: "secret", scopes: ["approval.write"] },
   { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "host-bash-result", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
 
   // Guardian actions
@@ -379,6 +381,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Delivery ack
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
 
+  // MCP
+  { endpoint: "mcp/reload", scopes: ["settings.write"] },
+
   // Migrations
   { endpoint: "migrations/validate", scopes: ["settings.write"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
@@ -395,6 +400,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "schedules:DELETE", scopes: ["settings.write"] },
   { endpoint: "schedules/toggle", scopes: ["settings.write"] },
   { endpoint: "schedules/run", scopes: ["settings.write"] },
+  { endpoint: "schedules/cancel", scopes: ["settings.write"] },
 
   // Diagnostics
   { endpoint: "diagnostics/export", scopes: ["settings.read"] },
@@ -405,10 +411,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // OAuth / integrations
   { endpoint: "integrations/oauth/start", scopes: ["settings.write"] },
-  { endpoint: "integrations/twitter/auth/start", scopes: ["settings.write"] },
-  { endpoint: "integrations/twitter/auth/status", scopes: ["settings.read"] },
 
-  // Workspace files (IPC-migrated)
+  // Workspace files
   { endpoint: "workspace-files", scopes: ["settings.read"] },
   { endpoint: "workspace-files/read", scopes: ["settings.read"] },
 
@@ -420,7 +424,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
   registerPolicy(endpoint, {
     requiredScopes: scopes,
-    allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "ipc"],
+    allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
   });
 }
 

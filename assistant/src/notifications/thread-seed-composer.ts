@@ -73,7 +73,7 @@ export function isThreadSeedSane(value: unknown): value is string {
 /**
  * Build a human-readable label from a dot-delimited event name.
  *
- * e.g. "reminder.fired" → "Reminder fired", "guardian.question" → "Guardian question"
+ * e.g. "schedule.notify" → "Schedule notify", "guardian.question" → "Guardian question"
  */
 function humanizeEventName(eventName: string): string {
   const words = eventName.replace(/[._]/g, " ").trim();

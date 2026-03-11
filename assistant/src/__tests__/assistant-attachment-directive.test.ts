@@ -423,7 +423,7 @@ describe("resolveHostDirective", () => {
     writeFileSync(join(TEST_DIR, "doc.txt"), "content");
 
     const failApprove = async () => {
-      throw new Error("IPC disconnected");
+      throw new Error("connection lost");
     };
     const result = await resolveHostDirective(makeHostDirective(), failApprove);
 

@@ -316,13 +316,13 @@ extension ChatViewModel {
         return nil
     }
 
-    /// Map IPC attachment DTOs to ChatAttachment values, generating thumbnails for images.
-    func mapIPCAttachments(_ ipcAttachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
-        ipcAttachments.compactMap { ipc in
-            let id = ipc.id ?? UUID().uuidString
-            let base64 = ipc.data
+    /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
+    func mapMessageAttachments(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
+        attachments.compactMap { attachment in
+            let id = attachment.id ?? UUID().uuidString
+            let base64 = attachment.data
             let dataLength = base64.count
-            let sizeBytes: Int? = ipc.sizeBytes.flatMap { Int(exactly: $0) }
+            let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
 
             var thumbnailData: Data?
             #if os(macOS)
@@ -333,14 +333,14 @@ extension ChatViewModel {
             #error("Unsupported platform")
             #endif
 
-            if ipc.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
+            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
                 thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
                 #if os(macOS)
                 thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
                 #elseif os(iOS)
                 thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
                 #endif
-            } else if let serverThumb = ipc.thumbnailData, !serverThumb.isEmpty,
+            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
                       let thumbData = Data(base64Encoded: serverThumb) {
                 thumbnailData = thumbData
                 #if os(macOS)
@@ -352,22 +352,22 @@ extension ChatViewModel {
 
             return ChatAttachment(
                 id: id,
-                filename: ipc.filename,
-                mimeType: ipc.mimeType,
+                filename: attachment.filename,
+                mimeType: attachment.mimeType,
                 data: base64,
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
                 sizeBytes: sizeBytes,
                 thumbnailImage: thumbnailImage,
-                filePath: ipc.filePath
+                filePath: attachment.filePath
             )
         }
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
-    func ingestAssistantAttachments(_ ipcAttachments: [IPCUserMessageAttachment]?) {
-        guard let ipcAttachments, !ipcAttachments.isEmpty else { return }
-        let chatAttachments = mapIPCAttachments(ipcAttachments)
+    func ingestAssistantAttachments(_ attachments: [UserMessageAttachment]?) {
+        guard let attachments, !attachments.isEmpty else { return }
+        let chatAttachments = mapMessageAttachments(attachments)
         guard !chatAttachments.isEmpty else { return }
 
         if let existingId = currentAssistantMessageId,
@@ -591,6 +591,13 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            // Backfill the daemon's persisted message ID so diagnostics exports
+            // can anchor to it without requiring a history reload.
+            if let messageId = complete.messageId,
+               let msgId = currentAssistantMessageId,
+               let idx = messages.firstIndex(where: { $0.id == msgId }) {
+                messages[idx].daemonMessageId = messageId
+            }
             // Strip heavy binary data from old messages to cap memory growth.
             trimOldMessagesIfNeeded()
             let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
@@ -804,6 +811,15 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls (have toolUseId, not complete, no inputRawDict)
+                // as complete/cancelled so they don't remain in a dangling incomplete state.
+                for tcIdx in messages[index].toolCalls.indices {
+                    let tc = messages[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        messages[index].toolCalls[tcIdx].isComplete = true
+                        messages[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
             }
             currentAssistantMessageId = nil
             currentTurnUserText = nil
@@ -943,6 +959,11 @@ extension ChatViewModel {
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
+                // Backfill the daemon's persisted message ID so diagnostics exports
+                // can anchor to it without requiring a history reload.
+                if let messageId = handoff.messageId {
+                    messages[index].daemonMessageId = messageId
+                }
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
@@ -969,7 +990,7 @@ extension ChatViewModel {
         case .error(let err):
             log.error("Server error: \(err.message, privacy: .private)")
             // Only process errors relevant to this chat session. Generic daemon
-            // errors (e.g., IPC validation failures from unrelated message types
+            // errors (e.g., validation failures from unrelated message types
             // like work_item_delete) should not pollute the chat UI.
             guard isSending || isThinking || isCancelling || currentAssistantMessageId != nil || isWorkspaceRefinementInFlight else {
                 return
@@ -997,6 +1018,14 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls as complete on terminal error
+                for tcIdx in messages[index].toolCalls.indices {
+                    let tc = messages[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        messages[index].toolCalls[tcIdx].isComplete = true
+                        messages[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
             }
             currentAssistantMessageId = nil
             currentTurnUserText = nil
@@ -1028,10 +1057,10 @@ extension ChatViewModel {
                     } else if let blockedUserMessage {
                         secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct IPC attachments from the blocked user message's ChatAttachments
+                    // Reconstruct attachments from the blocked user message's ChatAttachments
                     if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
                         secretBlockedAttachments = blockedUserMessage.attachments.map {
-                            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
@@ -1131,6 +1160,53 @@ extension ChatViewModel {
                 messages.append(confirmMsg)
             }
 
+        case .toolUsePreviewStart(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            guard !isLoadingHistory else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
+            // Suppress preview chip for proxy tools — the inline surface widget replaces them.
+            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" {
+                break
+            }
+            // Flush buffered text so it lands before the tool call in content order.
+            flushStreamingBuffer()
+            // If a chip with the same toolUseId already exists (e.g. toolUseStart
+            // arrived before this preview), ignore the late preview.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }),
+               messages[index].toolCalls.contains(where: { $0.toolUseId == msg.toolUseId }) {
+                break
+            }
+            isThinking = false
+            var toolCall = ToolCallData(
+                toolName: msg.toolName,
+                inputSummary: "Preparing...",
+                inputFull: "",
+                inputRawValue: "",
+                arrivedBeforeText: !currentAssistantHasText,
+                startedAt: Date()
+            )
+            toolCall.toolUseId = msg.toolUseId
+            // Add to existing assistant message or create one.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }),
+               messages[index].toolCalls.count < 100 {
+                let tcIdx = messages[index].toolCalls.count
+                messages[index].toolCalls.append(toolCall)
+                messages[index].contentOrder.append(.toolCall(tcIdx))
+            } else {
+                if let existingId = currentAssistantMessageId,
+                   let oldIndex = messages.firstIndex(where: { $0.id == existingId }) {
+                    messages[oldIndex].isStreaming = false
+                }
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                newMsg.contentOrder = [.toolCall(0)]
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+            lastContentWasToolCall = true
+
         case .toolUseStart(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
@@ -1160,6 +1236,21 @@ extension ChatViewModel {
                 default: return nil
                 }
             }()
+            // Upsert by toolUseId: if a preview chip already exists for this tool, update it
+            // instead of creating a duplicate.
+            if let toolUseId = msg.toolUseId,
+               let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                messages[msgIndex].toolCalls[tcIndex].inputSummary = summarizeToolInput(msg.input)
+                messages[msgIndex].toolCalls[tcIndex].inputFull = formatAllToolInput(msg.input)
+                messages[msgIndex].toolCalls[tcIndex].inputRawValue = extractToolInput(msg.input)
+                messages[msgIndex].toolCalls[tcIndex].inputRawDict = msg.input
+                messages[msgIndex].toolCalls[tcIndex].buildingStatus = buildingStatus
+                messages[msgIndex].toolCalls[tcIndex].reasonDescription = (msg.input["reason"]?.value as? String)
+                    ?? (msg.input["reasoning"]?.value as? String)
+                break
+            }
             var toolCall = ToolCallData(
                 toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
@@ -1170,6 +1261,7 @@ extension ChatViewModel {
             )
             toolCall.buildingStatus = buildingStatus
             toolCall.toolUseId = msg.toolUseId
+            toolCall.inputRawDict = msg.input
             toolCall.reasonDescription = (msg.input["reason"]?.value as? String)
                 ?? (msg.input["reasoning"]?.value as? String)
             // Add to existing assistant message or create one.
@@ -1200,7 +1292,16 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             let preview = Self.extractCodePreview(from: msg.content, toolName: msg.toolName)
-            if let existingId = currentAssistantMessageId,
+            // If toolUseId is present, find the matching tool call and update its streaming preview.
+            if let toolUseId = msg.toolUseId,
+               let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                // Update code preview on the message for the matched tool call
+                messages[msgIndex].streamingCodePreview = preview
+                messages[msgIndex].streamingCodeToolName = msg.toolName
+                _ = tcIndex // suppress unused warning — match confirms the tool call exists
+            } else if let existingId = currentAssistantMessageId,
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[msgIndex].streamingCodePreview = preview
                 messages[msgIndex].streamingCodeToolName = msg.toolName
@@ -1263,38 +1364,50 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
-            // Find the most recent pending (incomplete) tool call.
-            // First check currentAssistantMessageId, then fall back to searching
-            // backward through messages (handles message rotation from tool call cap).
+            // Find the matching tool call.
+            // Prefer matching by toolUseId (stable identifier) over positional heuristics.
             var targetMsgIndex: Int?
             var targetTcIndex: Int?
-            if let existingId = currentAssistantMessageId,
-               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
-               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
-                targetMsgIndex = msgIndex
-                targetTcIndex = tcIndex
-            } else if let existingId = currentAssistantMessageId,
-                      let currentIdx = messages.firstIndex(where: { $0.id == existingId }) {
-                // Current assistant message has no incomplete tool calls.
-                // Search backward from current message position for rotated messages.
-                for i in stride(from: currentIdx - 1, through: max(0, currentIdx - 5), by: -1) {
-                    guard messages[i].role == .assistant else { continue }
-                    if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+            if let toolUseId = msg.toolUseId {
+                // Search all messages for a tool call with matching toolUseId
+                for i in stride(from: messages.count - 1, through: 0, by: -1) {
+                    if let tcIndex = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
                         targetMsgIndex = i
                         targetTcIndex = tcIndex
                         break
                     }
                 }
-            } else {
-                // currentAssistantMessageId is nil — search backward within current turn
-                // (reconnect scenario where there are no queued messages).
-                let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) ?? 0
-                for i in stride(from: messages.count - 1, through: lastUserIndex, by: -1) {
-                    guard messages[i].role == .assistant else { continue }
-                    if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
-                        targetMsgIndex = i
-                        targetTcIndex = tcIndex
-                        break
+            }
+            // Fall back to existing positional heuristic if no ID match.
+            if targetMsgIndex == nil {
+                if let existingId = currentAssistantMessageId,
+                   let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+                   let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                    targetMsgIndex = msgIndex
+                    targetTcIndex = tcIndex
+                } else if let existingId = currentAssistantMessageId,
+                          let currentIdx = messages.firstIndex(where: { $0.id == existingId }) {
+                    // Current assistant message has no incomplete tool calls.
+                    // Search backward from current message position for rotated messages.
+                    for i in stride(from: currentIdx - 1, through: max(0, currentIdx - 5), by: -1) {
+                        guard messages[i].role == .assistant else { continue }
+                        if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                            targetMsgIndex = i
+                            targetTcIndex = tcIndex
+                            break
+                        }
+                    }
+                } else {
+                    // currentAssistantMessageId is nil — search backward within current turn
+                    // (reconnect scenario where there are no queued messages).
+                    let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) ?? 0
+                    for i in stride(from: messages.count - 1, through: lastUserIndex, by: -1) {
+                        guard messages[i].role == .assistant else { continue }
+                        if let tcIndex = messages[i].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                            targetMsgIndex = i
+                            targetTcIndex = tcIndex
+                            break
+                        }
                     }
                 }
             }
@@ -1505,6 +1618,14 @@ extension ChatViewModel {
                 messages[index].isStreaming = false
                 messages[index].streamingCodePreview = nil
                 messages[index].streamingCodeToolName = nil
+                // Mark preview-only tool calls as complete on session error
+                for tcIdx in messages[index].toolCalls.indices {
+                    let tc = messages[index].toolCalls[tcIdx]
+                    if tc.toolUseId != nil && !tc.isComplete && tc.inputRawDict == nil {
+                        messages[index].toolCalls[tcIdx].isComplete = true
+                        messages[index].toolCalls[tcIdx].completedAt = Date()
+                    }
+                }
             }
             currentAssistantMessageId = nil
             currentTurnUserText = nil
@@ -1548,24 +1669,8 @@ extension ChatViewModel {
                     }
                 }
             } else {
-                // Capture before clearing — surface actions don't set
-                // isSending, so this distinguishes user-message sends
-                // from surface action rejections.
-                let wasSendingUserMessage = isSending
                 // Always clear sending state so regenerate is unblocked.
                 isSending = false
-                // When QUEUE_FULL from a user-message send, the daemon
-                // rejected the message — no message_queued will arrive.
-                // Remove its stale pending ID so subsequent events don't
-                // mis-correlate. Only do this for user-message sends
-                // (wasSendingUserMessage), not surface action rejections
-                // which never append to pendingMessageIds.
-                if msg.code == .queueFull, wasSendingUserMessage, let rejectedId = pendingMessageIds.last {
-                    pendingMessageIds.removeLast()
-                    if let index = messages.firstIndex(where: { $0.id == rejectedId }) {
-                        messages[index].status = .sent
-                    }
-                }
                 if pendingQueuedCount == 0 {
                     // No queued work remains — safe to tear down everything.
                     pendingMessageIds = []

@@ -12,6 +12,7 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
+import { selectEmbeddingBackend } from "../../memory/embedding-backend.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
@@ -56,7 +57,9 @@ Examples:
         log.info("No sessions");
       } else {
         for (const s of all) {
-          log.info(`  ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`);
+          log.info(
+            `  ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`,
+          );
         }
       }
     });
@@ -221,12 +224,17 @@ Examples:
 
       const config = getConfig();
       const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
+      const embeddingSelection = selectEmbeddingBackend(config);
+      const embeddingModel = embeddingSelection.backend
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        : undefined;
       const qdrant = initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
         vectorSize: config.memory.qdrant.vectorSize,
         onDisk: config.memory.qdrant.onDisk,
         quantization: config.memory.qdrant.quantization,
+        embeddingModel,
       });
       const deleted = await qdrant.deleteCollection();
       if (deleted) {

@@ -1,16 +1,21 @@
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 
+import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb, rawExec } from "../db.js";
+import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { asString, BackendUnavailableError } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { extractMediaBlockMeta } from "../message-content.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
+  mediaAssets,
   memoryEmbeddings,
   memoryItems,
   memorySegments,
   memorySummaries,
+  messages,
 } from "../schema.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -47,6 +52,35 @@ export function rebuildIndexJob(): void {
     .all();
   for (const segment of segments) {
     enqueueMemoryJob("embed_segment", { segmentId: segment.id });
+  }
+
+  // Re-enqueue multimodal embedding jobs only when the resolved embedding
+  // backend supports multimodal inputs. Without this gate, embed_media and
+  // embed_attachment jobs would all fail for text-only backends.
+  if (selectedBackendSupportsMultimodal(getConfig())) {
+    const assets = db
+      .select({ id: mediaAssets.id })
+      .from(mediaAssets)
+      .where(eq(mediaAssets.status, "indexed"))
+      .all();
+    for (const asset of assets) {
+      enqueueMemoryJob("embed_media", { assetId: asset.id });
+    }
+
+    const imageMessages = db
+      .select({ id: messages.id, content: messages.content })
+      .from(messages)
+      .where(like(messages.content, '%"type":"image"%'))
+      .all();
+    for (const msg of imageMessages) {
+      const blocks = extractMediaBlockMeta(msg.content);
+      for (const block of blocks) {
+        enqueueMemoryJob("embed_attachment", {
+          messageId: msg.id,
+          blockIndex: block.index,
+        });
+      }
+    }
   }
 }
 

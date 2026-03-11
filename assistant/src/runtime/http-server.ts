@@ -97,6 +97,7 @@ import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
@@ -124,6 +125,8 @@ import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
+import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
+import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
@@ -131,6 +134,8 @@ import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
+import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
+import { mcpRouteDefinitions } from "./routes/mcp-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
@@ -242,12 +247,12 @@ export class RuntimeHttpServer {
     return this.server?.port ?? this.port;
   }
 
-  /** Expose the pairing store so the daemon server can wire IPC handlers. */
+  /** Expose the pairing store so the daemon server can wire HTTP handlers. */
   getPairingStore(): PairingStore {
     return this.pairingStore;
   }
 
-  /** Set a callback for broadcasting IPC messages (wired by daemon server). */
+  /** Set a callback for broadcasting server messages (wired by daemon server). */
   setPairingBroadcast(fn: (msg: ServerMessage) => void): void {
     this.pairingBroadcast = fn;
   }
@@ -712,6 +717,7 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
+      ...mcpRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...settingsRouteDefinitions(),
@@ -719,6 +725,7 @@ export class RuntimeHttpServer {
         sendMessageDeps: this.sendMessageDeps,
       }),
       ...diagnosticsRouteDefinitions(),
+      ...logExportRouteDefinitions(),
       ...documentRouteDefinitions(),
       ...workItemRouteDefinitions(
         this.sendMessageDeps
@@ -920,6 +927,10 @@ export class RuntimeHttpServer {
         },
       },
 
+      ...btwRouteDefinitions({
+        sendMessageDeps: this.sendMessageDeps,
+      }),
+
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
         sendMessageDeps: this.sendMessageDeps,
@@ -929,6 +940,8 @@ export class RuntimeHttpServer {
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
+      ...hostBashRouteDefinitions(),
+      ...hostFileRouteDefinitions(),
       ...(this.getSkillContext
         ? skillRouteDefinitions({
             getSkillContext: this.getSkillContext,

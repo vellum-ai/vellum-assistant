@@ -29,7 +29,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -53,6 +52,7 @@ mock.module("../config/loader.js", () => ({
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
@@ -65,7 +65,7 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
 // Mock local-actor-identity to return a stable guardian context that uses
 // the same principal as the canonical requests created in tests.
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcTrustContext: () => ({
+  resolveLocalTrustContext: () => ({
     sourceChannel: "vellum",
     trustClass: "guardian",
     guardianPrincipalId: "test-principal-id",
@@ -112,7 +112,11 @@ function makeCompletingSession(): Session {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
+    setHostFileProxy: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -164,7 +168,11 @@ function makeHangingSession(): Session {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
+    setHostFileProxy: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -244,7 +252,11 @@ function makePendingApprovalSession(
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
+    setHostFileProxy: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
       pending.has(candidateRequestId),

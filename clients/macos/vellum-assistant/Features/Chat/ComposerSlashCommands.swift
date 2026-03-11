@@ -18,6 +18,7 @@ struct SlashCommand: Identifiable {
         SlashCommand(name: "model", description: "Switch the active model", icon: "cpu"),
         SlashCommand(name: "models", description: "List all available models", icon: "list.bullet"),
         SlashCommand(name: "status", description: "Show session status and context usage", icon: "info.circle"),
+        SlashCommand(name: "btw", description: "Ask a side question while the assistant is working", icon: "bubble.left.and.text.bubble.right"),
     ]
 }
 
@@ -85,8 +86,13 @@ extension ComposerView {
     func selectSlashCommand(_ command: SlashCommand) {
         withAnimation(VAnimation.fast) { showSlashMenu = false }
         slashSelectedIndex = 0
-        inputText = "/\(command.name)"
-        onSend()
+        if command.name == "btw" {
+            inputText = "/\(command.name) "
+            // Don't auto-send — user needs to type the question
+        } else {
+            inputText = "/\(command.name)"
+            onSend()
+        }
     }
 
     func handleSlashNavigation(_ action: SlashNavigation) {

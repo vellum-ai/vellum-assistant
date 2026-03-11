@@ -3,12 +3,14 @@ import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 const ASSISTANT_DIR = join(import.meta.dir, "..", "..");
+const REPO_ROOT = join(ASSISTANT_DIR, "..");
 const BUNDLED_SKILLS_DIR = join(
   ASSISTANT_DIR,
   "src",
   "config",
   "bundled-skills",
 );
+const FIRST_PARTY_SKILLS_DIR = join(REPO_ROOT, "skills");
 
 function collectSkillFiles(rootDir: string): string[] {
   const pending = [rootDir];
@@ -33,25 +35,32 @@ function collectSkillFiles(rootDir: string): string[] {
   return files;
 }
 
-const ALL_SKILL_FILES = collectSkillFiles(BUNDLED_SKILLS_DIR);
+const ALL_SKILL_FILES = [
+  ...collectSkillFiles(BUNDLED_SKILLS_DIR),
+  ...collectSkillFiles(FIRST_PARTY_SKILLS_DIR),
+];
 
 const GATEWAY_RETRIEVAL_BANLIST: Array<{
+  skillDir: string;
   skillPath: string;
   bannedSnippets: string[];
 }> = [
   {
+    skillDir: FIRST_PARTY_SKILLS_DIR,
     skillPath: "guardian-verify-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions/status',
     ],
   },
   {
+    skillDir: FIRST_PARTY_SKILLS_DIR,
     skillPath: "telegram-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config',
     ],
   },
   {
+    skillDir: BUNDLED_SKILLS_DIR,
     skillPath: "contacts/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members',
@@ -61,6 +70,7 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
+    skillDir: FIRST_PARTY_SKILLS_DIR,
     skillPath: "twilio-setup/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config"',
@@ -68,12 +78,14 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
+    skillDir: BUNDLED_SKILLS_DIR,
     skillPath: "phone-calls/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config"',
     ],
   },
   {
+    skillDir: FIRST_PARTY_SKILLS_DIR,
     skillPath: "public-ingress/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/',
@@ -82,6 +94,7 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
+    skillDir: FIRST_PARTY_SKILLS_DIR,
     skillPath: "voice-setup/SKILL.md",
     bannedSnippets: [
       "assistant config get elevenlabs.voiceId",
@@ -89,6 +102,7 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
+    skillDir: FIRST_PARTY_SKILLS_DIR,
     skillPath: "email-setup/SKILL.md",
     bannedSnippets: [
       "host_bash",
@@ -123,7 +137,7 @@ describe("bundled skill retrieval guard", () => {
     const violations: string[] = [];
 
     for (const rule of GATEWAY_RETRIEVAL_BANLIST) {
-      const abs = join(BUNDLED_SKILLS_DIR, rule.skillPath);
+      const abs = join(rule.skillDir, rule.skillPath);
       const content = readFileSync(abs, "utf-8");
       for (const snippet of rule.bannedSnippets) {
         if (content.includes(snippet)) {
@@ -136,7 +150,7 @@ describe("bundled skill retrieval guard", () => {
 
     if (violations.length > 0) {
       const message = [
-        "Bundled skill retrieval contract regression detected.",
+        "Skill retrieval contract regression detected.",
         "Migrated skills must not reintroduce direct gateway/keychain retrieval snippets.",
         "",
         "Violations:",
@@ -147,11 +161,11 @@ describe("bundled skill retrieval guard", () => {
     }
   });
 
-  test("bundled skills do not contain direct keychain lookup instructions", () => {
+  test("skills do not contain direct keychain lookup instructions", () => {
     const violations: string[] = [];
 
     for (const skillFile of ALL_SKILL_FILES) {
-      const rel = relative(ASSISTANT_DIR, skillFile).replaceAll("\\", "/");
+      const rel = relative(REPO_ROOT, skillFile).replaceAll("\\", "/");
       if (KEYCHAIN_ALLOWLIST.has(rel)) continue;
       const content = readFileSync(skillFile, "utf-8");
       for (const pattern of KEYCHAIN_PATTERNS) {
@@ -163,7 +177,7 @@ describe("bundled skill retrieval guard", () => {
 
     if (violations.length > 0) {
       const message = [
-        "Direct keychain lookup instructions were found in bundled skills.",
+        "Direct keychain lookup instructions were found in skills.",
         "Use credential_store and CLI/proxied flows instead.",
         "",
         "Violations:",
@@ -176,11 +190,11 @@ describe("bundled skill retrieval guard", () => {
     }
   });
 
-  test("bundled skills do not require host_bash for Vellum CLI retrieval commands", () => {
+  test("skills do not require host_bash for Vellum CLI retrieval commands", () => {
     const violations: string[] = [];
 
     for (const skillFile of ALL_SKILL_FILES) {
-      const rel = relative(ASSISTANT_DIR, skillFile).replaceAll("\\", "/");
+      const rel = relative(REPO_ROOT, skillFile).replaceAll("\\", "/");
       if (HOST_BASH_RETRIEVAL_ALLOWLIST.has(rel)) continue;
       const content = readFileSync(skillFile, "utf-8");
       const hasHostBash = content.includes("host_bash");
@@ -196,7 +210,7 @@ describe("bundled skill retrieval guard", () => {
 
     if (violations.length > 0) {
       const message = [
-        "Bundled skills must not require host_bash for Vellum CLI retrieval commands.",
+        "Skills must not require host_bash for Vellum CLI retrieval commands.",
         "Use sandboxed bash for retrieval flows unless an explicit exception is documented.",
         "",
         "Violations:",

@@ -38,7 +38,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => testDbPath,
   getLogPath: () => join(testDir, "test.log"),
@@ -467,7 +466,7 @@ describe("route policy registration", () => {
     expect(policy?.requiredScopes).toContain("settings.write");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy?.allowedPrincipalTypes).toContain("ipc");
+    expect(policy?.allowedPrincipalTypes).toContain("local");
   });
 
   test("migrations/validate policy is still registered", async () => {
@@ -493,7 +492,7 @@ describe("auth policy shape", () => {
     expect(policy!.requiredScopes).toEqual(["settings.write"]);
     // Verify only the expected principal types are allowed
     expect(policy!.allowedPrincipalTypes).toEqual(
-      expect.arrayContaining(["actor", "svc_gateway", "svc_daemon", "ipc"]),
+      expect.arrayContaining(["actor", "svc_gateway", "svc_daemon", "local"]),
     );
     expect(policy!.allowedPrincipalTypes).toHaveLength(4);
   });

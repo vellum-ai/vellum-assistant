@@ -1,4 +1,4 @@
-// Guardian action decision IPC types.
+// Guardian action decision message types.
 // Enables desktop clients to fetch pending guardian prompts and submit
 // button decisions deterministically (without text parsing).
 

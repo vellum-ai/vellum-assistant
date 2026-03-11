@@ -5,6 +5,7 @@ public enum VIconButtonVariant {
     case primary
     case secondary
     case danger
+    case success
     case outlined
     case neutral
 }
@@ -55,17 +56,16 @@ public struct VIconButton: View {
         }
         .focused($isFocused)
         .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused, size: size, variant: variant))
-        .onHover { hovering in
+        .pointerCursor(onHover: { hovering in
             isHovered = hovering
-        }
-        .pointerCursor()
+        })
         .accessibilityLabel(label)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
     }
 
     private var iconForegroundForVariant: Color {
         switch variant {
-        case .primary, .danger, .neutral:
+        case .primary, .danger, .success, .neutral:
             return .white
         case .ghost, .secondary, .outlined:
             return iconForegroundColor
@@ -130,8 +130,6 @@ public struct VIconButtonStyle: ButtonStyle {
             .focusEffectDisabled()
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(VAnimation.fast, value: configuration.isPressed)
-            .animation(VAnimation.fast, value: isHovered)
-            .animation(VAnimation.fast, value: isFocused)
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
@@ -147,6 +145,12 @@ public struct VIconButtonStyle: ButtonStyle {
             if isPressed { return VColor.buttonDangerPressed }
             if isHovered { return VColor.buttonDangerHover }
             return VColor.buttonDanger
+
+        case .success:
+            guard isEnabled else { return VColor.buttonSuccessBg.opacity(0.5) }
+            if isPressed { return VColor.buttonSuccessBgPressed }
+            if isHovered { return VColor.buttonSuccessBgHover }
+            return VColor.buttonSuccessBg
 
         case .neutral:
             guard isEnabled else { return VColor.buttonNeutral.opacity(0.5) }
@@ -188,7 +192,7 @@ public struct VIconButtonStyle: ButtonStyle {
 
     private var borderColor: Color {
         switch variant {
-        case .primary, .danger, .neutral:
+        case .primary, .danger, .success, .neutral:
             return .clear
         case .outlined:
             return VColor.buttonSecondaryBorder

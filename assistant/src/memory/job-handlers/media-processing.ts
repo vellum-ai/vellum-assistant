@@ -6,9 +6,11 @@ import {
 import { mapSegmentsForAsset } from "../../config/bundled-skills/media-processing/tools/analyze-keyframes.js";
 import { preprocessForAsset } from "../../config/bundled-skills/media-processing/tools/extract-keyframes.js";
 import { reduceForAsset } from "../../config/bundled-skills/media-processing/tools/query-media-events.js";
+import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
+import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { asString } from "../job-utils.js";
-import type { MemoryJob } from "../jobs-store.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { getMediaAssetById, updateMediaAssetStatus } from "../media-store.js";
 
 const log = getLogger("media-processing-job");
@@ -32,6 +34,9 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
       "Skipping media processing pipeline — only video assets are supported",
     );
     updateMediaAssetStatus(mediaAssetId, "indexed");
+    if (selectedBackendSupportsMultimodal(getConfig())) {
+      enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
+    }
     return;
   }
 
@@ -106,5 +111,10 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   }
   if (result.cancelled) {
     throw new Error(`Media processing cancelled for asset ${mediaAssetId}`);
+  }
+
+  updateMediaAssetStatus(mediaAssetId, "indexed");
+  if (selectedBackendSupportsMultimodal(getConfig())) {
+    enqueueMemoryJob("embed_media", { assetId: mediaAssetId });
   }
 }

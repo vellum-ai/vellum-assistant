@@ -154,14 +154,14 @@ final class RideShotgunSessionTests: XCTestCase {
         XCTAssertNil(agent.currentSession)
     }
 
-    // MARK: - IPC Message Delivery Path
+    // MARK: - Message Delivery Path
 
     @MainActor
     func testRideShotgunErrorMessageTransitionsSessionToFailed() async throws {
         // Exercises the actual subscription loop in RideShotgunSession.start():
         // a rideShotgunError message delivered through the DaemonClient stream
         // should transition the session from .starting to .failed with the error
-        // message from the IPC payload.
+        // message from the event payload.
         let mockClient = MockDaemonClient()
         let continuation = mockClient.setupTestStream()
 
@@ -169,7 +169,7 @@ final class RideShotgunSessionTests: XCTestCase {
         session.start(daemonClient: mockClient)
         XCTAssertEqual(session.state, .starting)
 
-        // Deliver the error through the IPC subscription
+        // Deliver the error through the event subscription
         let errorMessage = RideShotgunErrorMessage(
             type: "ride_shotgun_error",
             watchId: "w-1",

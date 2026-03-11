@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 
@@ -10,6 +10,11 @@ import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "./embedding-backend.js";
+import type { EmbeddingInput } from "./embedding-types.js";
+import {
+  embeddingInputContentHash,
+  normalizeEmbeddingInput,
+} from "./embedding-types.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
 import { memoryEmbeddings } from "./schema.js";
@@ -136,9 +141,9 @@ export function truncate(text: string, max: number): string {
 
 export async function embedAndUpsert(
   config: AssistantConfig,
-  targetType: "segment" | "item" | "summary",
+  targetType: "segment" | "item" | "summary" | "media",
   targetId: string,
-  text: string,
+  input: EmbeddingInput,
   extraPayload?: Record<string, unknown>,
 ): Promise<void> {
   const status = getMemoryBackendStatus(config);
@@ -148,7 +153,7 @@ export async function embedAndUpsert(
     );
   }
 
-  const contentHash = createHash("sha256").update(text).digest("hex");
+  const contentHash = embeddingInputContentHash(input);
   let provider = status.provider;
   let model = status.model!;
   let vector: number[];
@@ -181,12 +186,20 @@ export async function embedAndUpsert(
       vector = JSON.parse(cachedRow.vectorJson!);
     }
   } else {
-    const embedded = await embedWithBackend(config, [text]);
+    const embedded = await embedWithBackend(config, [input]);
     vector = embedded.vectors[0];
     if (!vector) return;
     provider = embedded.provider;
     model = embedded.model;
   }
+
+  // Extract text for Qdrant payload: use the raw text for text inputs,
+  // or a description string for non-text (image/audio/video) inputs.
+  const normalized = normalizeEmbeddingInput(input);
+  const payloadText =
+    normalized.type === "text"
+      ? normalized.text
+      : `[${normalized.type}:${normalized.mimeType}]`;
 
   // Persist embedding in SQLite for cross-restart cache
   const now = Date.now();
@@ -234,9 +247,11 @@ export async function embedAndUpsert(
   }
 
   try {
+    const modality = normalized.type;
     await withQdrantBreaker(() =>
       qdrant.upsert(targetType, targetId, vector, {
-        text,
+        text: payloadText,
+        modality,
         created_at: (extraPayload?.created_at as number) ?? now,
         ...(extraPayload as Record<string, unknown> | undefined),
       }),

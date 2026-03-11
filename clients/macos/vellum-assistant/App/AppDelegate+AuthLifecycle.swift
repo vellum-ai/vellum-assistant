@@ -250,7 +250,7 @@ extension AppDelegate {
     /// 5. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
         // 1. Clear assistant-scoped runtime state while the daemon is still
-        // running so forceStop can deliver a recording_status IPC message.
+        // running so forceStop can deliver a recording_status message.
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
 

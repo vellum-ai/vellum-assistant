@@ -305,22 +305,6 @@ Configure via `sms.assistantPhoneNumbers` in the gateway config file (`~/.vellum
 
 The `TWILIO_PHONE_NUMBER` environment variable (or `sms.phoneNumber` in the config file) serves as the global fallback when no per-assistant mapping matches. If an `assistantId` is provided in a `/deliver/sms` request and has a mapped phone number, that number is used as the sender; otherwise, the global `TWILIO_PHONE_NUMBER` is used.
 
-### Twitter (X)
-
-Twitter integration supports two operation paths: **OAuth** (X API v2) and **Browser** (CDP). A strategy router selects which path is used for each operation.
-
-- **OAuth path**: Uses stored OAuth2 tokens via `withValidToken('integration:twitter', ...)` to call the X API v2 directly. Supports `post` and `reply`. Most reliable when developer credentials are configured — no browser session needed for these operations.
-
-- **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
-
-- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitter.operationStrategy`.
-
-**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The assistant runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or the `twitter_auth_start` HTTP endpoint.
-
-**Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
-
-**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
-
 </details>
 
 <details>

@@ -299,7 +299,7 @@ export async function handlePairingRequest(
     // tokens and creating DB records for unapproved devices).
     pendingDeviceIds.set(pairingRequestId, { deviceId, createdAt: Date.now() });
 
-    // Send IPC to macOS to show approval prompt
+    // Broadcast to macOS to show approval prompt
     if (ctx.pairingBroadcast) {
       ctx.pairingBroadcast({
         type: "pairing_approval_request",

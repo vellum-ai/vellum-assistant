@@ -17,18 +17,19 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 180000,
-      targetInputTokens: 110000,
+      targetBudgetRatio: 0.3,
       compactThreshold: 0.8,
-      preserveRecentUserTurns: 8,
-      summaryMaxTokens: 1200,
-      chunkTokens: 12000,
+      summaryBudgetRatio: 0.05,
     },
   }),
   invalidateConfigCache: () => {},
 }));
 
 import { ComputerUseSession } from "../daemon/computer-use-session.js";
-import type { CuObservation, ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  CuObservation,
+  ServerMessage,
+} from "../daemon/message-protocol.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 
 function createProvider(responses: ProviderResponse[]): {
@@ -141,7 +142,7 @@ describe("ComputerUseSession lifecycle", () => {
     expect(session.getState()).toBe("error");
   });
 
-  test("CU session passes exactly 12 computer_use_* tools to the agent loop", async () => {
+  test("CU session passes exactly 10 computer_use_* tools to the agent loop", async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
       name: "mock",
@@ -180,13 +181,11 @@ describe("ComputerUseSession lifecycle", () => {
     });
 
     const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
-    expect(cuTools).toHaveLength(12);
+    expect(cuTools).toHaveLength(10);
 
     // Assert exact set of expected CU tool names
     const expectedCuTools = [
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",
@@ -251,7 +250,7 @@ describe("ComputerUseSession lifecycle", () => {
     expect(completes[0].isResponse).toBe(true);
   });
 
-  test("default construction preactivates computer-use skill and provides 12 CU tools", async () => {
+  test("default construction preactivates computer-use skill and provides 10 CU tools", async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
       name: "mock",
@@ -292,7 +291,7 @@ describe("ComputerUseSession lifecycle", () => {
     });
 
     const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
-    expect(cuTools).toHaveLength(12);
+    expect(cuTools).toHaveLength(10);
   });
 
   test("constructor accepts preactivatedSkillIds parameter", () => {

@@ -1,9 +1,7 @@
 /**
  * HTTP route handlers for diagnostics export and dictation processing.
  *
- * Migrated from IPC handlers:
- *   - handlers/diagnostics.ts (diagnostics_export_request)
- *   - handlers/dictation.ts (dictation_request)
+ * Handles diagnostics export and dictation processing requests.
  */
 
 import { randomBytes } from "node:crypto";
@@ -53,7 +51,7 @@ import type { RouteDefinition } from "../http-router.js";
 const log = getLogger("diagnostics-routes");
 
 // ---------------------------------------------------------------------------
-// Diagnostics export — redaction helpers (shared with IPC handler)
+// Diagnostics export — redaction helpers
 // ---------------------------------------------------------------------------
 
 const MAX_CONTENT_LENGTH = 500;
@@ -181,7 +179,12 @@ async function handleDiagnosticsExport(body: {
   try {
     const db = getDb();
 
-    // 1. Find the anchor message
+    // 1. Find the anchor message.
+    // Try in order: specific ID → most recent assistant message → any message.
+    // The final fallback handles the race condition where the user clicks
+    // "export" before message_complete fires and the assistant message has
+    // been persisted — the user message and in-flight tool/usage data are
+    // still captured.
     let anchorMessage;
     if (anchorMessageId) {
       anchorMessage = db
@@ -194,7 +197,8 @@ async function handleDiagnosticsExport(body: {
           ),
         )
         .get();
-    } else {
+    }
+    if (!anchorMessage) {
       anchorMessage = db
         .select()
         .from(messages)
@@ -208,30 +212,60 @@ async function handleDiagnosticsExport(body: {
         .limit(1)
         .get();
     }
-
     if (!anchorMessage) {
-      return httpError("NOT_FOUND", "Anchor message not found", 404);
+      anchorMessage = db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(desc(messages.createdAt))
+        .limit(1)
+        .get();
     }
 
-    // 2. Find the preceding user message
-    const precedingUserMessage = db
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, conversationId),
-          eq(messages.role, "user"),
-          lte(messages.createdAt, anchorMessage.createdAt),
-        ),
-      )
-      .orderBy(desc(messages.createdAt))
-      .limit(1)
-      .get();
+    // 2. Compute the export time range.
+    // When an anchor message exists, scope to the preceding user message
+    // through the anchor. When no messages exist at all (empty conversation
+    // or race condition), use the current timestamp so the export still
+    // captures any in-flight usage/tool data.
+    const now = Date.now();
+    let rangeEnd: number;
+    let rangeStart: number;
+    let usageRangeEnd: number;
 
-    const rangeStart =
-      precedingUserMessage?.createdAt ?? anchorMessage.createdAt - 2000;
-    const rangeEnd = anchorMessage.createdAt;
-    const usageRangeEnd = anchorMessage.createdAt + 5000;
+    if (anchorMessage) {
+      const precedingUserMessage = db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            eq(messages.role, "user"),
+            lte(messages.createdAt, anchorMessage.createdAt),
+          ),
+        )
+        .orderBy(desc(messages.createdAt))
+        .limit(1)
+        .get();
+
+      rangeStart =
+        precedingUserMessage?.createdAt ?? anchorMessage.createdAt - 2000;
+
+      // When the anchor is not an assistant message (e.g. the fallback "any
+      // message" path hit because the assistant reply hasn't been persisted
+      // yet), extend the range to the current time so in-flight tool
+      // invocations and usage recorded after the user message are captured.
+      const anchorIsAssistant = anchorMessage.role === "assistant";
+      rangeEnd = anchorIsAssistant ? anchorMessage.createdAt : now;
+      usageRangeEnd = anchorIsAssistant
+        ? anchorMessage.createdAt + 5000
+        : now + 5000;
+    } else {
+      // No messages at all — use the current time so we capture any
+      // in-flight LLM usage or tool invocations.
+      rangeStart = now - 60_000;
+      rangeEnd = now;
+      usageRangeEnd = now + 5000;
+    }
 
     // 3. Query all messages in the range
     const rangeMessages = db
@@ -299,7 +333,7 @@ async function handleDiagnosticsExport(body: {
         version: "1.1",
         exportedAt: new Date().toISOString(),
         conversationId,
-        messageId: anchorMessage.id,
+        messageId: anchorMessage?.id ?? null,
       };
       writeFileSync(
         join(tempDir, "manifest.json"),
@@ -653,7 +687,7 @@ async function handleDictation(body: DictationBody): Promise<Response> {
       log.warn(
         "Dictation: no provider available, using heuristic + raw transcription",
       );
-      // Build an IPC-compatible msg for the heuristic
+      // Build a compatible msg for the heuristic
       const mode = detectDictationModeHeuristic({
         type: "dictation_request",
         transcription: body.transcription,

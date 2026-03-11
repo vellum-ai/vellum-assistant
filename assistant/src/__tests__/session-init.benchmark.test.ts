@@ -91,7 +91,6 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
   getWorkspaceHooksDir: () => join(testDir, "hooks"),
   getWorkspacePromptPath: (file: string) => join(testDir, file),
-  getSocketPath: () => join(testDir, "test.sock"),
   getSessionTokenPath: () => join(testDir, "session-token"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "data", "test.db"),
@@ -142,10 +141,9 @@ const mockConfig = {
   contextWindow: {
     enabled: true,
     maxInputTokens: 180000,
-    targetInputTokens: 110000,
+    targetBudgetRatio: 0.3,
     compactThreshold: 0.8,
-    preserveRecentUserTurns: 8,
-    summaryMaxTokens: 1200,
+    summaryBudgetRatio: 0.05,
   },
   thinking: { enabled: false },
 };
@@ -506,7 +504,7 @@ describe("End-to-end session creation benchmark", () => {
       if (i === 0) {
         expect(session.conversationId).toBe(id);
         expect(session.getMessages()).toHaveLength(0);
-        expect(projection.toolDefinitions.length).toBe(testSkillIds.length);
+        expect(projection.allowedToolNames.size).toBe(testSkillIds.length);
       }
       resetSkillToolProjection(session.skillProjectionState);
       session.dispose();

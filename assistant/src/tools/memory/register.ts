@@ -3,10 +3,8 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import {
-  memoryDeleteDefinition,
+  memoryManageDefinition,
   memoryRecallDefinition,
-  memorySaveDefinition,
-  memoryUpdateDefinition,
 } from "./definitions.js";
 import {
   handleMemoryDelete,
@@ -15,16 +13,16 @@ import {
   handleMemoryUpdate,
 } from "./handlers.js";
 
-// ── memory_save ──────────────────────────────────────────────────────
+// ── memory_manage ────────────────────────────────────────────────────
 
-class MemorySaveTool implements Tool {
-  name = "memory_save";
-  description = memorySaveDefinition.description;
+class MemoryManageTool implements Tool {
+  name = "memory_manage";
+  description = memoryManageDefinition.description;
   category = "memory";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
-    return memorySaveDefinition;
+    return memoryManageDefinition;
   }
 
   async execute(
@@ -32,55 +30,25 @@ class MemorySaveTool implements Tool {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const config = getConfig();
-    return handleMemorySave(
-      input,
-      config,
-      context.conversationId,
-      context.requestId,
-      context.memoryScopeId,
-    );
-  }
-}
-
-// ── memory_update ────────────────────────────────────────────────────
-
-class MemoryUpdateTool implements Tool {
-  name = "memory_update";
-  description = memoryUpdateDefinition.description;
-  category = "memory";
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return memoryUpdateDefinition;
-  }
-
-  async execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    const config = getConfig();
-    return handleMemoryUpdate(input, config, context.memoryScopeId);
-  }
-}
-
-// ── memory_delete ────────────────────────────────────────────────────
-
-class MemoryDeleteTool implements Tool {
-  name = "memory_delete";
-  description = memoryDeleteDefinition.description;
-  category = "memory";
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return memoryDeleteDefinition;
-  }
-
-  async execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    const config = getConfig();
-    return handleMemoryDelete(input, config, context.memoryScopeId);
+    switch (input.op) {
+      case "save":
+        return handleMemorySave(
+          input,
+          config,
+          context.conversationId,
+          context.requestId,
+          context.memoryScopeId,
+        );
+      case "update":
+        return handleMemoryUpdate(input, config, context.memoryScopeId);
+      case "delete":
+        return handleMemoryDelete(input, config, context.memoryScopeId);
+      default:
+        return {
+          content: `Error: unknown op "${input.op}". Must be one of: save, update, delete`,
+          isError: true,
+        };
+    }
   }
 }
 
@@ -112,7 +80,5 @@ class MemoryRecallTool implements Tool {
 
 // ── Exported tool instances ──────────────────────────────────────────
 
-export const memorySaveTool = new MemorySaveTool();
-export const memoryUpdateTool = new MemoryUpdateTool();
-export const memoryDeleteTool = new MemoryDeleteTool();
+export const memoryManageTool = new MemoryManageTool();
 export const memoryRecallTool = new MemoryRecallTool();

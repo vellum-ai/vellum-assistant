@@ -195,22 +195,21 @@ export function buildSystemPrompt(): string {
 
 function buildTaskScheduleReminderRoutingSection(): string {
   return [
-    "## Tool Routing: Tasks vs Schedules vs Reminders vs Notifications",
+    "## Tool Routing: Tasks vs Schedules vs Notifications",
     "",
-    'Four tools, each for a different purpose. Load the "Time-Based Actions" skill for the full decision framework.',
+    'Three tools, each for a different purpose. Load the "Time-Based Actions" skill for the full decision framework.',
     "",
     "| Tool | Purpose |",
     "|------|---------|",
     '| `task_list_add` | Track work — no time trigger ("add to my tasks", "remind me to X" without a time) |',
-    '| `schedule_create` | Recurring automation on cron/RRULE ("every day at 9am", "weekly on Mondays") |',
-    '| `reminder_create` | One-shot future alert ("remind me at 3pm", "remind me in 5 minutes") |',
+    '| `schedule_create` | Any time-based automation — recurring cron/RRULE ("every day at 9am") OR one-shot future alert with `fire_at` ("remind me at 3pm") |',
     "| `send_notification` | **Immediate-only** — fires instantly, NO delay capability |",
     "",
     "### Critical: `send_notification` is immediate-only",
-    "NEVER use `send_notification` for future-time requests — it fires NOW. Use `reminder_create` for any delayed alert.",
+    "NEVER use `send_notification` for future-time requests — it fires NOW. Use `schedule_create` with `fire_at` for any delayed alert.",
     "",
     "### Quick routing rules",
-    "- Future time, one-shot → `reminder_create`",
+    "- Future time, one-shot → `schedule_create` with `fire_at`",
     "- Recurring pattern → `schedule_create`",
     "- No time, track as work → `task_list_add`",
     "- Instant alert → `send_notification`",
@@ -342,7 +341,7 @@ function buildInChatConfigurationSection(): string {
     "**How to collect credentials and secrets:**",
     '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
     '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps.',
-    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate IPC or config tool to persist the value.",
+    "- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate config tool to persist the value.",
     "",
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
     "",
@@ -569,7 +568,7 @@ export function buildSwarmGuidanceSection(): string {
   return [
     "## Parallel Task Orchestration",
     "",
-    'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+    'When a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"), load the `orchestration` skill using `skill_load` first, then use `swarm_delegate` to decompose and run them in parallel. For single-focus tasks, work directly — do not decompose them into a swarm.',
   ].join("\n");
 }
 
@@ -653,7 +652,7 @@ function buildMemoryPersistenceSection(): string {
     "",
     "Your memory does not survive session restarts. If you want to remember something, **save it**.",
     "",
-    "- Use `memory_save` for facts, preferences, learnings, and anything worth recalling later.",
+    '- Use `memory_manage` with `op: "save"` for facts, preferences, learnings, and anything worth recalling later.',
     "- Update workspace files (USER.md, SOUL.md) for profile and personality changes.",
     '- When someone says "remember this," save it immediately — don\'t rely on keeping it in context.',
     "- When you make a mistake, save the lesson so future-you doesn't repeat it.",
@@ -698,7 +697,7 @@ function buildLearningMemorySection(): string {
     "",
     "When you make a mistake, hit a dead end, or discover something non-obvious, save it to memory so you don't repeat it.",
     "",
-    'Use `memory_save` with `kind: "learning"` for:',
+    'Use `memory_manage` with `op: "save", kind: "learning"` for:',
     "- **Mistakes and corrections** — wrong assumptions, failed approaches, gotchas you ran into",
     "- **Discoveries** — undocumented behaviors, surprising API quirks, things that weren't obvious",
     "- **Working solutions** — the approach that actually worked after trial and error",
@@ -707,8 +706,8 @@ function buildLearningMemorySection(): string {
     "The statement should capture both what happened and the takeaway. Write it as advice to your future self.",
     "",
     "Examples:",
-    '- `memory_save({ kind: "learning", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
-    '- `memory_save({ kind: "learning", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
+    '- `memory_manage({ op: "save", kind: "learning", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
+    '- `memory_manage({ op: "save", kind: "learning", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
     "",
     "Don't overthink it. If you catch yourself thinking \"I'll remember that for next time,\" save it.",
   ].join("\n");
@@ -880,22 +879,24 @@ function appendSkillsCatalog(basePrompt: string): string {
   const config = getConfig();
 
   // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter((s) =>
-    isAssistantFeatureFlagEnabled(skillFlagKey(s.id), config),
-  );
+  const flagFiltered = skills.filter((s) => {
+    const flagKey = skillFlagKey(s);
+    return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
+  });
 
   const sections: string[] = [basePrompt];
 
   const catalog = formatSkillsCatalog(flagFiltered);
   if (catalog) sections.push(catalog);
 
-  sections.push(buildDynamicSkillWorkflowSection(config));
+  sections.push(buildDynamicSkillWorkflowSection(config, flagFiltered));
 
   return sections.join("\n\n");
 }
 
 function buildDynamicSkillWorkflowSection(
-  config: import("../config/schema.js").AssistantConfig,
+  _config: import("../config/schema.js").AssistantConfig,
+  activeSkills: SkillSummary[],
 ): string {
   const lines = [
     "## Dynamic Skill Authoring Workflow",
@@ -911,7 +912,9 @@ function buildDynamicSkillWorkflowSection(
     "After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.",
   ];
 
-  if (isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config)) {
+  const activeSkillIds = new Set(activeSkills.map((s) => s.id));
+
+  if (activeSkillIds.has("browser")) {
     lines.push(
       "",
       "### Browser Skill Prerequisite",
@@ -919,17 +922,7 @@ function buildDynamicSkillWorkflowSection(
     );
   }
 
-  if (isAssistantFeatureFlagEnabled("feature_flags.twitter.enabled", config)) {
-    lines.push(
-      "",
-      "### X (Twitter) Skill",
-      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
-    );
-  }
-
-  if (
-    isAssistantFeatureFlagEnabled("feature_flags.messaging.enabled", config)
-  ) {
+  if (activeSkillIds.has("messaging")) {
     lines.push(
       "",
       "### Messaging Skill",
@@ -994,7 +987,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
 
   return [
     "## Available Skills",
-    "The following skills are available. Before executing one, call the `skill_load` tool with its `id` to load the full instructions.",
+    "The following skills are available. Before executing one, call `skill_load` to load the full instructions, then use `skill_execute` to invoke the skill's tools.",
     "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),

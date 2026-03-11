@@ -108,6 +108,11 @@ extension MainWindowView {
                 store: usageDashboardStore,
                 onClose: { windowState.selection = nil }
             )
+        case .taskQueue:
+            TaskQueuePanel(
+                viewModel: taskQueueViewModel,
+                onClose: { windowState.selection = nil }
+            )
         }
     }
 
@@ -384,7 +389,7 @@ extension MainWindowView {
                     voiceModeManager.deactivate()
                 },
                 onDictateToggle: {
-                    (NSApp.delegate as? AppDelegate)?.voiceInput?.toggleRecording(origin: .chatComposer)
+                    AppDelegate.shared?.voiceInput?.toggleRecording(origin: .chatComposer)
                 },
                 onVoiceModeToggle: {
                     toggleVoiceMode()
@@ -487,6 +492,12 @@ extension MainWindowView {
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
+                onClose: { windowState.dismissOverlay() }
+            )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
+        case .taskQueue:
+            TaskQueuePanel(
+                viewModel: taskQueueViewModel,
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -708,6 +719,9 @@ struct ActiveChatViewWrapper: View {
             onVoiceModeToggle: onVoiceModeToggle,
             threadId: threadId,
             anchorMessageId: $anchorMessageId,
+            btwResponse: viewModel.btwResponse,
+            btwLoading: viewModel.btwLoading,
+            onDismissBtw: { viewModel.dismissBtw() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
@@ -1096,7 +1110,7 @@ private struct ShareDrawerRow: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.navHover : Color.clear)
+            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1180,7 +1194,7 @@ private struct AppLoadingView: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), taskQueueViewModel: TaskQueueViewModel(daemonClient: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

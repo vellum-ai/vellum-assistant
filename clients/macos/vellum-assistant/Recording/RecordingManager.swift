@@ -31,7 +31,7 @@ enum RecordingState: Equatable, Sendable {
 /// Centralized recording orchestration ensuring at most one active recording.
 ///
 /// Manages the recording lifecycle (start/stop), enforces the single-active
-/// guard, and sends `RecordingStatus` IPC messages back to the daemon.
+/// guard, and sends `RecordingStatus` messages back to the daemon.
 @MainActor
 final class RecordingManager: ObservableObject {
 
@@ -73,7 +73,7 @@ final class RecordingManager: ObservableObject {
     ///   - attachToConversationId: Optional conversation ID to attach the recording to.
     /// - Returns: `true` if the recording started successfully, `false` otherwise.
     @discardableResult
-    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false, operationToken: String? = nil) async -> Bool {
+    func start(sessionId: String, options: RecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false, operationToken: String? = nil) async -> Bool {
         guard !state.isActive else {
             log.warning("Cannot start recording — already active (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
             sendStatus(sessionId: sessionId, status: "failed", error: "Another recording is already active")
@@ -307,7 +307,7 @@ final class RecordingManager: ObservableObject {
         log.info("Force-stopped recording (synchronous cancel)")
     }
 
-    // MARK: - IPC
+    // MARK: - Daemon Communication
 
     private func sendStatus(
         sessionId: String,
@@ -321,7 +321,7 @@ final class RecordingManager: ObservableObject {
             return
         }
 
-        let message = IPCRecordingStatus(
+        let message = RecordingStatus(
             type: "recording_status",
             sessionId: sessionId,
             status: status,

@@ -465,7 +465,6 @@ private struct StepDetailRow: View {
         guard toolCall.isComplete else { return false }
         return !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil
             || (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true))
-            || toolCall.cachedImage != nil
             || !toolCall.claudeCodeSteps.isEmpty
     }
 
@@ -674,28 +673,8 @@ private struct StepDetailRow: View {
                 .padding(.horizontal, VSpacing.lg)
             }
 
-            // Screenshot — Retina rendering + double-click → Preview.app
-            if let img = toolCall.cachedImage,
-               let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                Image(decorative: cgImage, scale: displayScale)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .padding(.horizontal, VSpacing.lg)
-                    .onTapGesture(count: 2) { openImageInPreview(img) }
-                    .pointerCursor()
-            } else if let img = toolCall.cachedImage {
-                Image(nsImage: img)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .padding(.horizontal, VSpacing.lg)
-                    .onTapGesture(count: 2) { openImageInPreview(img) }
-                    .pointerCursor()
-            }
+            // Tool call images are rendered inline below the progress view
+            // by inlineToolCallImages(from:), so they are not duplicated here.
 
             // Output with diff coloring + copy button
             if let result = toolCall.result, !result.isEmpty {
@@ -743,32 +722,6 @@ private struct StepDetailRow: View {
     }
 
     // MARK: - Helpers
-
-    private func openImageInPreview(_ image: NSImage) {
-        let path = toolCall.inputRawValue
-        if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
-            openInPreview(URL(fileURLWithPath: path))
-            return
-        }
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return }
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vellum-preview-\(UUID().uuidString).png")
-        do {
-            try png.write(to: tempURL)
-            openInPreview(tempURL)
-        } catch {}
-    }
-
-    private func openInPreview(_ url: URL) {
-        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
-        NSWorkspace.shared.open(
-            [url],
-            withApplicationAt: previewURL,
-            configuration: NSWorkspace.OpenConfiguration()
-        )
-    }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
         let lines = result.components(separatedBy: "\n")

@@ -82,6 +82,15 @@ struct ChatView: View {
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
 
+    // MARK: - BTW Side-Chain
+
+    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
+    var btwResponse: String? = nil
+    /// True while a /btw request is in flight.
+    var btwLoading: Bool = false
+    /// Called to dismiss the btw overlay.
+    var onDismissBtw: (() -> Void)?
+
     // MARK: - Pagination
 
     var displayedMessageCount: Int = .max
@@ -108,14 +117,11 @@ struct ChatView: View {
                     APIKeyBanner(onOpenSettings: onOpenSettings)
                 }
                 if messages.isEmpty && !isHistoryLoaded {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
-                        Spacer()
-                    }
-                    Spacer()
+                    ChatLoadingSkeleton()
+                        .padding(VSpacing.lg)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Loading chat history")
                 } else if isEmptyState && isBootstrapping {
                     // During first-launch bootstrap, suppress the empty state
                     // and show a simple loading panel until the first assistant
@@ -281,6 +287,10 @@ struct ChatView: View {
                 }
             )
             .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+            .overlay(alignment: .bottom) {
+                btwOverlay
+            }
+            .animation(VAnimation.fast, value: btwResponse != nil)
 
             // Drop target overlay
             if isDropTargeted {
@@ -307,6 +317,13 @@ struct ChatView: View {
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
+        .onKeyPress(.escape) {
+            if btwResponse != nil {
+                onDismissBtw?()
+                return .handled
+            }
+            return .ignored
+        }
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -314,6 +331,44 @@ struct ChatView: View {
     @ViewBuilder
     private var chatBackground: some View {
         EmptyView()
+    }
+
+    @ViewBuilder
+    private var btwOverlay: some View {
+        if let btwText = btwResponse {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack {
+                    Text("/btw")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    Button(action: { onDismissBtw?() }) {
+                        VIconView(.x, size: 12)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss btw response")
+                }
+
+                Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+
+                if !btwLoading {
+                    Text("Press Escape to dismiss")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .padding(VSpacing.md)
+            .background(VColor.surface)
+            .cornerRadius(VRadius.md)
+            .vShadow(VShadow.sm)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
     }
 
     /// Handle dropped items — supports both file URLs and raw image data.
@@ -404,21 +459,17 @@ private struct ChatBootstrapLoadingView: View {
     @State private var visible = false
 
     var body: some View {
-        VStack(spacing: VSpacing.lg) {
-            Spacer()
-            VLoadingIndicator(size: 24, color: VColor.accent)
-            Text("Getting ready...")
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .opacity(visible ? 1 : 0)
-        .onAppear {
-            withAnimation(VAnimation.standard) {
-                visible = true
+        ChatLoadingSkeleton()
+            .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Getting ready")
+            .opacity(visible ? 1 : 0)
+            .onAppear {
+                withAnimation(VAnimation.standard) {
+                    visible = true
+                }
             }
-        }
     }
 }
 

@@ -35,7 +35,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getSocketPath: () => "/tmp/test.sock",
   getDataDir: () => "/tmp",
 }));
 
@@ -302,7 +301,8 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { QueueDrainReason, QueuePolicy } from "../daemon/session.js";
-import { MAX_QUEUE_DEPTH, Session } from "../daemon/session.js";
+import { Session } from "../daemon/session.js";
+import { MessageQueue } from "../daemon/session-queue-manager.js";
 
 type SessionWithWorkspaceDeps = Session & {
   getWorkspaceGitService?: (_workspaceDir: string) => {
@@ -731,40 +731,6 @@ describe("Session message queue", () => {
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
-  test("queue rejects when at max depth", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
-
-    // Start first message to make session busy
-    session.processMessage("msg-1", [], () => {}, "req-1");
-    await waitForPendingRun(1);
-
-    // Fill the queue to MAX_QUEUE_DEPTH
-    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
-      const result = session.enqueueMessage(
-        `msg-${i + 2}`,
-        [],
-        () => {},
-        `req-${i + 2}`,
-      );
-      expect(result.queued).toBe(true);
-      expect(result.rejected).toBeUndefined();
-    }
-    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
-
-    // Next enqueue should be rejected
-    const rejected = session.enqueueMessage(
-      "overflow",
-      [],
-      () => {},
-      "req-overflow",
-    );
-    expect(rejected.queued).toBe(false);
-    expect(rejected.rejected).toBe(true);
-
-    // Queue depth should not have increased
-    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1006,47 +972,6 @@ describe("Session checkpoint handoff", () => {
 
     // FIFO order: msg-1 completes first, then msg-2, then msg-3
     expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
-  });
-
-  test("queue-full rejection still works during checkpoint handoff", async () => {
-    const session = makeSession();
-    await session.loadFromDb();
-
-    // Start processing
-    session.processMessage("msg-1", [], () => {}, "req-1");
-    await waitForPendingRun(1);
-
-    // Fill the queue to MAX_QUEUE_DEPTH
-    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
-      const result = session.enqueueMessage(
-        `queued-${i}`,
-        [],
-        () => {},
-        `req-q-${i}`,
-      );
-      expect(result.queued).toBe(true);
-    }
-    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
-
-    // Verify checkpoint would yield (there are queued messages)
-    const run = pendingRuns[0];
-    expect(run.onCheckpoint).toBeDefined();
-    expect(
-      run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
-    ).toBe("yield");
-
-    // Next enqueue should still be rejected
-    const rejected = session.enqueueMessage(
-      "overflow",
-      [],
-      () => {},
-      "req-overflow",
-    );
-    expect(rejected.queued).toBe(false);
-    expect(rejected.rejected).toBe(true);
-
-    // Queue depth unchanged
-    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
   });
 
   test("[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff", async () => {
@@ -1337,68 +1262,6 @@ describe("Terminal trace events on rejection/failure", () => {
     // Cleanup
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Surface-action queue-full trace emission
-// ---------------------------------------------------------------------------
-
-describe("Surface-action queue-full trace", () => {
-  beforeEach(() => {
-    pendingRuns = [];
-  });
-
-  test("surface-action queue-full rejection emits request_error trace", async () => {
-    const traceEvents: ServerMessage[] = [];
-    const session = makeSession((msg) => {
-      if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
-    });
-    await session.loadFromDb();
-
-    // Start processing to make the session busy
-    session.processMessage("msg-1", [], () => {}, "req-1");
-    await waitForPendingRun(1);
-
-    // Fill the queue to MAX_QUEUE_DEPTH
-    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
-      const result = session.enqueueMessage(
-        `queued-${i}`,
-        [],
-        () => {},
-        `req-q-${i}`,
-      );
-      expect(result.queued).toBe(true);
-    }
-    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
-
-    // Register a pending surface action so handleSurfaceAction doesn't bail early
-
-    (session as any).pendingSurfaceActions.set("surf-1", {
-      surfaceType: "confirmation",
-    });
-
-    // Trigger the surface action — queue is full, should be rejected
-    session.handleSurfaceAction("surf-1", "confirm");
-
-    // Should have a request_received trace followed by a request_error trace
-    const receivedTrace = traceEvents.find(
-      (e) => "kind" in e && e.kind === "request_received",
-    );
-    expect(receivedTrace).toBeDefined();
-
-    const errorTrace = traceEvents.find(
-      (e) => "kind" in e && e.kind === "request_error",
-    );
-    expect(errorTrace).toBeDefined();
-    expect(errorTrace).toHaveProperty("attributes");
-
-    const attrs = (errorTrace as any).attributes;
-    expect(attrs.reason).toBe("queue_full");
-    expect(attrs.source).toBe("surface_action");
-
-    // Queue depth should not have increased
-    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
   });
 });
 
@@ -1888,4 +1751,96 @@ describe("Regression: cancel semantics and error channel split", () => {
       turnCommitHangForever = false;
     }
   }, 15_000);
+});
+
+// ---------------------------------------------------------------------------
+// MessageQueue byte budget
+// ---------------------------------------------------------------------------
+
+describe("MessageQueue byte budget", () => {
+  function makeItem(
+    content: string,
+    requestId = "r",
+    attachments: { data: string }[] = [],
+  ) {
+    return {
+      content,
+      attachments: attachments.map((a) => ({
+        id: "a",
+        filename: "f",
+        mimeType: "text/plain",
+        data: a.data,
+      })),
+      requestId,
+      onEvent: () => {},
+    };
+  }
+
+  test("accepts messages within budget", () => {
+    const q = new MessageQueue(10_000);
+    expect(q.push(makeItem("hello", "r1"))).toBe(true);
+    expect(q.length).toBe(1);
+  });
+
+  test("rejects message that would exceed byte budget", () => {
+    // Budget of 2000 bytes — a single message with ~500 chars of content
+    // uses ~1512 bytes (500*2 + 512 overhead). A second should be rejected.
+    const q = new MessageQueue(2_000);
+    expect(q.push(makeItem("x".repeat(500), "r1"))).toBe(true);
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(false);
+    expect(q.length).toBe(1);
+  });
+
+  test("always accepts first message even if it alone exceeds budget", () => {
+    const q = new MessageQueue(100); // tiny budget
+    expect(q.push(makeItem("x".repeat(1000), "r1"))).toBe(true);
+    expect(q.length).toBe(1);
+  });
+
+  test("reclaims budget when messages are shifted", () => {
+    const q = new MessageQueue(3_000);
+    expect(q.push(makeItem("x".repeat(500), "r1"))).toBe(true);
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(false);
+
+    q.shift(); // free up space
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(true);
+    expect(q.length).toBe(1);
+  });
+
+  test("reclaims budget when messages are removed by requestId", () => {
+    // Each 500-char item ≈ 1512 bytes (500*2 + 512 overhead).
+    // Budget of 4000 fits two items (3024) but not three (4536).
+    const q = new MessageQueue(4_000);
+    expect(q.push(makeItem("a".repeat(500), "r1"))).toBe(true);
+    expect(q.push(makeItem("b".repeat(500), "r2"))).toBe(true);
+    expect(q.push(makeItem("c".repeat(500), "r3"))).toBe(false);
+
+    q.removeByRequestId("r1"); // frees 1512 bytes → 1512 remaining
+    expect(q.push(makeItem("c".repeat(500), "r3"))).toBe(true);
+  });
+
+  test("clear resets byte budget to zero", () => {
+    const q = new MessageQueue(3_000);
+    q.push(makeItem("x".repeat(500), "r1"));
+    q.clear();
+    expect(q.totalBytes).toBe(0);
+    expect(q.push(makeItem("y".repeat(500), "r2"))).toBe(true);
+  });
+
+  test("accounts for attachment data in byte estimate", () => {
+    // 1000 chars content = 2512 bytes. Add a 2000 char attachment = +4000 bytes.
+    // Total ~6512 bytes. Budget of 5000 should reject.
+    const q = new MessageQueue(5_000);
+    expect(
+      q.push(
+        makeItem("x".repeat(1000), "r1", [{ data: "a".repeat(2000) }]),
+      ),
+    ).toBe(true); // first message always accepted
+    // Second message of same size should be rejected
+    expect(
+      q.push(
+        makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }]),
+      ),
+    ).toBe(false);
+  });
 });

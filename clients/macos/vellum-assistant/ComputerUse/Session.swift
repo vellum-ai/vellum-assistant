@@ -125,8 +125,8 @@ final class ComputerUseSession: ObservableObject {
 
         // 2. Send session create message (skip if daemon already created via task_submit)
         if !skipSessionCreate {
-            let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
-                IPCAttachment(
+            let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
+                UserMessageAttachment(
                     filename: $0.fileName,
                     mimeType: $0.mimeType,
                     data: $0.data.base64EncodedString(),
@@ -143,7 +143,7 @@ final class ComputerUseSession: ObservableObject {
                     task: task,
                     screenWidth: Int(screenSize.width),
                     screenHeight: Int(screenSize.height),
-                    attachments: ipcAttachments,
+                    attachments: messageAttachments,
                     interactionType: interactionTypeString
                 ))
             } catch {

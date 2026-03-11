@@ -297,7 +297,7 @@ describe("scope profile contract", () => {
       "attachments.write",
       "internal.write",
     ],
-    ipc_v1: ["ipc.all"],
+    local_v1: ["local.all"],
     ui_page_v1: ["settings.read"],
   };
 
@@ -320,7 +320,7 @@ describe("scope profile contract", () => {
       "actor_client_v1",
       "gateway_ingress_v1",
       "gateway_service_v1",
-      "ipc_v1",
+      "local_v1",
       "ui_page_v1",
     ];
 

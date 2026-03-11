@@ -321,10 +321,10 @@ public enum VColor {
     public static let composerBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
 
     // Voice composer — inverse/high-contrast tokens for voice mode
-    public static let voiceComposerBackground = adaptiveColor(light: Slate._900, dark: Slate._100)
+    public static let voiceComposerBackground = adaptiveColor(light: Slate._900, dark: Color(hex: 0xE8E6DA))
     public static let voiceComposerTextPrimary = adaptiveColor(light: .white, dark: Slate._900)
-    public static let voiceComposerTextSecondary = adaptiveColor(light: Slate._300, dark: Slate._600)
-    public static let voiceComposerControlBackground = adaptiveColor(light: Slate._800, dark: Slate._200)
+    public static let voiceComposerTextSecondary = adaptiveColor(light: Slate._300, dark: Slate._400)
+    public static let voiceComposerControlBackground = adaptiveColor(light: Slate._800, dark: Slate._800)
 
     // Microphone icon color
     public static let micIcon = adaptiveColor(light: Forest._500, dark: Moss._400)

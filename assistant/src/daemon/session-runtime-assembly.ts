@@ -1174,3 +1174,30 @@ export function applyRuntimeInjections(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Attachment detection
+// ---------------------------------------------------------------------------
+
+/** Content block types that indicate user-uploaded attachments. */
+const ATTACHMENT_CONTENT_TYPES = new Set(["image", "file"]);
+
+/**
+ * Scan conversation messages for user-uploaded attachment content blocks
+ * (image or file). Returns true as soon as any attachment is found.
+ *
+ * Used to set the one-way `hasAttachments` flag on Session so that asset
+ * tools (asset_search, asset_materialize) are included in tool definitions
+ * only when the conversation contains attachments.
+ */
+export function messagesContainAttachments(messages: Message[]): boolean {
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    for (const block of message.content) {
+      if (ATTACHMENT_CONTENT_TYPES.has(block.type)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}

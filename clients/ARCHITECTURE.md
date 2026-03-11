@@ -228,14 +228,13 @@ idle → starting → recording → stopping → idle
                                       └→ failed → idle
 ```
 
-A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
+A recording is initiated via dedicated HTTP endpoints (`/v1/recording/*`). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` SSE event to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon via HTTP.
 
 ### Key Files
 
 | File | Role |
 |---|---|
-| `assistant/src/daemon/recording-intent.ts` | Detects and strips recording/stop-recording intent from user messages |
-| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events |
+| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events (dedicated HTTP endpoints) |
 | `clients/macos/vellum-assistant/ComputerUse/RecordingManager.swift` | macOS-side screen capture using ScreenCaptureKit |
 
 ### Messages
@@ -248,13 +247,7 @@ A recording is initiated when the daemon detects a recording-only intent in the 
 
 ### Intent Routing
 
-Recording-only prompts (e.g., "record my screen", "please start recording") are intercepted before reaching the classifier or computer-use session creation. The routing logic:
-
-1. `detectRecordingIntent(taskText)` checks if any recording phrases are present.
-2. `isRecordingOnly(taskText)` determines if the entire message is about recording (after stripping polite fillers like "please", "can you", "thanks").
-3. If recording-only: the daemon calls `handleRecordingStart()` directly, bypassing the classifier.
-4. If mixed-intent (e.g., "open Safari and record my screen"): `stripRecordingIntent()` removes the recording clause and starts recording as a side-effect while the remaining task proceeds through normal routing.
-5. Stop-recording follows the same pattern with `detectStopRecordingIntent()`, `isStopRecordingOnly()`, and `stripStopRecordingIntent()`.
+Recording is managed through dedicated HTTP endpoints (`/v1/recording/*`) rather than intent detection in user messages. Clients call these endpoints directly to start, stop, and query recording status.
 
 ### File-Backed Attachments
 
@@ -268,13 +261,11 @@ When a recording stops with a valid `filePath`, the handler:
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Daemon as Daemon (Bun)
     participant Client as macOS Client
+    participant Daemon as Daemon (Bun)
     participant RM as RecordingManager
 
-    User->>Daemon: "record my screen"
-    Note over Daemon: detectRecordingIntent → true<br/>isRecordingOnly → true
+    Client->>Daemon: POST /v1/recording/start
     Daemon->>Client: recording_start { recordingId, options }
     Client->>RM: startRecording(recordingId)
     RM-->>Client: capture started
@@ -282,8 +273,7 @@ sequenceDiagram
 
     Note over RM: Screen capture in progress...
 
-    User->>Daemon: "stop recording"
-    Note over Daemon: detectStopRecordingIntent → true<br/>isStopRecordingOnly → true
+    Client->>Daemon: POST /v1/recording/stop
     Daemon->>Client: recording_stop { recordingId }
     Client->>RM: stopRecording()
     RM-->>Client: file saved at filePath
@@ -618,8 +608,8 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 | `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
 | `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getCurrentAssistant`, `hatchAssistant`) |
 | `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Keychain + `~/.vellum/platform-token` file bridge) |
-| `clients/shared/IPC/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
-| `clients/shared/IPC/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
+| `clients/shared/Network/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
+| `clients/shared/Network/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
 | `clients/macos/vellum-assistant/App/AppDelegate.swift` | Transport selection (`configureDaemonTransport`) and startup guardrails |
 | `clients/macos/vellum-assistant/Features/Onboarding/OnboardingFlowView.swift` | Onboarding sign-in UI and managed bootstrap invocation |
 | `clients/macos/vellum-assistant/Features/MainWindow/Panels/IdentityData.swift` | `LockfileAssistant.isManaged` computed property and managed entry upsert |
@@ -653,13 +643,13 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
   "g": "<resolved-gateway-url>",
   "pairingRequestId": "<uuid>",
   "pairingSecret": "<Random Hex Value>",
-  "localLanUrl": "http://<lan-ip>:7830"
+  "localLanUrl": "http://<lan-ip>:7830"  // only present when VELLUM_ENABLE_INSECURE_LAN_PAIRING=1
 }
 ```
 
 **Flow:**
 1. macOS generates a v4 QR code (no bearer token in QR) and pre-registers the pairing request with the daemon via `POST /v1/pairing/register`.
-2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). Tries `localLanUrl` first (3s timeout), falls back to cloud gateway URL (`g`).
+2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). If `localLanUrl` is present (requires `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`), tries it first (3s timeout), then falls back to cloud gateway URL (`g`).
 3. The daemon validates the secret and either auto-approves (if the device is in the allowlist) or sends an SSE event to macOS to show an approval prompt.
 4. macOS shows a floating approval window with three options: Deny, Approve Once, Always Allow.
 5. iOS polls `GET /pairing/status?id=<id>&secret=<secret>` every 2.5s until approved, denied, or expired (5-min TTL).
@@ -700,7 +690,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 
 ### Prerequisites
 
-- A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
+- A gateway URL must be configured (cloud tunnel or LAN). LAN pairing requires setting `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`; when enabled, `localLanUrl` is included in the QR payload.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
 - iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 
@@ -767,49 +757,92 @@ Guardian approval prompts are rendered as structured card UIs in the chat timeli
 
 ---
 
-## Managed Twitter OAuth (macOS)
+## Shared Feature Stores
 
-When `twitter.integrationMode` is `managed`, the macOS Settings UI enables the assistant owner to connect their Twitter/X account through the platform rather than using local BYO OAuth credentials.
+Cross-platform `ObservableObject` stores in `clients/shared/Features/` encapsulate daemon communication and state management. Platform views delegate data operations to these stores while owning their own UI presentation state.
 
-### Key Concepts
+| Store | Location | Purpose |
+|-------|----------|---------|
+| `SkillsStore` | `shared/Features/Skills/SkillsStore.swift` | Skills CRUD: list, search, inspect, install, uninstall, enable/disable, configure, draft, and create. Caches inspect results and uses generation counters to handle stale responses. |
+| `ContactsStore` | `shared/Features/Contacts/ContactsStore.swift` | Contacts CRUD: list, get, update channel policy, delete. Auto-refreshes on `contactsChanged` daemon broadcasts with 500ms debounce. |
+| `DirectoryStore` | `shared/Features/Directory/DirectoryStore.swift` | Directory data: local apps, shared apps, documents. Supports open, delete, share-to-cloud, fork, and bundle operations. Auto-refreshes on `appFilesChanged` broadcasts. |
+| `ChannelTrustStore` | `shared/Features/ChannelTrust/ChannelTrustStore.swift` | Guardian state and channel trust management. Composes `ContactsStore` for guardian contact data, manages pending guardian action prompts via daemon HTTP API. |
 
-- **Hosting mode vs. credential mode are independent.** An assistant can be self-hosted (local daemon) yet use platform-managed Twitter credentials. The `twitter.integrationMode` config controls credential mode; the assistant's hosting mode is determined by its lockfile entry.
-- **Owner-only binding.** Only the assistant owner can connect or disconnect the managed Twitter account. Non-owner users see a disabled state and cannot trigger connect/disconnect. The platform enforces this via 403 responses with `owner_only` or `owner_credential_required` error codes.
+### Store Patterns
 
-### Authentication Layers
+All shared stores follow the same async pattern for daemon communication:
 
-| Flow | Header | Token Source | Purpose |
-|------|--------|-------------|---------|
-| Connect/disconnect/status (Settings UI) | `X-Session-Token` | WorkOS session (via `SessionTokenManager`) | Authenticates the human user to the platform |
-| Runtime Twitter API calls (proxy client) | `Authorization: Api-Key {key}` | `credential:vellum:assistant_api_key` (secure storage) | Authenticates the assistant to the platform proxy |
+1. Subscribe to the daemon's `AsyncStream` via `daemonClient.subscribe()`
+2. Send a request message via the appropriate `DaemonClient` method
+3. Iterate the stream with `for await`, matching on the expected response case
+4. Update `@Published` state on the main actor
+5. Cancel subscription tasks in `deinit` to prevent leaks
 
-The proxy client (`platform-proxy-client.ts`) never includes user-level session tokens or user OAuth tokens. Token storage and refresh are handled server-side by the platform.
+Stores use `[weak self]` in all `Task` closures and background subscriptions. Platform views own stores via `@ObservedObject` or `@StateObject` and pass them down to child views.
 
-### Connect Flow
+---
 
-```
-Owner clicks "Connect Twitter" in Settings
-  --> PlatformTwitterOAuthService.connect(assistantId:)
-  --> POST /v1/assistants/{id}/twitter-oauth/connect/
-      (with X-Session-Token header)
-  --> Platform redirects to Twitter OAuth
-  --> Callback to platform, token stored server-side
-  --> Settings UI polls status until connected
-```
+## iOS Feature Flows
 
-### Daemon Guardrail
+### Intelligence Tab (M6)
 
-When `integrationMode` is `managed`, the daemon's `handleTwitterAuthStart` handler returns a managed-specific error code (`managed_auth_via_platform` or `managed_missing_api_key`) and never calls `orchestrateOAuthConnect`. This prevents credential confusion between managed and local BYO flows.
+The Intelligence tab is the iOS hub for skills and contacts management, gated on daemon connectivity.
 
-### Key Files
+| View | File | Purpose |
+|------|------|---------|
+| `InstalledSkillsView` | `ios/Views/Intelligence/InstalledSkillsView.swift` | List of installed skills with enable/disable swipe actions and uninstall |
+| `CommunitySkillsView` | `ios/Views/Intelligence/CommunitySkillsView.swift` | Searchable community skill browser with debounced search |
+| `SkillDetailView` | `ios/Views/Intelligence/SkillDetailView.swift` | Skill details with ClaWhub inspect data, enable/disable/uninstall actions |
+| `ContactsListView` | `ios/Views/Intelligence/ContactsListView.swift` | Searchable contacts list with guardian section and delete swipe actions |
+| `ContactDetailView` | `ios/Views/Intelligence/ContactDetailView.swift` | Contact details with channel list and policy editing via confirmation dialog |
 
-| File | Purpose |
-|------|---------|
-| `clients/shared/App/Auth/PlatformTwitterOAuthService.swift` | Swift client for platform Twitter OAuth connect/disconnect/status |
-| `clients/macos/vellum-assistant/Features/Settings/SettingsStore.swift` | Settings state including managed Twitter connection UI |
-| `assistant/src/daemon/handlers/twitter-auth.ts` | Daemon auth handler with managed mode guardrail |
-| `assistant/src/twitter/platform-proxy-client.ts` | Runtime proxy client (Api-Key auth, no user tokens) |
-| `assistant/src/cli/commands/twitter/router.ts` | Strategy router dispatching to managed/oauth/browser paths |
-| `assistant/src/config/bundled-skills/twitter/SKILL.md` | Skill documentation including managed mode architecture |
+### Things Tab (M8-M9)
+
+The Things tab provides access to local apps, shared apps, and documents via a segmented picker.
+
+| View | File | Purpose |
+|------|------|---------|
+| `ThingsView` | `ios/Views/Things/ThingsView.swift` | Segmented container switching between My Apps, Shared, and Documents |
+| `AppsGridView` | `ios/Views/Things/AppsGridView.swift` | 2-column LazyVGrid of local apps with pin, share, bundle, and delete context menu actions |
+| `SharedAppsListView` | `ios/Views/Things/SharedAppsListView.swift` | List of shared apps with detail sheet for fork/delete |
+| `DocumentsListView` | `ios/Views/Things/DocumentsListView.swift` | Searchable, sortable document list |
+
+### Settings Parity (M7)
+
+New settings sections brought to iOS for feature parity with macOS:
+
+| View | File | Purpose |
+|------|------|---------|
+| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Keychain |
+| `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
+| `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
+
+---
+
+## macOS Task Queue (M10)
+
+The Task Queue panel is a macOS side panel for managing one-shot work items.
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `TaskQueuePanel` | `macos/.../Panels/TaskQueuePanel.swift` | Side panel with filter strip, task list, output/preflight sheet presentation |
+| `TaskQueueRow` | (private in TaskQueuePanel.swift) | Individual task row with status badge, priority menu, run/stop/result actions |
+| `TaskQueueViewModel` | `macos/.../Panels/TaskQueueViewModel.swift` | Centralized state: items, filters, run/cancel/timeout tracking, daemon callbacks |
+| `TaskPreflightView` | `macos/.../Panels/TaskPreflightView.swift` | Permission approval sheet with toggleable tool permissions and risk badges |
+| `TaskOutputView` | `macos/.../Panels/TaskOutputView.swift` | Output detail sheet with status, summary, highlights, and copy-to-clipboard |
+
+### Task Queue Data Flow
+
+1. `TaskQueueViewModel` sets up daemon callbacks in `init` and fetches the initial item list
+2. Filter strip controls which status subset is displayed (`All`, `Active`, `Completed`, `Failed`)
+3. Running a task triggers a preflight check; if permissions are needed, `TaskPreflightView` is presented
+4. Run requests include a timeout (10s); if the daemon doesn't respond, the task shows a "No response" warning
+5. Status changes from the daemon trigger debounced list refreshes (300ms)
+
+---
+
+## macOS Deep-Link Send (M11)
+
+The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.
 
 ---

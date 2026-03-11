@@ -2,8 +2,7 @@
  * HTTP route definitions for model configuration, conversation search,
  * message content, and queued message deletion.
  *
- * These routes expose IPC-only functionality over the HTTP API, enabling
- * clients to migrate from the Unix socket transport to HTTP+SSE.
+ * These routes expose session query functionality over the HTTP API.
  *
  * GET    /v1/model                   — current model info
  * PUT    /v1/model                   — set model
@@ -64,15 +63,15 @@ export function sessionQueryRouteDefinitions(
       policyKey: "model",
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
-          return httpError(
-            "INTERNAL_ERROR",
-            "Model set not available",
-            500,
-          );
+          return httpError("INTERNAL_ERROR", "Model set not available", 500);
         }
         const body = (await req.json()) as { modelId?: string };
         if (!body.modelId || typeof body.modelId !== "string") {
-          return httpError("BAD_REQUEST", "Missing required field: modelId", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "Missing required field: modelId",
+            400,
+          );
         }
         try {
           const info = setModel(body.modelId, deps.getModelSetContext());
@@ -101,7 +100,11 @@ export function sessionQueryRouteDefinitions(
         }
         const body = (await req.json()) as { modelId?: string };
         if (!body.modelId || typeof body.modelId !== "string") {
-          return httpError("BAD_REQUEST", "Missing required field: modelId", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "Missing required field: modelId",
+            400,
+          );
         }
         try {
           setImageGenModel(body.modelId, deps.getModelSetContext());
@@ -125,7 +128,11 @@ export function sessionQueryRouteDefinitions(
       handler: ({ url }) => {
         const q = url.searchParams.get("q");
         if (!q) {
-          return httpError("BAD_REQUEST", "Missing required query parameter: q", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "Missing required query parameter: q",
+            400,
+          );
         }
         const limit = url.searchParams.has("limit")
           ? Number(url.searchParams.get("limit"))
@@ -151,11 +158,7 @@ export function sessionQueryRouteDefinitions(
         const sessionId = url.searchParams.get("sessionId");
         const result = getMessageContent(params.id, sessionId ?? undefined);
         if (!result) {
-          return httpError(
-            "NOT_FOUND",
-            `Message ${params.id} not found`,
-            404,
-          );
+          return httpError("NOT_FOUND", `Message ${params.id} not found`, 404);
         }
         return Response.json(result);
       },

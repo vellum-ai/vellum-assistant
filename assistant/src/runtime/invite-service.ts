@@ -1,8 +1,8 @@
 /**
  * Shared business logic for invite management.
  *
- * Extracted from the IPC handlers in daemon/handlers/config-inbox.ts so that
- * both the HTTP routes and the IPC handlers call the same logic.
+ * Extracted from the handlers in daemon/handlers/config-inbox.ts so that
+ * both the HTTP routes and the message handlers call the same logic.
  *
  * Member/contact operations have been migrated to the /v1/contacts and
  * /v1/contacts/channels endpoints.
@@ -38,7 +38,7 @@ import {
 } from "./invite-redemption-service.js";
 
 // ---------------------------------------------------------------------------
-// Response shapes — used by both HTTP routes and IPC handlers
+// Response shapes — used by both HTTP routes and message handlers
 // ---------------------------------------------------------------------------
 
 export interface InviteResponseData {

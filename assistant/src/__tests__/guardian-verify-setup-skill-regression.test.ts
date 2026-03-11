@@ -13,12 +13,10 @@ import { describe, expect, test } from "bun:test";
 // Locate the skill SKILL.md
 // ---------------------------------------------------------------------------
 
-const ASSISTANT_DIR = resolve(import.meta.dirname ?? __dirname, "..", "..");
+const REPO_ROOT = resolve(import.meta.dirname ?? __dirname, "..", "..", "..");
 const SKILL_PATH = resolve(
-  ASSISTANT_DIR,
-  "src",
-  "config",
-  "bundled-skills",
+  REPO_ROOT,
+  "skills",
   "guardian-verify-setup",
   "SKILL.md",
 );

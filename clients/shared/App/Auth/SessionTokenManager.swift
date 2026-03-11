@@ -10,7 +10,7 @@ public extension Notification.Name {
 /// so existing macOS users' stored sessions are preserved after upgrade.
 ///
 /// Also writes the token to `~/.vellum/platform-token` so the daemon can
-/// read it for authenticated platform API calls without IPC round-trips.
+/// read it for authenticated platform API calls without round-trips.
 public enum SessionTokenManager {
     private static let provider = "session-token"
 

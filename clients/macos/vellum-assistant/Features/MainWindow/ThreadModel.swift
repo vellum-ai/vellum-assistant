@@ -46,7 +46,8 @@ struct ThreadModel: Identifiable, Hashable {
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
     }
 
-    /// Whether this thread was created by a schedule or reminder trigger.
+    /// Whether this thread was created by a schedule trigger (including one-shot/reminders).
+    /// Checks for legacy "reminder" source for threads created before unification.
     /// Falls back to title prefix when source is nil (HTTP mode).
     var isScheduleThread: Bool {
         if let source = source {

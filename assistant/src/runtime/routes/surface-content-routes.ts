@@ -5,7 +5,10 @@
  * session's in-memory surface state. Used by clients to re-hydrate surfaces
  * whose data was stripped during memory compaction.
  */
-import type { SurfaceData, SurfaceType } from "../../daemon/message-types/surfaces.js";
+import type {
+  SurfaceData,
+  SurfaceType,
+} from "../../daemon/message-types/surfaces.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -53,12 +56,20 @@ export function surfaceContentRouteDefinitions(deps: {
 
         const sessionId = url.searchParams.get("sessionId");
         if (!sessionId) {
-          return httpError("BAD_REQUEST", "sessionId query parameter is required", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "sessionId query parameter is required",
+            400,
+          );
         }
 
         const surfaceId = params.surfaceId;
         if (!surfaceId) {
-          return httpError("BAD_REQUEST", "surfaceId path parameter is required", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "surfaceId path parameter is required",
+            400,
+          );
         }
 
         const session = deps.findSession(sessionId);
@@ -73,7 +84,10 @@ export function surfaceContentRouteDefinitions(deps: {
         // Look up the surface in the session's in-memory state.
         const stored = session.surfaceState.get(surfaceId);
         if (stored) {
-          log.info({ sessionId, surfaceId }, "Surface content served from surfaceState");
+          log.info(
+            { sessionId, surfaceId },
+            "Surface content served from surfaceState",
+          );
           return Response.json({
             surfaceId,
             surfaceType: stored.surfaceType,
@@ -88,7 +102,10 @@ export function surfaceContentRouteDefinitions(deps: {
           (s) => s.surfaceId === surfaceId,
         );
         if (turnSurface) {
-          log.info({ sessionId, surfaceId }, "Surface content served from currentTurnSurfaces");
+          log.info(
+            { sessionId, surfaceId },
+            "Surface content served from currentTurnSurfaces",
+          );
           return Response.json({
             surfaceId,
             surfaceType: turnSurface.surfaceType,

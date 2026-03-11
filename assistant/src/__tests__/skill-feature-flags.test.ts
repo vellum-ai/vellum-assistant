@@ -5,7 +5,8 @@ import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
 
-const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+const DECLARED_FLAG_ID = "hatch-new-assistant";
+const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
 const DECLARED_SKILL_ID = "hatch-new-assistant";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +38,7 @@ function makeConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
 function makeSkill(
   id: string,
   source: "bundled" | "managed" = "bundled",
+  featureFlag?: string,
 ): SkillSummary {
   return {
     id,
@@ -49,8 +51,31 @@ function makeSkill(
     userInvocable: true,
     disableModelInvocation: false,
     source,
+    featureFlag,
   };
 }
+
+// ---------------------------------------------------------------------------
+// skillFlagKey — unit tests
+// ---------------------------------------------------------------------------
+
+describe("skillFlagKey", () => {
+  test("returns canonical key when featureFlag is present", () => {
+    expect(skillFlagKey({ featureFlag: "my-flag" })).toBe(
+      "feature_flags.my-flag.enabled",
+    );
+  });
+
+  test("returns undefined when featureFlag is undefined", () => {
+    expect(skillFlagKey({ featureFlag: undefined })).toBeUndefined();
+  });
+
+  test("returns undefined when featureFlag field is absent", () => {
+    expect(
+      skillFlagKey({} as Pick<SkillSummary, "featureFlag">),
+    ).toBeUndefined();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // isAssistantFeatureFlagEnabled with skillFlagKey (canonical path)
@@ -60,7 +85,10 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   test("returns false when no flag overrides (registry default is false)", () => {
     const config = makeConfig();
     expect(
-      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+      isAssistantFeatureFlagEnabled(
+        skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
+        config,
+      ),
     ).toBe(false);
   });
 
@@ -69,7 +97,10 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     });
     expect(
-      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+      isAssistantFeatureFlagEnabled(
+        skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
+        config,
+      ),
     ).toBe(true);
   });
 
@@ -78,7 +109,10 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     });
     expect(
-      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+      isAssistantFeatureFlagEnabled(
+        skillFlagKey({ featureFlag: DECLARED_FLAG_ID })!,
+        config,
+      ),
     ).toBe(false);
   });
 });
@@ -137,11 +171,14 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
 describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
-    const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
+    const catalog = [
+      makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
+      makeSkill("browser", "bundled", "browser"),
+    ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
       },
     });
 
@@ -149,15 +186,18 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).not.toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("twitter");
+    expect(ids).toContain("browser");
   });
 
   test("flag ON skill appears normally", () => {
-    const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
+    const catalog = [
+      makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
+      makeSkill("browser", "bundled", "browser"),
+    ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: true,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
       },
     });
 
@@ -165,11 +205,11 @@ describe("resolveSkillStates with feature flags", () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain("twitter");
+    expect(ids).toContain("browser");
   });
 
   test("declared flag key defaults to registry value (false)", () => {
-    const catalog = [makeSkill(DECLARED_SKILL_ID)];
+    const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
@@ -177,8 +217,19 @@ describe("resolveSkillStates with feature flags", () => {
     expect(resolved.length).toBe(0);
   });
 
+  test("skill without featureFlag is never flag-gated", () => {
+    const catalog = [makeSkill("no-flag-skill")];
+    const config = makeConfig();
+
+    const resolved = resolveSkillStates(catalog, config);
+    const ids = resolved.map((r) => r.summary.id);
+
+    // Skills without featureFlag are never gated — always pass through
+    expect(ids).toContain("no-flag-skill");
+  });
+
   test("feature flag OFF takes precedence over user-enabled config entry", () => {
-    const catalog = [makeSkill(DECLARED_SKILL_ID)];
+    const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
       skills: {
@@ -205,14 +256,14 @@ describe("resolveSkillStates with feature flags", () => {
 
   test("multiple skills with mixed flags — persisted overrides respected", () => {
     const catalog = [
-      makeSkill(DECLARED_SKILL_ID),
-      makeSkill("twitter"),
-      makeSkill("deploy"),
+      makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
+      makeSkill("browser", "bundled", "browser"),
+      makeSkill("deploy", "bundled", "deploy"),
     ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        "feature_flags.twitter.enabled": true,
+        "feature_flags.browser.enabled": true,
         "feature_flags.deploy.enabled": false,
       },
     });
@@ -220,7 +271,63 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // hatch-new-assistant and deploy explicitly false; twitter explicitly true
-    expect(ids).toEqual(["twitter"]);
+    // hatch-new-assistant and deploy explicitly false; browser explicitly true
+    expect(ids).toEqual(["browser"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSkillStates — frontmatter featureFlag gating
+// ---------------------------------------------------------------------------
+
+describe("resolveSkillStates with frontmatter featureFlag", () => {
+  test("skill with featureFlag (defaultEnabled: false) is filtered when no config override", () => {
+    // hatch-new-assistant has defaultEnabled: false in the registry
+    const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
+    const config = makeConfig();
+
+    const resolved = resolveSkillStates(catalog, config);
+    // No override, registry default is false → filtered out
+    expect(resolved.length).toBe(0);
+  });
+
+  test("skill with featureFlag is included when config override enables it", () => {
+    const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
+    const config = makeConfig({
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
+    });
+
+    const resolved = resolveSkillStates(catalog, config);
+    const ids = resolved.map((r) => r.summary.id);
+    expect(ids).toContain(DECLARED_SKILL_ID);
+  });
+
+  test("skill without featureFlag is NEVER filtered by the flag system", () => {
+    const catalog = [makeSkill("no-flag-skill")];
+    const config = makeConfig();
+
+    const resolved = resolveSkillStates(catalog, config);
+    const ids = resolved.map((r) => r.summary.id);
+
+    // No featureFlag declared → always passes through regardless of any flags
+    expect(ids).toContain("no-flag-skill");
+  });
+
+  test("skill without featureFlag passes through even when feature_flags.<skillId>.enabled is explicitly false", () => {
+    // This proves the implicit skillId→flag mapping is gone:
+    // setting feature_flags.my-skill.enabled = false has no effect
+    // when the skill itself does not declare a featureFlag.
+    const catalog = [makeSkill("my-skill")];
+    const config = makeConfig({
+      assistantFeatureFlagValues: {
+        "feature_flags.my-skill.enabled": false,
+      },
+    });
+
+    const resolved = resolveSkillStates(catalog, config);
+    const ids = resolved.map((r) => r.summary.id);
+
+    // The skill has no featureFlag field, so it is never gated
+    expect(ids).toContain("my-skill");
   });
 });

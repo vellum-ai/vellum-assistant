@@ -11,6 +11,7 @@ import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
+import { httpSend } from "../http-client.js";
 import { log } from "../logger.js";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
@@ -66,8 +67,8 @@ server uses one of three transport types:
   sse               Remote server using Server-Sent Events
   streamable-http   Remote server using Streamable HTTP transport
 
-Changes to MCP server configuration require an assistant restart to take effect
-(vellum sleep && vellum wake).
+After changing MCP server configuration, run 'vellum mcp reload' to apply
+changes without restarting the assistant.
 
 Examples:
   $ assistant mcp list
@@ -245,6 +246,69 @@ Examples:
     });
 
   mcp
+    .command("reload")
+    .description("Reload MCP server connections in the running assistant")
+    .addHelpText(
+      "after",
+      `
+Sends a message to the running assistant to disconnect and reconnect all MCP
+servers using the current configuration from disk. Active sessions pick up
+new tools on their next turn automatically. The assistant must be running.
+
+Examples:
+  $ vellum mcp reload
+  $ vellum mcp reload   # after editing config.json to add a new server
+  $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
+    )
+    .action(async () => {
+      log.info("Sending reload request to assistant...");
+      try {
+        const res = await httpSend("/v1/mcp/reload", { method: "POST" });
+        const response = (await res.json()) as {
+          success: boolean;
+          serverCount?: number;
+          toolCount?: number;
+          servers?: {
+            id: string;
+            connected: boolean;
+            disabled?: boolean;
+            toolCount: number;
+            tools: string[];
+          }[];
+          error?: string;
+        };
+        if (response.success) {
+          log.info(
+            `MCP servers reloaded: ${response.serverCount} server(s), ${response.toolCount} tool(s)\n`,
+          );
+          if (response.servers && response.servers.length > 0) {
+            for (const server of response.servers) {
+              const status = server.disabled
+                ? "⊘ Disabled"
+                : server.connected
+                  ? "\u2713 Connected"
+                  : "\u2717 Not connected";
+              log.info(`  ${server.id}`);
+              log.info(`    Status: ${status}`);
+              log.info(
+                `    Tools:  ${server.toolCount > 0 ? server.tools.join(", ") : "(none)"}`,
+              );
+              log.info("");
+            }
+          }
+        } else {
+          log.error(`Failed to reload: ${response.error}`);
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        log.error(
+          `Failed to send reload request: ${err instanceof Error ? err.message : err}`,
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  mcp
     .command("add <name>")
     .description("Add an MCP server configuration")
     .requiredOption(
@@ -358,9 +422,7 @@ Examples:
 
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        log.info(
-          "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
-        );
+        log.info("Run 'vellum mcp reload' to apply changes.");
       },
     );
 
@@ -382,8 +444,8 @@ OAuth flow. If the server already has valid cached tokens, the command succeeds
 immediately without opening a browser. Tokens are cached locally for future use
 by the assistant.
 
-After successful authentication, restart the assistant for changes to take effect
-(vellum sleep && vellum wake).
+After successful authentication, run 'vellum mcp reload' to apply changes
+without restarting the assistant.
 
 Examples:
   $ assistant mcp auth my-server
@@ -541,9 +603,7 @@ Examples:
       provider.stopCallbackServer();
 
       log.info(`Authentication successful for "${name}".`);
-      log.info(
-        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
-      );
+      log.info("Run 'vellum mcp reload' to apply changes.");
       process.exit(0);
     });
 
@@ -561,8 +621,8 @@ any stored OAuth credentials (tokens, client info, discovery metadata) for
 sse/streamable-http servers. If no OAuth credentials exist, the cleanup is
 silently skipped.
 
-After removal, restart the assistant for changes to take effect
-(vellum sleep && vellum wake).
+After removal, run 'vellum mcp reload' to apply changes without restarting
+the assistant.
 
 Examples:
   $ assistant mcp remove my-server
@@ -595,8 +655,6 @@ Examples:
       delete servers[name];
       saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
-      log.info(
-        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
-      );
+      log.info("Run 'vellum mcp reload' to apply changes.");
     });
 }

@@ -31,7 +31,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(checkerTestDir, "test.sock"),
   getPidPath: () => join(checkerTestDir, "test.pid"),
   getDbPath: () => join(checkerTestDir, "test.db"),
   getLogPath: () => join(checkerTestDir, "test.log"),
@@ -97,12 +96,6 @@ import type { TrustRule } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { getTool, registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
-
-// Import managed skill tools so they register in the tool registry.
-// Without this, classifyRisk falls through to RiskLevel.Medium (unknown tool)
-// instead of the declared RiskLevel.High — producing wrong test behavior.
-import "../tools/skills/scaffold-managed.js";
-import "../tools/skills/delete-managed.js";
 
 // Register a mock skill-origin tool for testing default-ask policy.
 const mockSkillTool: Tool = {
@@ -3753,7 +3746,9 @@ describe("Permission Checker", () => {
         );
         expect(noMatchResult.decision).toBe("prompt");
         expect(noMatchResult.reason).toContain("ask rule");
-        expect(noMatchResult.matchedRule?.id).toBe("default:ask-host_bash-global");
+        expect(noMatchResult.matchedRule?.id).toBe(
+          "default:ask-host_bash-global",
+        );
       });
     });
 
@@ -4313,7 +4308,7 @@ describe("bash network_mode=proxied — no special-casing", () => {
 
   test("proxied bash follows normal rules (auto-allowed by default rule)", async () => {
     // Proxied bash is no longer force-prompted — the default allow-bash rule
-    // prompts low/medium risk commands regardless of network_mode.
+    // auto-allows low/medium risk commands regardless of network_mode.
     const result = await check(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
@@ -4394,8 +4389,6 @@ describe("computer-use tool permission defaults", () => {
   test("computer_use_* tools classify as Low risk (proxy tools)", async () => {
     const cuToolNames = [
       "computer_use_click",
-      "computer_use_double_click",
-      "computer_use_right_click",
       "computer_use_type_text",
       "computer_use_key",
       "computer_use_scroll",

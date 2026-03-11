@@ -14,15 +14,33 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
+import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import {
+  buildModelInfoEvent,
+  isModelSlashCommand,
+} from "../../daemon/session-process.js";
+import {
+  isProviderShortcut,
+  resolveSlash,
+  type SlashContext,
+} from "../../daemon/session-slash.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
-import { addMessage, getMessages } from "../../memory/conversation-crud.js";
+import {
+  addMessage,
+  getMessages,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../../memory/conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -30,6 +48,7 @@ import {
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -344,9 +363,10 @@ export function handleListMessages(
  * Build an `onEvent` callback that publishes every outbound event to the
  * assistant event hub, maintaining ordered delivery through a serial chain.
  *
- * Also registers pending interactions when confirmation_request or
- * secret_request events flow through, so standalone approval endpoints
- * can look up the session by requestId.
+ * Also registers pending interactions when confirmation_request,
+ * secret_request, host_bash_request, or host_file_request events flow
+ * through, so standalone approval/result endpoints can look up the session
+ * by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
@@ -373,7 +393,7 @@ function makeHubPublisher(
         },
       });
 
-      // Create a canonical guardian request so IPC/HTTP handlers can find it
+      // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
         const trustContext = session.trustContext;
@@ -416,6 +436,18 @@ function makeHubPublisher(
         session,
         conversationId,
         kind: "secret",
+      });
+    } else if (msg.type === "host_bash_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_bash",
+      });
+    } else if (msg.type === "host_file_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_file",
       });
     }
 
@@ -526,6 +558,29 @@ export async function handleSendMessage(
     }
   }
 
+  // Block inbound messages containing secrets before they reach the model.
+  // This mirrors the legacy handleUserMessage behavior: secrets are
+  // detected and the message is rejected with a safe notice. The client
+  // should prompt the user to use the secure credential flow instead.
+  if (trimmedContent.length > 0) {
+    const ingressCheck = checkIngressForSecrets(trimmedContent);
+    if (ingressCheck.blocked) {
+      log.warn(
+        { detectedTypes: ingressCheck.detectedTypes },
+        "Blocked user message containing secrets (POST /v1/messages)",
+      );
+      return Response.json(
+        {
+          accepted: false,
+          error: "secret_blocked",
+          message: ingressCheck.userNotice,
+          detectedTypes: ingressCheck.detectedTypes,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   if (!deps.sendMessageDeps) {
     return httpError(
       "SERVICE_UNAVAILABLE",
@@ -557,11 +612,49 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
-  // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
-  // resolver, notifiers, trace emitter) can reach the HTTP client.  The
-  // IPC socket removal (PR #14431) left sendToClient as a no-op; this
-  // restores the delivery path using the SSE hub instead.
-  session.updateClient(onEvent, true);
+  // Desktop, CLI, and web interfaces have an SSE client that can display
+  // permission prompts. Channel interfaces (telegram, slack, etc.) route
+  // approvals through the guardian system and have no interactive prompter UI.
+  const isInteractiveInterface =
+    sourceInterface === "macos" ||
+    sourceInterface === "ios" ||
+    sourceInterface === "cli" ||
+    sourceInterface === "vellum";
+  // Only create the host bash proxy for desktop client interfaces that can
+  // execute commands on the user's machine. Non-desktop sessions (CLI,
+  // channels, headless) fall back to local execution.
+  // Set the proxy BEFORE updateClient so updateClient's call to
+  // hostBashProxy.updateSender targets the correct (new) proxy.
+  if (sourceInterface === "macos" || sourceInterface === "ios") {
+    // Reuse the existing proxy if the session is actively processing a
+    // host bash request to avoid orphaning in-flight requests.
+    if (!session.isProcessing() || !session.hostBashProxy) {
+      const proxy = new HostBashProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostBashProxy(proxy);
+    }
+    if (!session.isProcessing() || !session.hostFileProxy) {
+      const fileProxy = new HostFileProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostFileProxy(fileProxy);
+    }
+  } else if (!session.isProcessing()) {
+    session.setHostBashProxy(undefined);
+    session.setHostFileProxy(undefined);
+  }
+  // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
+  // Called after setHostBashProxy so updateSender targets the current proxy.
+  // When proxies are preserved during an active turn (non-desktop request while
+  // processing), skip updating proxy senders to avoid degrading them.
+  const preservingProxies =
+    session.isProcessing() &&
+    sourceInterface !== "macos" &&
+    sourceInterface !== "ios";
+  session.updateClient(onEvent, !isInteractiveInterface, {
+    skipProxySenderUpdate: preservingProxies,
+  });
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -576,7 +669,7 @@ export async function handleSendMessage(
 
   // Try to consume the message as a canonical guardian approval/rejection reply.
   // On failure, degrade to the existing queue/auto-deny path rather than
-  // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
+  // surfacing a 500 — mirrors the handler's catch-and-fallback.
   try {
     const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
       conversationId: mapping.conversationId,
@@ -609,8 +702,33 @@ export async function handleSendMessage(
   }
 
   if (session.isProcessing()) {
-    // If a tool confirmation is pending, auto-deny it so the agent
-    // can finish the current turn and process this queued message.
+    // Queue the message so it's processed when the current turn completes
+    const requestId = crypto.randomUUID();
+    const enqueueResult = session.enqueueMessage(
+      content ?? "",
+      attachments,
+      onEvent,
+      requestId,
+      undefined, // activeSurfaceId
+      undefined, // currentPage
+      {
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      },
+      { isInteractive: isInteractiveInterface },
+    );
+    if (enqueueResult.rejected) {
+      return Response.json(
+        { accepted: false, error: "queue_full" },
+        { status: 429 },
+      );
+    }
+
+    // Auto-deny pending confirmations only after enqueue succeeds, so we
+    // don't cancel approval-gated workflows when the replacement message
+    // is itself rejected by the queue budget.
     if (session.hasAnyPendingConfirmation()) {
       // Emit authoritative denial state for each pending request.
       // sendToClient (wired to the SSE hub) delivers these to the client.
@@ -633,30 +751,6 @@ export async function handleSendMessage(
       pendingInteractions.removeBySession(session);
     }
 
-    // Queue the message so it's processed when the current turn completes
-    const requestId = crypto.randomUUID();
-    const result = session.enqueueMessage(
-      content ?? "",
-      attachments,
-      onEvent,
-      requestId,
-      undefined, // activeSurfaceId
-      undefined, // currentPage
-      {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      },
-      { isInteractive: false },
-    );
-    if (result.rejected) {
-      return httpError(
-        "RATE_LIMITED",
-        "Message queue is full. Please retry later.",
-        429,
-      );
-    }
     return Response.json({ accepted: true, queued: true }, { status: 202 });
   }
 
@@ -669,18 +763,108 @@ export async function handleSendMessage(
     userMessageInterface: sourceInterface,
     assistantMessageInterface: sourceInterface,
   });
-  const requestId = crypto.randomUUID();
-  const messageId = await session.persistUserMessage(
-    content ?? "",
-    attachments,
-    requestId,
-  );
+
+  await session.ensureActorScopedHistory();
+
+  // Resolve slash commands before persisting or running the agent loop.
+  const rawContent = content ?? "";
+  const config = getConfig();
+  const slashContext: SlashContext = {
+    messageCount: session.getMessages().length,
+    inputTokens: session.usageStats.inputTokens,
+    outputTokens: session.usageStats.outputTokens,
+    maxInputTokens: config.contextWindow.maxInputTokens,
+    model: config.model,
+    provider: config.provider,
+    estimatedCost: session.usageStats.estimatedCost,
+  };
+  const slashResult = resolveSlash(rawContent, slashContext);
+
+  if (slashResult.kind === "unknown") {
+    session.processing = true;
+    try {
+      const provenance = provenanceFromTrustContext(session.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const userMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(userMsg.content),
+        channelMeta,
+      );
+      session.getMessages().push(userMsg);
+
+      const assistantMsg = createAssistantMessage(slashResult.message);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      session.getMessages().push(assistantMsg);
+
+      setConversationOriginChannelIfUnset(
+        mapping.conversationId,
+        sourceChannel,
+      );
+      setConversationOriginInterfaceIfUnset(
+        mapping.conversationId,
+        sourceInterface,
+      );
+
+      // Emit fresh model info before the text delta so the client has
+      // up-to-date configuredProviders when rendering /model, /models,
+      // and provider shortcut commands (/gpt4, /opus, etc.).
+      if (isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)) {
+        onEvent(buildModelInfoEvent());
+      }
+
+      onEvent({ type: "assistant_text_delta", text: slashResult.message });
+      onEvent({
+        type: "message_complete",
+        sessionId: mapping.conversationId,
+      });
+
+      return Response.json(
+        { accepted: true, messageId: persisted.id },
+        { status: 202 },
+      );
+    } finally {
+      session.processing = false;
+      session.drainQueue().catch(() => {});
+    }
+  }
+
+  const resolvedContent = slashResult.content;
+  if (slashResult.kind === "rewritten") {
+    session.setPreactivatedSkillIds([slashResult.skillId]);
+  }
+
+  let messageId: string;
+  try {
+    const requestId = crypto.randomUUID();
+    messageId = await session.persistUserMessage(
+      resolvedContent,
+      attachments,
+      requestId,
+    );
+  } catch (err) {
+    // Reset preactivated skill IDs so a stale activation doesn't leak
+    // into the next message if persistence fails.
+    session.setPreactivatedSkillIds(undefined);
+    throw err;
+  }
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-  // Mark non-interactive so conflict clarification doesn't block the turn.
   session
-    .runAgentLoop(content ?? "", messageId, onEvent, {
-      isInteractive: false,
+    .runAgentLoop(resolvedContent, messageId, onEvent, {
+      isInteractive: isInteractiveInterface,
       isUserMessage: true,
     })
     .catch((err) => {

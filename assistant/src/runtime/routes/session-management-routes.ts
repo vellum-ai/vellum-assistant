@@ -21,9 +21,7 @@ const log = getLogger("session-management-routes");
 // ---------------------------------------------------------------------------
 
 export interface SessionManagementDeps {
-  switchSession: (
-    sessionId: string,
-  ) => Promise<{
+  switchSession: (sessionId: string) => Promise<{
     sessionId: string;
     title: string;
     threadType: string;
@@ -31,9 +29,7 @@ export interface SessionManagementDeps {
   renameSession: (sessionId: string, name: string) => boolean;
   clearAllSessions: () => number;
   cancelGeneration: (sessionId: string) => boolean;
-  undoLastMessage: (
-    sessionId: string,
-  ) => { removedCount: number } | null;
+  undoLastMessage: (sessionId: string) => { removedCount: number } | null;
   regenerateResponse: (
     sessionId: string,
   ) => Promise<{ requestId: string } | null>;

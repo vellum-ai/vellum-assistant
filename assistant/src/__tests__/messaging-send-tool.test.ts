@@ -38,6 +38,9 @@ mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
   ) => fn("provider-token"),
   ok: (content: string) => ({ content, isError: false }),
   err: (content: string) => ({ content, isError: true }),
+  extractHeader: () => "",
+  parseAddressList: () => [],
+  extractEmail: (a: string) => a.toLowerCase(),
 }));
 
 import { run } from "../config/bundled-skills/messaging/tools/messaging-send.js";
@@ -71,6 +74,38 @@ describe("messaging-send tool", () => {
       {
         subject: undefined,
         inReplyTo: undefined,
+        threadId: undefined,
+        assistantId: "ast-alpha",
+      },
+    );
+  });
+
+  test("passes threadId to provider when replying on non-Gmail platform", async () => {
+    const result = await run(
+      {
+        platform: "phone",
+        conversation_id: "conv-1",
+        text: "reply text",
+        thread_id: "thread-abc",
+      },
+      {
+        workingDir: "/tmp",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+        assistantId: "ast-alpha",
+        trustClass: "guardian" as const,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      "provider-token",
+      "conv-1",
+      "reply text",
+      {
+        subject: undefined,
+        inReplyTo: undefined,
+        threadId: "thread-abc",
         assistantId: "ast-alpha",
       },
     );

@@ -25,7 +25,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -152,6 +151,7 @@ function registerPendingInteraction(
   const handleConfirmationResponse = mock(() => {});
   const mockSession = {
     handleConfirmationResponse,
+    ensureActorScopedHistory: async () => {},
   } as unknown as Session;
 
   pendingInteractions.register(requestId, {

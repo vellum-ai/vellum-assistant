@@ -31,7 +31,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
    This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
 
-4. **Guardian approves the request.** The guardian responds to the notification (via Telegram inline button, macOS app, or IPC). On approval, the assistant creates a verification session via `createOutboundSession()` and generates a 6-digit verification code.
+4. **Guardian approves the request.** The guardian responds to the notification (via Telegram inline button, macOS app, or local app). On approval, the assistant creates a verification session via `createOutboundSession()` and generates a 6-digit verification code.
 5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, SMS, etc.).
 6. **Guardian gives the code to the requester out-of-band** (in person, text message, phone call, etc.). This out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The inbound message handler intercepts bare 6-digit codes when a pending verification session exists for that channel.
@@ -162,7 +162,7 @@ sequenceDiagram
     Note over G: Guardian sees access request<br/>with requester identity
 
     alt Guardian approves
-        G->>A: Approve (inline button / IPC / plain text)
+        G->>A: Approve (inline button / HTTP / plain text)
         A->>A: resolveApprovalRequest(id, 'approved')
         A->>A: createOutboundSession(bound to requester identity)
         A-->>G: "Approved. Verification code: 847293.<br/>Give this to the requester."
@@ -182,7 +182,7 @@ sequenceDiagram
         A->>A: Process message normally
 
     else Guardian denies
-        G->>A: Deny (inline button / IPC / plain text)
+        G->>A: Deny (inline button / HTTP / plain text)
         A->>A: resolveApprovalRequest(id, 'denied')
         A-->>U: (No notification — user only knows<br/>they were denied if they message again)
 

@@ -111,7 +111,7 @@ struct TrustRulesView: View {
                 rules.removeAll { $0.id == id }
             }
         } catch {
-            // IPC failed — keep the rule visible
+            // Send failed — keep the rule visible
         }
     }
 

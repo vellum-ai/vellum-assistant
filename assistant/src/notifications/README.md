@@ -7,7 +7,7 @@ Signal-driven notification architecture where producers emit free-form events an
 ```
 Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
-                                                      Preference Summary                                    notification_thread_created IPC
+                                                      Preference Summary                                    notification_thread_created SSE event
                                                       Thread Candidates                                     (creation-only — not emitted on reuse)
 ```
 
@@ -71,7 +71,7 @@ Hard invariants that the LLM cannot override:
 
 ### 6. Broadcast, Conversation Pairing, and Delivery
 
-The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast IPC push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns.
+The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast SSE push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns.
 
 ## Channel Policy Registry
 
@@ -183,27 +183,27 @@ Take out the trash
 Reminder. Take out the trash. Action required.
 ```
 
-## Thread Surfacing via `notification_thread_created` IPC (Creation-Only)
+## Thread Surfacing via `notification_thread_created` Event (Creation-Only)
 
-The `notification_thread_created` IPC event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused threads do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
+The `notification_thread_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused threads do not trigger this event — the macOS/iOS client already knows about the conversation from the original creation.
 
-This is enforced in `broadcaster.ts` by gating the IPC emission on `pairing.createdNewConversation === true`:
+This is enforced in `broadcaster.ts` by gating the event emission on `pairing.createdNewConversation === true`:
 
 ```ts
 // Emit notification_thread_created only when a NEW conversation was
-// actually created. Reusing an existing thread should not fire the IPC
+// actually created. Reusing an existing thread should not fire the SSE
 // event — the client already knows about the conversation.
 if (
   pairing.createdNewConversation &&
   pairing.strategy === "start_new_conversation"
 ) {
-  // ... emit IPC event
+  // ... emit SSE event
 }
 ```
 
-When a vellum notification thread **is** newly created (strategy `start_new_conversation`), the broadcaster emits the IPC event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the IPC push past the macOS deep-link retry window.
+When a vellum notification thread **is** newly created (strategy `start_new_conversation`), the broadcaster emits the SSE event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the broadcast past the macOS deep-link retry window.
 
-The IPC event payload:
+The SSE event payload:
 
 ```ts
 {
@@ -223,39 +223,40 @@ The macOS/iOS client listens for this event and surfaces the thread in the sideb
 **Important distinction between the two callbacks:**
 
 - **Per-dispatch `options.onThreadCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
-- **Class-level `this.onThreadCreated` (IPC)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` IPC event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
+- **Class-level `this.onThreadCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_thread_created` SSE event so macOS/iOS clients surface the new thread in the sidebar. Reused threads do not trigger this event because the client already knows about the conversation.
 
-## Reminder Routing Metadata and Trigger-Time Enforcement
+## Schedule Routing Metadata and Trigger-Time Enforcement
 
-Reminders carry optional routing metadata that controls how notifications fan out across channels when the reminder fires. This enables a single reminder to produce multi-channel delivery without requiring the user to create duplicate reminders per channel.
+Schedules (both recurring and one-shot) carry optional routing metadata that controls how notifications fan out across channels when the schedule fires in `notify` mode. This enables a single schedule to produce multi-channel delivery without requiring the user to create duplicate schedules per channel.
 
 ### Routing Intent Model
 
-The `routing_intent` field on each reminder row specifies the desired channel coverage:
+The `routing_intent` field on each `schedule_jobs` row specifies the desired channel coverage:
 
-| Intent           | Behavior                                              | When to use                                                         |
-| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `single_channel` | Default LLM-driven routing (no override)              | Standard reminders where the decision engine picks the best channel |
-| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important reminders the user wants on both desktop and phone        |
-| `all_channels`   | Forces delivery on every connected channel            | Critical reminders that must reach the user everywhere              |
+| Intent           | Behavior                                              | When to use                                                          |
+| ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
+| `single_channel` | Default LLM-driven routing (no override)              | Standard schedules where the decision engine picks the best channel  |
+| `multi_channel`  | Ensures delivery on 2+ channels when 2+ are connected | Important schedules the user wants on both desktop and phone         |
+| `all_channels`   | Forces delivery on every connected channel            | Critical schedules that must reach the user everywhere               |
 
-The default is `single_channel`, preserving backward compatibility. Routing intent is persisted in the `reminders` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
+The default is `all_channels`. Routing intent is persisted in the `schedule_jobs` table (`routing_intent` column) and carried through the notification signal as `routingIntent`.
 
 ### Routing Hints
 
-The `routing_hints` field is free-form JSON metadata passed alongside the routing intent. It flows through the signal as `routingHints` and is included in the decision engine prompt, allowing producers to communicate channel preferences or contextual hints without requiring schema changes.
+The `routing_hints_json` field is free-form JSON metadata passed alongside the routing intent. It flows through the signal as `routingHints` and is included in the decision engine prompt, allowing producers to communicate channel preferences or contextual hints without requiring schema changes.
 
 ### Trigger-Time Enforcement Flow
 
-When a reminder fires, the routing metadata flows through the notification pipeline with a post-decision enforcement step:
+When a schedule fires in `notify` mode, the routing metadata flows through the notification pipeline with a post-decision enforcement step:
 
 ```
-Reminder fires (scheduler)
-  → emitNotificationSignal({ routingIntent, routingHints })
-    → Decision Engine (LLM selects channels)
-      → enforceRoutingIntent() (post-decision guard)
-        → Deterministic Checks
-          → Broadcaster → Adapters → Delivery
+Schedule fires (scheduler.ts: notify mode)
+  → notifyScheduleOneShot callback (lifecycle.ts)
+    → emitNotificationSignal({ routingIntent, routingHints })
+      → Decision Engine (LLM selects channels)
+        → enforceRoutingIntent() (post-decision guard)
+          → Deterministic Checks
+            → Broadcaster → Adapters → Delivery
 ```
 
 The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM produces its channel selection but before deterministic checks. It overrides the decision's `selectedChannels` based on the routing intent:
@@ -266,16 +267,16 @@ The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM
 
 When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram]`).
 
-### Single-Reminder Fanout
+### Single-Schedule Fanout
 
-A key design principle: **one reminder produces one notification signal that fans out to multiple channels**. The user never needs to create separate reminders for each channel. The routing intent metadata on the single reminder controls the fanout behavior, and the notification pipeline handles per-channel copy rendering, conversation pairing, and delivery through the existing adapter infrastructure.
+A key design principle: **one schedule produces one notification signal that fans out to multiple channels**. The user never needs to create separate schedules for each channel. The routing intent metadata on the single schedule controls the fanout behavior, and the notification pipeline handles per-channel copy rendering, conversation pairing, and delivery through the existing adapter infrastructure.
 
 ### Data Flow
 
 ```
-reminders table (routing_intent, routing_hints_json)
-  → scheduler.ts: claimDueReminders() reads routing metadata
-    → lifecycle.ts: notifyReminder({ routingIntent, routingHints })
+schedule_jobs table (routing_intent, routing_hints_json)
+  → scheduler.ts: claimDueSchedules() reads routing metadata
+    → lifecycle.ts: notifyScheduleOneShot({ routingIntent, routingHints })
       → emitNotificationSignal({ routingIntent, routingHints })
         → signal.ts: NotificationSignal.routingIntent / routingHints
           → decision-engine.ts: evaluateSignal() → enforceRoutingIntent()
@@ -288,7 +289,7 @@ The notification system delivers to three channel types:
 
 ### Vellum (always connected)
 
-Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
+Local SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message containing:
 
 - `sourceEventName` -- the event that triggered the notification
 - `title` and `body` -- rendered notification copy
@@ -304,7 +305,7 @@ HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` s
 
 Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
 
-- **Vellum** is always considered connected (IPC socket is always available when the daemon is running)
+- **Vellum** is always considered connected (HTTP transport is always available when the daemon is running)
 - **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
 
 ## Conversation Materialization
@@ -319,7 +320,7 @@ Guardian dispatch follows this same path and uses the optional `onThreadCreated`
 
 ### Conversation Pairing Invariant
 
-For notification flows that create conversations, the conversation must be created **before** the IPC event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
+For notification flows that create conversations, the conversation must be created **before** the SSE event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
 
 ## Thread Decision Audit Trail
 
@@ -405,29 +406,29 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 
 ## Key Files
 
-| File                      | Purpose                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------- |
-| `../channels/config.ts`   | Channel policy registry -- single source of truth for per-channel notification behavior        |
-| `emit-signal.ts`          | Single entry point for producers; orchestrates the full pipeline                               |
-| `signal.ts`               | `NotificationSignal` and `AttentionHints` type definitions                                     |
-| `types.ts`                | Channel adapter interfaces, delivery types, decision output contract, `ThreadAction` union     |
-| `thread-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine  |
-| `conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy                     |
-| `decision-engine.ts`      | LLM-based routing with forced tool_choice; deterministic fallback                              |
-| `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability)                             |
-| `runtime-dispatch.ts`     | Dispatch gating (no-op decisions, empty channels)                                              |
+| File                      | Purpose                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `../channels/config.ts`   | Channel policy registry -- single source of truth for per-channel notification behavior              |
+| `emit-signal.ts`          | Single entry point for producers; orchestrates the full pipeline                                     |
+| `signal.ts`               | `NotificationSignal` and `AttentionHints` type definitions                                           |
+| `types.ts`                | Channel adapter interfaces, delivery types, decision output contract, `ThreadAction` union           |
+| `thread-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine        |
+| `conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy                           |
+| `decision-engine.ts`      | LLM-based routing with forced tool_choice; deterministic fallback                                    |
+| `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability)                                   |
+| `runtime-dispatch.ts`     | Dispatch gating (no-op decisions, empty channels)                                                    |
 | `broadcaster.ts`          | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` SSE event |
-| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                              |
-| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                                |
-| `destination-resolver.ts` | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                       |
-| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                  |
-| `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                       |
-| `preference-extractor.ts` | Detects notification preferences in conversation messages                                      |
-| `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                |
-| `preferences-store.ts`    | CRUD for `notification_preferences` table                                                      |
-| `events-store.ts`         | CRUD for `notification_events` table                                                           |
-| `decisions-store.ts`      | CRUD for `notification_decisions` table                                                        |
-| `deliveries-store.ts`     | CRUD for `notification_deliveries` table                                                       |
+| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                               |
+| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                                 |
+| `destination-resolver.ts` | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                        |
+| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                   |
+| `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                             |
+| `preference-extractor.ts` | Detects notification preferences in conversation messages                                            |
+| `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                      |
+| `preferences-store.ts`    | CRUD for `notification_preferences` table                                                            |
+| `events-store.ts`         | CRUD for `notification_events` table                                                                 |
+| `decisions-store.ts`      | CRUD for `notification_decisions` table                                                              |
+| `deliveries-store.ts`     | CRUD for `notification_deliveries` table                                                             |
 
 ## How to Add a New Notification Producer
 
@@ -479,7 +480,7 @@ Three SQLite tables form the audit chain:
 
 ### Client Delivery Ack
 
-For vellum (macOS/iOS) deliveries, the audit trail now extends past the IPC broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
+For vellum (macOS/iOS) deliveries, the audit trail now extends past the SSE broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
 
 The ack populates three columns on `notification_deliveries`:
 

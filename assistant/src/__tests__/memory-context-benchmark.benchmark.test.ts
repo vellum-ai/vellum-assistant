@@ -37,7 +37,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -199,10 +198,9 @@ describe("Memory context benchmark", () => {
       config: {
         ...DEFAULT_CONFIG.contextWindow,
         maxInputTokens: 6000,
-        targetInputTokens: 3200,
+        targetBudgetRatio: 0.58,
         compactThreshold: 0.6,
-        preserveRecentUserTurns: 8,
-        chunkTokens: 1200,
+        summaryBudgetRatio: 0.05,
       },
     });
 

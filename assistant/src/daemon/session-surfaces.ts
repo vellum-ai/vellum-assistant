@@ -214,7 +214,7 @@ export interface SurfaceSessionContext {
     metadata?: Record<string, unknown>,
     options?: { isInteractive?: boolean },
     displayContent?: string,
-  ): { queued: boolean; rejected?: boolean; requestId: string };
+  ): { queued: boolean; requestId: string; rejected?: boolean };
   getQueueDepth(): number;
   processMessage(
     content: string,
@@ -572,23 +572,14 @@ export function handleSurfaceAction(
       requestId,
       surfaceId,
     );
+
     if (result.rejected) {
-      log.error({ surfaceId, actionId }, "Relay prompt rejected — queue full");
-      onEvent(
-        buildSessionErrorMessage(ctx.conversationId, {
-          code: "QUEUE_FULL",
-          userMessage:
-            "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-          retryable: true,
-          debugDetails: "Relay prompt rejected — session queue is full",
-        }),
-      );
+      ctx.surfaceActionRequestIds.delete(requestId);
       return;
     }
 
     // Echo the prompt to the client so it appears in the chat UI.
-    // Sent after enqueue succeeds so the user doesn't see a prompt that
-    // won't be processed.
+    // Deferred until after rejection check to avoid ghost messages.
     ctx.sendToClient({
       type: "user_message_echo",
       text: prompt,
@@ -714,15 +705,6 @@ export function handleSurfaceAction(
   ctx.surfaceActionRequestIds.add(requestId);
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
-  // Echo the user's prompt to the client so it appears in the chat UI
-  if (shouldRelayPrompt && prompt) {
-    ctx.sendToClient({
-      type: "user_message_echo",
-      text: prompt,
-      sessionId: ctx.conversationId,
-    });
-  }
-
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
     status: "info",
@@ -740,6 +722,20 @@ export function handleSurfaceAction(
     undefined,
     displayContent,
   );
+  if (result.rejected) {
+    ctx.surfaceActionRequestIds.delete(requestId);
+    return;
+  }
+
+  // Echo the user's prompt to the client so it appears in the chat UI.
+  // Deferred until after rejection check to avoid ghost messages.
+  if (shouldRelayPrompt && prompt) {
+    ctx.sendToClient({
+      type: "user_message_echo",
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+  }
   if (result.queued) {
     const position = ctx.getQueueDepth();
     if (!retainPending) {
@@ -764,29 +760,6 @@ export function handleSurfaceAction(
       requestId,
       position,
     });
-    return;
-  }
-
-  if (result.rejected) {
-    log.error({ surfaceId, actionId }, "Surface action rejected — queue full");
-    ctx.traceEmitter.emit(
-      "request_error",
-      "Surface action rejected — queue full",
-      {
-        requestId,
-        status: "error",
-        attributes: { reason: "queue_full", source: "surface_action" },
-      },
-    );
-    onEvent(
-      buildSessionErrorMessage(ctx.conversationId, {
-        code: "QUEUE_FULL",
-        userMessage:
-          "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
-        retryable: true,
-        debugDetails: "Surface action rejected — session queue is full",
-      }),
-    );
     return;
   }
 

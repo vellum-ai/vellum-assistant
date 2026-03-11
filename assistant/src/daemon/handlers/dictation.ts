@@ -13,7 +13,7 @@ import {
   expandSnippets,
 } from "../dictation-text-processing.js";
 import type { DictationRequest } from "../message-protocol.js";
-import { defineHandlers, type HandlerContext, log } from "./shared.js";
+import { type HandlerContext, log } from "./shared.js";
 
 // Action verbs for fast heuristic fallback (used when LLM classifier is unavailable)
 const ACTION_VERBS = [
@@ -245,13 +245,7 @@ export async function handleDictationRequest(
   // Command mode: selected text present — deterministic, no classification needed
   if (msg.context.selectedText && msg.context.selectedText.trim().length > 0) {
     log.info({ mode: "command" }, "Command mode (selected text present)");
-    await handleCommandMode(
-      msg,
-      ctx,
-      profile,
-      profileMeta,
-      stylePrompt,
-    );
+    await handleCommandMode(msg, ctx, profile, profileMeta, stylePrompt);
     return;
   }
 
@@ -477,7 +471,3 @@ async function handleCommandMode(
     });
   }
 }
-
-export const dictationHandlers = defineHandlers({
-  dictation_request: handleDictationRequest,
-});

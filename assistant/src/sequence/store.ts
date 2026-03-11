@@ -1,7 +1,7 @@
 /**
  * SQLite-backed implementation of the SequenceStore interface.
  *
- * Follows the same patterns as schedule-store.ts and reminder-store.ts:
+ * Follows the same patterns as schedule-store.ts:
  * - Flat exported functions (no class)
  * - getDb() called inside each function
  * - Optimistic locking for claimDueEnrollments
@@ -215,7 +215,7 @@ export function listEnrollments(
 /**
  * Atomically claim enrollments that are due for processing.
  *
- * Uses the same optimistic locking pattern as claimDueReminders:
+ * Uses the same optimistic locking pattern as claimDueSchedules:
  * 1. Query candidates (status=active, nextStepAt <= now)
  * 2. For each, UPDATE with WHERE status='active' — only succeeds if not already claimed
  * 3. Check rawChanges() to confirm the lock was acquired
@@ -311,6 +311,16 @@ export function pauseEnrollment(id: string): void {
   const db = getDb();
   db.update(sequenceEnrollments)
     .set({ status: "paused", nextStepAt: null, updatedAt: Date.now() })
+    .where(eq(sequenceEnrollments.id, id))
+    .run();
+}
+
+/** Resume a paused enrollment — re-activates it so the scheduler picks it up. */
+export function resumeEnrollment(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(sequenceEnrollments)
+    .set({ status: "active", nextStepAt: now, updatedAt: now })
     .where(eq(sequenceEnrollments.id, id))
     .run();
 }

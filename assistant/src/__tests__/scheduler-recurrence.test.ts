@@ -10,7 +10,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -34,10 +33,6 @@ import {
 } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { createTask } from "../tasks/task-store.js";
-import {
-  getReminder,
-  insertReminder,
-} from "../tools/reminder/reminder-store.js";
 
 initializeDb();
 
@@ -97,7 +92,6 @@ describe("scheduler RRULE execution", () => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
-    db.run("DELETE FROM reminders");
     db.run("DELETE FROM task_runs");
     db.run("DELETE FROM tasks");
     db.run("DELETE FROM messages");
@@ -545,31 +539,71 @@ describe("scheduler RRULE execution", () => {
     expect(after!.lastRunAt).not.toBeNull();
   });
 
-  test("notify reminder passes routing metadata to notifyReminder callback", async () => {
-    const reminder = insertReminder({
-      label: "Route this reminder",
-      message: "Reminder body",
-      fireAt: Date.now() - 1000,
-      mode: "notify",
-      routingIntent: "multi_channel",
-      routingHints: {
-        requestedByUser: true,
-        channelMentions: ["telegram", "slack"],
-      },
+  // ── One-shot schedule tests ───────────────────────────────────────
+
+  test("one-shot execute mode fires and marks schedule as fired", async () => {
+    const schedule = createSchedule({
+      name: "One-shot execute",
+      message: "Execute this once",
+      mode: "execute",
+      nextRunAt: Date.now() - 1000,
+      // No expression = one-shot
     });
+
+    expect(getSchedule(schedule.id)!.status).toBe("active");
+
+    const processedMessages: { conversationId: string; message: string }[] = [];
+    const processMessage = async (conversationId: string, message: string) => {
+      processedMessages.push({ conversationId, message });
+    };
+
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(
+      processedMessages.some((m) => m.message === "Execute this once"),
+    ).toBe(true);
+
+    const after = getSchedule(schedule.id);
+    expect(after).not.toBeNull();
+    expect(after!.status).toBe("fired");
+    expect(after!.enabled).toBe(false);
+
+    // A cron_runs entry should have been created
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    expect(runs[0].status).toBe("ok");
+  });
+
+  test("one-shot notify mode emits notification and marks schedule as fired", async () => {
+    const schedule = createSchedule({
+      name: "One-shot notify",
+      message: "Notify about this",
+      mode: "notify",
+      nextRunAt: Date.now() - 1000,
+      routingIntent: "multi_channel",
+      routingHints: { channel: "slack" },
+    });
+
+    expect(getSchedule(schedule.id)!.status).toBe("active");
 
     const notifyCalls: Array<{
       id: string;
       label: string;
       message: string;
-      routingIntent: "single_channel" | "multi_channel" | "all_channels";
+      routingIntent: string;
       routingHints: Record<string, unknown>;
     }> = [];
-    const notifyReminder = (payload: {
+    const notifyScheduleOneShot = (payload: {
       id: string;
       label: string;
       message: string;
-      routingIntent: "single_channel" | "multi_channel" | "all_channels";
+      routingIntent: string;
       routingHints: Record<string, unknown>;
     }) => {
       notifyCalls.push(payload);
@@ -577,7 +611,7 @@ describe("scheduler RRULE execution", () => {
 
     const scheduler = startScheduler(
       async () => {},
-      notifyReminder,
+      notifyScheduleOneShot,
       () => {},
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -585,15 +619,154 @@ describe("scheduler RRULE execution", () => {
 
     expect(notifyCalls).toHaveLength(1);
     expect(notifyCalls[0]).toEqual({
-      id: reminder.id,
-      label: reminder.label,
-      message: reminder.message,
+      id: schedule.id,
+      label: "One-shot notify",
+      message: "Notify about this",
       routingIntent: "multi_channel",
+      routingHints: { channel: "slack" },
+    });
+
+    const after = getSchedule(schedule.id);
+    expect(after).not.toBeNull();
+    expect(after!.status).toBe("fired");
+    expect(after!.enabled).toBe(false);
+  });
+
+  test("one-shot failure reverts to active for retry", async () => {
+    const schedule = createSchedule({
+      name: "One-shot fail",
+      message: "This will fail",
+      mode: "execute",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    expect(getSchedule(schedule.id)!.status).toBe("active");
+
+    const processMessage = async () => {
+      throw new Error("Simulated failure");
+    };
+
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    const after = getSchedule(schedule.id);
+    expect(after).not.toBeNull();
+    expect(after!.status).toBe("active");
+    expect(after!.enabled).toBe(true);
+  });
+
+  test("recurring + notify mode emits notification and continues recurring", async () => {
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = createSchedule({
+      name: "Recurring notify",
+      cronExpression: rruleExpr,
+      message: "Recurring notification",
+      syntax: "rrule",
+      expression: rruleExpr,
+      mode: "notify",
+      routingIntent: "single_channel",
+      routingHints: { preferred: "email" },
+    });
+
+    forceScheduleDue(schedule.id);
+
+    const notifyCalls: Array<{
+      id: string;
+      label: string;
+      message: string;
+      routingIntent: string;
+      routingHints: Record<string, unknown>;
+    }> = [];
+    const notifyScheduleOneShot = (payload: {
+      id: string;
+      label: string;
+      message: string;
+      routingIntent: string;
+      routingHints: Record<string, unknown>;
+    }) => {
+      notifyCalls.push(payload);
+    };
+
+    const scheduler = startScheduler(
+      async () => {},
+      notifyScheduleOneShot,
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0]).toEqual({
+      id: schedule.id,
+      label: "Recurring notify",
+      message: "Recurring notification",
+      routingIntent: "single_channel",
+      routingHints: { preferred: "email" },
+    });
+
+    // Schedule should remain enabled and have a future nextRunAt (not fired/disabled)
+    const after = getSchedule(schedule.id);
+    expect(after).not.toBeNull();
+    expect(after!.enabled).toBe(true);
+    expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
+    // Status should still be "active" (not "fired")
+    expect(after!.status).toBe("active");
+  });
+
+  test("one-shot notify mode passes routing intent and hints to notifier", async () => {
+    const schedule = createSchedule({
+      name: "Routing test",
+      message: "Check routing",
+      mode: "notify",
+      nextRunAt: Date.now() - 1000,
+      routingIntent: "all_channels",
       routingHints: {
         requestedByUser: true,
         channelMentions: ["telegram", "slack"],
+        priority: "high",
       },
     });
-    expect(getReminder(reminder.id)?.status).toBe("fired");
+
+    const notifyCalls: Array<{
+      id: string;
+      label: string;
+      message: string;
+      routingIntent: string;
+      routingHints: Record<string, unknown>;
+    }> = [];
+    const notifyScheduleOneShot = (payload: {
+      id: string;
+      label: string;
+      message: string;
+      routingIntent: string;
+      routingHints: Record<string, unknown>;
+    }) => {
+      notifyCalls.push(payload);
+    };
+
+    const scheduler = startScheduler(
+      async () => {},
+      notifyScheduleOneShot,
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0].routingIntent).toBe("all_channels");
+    expect(notifyCalls[0].routingHints).toEqual({
+      requestedByUser: true,
+      channelMentions: ["telegram", "slack"],
+      priority: "high",
+    });
+
+    // Should be marked as fired
+    const after = getSchedule(schedule.id);
+    expect(after!.status).toBe("fired");
   });
 });

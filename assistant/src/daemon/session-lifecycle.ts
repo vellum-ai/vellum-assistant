@@ -24,7 +24,11 @@ import {
 import { unregisterSessionSender } from "../tools/browser/browser-screencast.js";
 import { getLogger } from "../util/logger.js";
 import { repairHistory } from "./history-repair.js";
-import type { SurfaceData, SurfaceType, UsageStats } from "./message-protocol.js";
+import type {
+  SurfaceData,
+  SurfaceType,
+  UsageStats,
+} from "./message-protocol.js";
 import {
   unregisterCallNotifiers,
   unregisterWatchNotifiers,
@@ -74,6 +78,7 @@ export interface LoadFromDbContext {
   contextCompactedAt: number | null;
   trustContext?: { trustClass: TrustClass };
   loadedHistoryTrustClass?: TrustClass;
+  hasAttachments?: boolean;
 }
 
 export interface AbortContext {
@@ -176,6 +181,20 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
   }
 
   ctx.loadedHistoryTrustClass = trustClass;
+
+  // Scan ALL db messages (including compacted ones) for attachments so that
+  // asset tools remain available after context compaction.
+  if (
+    ctx.contextCompactedMessageCount > 0 &&
+    dbMessages.some(
+      (m) =>
+        m.role === "user" &&
+        (m.content.includes('"type":"image"') ||
+          m.content.includes('"type":"file"')),
+    )
+  ) {
+    ctx.hasAttachments = true;
+  }
 
   log.info(
     { conversationId: ctx.conversationId, count: ctx.messages.length },

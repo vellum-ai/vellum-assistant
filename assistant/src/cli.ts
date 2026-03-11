@@ -541,7 +541,10 @@ export async function startCli(): Promise<void> {
               }),
             });
             if (resp.ok) {
-              const data = (await resp.json()) as { sessionId: string; title: string };
+              const data = (await resp.json()) as {
+                sessionId: string;
+                title: string;
+              };
               sessionId = data.sessionId;
               conversationKey = newKey;
               pendingSessionPick = false;
@@ -694,6 +697,10 @@ export async function startCli(): Promise<void> {
         lastUsage = null;
         process.stdout.write("\n[Cancelled]\n\n");
         prompt();
+        break;
+
+      case "tool_use_preview_start":
+        // Early preview of tool use — ignored by CLI; full tool_use_start follows.
         break;
 
       case "tool_use_start":
@@ -991,7 +998,9 @@ export async function startCli(): Promise<void> {
     // Retry with exponential backoff (1s → 2s → 4s → … → 30s cap) until connected
     while (true) {
       const delaySec = (reconnectDelay / 1000).toFixed(0);
-      process.stdout.write(`\n  Reconnecting to assistant in ${delaySec}s...\n`);
+      process.stdout.write(
+        `\n  Reconnecting to assistant in ${delaySec}s...\n`,
+      );
       await new Promise((r) => setTimeout(r, reconnectDelay));
 
       // Increase backoff for next attempt before trying
@@ -1338,10 +1347,9 @@ export async function startCli(): Promise<void> {
   process.on("SIGINT", () => {
     spinner.stop();
     if (generating && sessionId) {
-      httpSend(
-        `/v1/conversations/${encodeURIComponent(sessionId)}/cancel`,
-        { method: "POST" },
-      ).catch(() => {
+      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/cancel`, {
+        method: "POST",
+      }).catch(() => {
         // Best-effort cancel
       });
     } else {
@@ -1360,8 +1368,6 @@ export async function startCli(): Promise<void> {
   updateStatusText(mainScreenLayout, "ready");
 
   // Show initial prompt since HTTP doesn't have the session_info flow
-  process.stdout.write(
-    `\n  Type your message. Ctrl+D to detach.\n\n`,
-  );
+  process.stdout.write(`\n  Type your message. Ctrl+D to detach.\n\n`);
   prompt();
 }

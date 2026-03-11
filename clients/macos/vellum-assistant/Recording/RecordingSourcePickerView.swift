@@ -7,7 +7,7 @@ import VellumAssistantShared
 /// Displays per-row thumbnails and a larger preview pane above the source list.
 struct RecordingSourcePickerView: View {
     @ObservedObject var viewModel: RecordingSourcePickerViewModel
-    var onStart: (IPCRecordingOptions) -> Void
+    var onStart: (RecordingOptions) -> Void
     var onCancel: () -> Void
 
     @State private var hoveredDisplayId: UInt32?

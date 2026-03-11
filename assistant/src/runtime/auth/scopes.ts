@@ -37,7 +37,7 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
     "attachments.write",
     "internal.write",
   ]),
-  ipc_v1: new Set<Scope>(["ipc.all"]),
+  local_v1: new Set<Scope>(["local.all"]),
   ui_page_v1: new Set<Scope>(["settings.read"]),
 };
 

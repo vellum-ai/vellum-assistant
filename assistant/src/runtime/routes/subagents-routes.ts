@@ -2,7 +2,7 @@
  * Route handlers for subagent operations.
  *
  * Exposes subagent detail, abort, and message operations over HTTP,
- * sharing business logic with the IPC handlers in
+ * sharing business logic with the handlers in
  * `daemon/handlers/subagents.ts`.
  */
 import { getMessages } from "../../memory/conversation-crud.js";
@@ -14,7 +14,7 @@ import type { RouteDefinition } from "../http-router.js";
 const log = getLogger("subagents-routes");
 
 // ---------------------------------------------------------------------------
-// Shared business logic (used by both IPC handlers and HTTP routes)
+// Shared business logic (used by both message handlers and HTTP routes)
 // ---------------------------------------------------------------------------
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -167,7 +167,7 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
         const manager = getSubagentManager();
         const aborted = manager.abort(
           params.id,
-          () => {}, // No IPC send callback needed for HTTP
+          () => {}, // No send callback needed for HTTP
           sessionId,
         );
 
@@ -219,13 +219,7 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
 
         const result = await manager.sendMessage(params.id, body.content);
 
-        if (result === "queue_full") {
-          return httpError(
-            "CONFLICT",
-            `Subagent "${params.id}" message queue is full. Please wait for current messages to be processed.`,
-            409,
-          );
-        } else if (result === "empty") {
+        if (result === "empty") {
           return httpError(
             "BAD_REQUEST",
             "Message content is empty or whitespace-only.",

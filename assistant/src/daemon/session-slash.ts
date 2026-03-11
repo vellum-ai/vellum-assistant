@@ -121,6 +121,13 @@ const PROVIDER_MODEL_SHORTCUTS: Record<
   },
 };
 
+/** True when the trimmed content matches a provider shortcut like /opus, /gpt4, etc. */
+export function isProviderShortcut(content: string): boolean {
+  const match = content.trim().match(/^\/([a-z0-9-]+)(\s|$)/i);
+  if (!match) return false;
+  return match[1].toLowerCase() in PROVIDER_MODEL_SHORTCUTS;
+}
+
 /** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_SHORTCUTS. */
 export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
   Object.values(PROVIDER_MODEL_SHORTCUTS).map(({ model, provider }) => [

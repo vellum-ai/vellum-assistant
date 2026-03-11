@@ -114,7 +114,7 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     enforceRoutingIntentMock.mockReturnValue(enforcedDecision);
 
     const result = await emitNotificationSignal({
-      sourceEventName: "reminder.fired",
+      sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
       sourceSessionId: "rem-1",
       attentionHints: {
@@ -160,7 +160,7 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     );
 
     await emitNotificationSignal({
-      sourceEventName: "reminder.fired",
+      sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
       sourceSessionId: "rem-2",
       attentionHints: {
@@ -196,7 +196,7 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     );
 
     await emitNotificationSignal({
-      sourceEventName: "reminder.fired",
+      sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
       sourceSessionId: "rem-3",
       attentionHints: {

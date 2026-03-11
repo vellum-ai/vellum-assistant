@@ -1,13 +1,14 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { resolveSkillStates } from "../../config/skill-state.js";
+import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import {
   ensureSkillIcon,
   loadSkillBySelector,
@@ -51,7 +52,6 @@ import type {
 } from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
-  defineHandlers,
   ensureSkillEntry,
   type HandlerContext,
   log,
@@ -62,7 +62,7 @@ import {
 /**
  * Minimal context needed by the standalone skill business-logic functions.
  * HandlerContext satisfies this interface, but HTTP routes can also provide
- * a compatible object without coupling to IPC internals.
+ * a compatible object without coupling to handler internals.
  */
 export interface SkillOperationContext {
   debounceTimers: HandlerContext["debounceTimers"];
@@ -204,7 +204,7 @@ function heuristicDraft(body: string): {
 const LLM_DRAFT_TIMEOUT_MS = 15_000;
 
 // ─── Standalone business-logic functions ─────────────────────────────────────
-// These are consumed by both the IPC handlers below and the HTTP route layer.
+// These are consumed by both the handlers below and the HTTP route layer.
 
 /** Helper: suppress config reload, save, debounce, and update fingerprint. */
 function saveConfigWithSuppression(
@@ -318,7 +318,11 @@ export function disableSkill(
 
 export function configureSkill(
   skillId: string,
-  config: { env?: Record<string, string>; apiKey?: string; config?: Record<string, unknown> },
+  config: {
+    env?: Record<string, string>;
+    apiKey?: string;
+    config?: Record<string, unknown>;
+  },
   ctx: SkillOperationContext,
 ): { success: true } | { success: false; error: string } {
   try {
@@ -343,6 +347,20 @@ export async function installSkill(
   try {
     // Bundled skills are already available — no install needed
     const catalog = loadSkillCatalog();
+
+    // Feature flag gate: reject install if the skill's flag is disabled
+    const config = getConfig();
+    const flaggedSkill = catalog.find((s) => s.id === spec.slug);
+    if (flaggedSkill) {
+      const flagKey = skillFlagKey(flaggedSkill);
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
+        return {
+          success: false,
+          error: `Skill "${spec.slug}" is currently unavailable (disabled by feature flag)`,
+        };
+      }
+    }
+
     const bundled = catalog.find(
       (s) => s.id === spec.slug && s.source === "bundled",
     );
@@ -484,7 +502,9 @@ export async function updateSkill(
 
 export async function checkSkillUpdates(
   _ctx: SkillOperationContext,
-): Promise<{ success: true; data: unknown } | { success: false; error: string }> {
+): Promise<
+  { success: true; data: unknown } | { success: false; error: string }
+> {
   try {
     const updates = await clawhubCheckUpdates();
     return { success: true, data: updates };
@@ -498,7 +518,9 @@ export async function checkSkillUpdates(
 export async function searchSkills(
   query: string,
   _ctx: SkillOperationContext,
-): Promise<{ success: true; data: unknown } | { success: false; error: string }> {
+): Promise<
+  { success: true; data: unknown } | { success: false; error: string }
+> {
   try {
     const result = await clawhubSearch(query);
     return { success: true, data: result };
@@ -742,11 +764,9 @@ export async function createSkill(
   }
 }
 
-// ─── IPC handlers (thin wrappers) ───────────────────────────────────────────
+// ─── HTTP handlers (thin wrappers) ──────────────────────────────────────────
 
-export function handleSkillsList(
-  ctx: HandlerContext,
-): void {
+export function handleSkillsList(ctx: HandlerContext): void {
   const skills = listSkills(ctx);
   ctx.send({ type: "skills_list_response", skills });
 }
@@ -923,19 +943,3 @@ export async function handleSkillsCreate(
     ...result,
   });
 }
-
-export const skillHandlers = defineHandlers({
-  skills_list: (_msg, ctx) => handleSkillsList(ctx),
-  skill_detail: handleSkillDetail,
-  skills_enable: handleSkillsEnable,
-  skills_disable: handleSkillsDisable,
-  skills_configure: handleSkillsConfigure,
-  skills_install: handleSkillsInstall,
-  skills_uninstall: handleSkillsUninstall,
-  skills_update: handleSkillsUpdate,
-  skills_check_updates: handleSkillsCheckUpdates,
-  skills_search: handleSkillsSearch,
-  skills_inspect: handleSkillsInspect,
-  skills_draft: handleSkillsDraft,
-  skills_create: handleSkillsCreate,
-});

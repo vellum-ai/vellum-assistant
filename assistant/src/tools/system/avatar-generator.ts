@@ -109,39 +109,33 @@ export const setAvatarTool: Tool = {
       };
     } catch (error) {
       if (error instanceof ManagedAvatarError) {
+        log.error(
+          {
+            error: error.message,
+            statusCode: error.statusCode,
+            code: error.code,
+          },
+          "Avatar generation failed (managed)",
+        );
         if (error.statusCode === 429) {
-          log.warn(
-            { correlationId: error.correlationId },
-            "Avatar generation rate limited",
-          );
           return {
             content:
-              "Avatar generation is rate limited. Please wait and try again.",
+              "Avatar generation is currently rate limited. Please try again in a moment.",
             isError: true,
           };
         }
-        if (error.statusCode === 503) {
-          log.warn(
-            { correlationId: error.correlationId },
-            "Avatar generation service unavailable",
-          );
+        if (error.statusCode >= 500) {
           return {
-            content: "Avatar generation service is temporarily unavailable.",
+            content:
+              "Avatar generation is temporarily unavailable. Please try again later.",
             isError: true,
           };
         }
-        const detail =
-          error.message || "Avatar generation failed. Please try again.";
-        log.error(
-          { error: detail, correlationId: error.correlationId },
-          "Managed avatar generation failed",
-        );
         return {
-          content: `Avatar generation failed: ${detail}`,
+          content: `Avatar generation failed: ${error.message}`,
           isError: true,
         };
       }
-
       const message = mapGeminiError(error);
       log.error({ error: message }, "Avatar generation failed");
       return {

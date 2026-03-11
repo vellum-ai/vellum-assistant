@@ -82,8 +82,8 @@ final class TextSession: ObservableObject {
                         log.info("Got daemon session ID: \(info.sessionId)")
 
                         // Now send the user message
-                        let ipcAttachments: [IPCAttachment]? = self.attachments.isEmpty ? nil : self.attachments.map {
-                            IPCAttachment(
+                        let messageAttachments: [UserMessageAttachment]? = self.attachments.isEmpty ? nil : self.attachments.map {
+                            UserMessageAttachment(
                                 filename: $0.fileName,
                                 mimeType: $0.mimeType,
                                 data: $0.data.base64EncodedString(),
@@ -93,7 +93,7 @@ final class TextSession: ObservableObject {
                         try? self.daemonClient.send(UserMessageMessage(
                             sessionId: info.sessionId,
                             content: self.task,
-                            attachments: ipcAttachments
+                            attachments: messageAttachments
                         ))
 
                         // Track the initial user message

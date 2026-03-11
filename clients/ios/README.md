@@ -24,6 +24,9 @@ The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
+- Intelligence tab — installed skills management, community skill browser with debounced search, contacts with channel policy editing
+- Things tab — local apps grid (2-column LazyVGrid) with pin/share/bundle, shared apps with fork, searchable/sortable documents list
+- Settings parity — Models & Services (model selection, API key management), Privacy (system permission status), Channels & Guardian (guardian status, channel trust)
 
 ---
 
@@ -93,7 +96,7 @@ Pair with a running assistant (local Mac or remote) via QR code. The iOS app con
 4. Tap **Approve Once** or **Always Allow** on the host
 5. The app auto-configures the gateway URL and bearer token
 
-The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
+The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing is disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1` on the Mac; when enabled, the QR code includes the local gateway URL for direct LAN connections.
 
 **Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys and tokens are stored in `UserDefaults` instead, which works fine for development. On a real device, credentials are stored in the Keychain.
 
@@ -119,7 +122,7 @@ Test files in `clients/ios/Tests/`:
 
 ### Shared Tests
 
-The `VellumAssistantSharedTests` target covers shared IPC logic and can be run on macOS without a simulator:
+The `VellumAssistantSharedTests` target covers shared network logic and can be run on macOS without a simulator:
 
 ```bash
 cd clients/macos

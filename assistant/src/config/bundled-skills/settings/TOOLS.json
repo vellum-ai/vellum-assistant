@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "voice_config_update",
+      "description": "Update a voice configuration setting (TTS voice ID, PTT activation key, wake word enabled/keyword/timeout). Changes take effect immediately.",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "setting": {
+            "type": "string",
+            "enum": [
+              "activation_key",
+              "wake_word_enabled",
+              "wake_word_keyword",
+              "wake_word_timeout",
+              "tts_voice_id"
+            ],
+            "description": "The voice setting to change"
+          },
+          "value": {
+            "description": "The new value for the setting (type depends on setting)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of what you are changing and why, shown to the user as a status update. Use simple language a non-technical person would understand."
+          }
+        }
+      },
+      "executor": "tools/voice-config-update.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "set_avatar",
+      "description": "Generate a custom avatar image from a text description. Saves the result as the assistant's avatar.",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A text description of the desired avatar appearance, e.g. \"a friendly purple cat with green eyes wearing a tiny hat\"."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand."
+          }
+        },
+        "required": ["description"]
+      },
+      "executor": "tools/set-avatar.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "open_system_settings",
+      "description": "Open a specific macOS System Settings pane (e.g. Microphone or Speech Recognition privacy). Use this to guide the user through granting permissions that can only be toggled in System Settings.",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pane": {
+            "type": "string",
+            "enum": ["microphone", "speech_recognition"],
+            "description": "The System Settings pane to open"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of what you are opening and why, shown to the user as a status update. Use simple language a non-technical person would understand."
+          }
+        },
+        "required": ["pane"]
+      },
+      "executor": "tools/open-system-settings.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "navigate_settings_tab",
+      "description": "Open the Vellum settings panel to a specific tab (e.g. Voice, Connect, Trust). Use this when the user needs to review or adjust settings visually.",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string",
+            "enum": ["Voice", "Connect", "Trust", "Model", "Scheduling"],
+            "description": "The settings tab to navigate to"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of what you are navigating to and why, shown to the user as a status update. Use simple language a non-technical person would understand."
+          }
+        },
+        "required": ["tab"]
+      },
+      "executor": "tools/navigate-settings-tab.ts",
+      "execution_target": "host"
+    }
+  ]
+}

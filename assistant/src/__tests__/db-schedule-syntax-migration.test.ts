@@ -28,7 +28,7 @@ describe("schedule_syntax column migration", () => {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
-        cron_expression TEXT NOT NULL,
+        cron_expression TEXT,
         schedule_syntax TEXT NOT NULL DEFAULT 'cron',
         timezone TEXT,
         message TEXT NOT NULL,
@@ -37,6 +37,10 @@ describe("schedule_syntax column migration", () => {
         last_status TEXT,
         retry_count INTEGER NOT NULL DEFAULT 0,
         created_by TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'execute',
+        routing_intent TEXT NOT NULL DEFAULT 'all_channels',
+        routing_hints_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'active',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -80,7 +84,7 @@ describe("schedule_syntax column migration", () => {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
-        cron_expression TEXT NOT NULL,
+        cron_expression TEXT,
         timezone TEXT,
         message TEXT NOT NULL,
         next_run_at INTEGER NOT NULL,
@@ -88,6 +92,10 @@ describe("schedule_syntax column migration", () => {
         last_status TEXT,
         retry_count INTEGER NOT NULL DEFAULT 0,
         created_by TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'execute',
+        routing_intent TEXT NOT NULL DEFAULT 'all_channels',
+        routing_hints_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'active',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -125,7 +133,7 @@ describe("schedule_syntax column migration", () => {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
-        cron_expression TEXT NOT NULL,
+        cron_expression TEXT,
         timezone TEXT,
         message TEXT NOT NULL,
         next_run_at INTEGER NOT NULL,
@@ -133,6 +141,10 @@ describe("schedule_syntax column migration", () => {
         last_status TEXT,
         retry_count INTEGER NOT NULL DEFAULT 0,
         created_by TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'execute',
+        routing_intent TEXT NOT NULL DEFAULT 'all_channels',
+        routing_hints_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'active',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )

@@ -91,7 +91,7 @@ function injectSubagent(
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    enqueueMessage: () => ({ queued: false, rejected: false }),
+    enqueueMessage: () => ({ queued: false }),
     persistUserMessage: () => "msg-1",
     runAgentLoop: async () => {},
   };
@@ -160,7 +160,7 @@ describe("Subagent tool execute validation", () => {
       makeContext("sess-1"),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("No IPC client");
+    expect(result.content).toContain("No client connected");
   });
 
   test("spawn returns error when missing label", async () => {

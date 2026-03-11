@@ -382,4 +382,5 @@ class WebSearchTool implements Tool {
   }
 }
 
-registerTool(new WebSearchTool());
+export const webSearchTool = new WebSearchTool();
+registerTool(webSearchTool);

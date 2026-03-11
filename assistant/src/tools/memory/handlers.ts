@@ -468,7 +468,7 @@ function inferSubjectFromStatement(statement: string): string {
 
 /**
  * Strip a typed ID prefix (e.g. "item:abc-123" -> "abc-123") so that IDs
- * copied from memory_recall output work in memory_update.
+ * copied from memory_recall output work in memory_manage update/delete ops.
  */
 function stripTypedIdPrefix(id: string): string {
   const match = id.match(/^(?:item|segment|summary):(.+)$/);

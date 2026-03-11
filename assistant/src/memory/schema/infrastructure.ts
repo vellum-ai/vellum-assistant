@@ -7,26 +7,11 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-export const reminders = sqliteTable("reminders", {
-  id: text("id").primaryKey(),
-  label: text("label").notNull(),
-  message: text("message").notNull(),
-  fireAt: integer("fire_at").notNull(), // epoch ms, absolute timestamp
-  mode: text("mode").notNull(), // 'notify' | 'execute'
-  status: text("status").notNull(), // 'pending' | 'firing' | 'fired' | 'cancelled'
-  firedAt: integer("fired_at"),
-  conversationId: text("conversation_id"),
-  routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
-  routingHintsJson: text("routing_hints_json").notNull().default("{}"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 export const cronJobs = sqliteTable("cron_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  cronExpression: text("cron_expression").notNull(), // e.g. '0 9 * * 1-5'
+  cronExpression: text("cron_expression"), // nullable for one-shot schedules; e.g. '0 9 * * 1-5'
   scheduleSyntax: text("schedule_syntax").notNull().default("cron"), // 'cron' | 'rrule'
   timezone: text("timezone"), // e.g. 'America/Los_Angeles'
   message: text("message").notNull(),
@@ -35,6 +20,10 @@ export const cronJobs = sqliteTable("cron_jobs", {
   lastStatus: text("last_status"), // 'ok' | 'error'
   retryCount: integer("retry_count").notNull().default(0),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
+  mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
+  routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
+  routingHintsJson: text("routing_hints_json").notNull().default("{}"),
+  status: text("status").notNull().default("active"), // 'active' | 'firing' | 'fired' | 'cancelled'
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

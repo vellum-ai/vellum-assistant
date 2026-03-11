@@ -5,9 +5,9 @@ struct HeartbeatRunsView: View {
     let daemonClient: DaemonClient
     @Environment(\.dismiss) var dismiss
 
-    @State private var runs: [IPCHeartbeatRunsListResponseRun] = []
+    @State private var runs: [HeartbeatRunsListResponseRun] = []
     @State private var expandedRunId: String?
-    @State private var previousRunsListCallback: ((IPCHeartbeatRunsListResponse) -> Void)?
+    @State private var previousRunsListCallback: ((HeartbeatRunsListResponse) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {

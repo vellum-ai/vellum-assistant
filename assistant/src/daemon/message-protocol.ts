@@ -20,6 +20,8 @@ export * from "./message-types/contacts.js";
 export * from "./message-types/diagnostics.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
+export * from "./message-types/host-bash.js";
+export * from "./message-types/host-file.js";
 export * from "./message-types/inbox.js";
 export * from "./message-types/integrations.js";
 export * from "./message-types/memory.js";
@@ -66,6 +68,8 @@ import type {
   _GuardianActionsClientMessages,
   _GuardianActionsServerMessages,
 } from "./message-types/guardian-actions.js";
+import type { _HostBashServerMessages } from "./message-types/host-bash.js";
+import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type {
   _InboxClientMessages,
   _InboxServerMessages,
@@ -175,6 +179,8 @@ export type ServerMessage =
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _GuardianActionsServerMessages
+  | _HostBashServerMessages
+  | _HostFileServerMessages
   | _MemoryServerMessages
   | _WorkspaceServerMessages
   | _SchedulesServerMessages

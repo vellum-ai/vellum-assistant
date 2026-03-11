@@ -291,13 +291,13 @@ extension AppDelegate {
                 }
             },
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
-                self?.mainWindow?.windowState.togglePanel(.settings)
+                self?.mainWindow?.windowState.showPanel(.settings)
             },
             CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "Things", shortcutHint: nil) { [weak self] in
-                self?.mainWindow?.windowState.showAppsPanel()
+                self?.mainWindow?.windowState.showPanel(.apps)
             },
             CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
-                self?.mainWindow?.windowState.togglePanel(.intelligence)
+                self?.mainWindow?.windowState.showPanel(.intelligence)
             },
             CommandPaletteAction(id: "navigate-back", icon: VIcon.chevronLeft.rawValue, label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
                 self?.mainWindow?.windowState.navigateBack()

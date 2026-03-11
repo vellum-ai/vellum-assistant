@@ -1,8 +1,11 @@
 import { ProviderError } from "../util/errors.js";
-import type { SessionErrorCode, SessionErrorMessage } from "./message-protocol.js";
+import type {
+  SessionErrorCode,
+  SessionErrorMessage,
+} from "./message-protocol.js";
 
 /**
- * Classified session error ready for IPC emission.
+ * Classified session error ready for client emission.
  */
 export interface ClassifiedSessionError {
   code: SessionErrorCode;
@@ -73,7 +76,7 @@ const CANCEL_PATTERNS = [/abort/i, /cancel/i];
  */
 export interface ErrorContext {
   /** Where in the processing pipeline the error occurred. */
-  phase: "agent_loop" | "queue" | "regenerate" | "handler" | "persist";
+  phase: "agent_loop" | "regenerate" | "handler" | "persist";
   /** Whether the abort signal was active when the error occurred. */
   aborted?: boolean;
 }
@@ -90,11 +93,11 @@ export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   return false;
 }
 
-/** Maximum length for debugDetails to prevent unbounded IPC payloads. */
+/** Maximum length for debugDetails to prevent unbounded event payloads. */
 const MAX_DEBUG_DETAIL_LENGTH = 4000;
 
 /**
- * Truncate debug details to a reasonable size for IPC transport.
+ * Truncate debug details to a reasonable size for transport.
  */
 function truncateDebugDetails(details: string): string {
   if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
@@ -121,15 +124,6 @@ export function classifySessionError(
   const debugDetails = truncateDebugDetails(rawDetails);
 
   // Phase-specific overrides
-  if (ctx.phase === "queue") {
-    return {
-      code: "QUEUE_FULL",
-      userMessage: "Message queue is full (10 messages pending).",
-      retryable: true,
-      debugDetails: truncateDebugDetails(message),
-    };
-  }
-
   if (ctx.phase === "regenerate") {
     const base = classifyCore(error, message);
     return {
@@ -162,6 +156,13 @@ function classifyCore(
       return {
         code: "CONTEXT_TOO_LARGE",
         userMessage: "This conversation exceeds the model's context limit.",
+        retryable: false,
+      };
+    }
+    if (error.statusCode === 401) {
+      return {
+        code: "PROVIDER_BILLING",
+        userMessage: "Your API key is invalid or expired.",
         retryable: false,
       };
     }
@@ -209,7 +210,7 @@ function classifyCore(
       return {
         code: "PROVIDER_API",
         userMessage: "The AI provider rejected the request.",
-        retryable: false,
+        retryable: true,
       };
     }
   }
@@ -311,7 +312,7 @@ function classifyByMessage(
 }
 
 /**
- * Build a `session_error` IPC message from a classified error.
+ * Build a `session_error` server message from a classified error.
  */
 export function buildSessionErrorMessage(
   sessionId: string,

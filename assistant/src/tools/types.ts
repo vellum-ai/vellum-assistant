@@ -136,9 +136,9 @@ export interface ToolContext {
     allowedTools?: string[];
     allowedDomains?: string[];
   }) => Promise<SecretPromptResult>;
-  /** Optional callback to send a message to the connected IPC client (e.g. open_url). */
+  /** Optional callback to send a message to the connected client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
-  /** True when an interactive IPC client is connected (not just a no-op callback). */
+  /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
   /** Memory scope ID from the session's memory policy, so memory tools can target the correct scope. */
   memoryScopeId?: string;
@@ -169,6 +169,10 @@ export interface ToolContext {
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
   toolUseId?: string;
+  /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
+  hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
+  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
+  hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
 }
 
 export interface DiffInfo {

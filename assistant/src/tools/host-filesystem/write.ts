@@ -40,7 +40,7 @@ class HostFileWriteTool implements Tool {
 
   async execute(
     input: Record<string, unknown>,
-    _context: ToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const rawPath = input.path as string;
     if (!rawPath || typeof rawPath !== "string") {
@@ -56,6 +56,20 @@ class HostFileWriteTool implements Tool {
         content: "Error: content is required and must be a string",
         isError: true,
       };
+    }
+
+    // Proxy to connected client for execution on the user's machine
+    // when a capable client is available (managed/cloud-hosted mode).
+    if (context.hostFileProxy?.isAvailable()) {
+      return context.hostFileProxy.request(
+        {
+          operation: "write",
+          path: rawPath,
+          content: fileContent,
+        },
+        context.sessionId,
+        context.signal,
+      );
     }
 
     const ops = new FileSystemOps(hostPolicy);

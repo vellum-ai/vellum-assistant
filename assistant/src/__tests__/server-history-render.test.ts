@@ -12,7 +12,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -240,7 +239,7 @@ describe("renderHistoryContent", () => {
       {
         type: "tool_use",
         id: "tu_1",
-        name: "memory_save",
+        name: "memory_manage",
         input: { key: "task" },
       },
       { type: "tool_result", tool_use_id: "tu_1", content: "saved" },

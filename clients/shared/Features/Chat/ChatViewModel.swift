@@ -235,12 +235,12 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.dismissedDocumentSurfaceIds }
         set { messageManager.dismissedDocumentSurfaceIds = newValue }
     }
-    /// The currently active model ID, updated via `model_info` IPC messages.
+    /// The currently active model ID, updated via `model_info` messages.
     public var selectedModel: String {
         get { messageManager.selectedModel }
         set { messageManager.selectedModel = newValue }
     }
-    /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
+    /// Set of provider keys with configured API keys, updated via `model_info` messages.
     public var configuredProviders: Set<String> {
         get { messageManager.configuredProviders }
         set { messageManager.configuredProviders = newValue }
@@ -355,11 +355,11 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
     public var isVoiceModeActive: Bool = false
-    var pendingUserAttachments: [IPCAttachment]?
+    var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
     private(set) var lastFailedMessageDisplayText: String?
-    private(set) var lastFailedMessageAttachments: [IPCAttachment]?
+    private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
@@ -370,14 +370,14 @@ public final class ChatViewModel: ObservableObject {
     var secretBlockedMessageText: String?
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
-    var secretBlockedAttachments: [IPCAttachment]?
+    var secretBlockedAttachments: [UserMessageAttachment]?
     var secretBlockedActiveSurfaceId: String?
     var secretBlockedCurrentPage: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
     /// Thread type sent with `session_create` (e.g. "private").
-    /// Set by `createSessionIfNeeded(threadType:)` and included in the IPC
+    /// Set by `createSessionIfNeeded(threadType:)` and included in the
     /// message so the daemon can persist the correct thread kind.
     public var threadType: String?
     /// Skill IDs to pre-activate in the session. Included in the
@@ -533,6 +533,15 @@ public final class ChatViewModel: ObservableObject {
     /// send `hasMore` in the history response.
     @Published public var hasMoreHistory: Bool = false
 
+    // MARK: - BTW Side-Chain State
+
+    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
+    @Published public var btwResponse: String?
+    /// True while a /btw request is in flight.
+    @Published public var btwLoading: Bool = false
+    /// The in-flight btw streaming task, stored for cancellation.
+    private var btwTask: Task<Void, Never>?
+
     /// Whether there are more messages above the current display window.
     /// True when either:
     ///   1. There are locally loaded messages outside the current display suffix, OR
@@ -615,7 +624,7 @@ public final class ChatViewModel: ObservableObject {
               let sessionId = sessionId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
-            try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
+            try daemonClient.send(MessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
         }
@@ -636,7 +645,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Handle a `message_content_response` from the daemon, updating the matching
     /// message with full (untruncated) text and tool call results.
-    public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+    public func handleMessageContentResponse(_ response: MessageContentResponse) {
         guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
 
         // Only update text when the message has a single segment (non-interleaved).
@@ -950,15 +959,13 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Deep Link
 
     /// Check for a buffered deep-link message and apply it to `inputText`.
-    /// Called by the iOS view layer when this `ChatViewModel` becomes the
+    /// Called by the view layer when this `ChatViewModel` becomes the
     /// active/visible thread, ensuring only one VM ever consumes the message.
-    #if os(iOS)
     public func consumeDeepLinkIfNeeded() {
         guard let message = DeepLinkManager.pendingMessage else { return }
         DeepLinkManager.pendingMessage = nil
         inputText = message
     }
-    #endif
 
     // MARK: - Sending
 
@@ -968,6 +975,17 @@ public final class ChatViewModel: ObservableObject {
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
+
+        // Intercept /btw side-chain messages before the normal send path.
+        if text.hasPrefix("/btw ") {
+            let question = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            inputText = ""
+            pendingAttachments = []
+            pendingSkillInvocation = nil
+            flushCoalescedPublish()
+            sendBtwMessage(question: question)
+            return
+        }
 
         // Confirmation state is now server-authoritative: the daemon emits
         // `confirmation_state_changed` events for all resolution paths.
@@ -1004,7 +1022,7 @@ public final class ChatViewModel: ObservableObject {
                 pendingUserMessage = text
                 pendingUserMessageDisplayText = rawText
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
                 isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
@@ -1080,8 +1098,8 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedCurrentPage = nil
         flushCoalescedPublish()
 
-        let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+        let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -1094,14 +1112,56 @@ public final class ChatViewModel: ObservableObject {
         if sessionId == nil {
             // First message: need to bootstrap session
             pendingUserMessageDisplayText = rawText
-            bootstrapSession(userMessage: text, attachments: ipcAttachments)
+            bootstrapSession(userMessage: text, attachments: messageAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId)
         }
     }
 
-    private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
+    // MARK: - BTW Side-Chain
+
+    /// Send a /btw side-chain question and stream the response into `btwResponse`.
+    public func sendBtwMessage(question: String) {
+        guard !question.isEmpty else { return }
+
+        // Cancel any in-flight btw task to prevent interleaved deltas.
+        btwTask?.cancel()
+
+        btwLoading = true
+        btwResponse = ""
+
+        btwTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let stream = self.daemonClient.sendBtwMessage(
+                    content: question,
+                    conversationKey: self.sessionId ?? ""
+                )
+                for try await delta in stream {
+                    guard !Task.isCancelled else { return }
+                    self.btwResponse = (self.btwResponse ?? "") + delta
+                }
+            } catch is CancellationError {
+                // Stream was cancelled via dismiss — no error to show.
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
+            }
+            guard !Task.isCancelled else { return }
+            self.btwLoading = false
+        }
+    }
+
+    /// Clear btw side-chain state and cancel any in-flight stream.
+    public func dismissBtw() {
+        btwTask?.cancel()
+        btwTask = nil
+        btwResponse = nil
+        btwLoading = false
+    }
+
+    private func bootstrapSession(userMessage: String?, attachments: [UserMessageAttachment]?) {
         // Only set sending/thinking indicators when there's an actual user
         // message; message-less session creates (e.g. private thread
         // pre-allocation) are silent and shouldn't affect UI state.
@@ -1166,7 +1226,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -1309,7 +1369,7 @@ public final class ChatViewModel: ObservableObject {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.ipcAttachments)
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments)
         }
     }
 
@@ -1332,7 +1392,7 @@ public final class ChatViewModel: ObservableObject {
             // task reference, which would cause duplicate subscriptions.
             if self?.messageLoopGeneration == generation {
                 self?.messageLoopTask = nil
-                // Reset spinner state — if IPC drops mid-turn the client
+                // Reset spinner state — if the connection drops mid-turn the client
                 // never receives message_complete, leaving the UI stuck.
                 self?.isThinking = false
                 self?.isSending = false
@@ -1391,7 +1451,7 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Model
 
-    /// Switch the active model via the daemon's `model_set` IPC command.
+    /// Switch the active model via the daemon's `model_set` command.
     public func setModel(_ modelId: String) {
         // Ensure the message loop is running so we receive the model_info response.
         // VMs restored with an existing sessionId may not have started it yet.
@@ -1990,7 +2050,7 @@ public final class ChatViewModel: ObservableObject {
             return
         }
         // Send the response to the daemon first, then update UI state only on success.
-        // This prevents the UI from showing a finalized decision when the IPC
+        // This prevents the UI from showing a finalized decision when the
         // message was never delivered (e.g. daemon disconnected).
         do {
             try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil))
@@ -1999,7 +2059,7 @@ public final class ChatViewModel: ObservableObject {
             errorText = "Failed to send confirmation response."
             return
         }
-        // IPC send succeeded — update the message state
+        // Send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_thread"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
@@ -2014,7 +2074,7 @@ public final class ChatViewModel: ObservableObject {
     /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
     /// so the backend atomically persists the trust rule alongside the confirmation response.
     /// If the daemon is disconnected, shows an error without attempting a fallback (since
-    /// respondToConfirmation would also fail). On IPC send errors, attempts a one-time allow
+    /// respondToConfirmation would also fail). On send errors, attempts a one-time allow
     /// fallback and only claims success if the fallback actually went through.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         guard daemonClient.isConnected else {
@@ -2025,7 +2085,7 @@ public final class ChatViewModel: ObservableObject {
         do {
             try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
         } catch {
-            log.warning("Always-allow IPC failed: \(error.localizedDescription)")
+            log.warning("Always-allow send failed: \(error.localizedDescription)")
             // Try one-time allow as fallback (daemon may still be connected)
             respondToConfirmation(requestId: requestId, decision: "allow")
             // respondToConfirmation sets errorText on failure; override with more context if it succeeded
@@ -2035,7 +2095,7 @@ public final class ChatViewModel: ObservableObject {
             }
             return
         }
-        // IPC send succeeded — update the message state
+        // Send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             messages[index].confirmation?.state = .approved
             messages[index].confirmation?.approvedDecision = decision
@@ -2061,7 +2121,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Send an add_trust_rule message to persist a trust rule.
-    /// Returns `true` if the IPC send succeeded, `false` otherwise.
+    /// Returns `true` if the send succeeded, `false` otherwise.
     public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
         guard daemonClient.isConnected else {
             log.warning("Cannot send add_trust_rule: daemon not connected")
@@ -2139,7 +2199,7 @@ public final class ChatViewModel: ObservableObject {
     ///     (older page fetched on demand). When `false`, the standard initial-load
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
-        _ historyMessages: [IPCHistoryResponseMessage],
+        _ historyMessages: [HistoryResponseMessage],
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
@@ -2209,7 +2269,7 @@ public final class ChatViewModel: ObservableObject {
                     return toolCall
                 }
             }
-            let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
+            let attachments: [ChatAttachment] = mapMessageAttachments(item.attachments ?? [])
 
             // Map surfaces from history to inlineSurfaces
             var inlineSurfaces: [InlineSurfaceData] = []
@@ -2493,6 +2553,7 @@ public final class ChatViewModel: ObservableObject {
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
+        btwTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)

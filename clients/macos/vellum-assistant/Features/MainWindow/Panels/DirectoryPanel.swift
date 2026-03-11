@@ -15,22 +15,14 @@ enum DirectoryTab: String, CaseIterable {
     }
 }
 
-struct DocumentItem: Identifiable {
-    let id: String  // surfaceId
-    let title: String
-    let wordCount: Int
-    let updatedAt: Date
-}
-
 struct DirectoryPanel: View {
     var onClose: () -> Void
     @ObservedObject var documentManager: DocumentManager
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var appListManager: AppListManager
+    @ObservedObject var directoryStore: DirectoryStore
     let daemonClient: DaemonClient
     @State private var selectedTab: DirectoryTab = .documents
-    @State private var savedDocuments: [DocumentItem] = []
-    @State private var isLoadingDocuments = false
 
     var body: some View {
         VSidePanel(title: "Directory", onClose: onClose, pinnedContent: { EmptyView() }) {
@@ -157,10 +149,10 @@ struct DirectoryPanel: View {
 
     private var documentsContent: some View {
         Group {
-            if isLoadingDocuments {
-                ProgressView("Loading documents...")
+            if directoryStore.isLoadingDocuments {
+                ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if savedDocuments.isEmpty {
+            } else if directoryStore.documents.isEmpty {
                 VEmptyState(
                     title: "No saved documents",
                     subtitle: "Documents you save will appear here",
@@ -170,7 +162,7 @@ struct DirectoryPanel: View {
             } else {
                 ScrollView {
                     VStack(spacing: VSpacing.sm) {
-                        ForEach(savedDocuments) { doc in
+                        ForEach(directoryStore.documents) { doc in
                             documentRow(doc)
                         }
                     }
@@ -179,14 +171,14 @@ struct DirectoryPanel: View {
             }
         }
         .onAppear {
-            loadDocuments()
+            directoryStore.fetchDocuments()
         }
     }
 
-    private func documentRow(_ doc: DocumentItem) -> some View {
+    private func documentRow(_ doc: DocumentListItem) -> some View {
         Button(action: {
             // Load and open this document
-            try? daemonClient.sendDocumentLoad(surfaceId: doc.id)
+            directoryStore.loadDocument(surfaceId: doc.id)
         }) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(doc.title)
@@ -222,33 +214,14 @@ struct DirectoryPanel: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private func loadDocuments() {
-        isLoadingDocuments = true
-
-        // Request document list from daemon
-        daemonClient.onDocumentListResponse = { [self] response in
-            Task { @MainActor in
-                self.savedDocuments = response.documents.map { doc in
-                    DocumentItem(
-                        id: doc.surfaceId,
-                        title: doc.title,
-                        wordCount: doc.wordCount,
-                        updatedAt: Date(timeIntervalSince1970: TimeInterval(doc.updatedAt) / 1000.0)
-                    )
-                }
-                self.isLoadingDocuments = false
-            }
-        }
-
-        try? daemonClient.sendDocumentList(conversationId: nil)  // nil = all documents
-    }
 }
 
 #Preview {
     let documentManager = DocumentManager()
-    let threadManager = ThreadManager(daemonClient: DaemonClient())
-    let appListManager = AppListManager()
     let daemonClient = DaemonClient()
+    let threadManager = ThreadManager(daemonClient: daemonClient)
+    let appListManager = AppListManager()
+    let directoryStore = DirectoryStore(daemonClient: daemonClient)
 
     return ZStack {
         VColor.background.ignoresSafeArea()
@@ -257,6 +230,7 @@ struct DirectoryPanel: View {
             documentManager: documentManager,
             threadManager: threadManager,
             appListManager: appListManager,
+            directoryStore: directoryStore,
             daemonClient: daemonClient
         )
         .frame(width: 400, height: 600)

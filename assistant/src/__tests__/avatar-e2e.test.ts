@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock state — mutable variables control per-test behavior
 // ---------------------------------------------------------------------------
 
-let mockStrategy: string = "local_only";
 let mockGeminiKey: string | undefined = "test-gemini-key";
 let mockApiKey: string | undefined = "test-api-key-123";
 let mockBaseUrl = "https://platform.test.vellum.ai";
@@ -33,7 +32,6 @@ const geminiGenerateContentFn = mock(async () => geminiGenerateContentResult);
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     apiKeys: { gemini: mockGeminiKey },
-    avatar: { generationStrategy: mockStrategy },
     platform: { baseUrl: mockBaseUrl },
     imageGenModel: "gemini-2.5-flash-image",
   }),
@@ -125,19 +123,15 @@ function executeAvatar(description: string) {
   );
 }
 
-/** Standard successful managed avatar platform response. */
+/** Standard successful Vertex predictions response. */
 function managedPlatformResponse() {
   return {
-    image: {
-      mime_type: "image/png",
-      data_base64: "iVBORw0KGgoAAAANSUhEUg==",
-      bytes: 1024,
-      sha256: "abc123",
-    },
-    usage: { billable: true, class_name: "assistant_avatar_system" },
-    generation_source: "vertex",
-    profile: "avatar_v1",
-    correlation_id: "managed-corr-id-123",
+    predictions: [
+      {
+        bytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUg==",
+        mimeType: "image/png",
+      },
+    ],
   };
 }
 
@@ -171,6 +165,10 @@ function mockFetchReturning(response: {
       ok: response.ok,
       status: response.status,
       json: async () => response.body,
+      text: async () =>
+        typeof response.body === "string"
+          ? response.body
+          : JSON.stringify(response.body),
     }),
   ) as unknown as typeof globalThis.fetch;
 }
@@ -189,7 +187,6 @@ describe("avatar E2E integration", () => {
   const originalGeminiKey = process.env.GEMINI_API_KEY;
 
   beforeEach(() => {
-    mockStrategy = "local_only";
     mockGeminiKey = "test-gemini-key";
     mockApiKey = "test-api-key-123";
     mockBaseUrl = "https://platform.test.vellum.ai";
@@ -225,8 +222,7 @@ describe("avatar E2E integration", () => {
   // 1. Managed success E2E
   // -----------------------------------------------------------------------
 
-  test("managed_required success — file written, correct content, success message", async () => {
-    mockStrategy = "managed_required";
+  test("managed success — file written, correct content, success message", async () => {
     mockFetchReturning({
       ok: true,
       status: 200,
@@ -261,43 +257,10 @@ describe("avatar E2E integration", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 2. Managed-required failure E2E — no fallback
+  // 2. Managed failure — falls back to local
   // -----------------------------------------------------------------------
 
-  test("managed_required failure — error surfaced, no file written, no fallback", async () => {
-    mockStrategy = "managed_required";
-    mockFetchReturning({
-      ok: false,
-      status: 500,
-      body: {
-        code: "internal_error",
-        subcode: "server_fault",
-        detail: "Internal server error",
-        retryable: true,
-        correlation_id: "corr-500",
-      },
-    });
-
-    const result = await executeAvatar("a friendly robot");
-
-    // Verify error is surfaced
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("failed");
-
-    // Verify no file was written
-    expect(writeFileSyncFn).not.toHaveBeenCalled();
-    expect(renameSyncFn).not.toHaveBeenCalled();
-
-    // Verify Gemini was never called (no fallback)
-    expect(geminiGenerateContentFn).not.toHaveBeenCalled();
-  });
-
-  // -----------------------------------------------------------------------
-  // 3. Managed-prefer fallback E2E
-  // -----------------------------------------------------------------------
-
-  test("managed_prefer fallback — managed fails, local Gemini used, file written", async () => {
-    mockStrategy = "managed_prefer";
+  test("managed failure — falls back to local Gemini, file written", async () => {
     mockFetchReturning({
       ok: false,
       status: 502,
@@ -325,11 +288,10 @@ describe("avatar E2E integration", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 4. Managed-prefer no-fallback when managed unavailable (no API key)
+  // 3. No managed prerequisites — goes straight to local
   // -----------------------------------------------------------------------
 
-  test("managed_prefer without API key — goes straight to local Gemini", async () => {
-    mockStrategy = "managed_prefer";
+  test("no managed API key — goes straight to local Gemini", async () => {
     mockApiKey = undefined; // No managed API key available
 
     const result = await executeAvatar("a cute cat");
@@ -347,81 +309,76 @@ describe("avatar E2E integration", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 5. Local-only E2E
+  // 4. No managed prerequisites and no local key — error
   // -----------------------------------------------------------------------
 
-  test("local_only — only local Gemini called, managed never contacted", async () => {
-    mockStrategy = "local_only";
-    const fetchMock = mock(() =>
-      Promise.resolve({ ok: true, status: 200, json: async () => ({}) }),
-    );
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  test("no managed API key and no Gemini key — error surfaced", async () => {
+    mockApiKey = undefined;
+    mockGeminiKey = undefined;
 
     const result = await executeAvatar("a whimsical owl");
 
-    // Verify success
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("failed");
+  });
+
+  // -----------------------------------------------------------------------
+  // 5. Response validation — bad MIME type
+  // -----------------------------------------------------------------------
+
+  test("managed response with disallowed MIME type — falls back to local", async () => {
+    mockFetchReturning({
+      ok: true,
+      status: 200,
+      body: {
+        predictions: [
+          {
+            bytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUg==",
+            mimeType: "image/gif",
+          },
+        ],
+      },
+    });
+
+    const result = await executeAvatar("a cat");
+
+    // Managed fails validation, falls back to local Gemini
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Avatar updated");
-
-    // Verify Gemini was called
     expect(geminiGenerateContentFn).toHaveBeenCalledTimes(1);
-
-    // Verify managed endpoint was never contacted
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    // Verify file was written
-    expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn).toHaveBeenCalledTimes(1);
   });
 
   // -----------------------------------------------------------------------
-  // 6. Response validation — bad MIME type
+  // 6. Response validation — oversized image
   // -----------------------------------------------------------------------
 
-  test("managed response with disallowed MIME type — rejected, no file written", async () => {
-    mockStrategy = "managed_required";
-    const badResponse = managedPlatformResponse();
-    badResponse.image.mime_type = "image/gif";
-    mockFetchReturning({ ok: true, status: 200, body: badResponse });
+  test("managed response with oversized data — falls back to local", async () => {
+    const oversizedBase64 = "A".repeat(
+      Math.ceil(((AVATAR_MAX_DECODED_BYTES + 100) * 4) / 3),
+    );
+    mockFetchReturning({
+      ok: true,
+      status: 200,
+      body: {
+        predictions: [
+          { bytesBase64Encoded: oversizedBase64, mimeType: "image/png" },
+        ],
+      },
+    });
 
     const result = await executeAvatar("a cat");
 
-    // Verify error returned
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("failed");
-
-    // Verify no file was written
-    expect(writeFileSyncFn).not.toHaveBeenCalled();
-    expect(renameSyncFn).not.toHaveBeenCalled();
+    // Managed fails validation, falls back to local Gemini
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Avatar updated");
+    expect(geminiGenerateContentFn).toHaveBeenCalledTimes(1);
   });
 
   // -----------------------------------------------------------------------
-  // 7. Response validation — oversized image
+  // 7. Rate limit — falls back to local
   // -----------------------------------------------------------------------
 
-  test("managed response with oversized data — rejected, no file written", async () => {
-    mockStrategy = "managed_required";
-    const oversizedResponse = managedPlatformResponse();
-    oversizedResponse.image.bytes = AVATAR_MAX_DECODED_BYTES + 1;
-    mockFetchReturning({ ok: true, status: 200, body: oversizedResponse });
-
-    const result = await executeAvatar("a cat");
-
-    // Verify error returned
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("failed");
-
-    // Verify no file was written
-    expect(writeFileSyncFn).not.toHaveBeenCalled();
-    expect(renameSyncFn).not.toHaveBeenCalled();
-  });
-
-  // -----------------------------------------------------------------------
-  // 8. Rate limit user message
-  // -----------------------------------------------------------------------
-
-  test("managed 429 response — user-friendly rate limit message", async () => {
-    mockStrategy = "managed_required";
+  test("managed 429 response — falls back to local Gemini", async () => {
     mockFetchReturning({
       ok: false,
       status: 429,
@@ -436,19 +393,22 @@ describe("avatar E2E integration", () => {
 
     const result = await executeAvatar("a cat");
 
-    expect(result.isError).toBe(true);
-    expect(result.content.toLowerCase()).toContain("rate limited");
+    // Falls back to local successfully
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Avatar updated");
+    expect(geminiGenerateContentFn).toHaveBeenCalledTimes(1);
   });
 
   // -----------------------------------------------------------------------
-  // 9. Correlation ID propagation
+  // 8. Correlation ID propagation
   // -----------------------------------------------------------------------
 
-  test("managed success — correlation ID from response is propagated through the pipeline", async () => {
-    mockStrategy = "managed_required";
-    const response = managedPlatformResponse();
-    response.correlation_id = "unique-corr-id-xyz";
-    mockFetchReturning({ ok: true, status: 200, body: response });
+  test("managed success — correlation ID is propagated through the pipeline", async () => {
+    mockFetchReturning({
+      ok: true,
+      status: 200,
+      body: managedPlatformResponse(),
+    });
 
     const result = await executeAvatar("a robot");
 
@@ -456,15 +416,14 @@ describe("avatar E2E integration", () => {
     expect(result.isError).toBe(false);
     expect(writeFileSyncFn).toHaveBeenCalled();
 
+    // Correlation ID is now generated client-side, so just verify one is logged
     const correlationLogged = logInfoCalls.some(([meta, message]) => {
       if (message !== "Avatar saved successfully") return false;
       if (!meta || typeof meta !== "object" || !("correlationId" in meta)) {
         return false;
       }
-      return (
-        (meta as { correlationId?: unknown }).correlationId ===
-        "unique-corr-id-xyz"
-      );
+      const cid = (meta as { correlationId?: unknown }).correlationId;
+      return typeof cid === "string" && cid.length > 0;
     });
 
     expect(correlationLogged).toBe(true);

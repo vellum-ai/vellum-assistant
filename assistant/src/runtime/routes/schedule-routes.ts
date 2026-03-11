@@ -1,11 +1,12 @@
 /**
  * HTTP route handlers for schedule management.
  *
- * Migrated from IPC handler: handlers/config-scheduling.ts
+ * HTTP route handlers for schedule management.
  */
 
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import {
+  cancelSchedule,
   completeScheduleRun,
   createScheduleRun,
   deleteSchedule,
@@ -44,6 +45,10 @@ function handleListSchedules(): Response {
         j.syntax === "cron"
           ? describeCronExpression(j.cronExpression)
           : j.expression,
+      mode: j.mode,
+      status: j.status,
+      routingIntent: j.routingIntent,
+      isOneShot: j.cronExpression == null,
     })),
   });
 }
@@ -76,6 +81,20 @@ function handleDeleteSchedule(id: string): Response {
   return handleListSchedules();
 }
 
+function handleCancelSchedule(id: string): Response {
+  try {
+    const cancelled = cancelSchedule(id);
+    if (!cancelled) {
+      return httpError("NOT_FOUND", "Schedule not found or not cancellable", 404);
+    }
+    log.info({ id }, "Schedule cancelled via HTTP");
+  } catch (err) {
+    log.error({ err }, "Failed to cancel schedule");
+    return httpError("INTERNAL_ERROR", "Failed to cancel schedule", 500);
+  }
+  return handleListSchedules();
+}
+
 async function handleRunScheduleNow(
   id: string,
   sendMessageDeps?: SendMessageDeps,
@@ -99,11 +118,12 @@ async function handleRunScheduleNow(
         { taskId, workingDir: process.cwd(), source: "schedule" },
         async (conversationId, message, taskRunId) => {
           if (!sendMessageDeps) {
-            throw new Error("sendMessageDeps not available for schedule execution");
+            throw new Error(
+              "sendMessageDeps not available for schedule execution",
+            );
           }
-          const session = await sendMessageDeps.getOrCreateSession(
-            conversationId,
-          );
+          const session =
+            await sendMessageDeps.getOrCreateSession(conversationId);
           session.taskRunId = taskRunId;
           await session.processMessage(
             message,
@@ -223,6 +243,12 @@ export function scheduleRouteDefinitions(deps: {
       policyKey: "schedules/run",
       handler: async ({ params }) =>
         handleRunScheduleNow(params.id, deps.sendMessageDeps),
+    },
+    {
+      endpoint: "schedules/:id/cancel",
+      method: "POST",
+      policyKey: "schedules/cancel",
+      handler: ({ params }) => handleCancelSchedule(params.id),
     },
   ];
 }

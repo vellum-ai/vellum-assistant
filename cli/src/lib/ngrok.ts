@@ -115,6 +115,7 @@ export async function findExistingTunnel(
  */
 export function startNgrokProcess(targetPort: number): ChildProcess {
   const child = spawn("ngrok", ["http", String(targetPort), "--log=stdout"], {
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   return child;
@@ -166,6 +167,97 @@ function clearIngressUrl(): void {
   delete ingress.publicBaseUrl;
   config.ingress = ingress;
   saveRawConfig(config);
+}
+
+/**
+ * Check whether any webhook-based integrations (e.g. Telegram) are configured
+ * that require a public ingress URL.
+ */
+function hasWebhookIntegrationsConfigured(): boolean {
+  try {
+    const config = loadRawConfig();
+    const telegram = config.telegram as Record<string, unknown> | undefined;
+    if (telegram?.botUsername) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check whether a non-ngrok ingress URL is already configured (e.g. custom
+ * domain or cloud deployment), meaning ngrok is not needed.
+ */
+function hasNonNgrokIngressUrl(): boolean {
+  try {
+    const config = loadRawConfig();
+    const ingress = config.ingress as Record<string, unknown> | undefined;
+    const publicBaseUrl = ingress?.publicBaseUrl;
+    if (!publicBaseUrl || typeof publicBaseUrl !== "string") return false;
+    return !publicBaseUrl.includes("ngrok");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Auto-start an ngrok tunnel if webhook integrations are configured and no
+ * non-ngrok ingress URL is present. Designed to be called during daemon/gateway
+ * startup. Non-fatal: if ngrok is unavailable or fails, startup continues.
+ *
+ * Returns the spawned ngrok child process (for PID tracking) or null.
+ */
+export async function maybeStartNgrokTunnel(
+  targetPort: number,
+): Promise<ChildProcess | null> {
+  if (!hasWebhookIntegrationsConfigured()) return null;
+  if (hasNonNgrokIngressUrl()) return null;
+
+  const version = getNgrokVersion();
+  if (!version) return null;
+
+  // Reuse an existing tunnel if one is already running
+  const existingUrl = await findExistingTunnel(targetPort);
+  if (existingUrl) {
+    console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
+    saveIngressUrl(existingUrl);
+    return null;
+  }
+
+  console.log(`   Starting ngrok tunnel for webhook integrations...`);
+  const ngrokProcess = startNgrokProcess(targetPort);
+
+  // Pipe output for debugging but don't block on it
+  ngrokProcess.stdout?.on("data", (data: Buffer) => {
+    const line = data.toString().trim();
+    if (line) console.log(`[ngrok] ${line}`);
+  });
+  ngrokProcess.stderr?.on("data", (data: Buffer) => {
+    const line = data.toString().trim();
+    if (line) console.error(`[ngrok] ${line}`);
+  });
+
+  try {
+    const publicUrl = await waitForNgrokUrl();
+    saveIngressUrl(publicUrl);
+    console.log(`   Tunnel established: ${publicUrl}`);
+
+    // Detach the ngrok process so the CLI (hatch/wake) can exit without
+    // keeping it alive. Remove stdout/stderr listeners and unref all handles.
+    ngrokProcess.stdout?.removeAllListeners("data");
+    ngrokProcess.stderr?.removeAllListeners("data");
+    ngrokProcess.stdout?.destroy();
+    ngrokProcess.stderr?.destroy();
+    ngrokProcess.unref();
+
+    return ngrokProcess;
+  } catch {
+    console.warn(
+      `   ⚠ Could not start ngrok tunnel. Webhook integrations may not work until you run \`vellum tunnel\`.`,
+    );
+    if (!ngrokProcess.killed) ngrokProcess.kill("SIGTERM");
+    return null;
+  }
 }
 
 /**

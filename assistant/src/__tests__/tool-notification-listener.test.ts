@@ -6,7 +6,7 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { registerToolNotificationListener } from "../events/tool-notification-listener.js";
 
 describe("registerToolNotificationListener", () => {
-  test("forwards tool.secret.detected events to IPC secret_detected messages", async () => {
+  test("forwards tool.secret.detected events to secret_detected messages", async () => {
     const bus = new EventBus<AssistantDomainEvents>();
     const messages: ServerMessage[] = [];
     registerToolNotificationListener(bus, (msg) => messages.push(msg));

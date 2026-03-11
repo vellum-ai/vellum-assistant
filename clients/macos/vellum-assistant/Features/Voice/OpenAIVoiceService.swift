@@ -82,7 +82,7 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
     /// Mirrored from: assistant/src/config/elevenlabs-schema.ts (DEFAULT_ELEVENLABS_VOICE_ID)
     private static let defaultVoiceId = "21m00Tcm4TlvDq8ikWAM"
 
-    /// ElevenLabs voice ID — reads from UserDefaults (set via daemon IPC), falls back to Rachel.
+    /// ElevenLabs voice ID — reads from UserDefaults (set via daemon HTTP), falls back to Rachel.
     private static var elevenLabsVoiceId: String {
         UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
             ?? Self.defaultVoiceId

@@ -28,7 +28,10 @@ import {
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage, UserMessageAttachment } from "./message-protocol.js";
+import type {
+  ServerMessage,
+  UserMessageAttachment,
+} from "./message-protocol.js";
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
 
@@ -212,7 +215,7 @@ export function enqueueMessage(
   metadata?: Record<string, unknown>,
   options?: { isInteractive?: boolean },
   displayContent?: string,
-): { queued: boolean; rejected?: boolean; requestId: string } {
+): { queued: boolean; requestId: string; rejected?: boolean } {
   if (!ctx.processing) {
     return { queued: false, requestId };
   }
@@ -225,7 +228,7 @@ export function enqueueMessage(
     extractTurnInterfaceContext(metadata) ??
     ctx.getTurnInterfaceContext() ??
     undefined;
-  const pushed = ctx.queue.push({
+  const accepted = ctx.queue.push({
     content,
     attachments,
     requestId,
@@ -236,11 +239,16 @@ export function enqueueMessage(
     turnChannelContext,
     turnInterfaceContext,
     isInteractive: options?.isInteractive,
-    queuedAt: Date.now(),
     displayContent,
   });
-  if (!pushed) {
-    return { queued: false, rejected: true, requestId };
+  if (!accepted) {
+    onEvent({
+      type: "error",
+      message:
+        "The assistant is busy and cannot accept more messages right now. Please try again shortly.",
+      category: "queue_full",
+    });
+    return { queued: false, requestId, rejected: true };
   }
   return { queued: true, requestId };
 }

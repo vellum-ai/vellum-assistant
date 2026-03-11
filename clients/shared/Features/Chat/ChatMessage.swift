@@ -34,9 +34,9 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
-    public let diff: IPCConfirmationRequestDiff?
-    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
-    public let scopeOptions: [IPCConfirmationRequestScopeOption]
+    public let diff: ConfirmationRequestDiff?
+    public let allowlistOptions: [ConfirmationRequestAllowlistOption]
+    public let scopeOptions: [ConfirmationRequestScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -99,15 +99,6 @@ public struct ToolConfirmationData: Equatable {
             return "The assistant wants to update a schedule"
         case "schedule_delete":
             return "The assistant wants to delete a schedule"
-        case "reminder_create":
-            let msg = (input["message"]?.value as? String) ?? ""
-            return msg.isEmpty
-                ? "The assistant wants to set a reminder"
-                : "The assistant wants to remind you: \(msg)"
-        case "reminder_list":
-            return "The assistant wants to list reminders"
-        case "reminder_cancel":
-            return "The assistant wants to cancel a reminder"
         default:
             return "The assistant wants to use \(toolName)"
         }
@@ -352,13 +343,6 @@ public struct ToolConfirmationData: Equatable {
             return jobId.isEmpty ? "Delete schedule" : "Delete schedule \(jobId)"
         case "schedule_list":
             return "List schedules"
-        case "reminder_create":
-            return Self.reminderPreview(input: input)
-        case "reminder_list":
-            return "List reminders"
-        case "reminder_cancel":
-            let id = (input["reminder_id"]?.value as? String) ?? ""
-            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         case "credential_store":
             return Self.credentialPreview(input: input)
         default:
@@ -385,23 +369,6 @@ public struct ToolConfirmationData: Equatable {
 
         if parts.isEmpty { return "\(verb) schedule" }
         return "\(verb): \(parts.joined(separator: " — "))"
-    }
-
-    /// Build a preview string for the reminder tool.
-    private static func reminderPreview(input: [String: AnyCodable]) -> String {
-        let message = (input["message"]?.value as? String) ?? ""
-        let delay = (input["delay"]?.value as? String) ?? ""
-        let at = (input["at"]?.value as? String) ?? ""
-
-        var parts: [String] = []
-        if !message.isEmpty {
-            parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
-        }
-        if !at.isEmpty { parts.append("at \(at)") }
-        else if !delay.isEmpty { parts.append("in \(delay)") }
-
-        if parts.isEmpty { return "Set reminder" }
-        return parts.joined(separator: " ")
     }
 
     /// Build a preview string for the credential_store tool.
@@ -457,7 +424,6 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "Memory"
         case "skill_load":                            return "Skill"
         case "evaluate_typescript_code":              return "Code Sandbox"
-        case _ where toolName.hasPrefix("reminder_"):   return "Reminder"
         case "document_create", "document_update":    return "Document"
         default:
             return toolName
@@ -484,7 +450,6 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return .brain
         case "skill_load":                            return .puzzle
         case "evaluate_typescript_code":              return .fileCode
-        case _ where toolName.hasPrefix("reminder_"):   return .bell
         case "document_create", "document_update":    return .fileText
         default:                                      return .puzzle
         }
@@ -626,17 +591,6 @@ public struct ToolConfirmationData: Equatable {
             return "Allow updating a schedule?"
         case "schedule_delete":
             return "Allow deleting a schedule?"
-        case "reminder_create":
-            let msg = (input["message"]?.value as? String) ?? ""
-            if !msg.isEmpty {
-                let truncated = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
-                return "Allow setting a reminder: \"\(truncated)\"?"
-            }
-            return "Allow setting a reminder?"
-        case "reminder_list":
-            return "Allow listing reminders?"
-        case "reminder_cancel":
-            return "Allow canceling a reminder?"
         default:
             let tc = toolCategory.lowercased()
             if !r.isEmpty { return "Allow using \(tc) \(r)?" }
@@ -644,7 +598,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: IPCConfirmationRequestDiff? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption] = [], scopeOptions: [IPCConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -666,17 +620,17 @@ public struct ToolConfirmationData: Equatable {
         input: [String: AnyCodable],
         riskLevel: String,
         executionTarget: String?,
-        promptPayload: IPCToolPermissionSimulateResponsePromptPayload
+        promptPayload: ToolPermissionSimulateResponsePromptPayload
     ) -> ToolConfirmationData {
         let allowlistOptions = promptPayload.allowlistOptions.map { opt in
-            IPCConfirmationRequestAllowlistOption(
+            ConfirmationRequestAllowlistOption(
                 label: opt.label,
                 description: opt.description,
                 pattern: opt.pattern
             )
         }
         let scopeOptions = promptPayload.scopeOptions.map { opt in
-            IPCConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
+            ConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
         }
         return ToolConfirmationData(
             requestId: "simulation",
@@ -756,7 +710,7 @@ public struct ClaudeCodeSubStep: Identifiable, Equatable {
 public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
     public let toolName: String
-    public let inputSummary: String
+    public var inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
     public var inputFull: String
     /// Lightweight sentinel tracking `inputFull.count` so that `==` can detect
@@ -950,8 +904,13 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Requested system access"
         case "web_search":
             return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
-        case "memory_save", "memory_update":
-            return "Saved a memory"
+        case "memory_manage":
+            let op = inputRawDict?["op"]?.value as? String ?? "save"
+            switch op {
+            case "update": return "Updated a memory"
+            case "delete": return "Deleted a memory"
+            default: return "Saved a memory"
+            }
         case "memory_recall":
             return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
         case "task_run":
@@ -1402,7 +1361,7 @@ public struct ChatAttachment: Identifiable {
     /// (e.g. recordings) where the file lives on the same Mac as the client.
     public let filePath: String?
 
-    /// Whether this attachment's binary data was omitted to keep the IPC payload small.
+    /// Whether this attachment's binary data was omitted to keep the payload small.
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 

@@ -22,7 +22,6 @@ mock.module("../util/platform.js", () => ({
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
@@ -47,6 +46,7 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
     sandbox: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
@@ -112,7 +112,12 @@ function makeIdleSession(opts?: {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
+    getMessages: () => [],
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
+    setHostFileProxy: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (
@@ -170,7 +175,12 @@ function makeConfirmationEmittingSession(opts?: {
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    ensureActorScopedHistory: async () => {},
+    getMessages: () => [],
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     updateClient: () => {},
+    setHostBashProxy: () => {},
+    setHostFileProxy: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (

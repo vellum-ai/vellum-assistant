@@ -9,7 +9,6 @@ import {
 import { NetworkRecorder } from "../tools/browser/network-recorder.js";
 import type { SessionRecording } from "../tools/browser/network-recording-types.js";
 import { saveRecording } from "../tools/browser/recording-store.js";
-import { navigateXPages } from "../tools/browser/x-auto-navigate.js";
 import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
   fireWatchCompletionNotifier,
@@ -35,13 +34,7 @@ const activeCdpSessions = new Map<string, CdpSession>();
 const activeProgressIntervals = new Map<string, NodeJS.Timeout>();
 
 /** Return domain-specific URL patterns that indicate a successful login. */
-function getLoginSignals(targetDomain?: string): string[] {
-  if (targetDomain === "x.com" || targetDomain === "twitter.com") {
-    return [
-      "/i/api/graphql/", // any authenticated GraphQL call
-      "/1.1/account/settings", // legacy API session check
-    ];
-  }
+function getLoginSignals(_targetDomain?: string): string[] {
   // DoorDash and general fallback
   return [
     "/graphql/postLoginQuery",
@@ -324,40 +317,7 @@ export async function handleRideShotgunStart(
           }, 5000);
           activeProgressIntervals.set(watchId, progressInterval);
 
-          // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
-          // Skip login detection — auto-navigation will complete the session when done.
-          if (
-            (targetDomain === "x.com" || targetDomain === "twitter.com") &&
-            msg.autoNavigate !== false
-          ) {
-            // Don't set onLoginDetected — it would kill the session after the first
-            // GraphQL call (5s grace), before auto-navigation finishes.
-            const abortSignal = { aborted: false };
-            const checkInterval = setInterval(() => {
-              if (session.status !== "active") {
-                abortSignal.aborted = true;
-                clearInterval(checkInterval);
-              }
-            }, 1000);
-            navigateXPages({ abortSignal, cdpBaseUrl })
-              .then((completed) => {
-                clearInterval(checkInterval);
-                log.info(
-                  { watchId, completedSteps: completed.length },
-                  "X auto-navigation finished",
-                );
-                if (session.status === "active") {
-                  completeSession(session);
-                }
-              })
-              .catch((err) => {
-                clearInterval(checkInterval);
-                log.warn({ err, watchId }, "X auto-navigation failed");
-                if (session.status === "active") {
-                  completeSession(session);
-                }
-              });
-          } else if (msg.autoNavigate && targetDomain) {
+          if (msg.autoNavigate && targetDomain) {
             const navDomain = msg.navigateDomain ?? targetDomain;
             const abortSignal = { aborted: false };
             const checkInterval = setInterval(() => {

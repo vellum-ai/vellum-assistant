@@ -1,9 +1,6 @@
 // Computer use, task routing, ride shotgun, and watch observation types.
 
-import type {
-  CommandIntent,
-  UserMessageAttachment,
-} from "./shared.js";
+import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
 // === Client → Server ===
 

@@ -129,7 +129,7 @@ describe("slack skill SKILL.md", () => {
   });
 
   test("is user-invocable", () => {
-    expect(skillMd).toContain('"user-invocable":true');
+    expect(skillMd).toContain("user-invocable: true");
   });
 
   test("mentions privacy rules", () => {

@@ -97,4 +97,5 @@ class FileWriteTool implements Tool {
   }
 }
 
-registerTool(new FileWriteTool());
+export const fileWriteTool = new FileWriteTool();
+registerTool(fileWriteTool);

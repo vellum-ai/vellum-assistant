@@ -139,6 +139,7 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   app_create: "Create App",
   app_update: "Update App",
   skill_load: "Load Skill",
+  skill_execute: "Run Skill Tool",
   app_file_edit: "Edit App File",
   app_file_write: "Write App File",
 };
@@ -226,6 +227,7 @@ export interface AgentLoopSessionContext {
       | "thinking_delta"
       | "first_text_delta"
       | "tool_use_start"
+      | "preview_start"
       | "tool_result_received"
       | "confirmation_requested"
       | "confirmation_resolved"
@@ -1301,60 +1303,10 @@ export async function runAgentLoopImpl(
       sessionId: ctx.conversationId,
     });
 
-    // Resolve attachments
-    const attachmentResult = await resolveAssistantAttachments(
-      state.accumulatedDirectives,
-      state.accumulatedToolContentBlocks,
-      state.directiveWarnings,
-      ctx.workingDir,
-      async (filePath) =>
-        approveHostAttachmentRead(
-          filePath,
-          ctx.workingDir,
-          ctx.prompter,
-          ctx.conversationId,
-          ctx.hasNoClient,
-        ),
-      state.lastAssistantMessageId,
-      state.toolContentBlockToolNames,
-    );
-    const { assistantAttachments, emittedAttachments } = attachmentResult;
-
-    ctx.lastAssistantAttachments = assistantAttachments;
-    ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-
-    const warningText = formatAttachmentWarnings(
-      attachmentResult.directiveWarnings,
-    );
-    if (warningText) {
-      onEvent({
-        type: "assistant_text_delta",
-        text: warningText,
-        sessionId: ctx.conversationId,
-      });
-    }
-
-    // Emit completion event
-    if (yieldedForHandoff) {
-      ctx.traceEmitter.emit(
-        "generation_handoff",
-        "Handing off to next queued message",
-        {
-          requestId: reqId,
-          status: "info",
-          attributes: { queuedCount: ctx.getQueueDepth() },
-        },
-      );
-      onEvent({
-        type: "generation_handoff",
-        sessionId: ctx.conversationId,
-        requestId: reqId,
-        queuedCount: ctx.getQueueDepth(),
-        ...(emittedAttachments.length > 0
-          ? { attachments: emittedAttachments }
-          : {}),
-      });
-    } else if (abortController.signal.aborted) {
+    // Fast-path: when the user cancelled, skip expensive post-loop work
+    // (attachment resolution) and emit the cancellation event immediately
+    // so the client can re-enable the UI without delay.
+    if (abortController.signal.aborted) {
       ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -1366,18 +1318,97 @@ export async function runAgentLoopImpl(
       );
       onEvent({ type: "generation_cancelled", sessionId: ctx.conversationId });
     } else {
-      ctx.emitActivityState("idle", "message_complete", "global", reqId);
-      ctx.traceEmitter.emit("message_complete", "Message processing complete", {
-        requestId: reqId,
-        status: "success",
-      });
-      onEvent({
-        type: "message_complete",
-        sessionId: ctx.conversationId,
-        ...(emittedAttachments.length > 0
-          ? { attachments: emittedAttachments }
-          : {}),
-      });
+      // Resolve attachments (only when not cancelled — this is expensive async I/O)
+      const attachmentResult = await resolveAssistantAttachments(
+        state.accumulatedDirectives,
+        state.accumulatedToolContentBlocks,
+        state.directiveWarnings,
+        ctx.workingDir,
+        async (filePath) =>
+          approveHostAttachmentRead(
+            filePath,
+            ctx.workingDir,
+            ctx.prompter,
+            ctx.conversationId,
+            ctx.hasNoClient,
+          ),
+        state.lastAssistantMessageId,
+        state.toolContentBlockToolNames,
+      );
+      const { assistantAttachments, emittedAttachments } = attachmentResult;
+
+      ctx.lastAssistantAttachments = assistantAttachments;
+      ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
+
+      const warningText = formatAttachmentWarnings(
+        attachmentResult.directiveWarnings,
+      );
+      if (warningText) {
+        onEvent({
+          type: "assistant_text_delta",
+          text: warningText,
+          sessionId: ctx.conversationId,
+        });
+      }
+
+      // Re-check: the user may have cancelled during attachment resolution
+      if (abortController.signal.aborted) {
+        ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+        ctx.traceEmitter.emit(
+          "generation_cancelled",
+          "Generation cancelled by user",
+          {
+            requestId: reqId,
+            status: "warning",
+          },
+        );
+        onEvent({
+          type: "generation_cancelled",
+          sessionId: ctx.conversationId,
+        });
+      } else if (yieldedForHandoff) {
+        ctx.traceEmitter.emit(
+          "generation_handoff",
+          "Handing off to next queued message",
+          {
+            requestId: reqId,
+            status: "info",
+            attributes: { queuedCount: ctx.getQueueDepth() },
+          },
+        );
+        onEvent({
+          type: "generation_handoff",
+          sessionId: ctx.conversationId,
+          requestId: reqId,
+          queuedCount: ctx.getQueueDepth(),
+          ...(emittedAttachments.length > 0
+            ? { attachments: emittedAttachments }
+            : {}),
+          ...(state.lastAssistantMessageId
+            ? { messageId: state.lastAssistantMessageId }
+            : {}),
+        });
+      } else {
+        ctx.emitActivityState("idle", "message_complete", "global", reqId);
+        ctx.traceEmitter.emit(
+          "message_complete",
+          "Message processing complete",
+          {
+            requestId: reqId,
+            status: "success",
+          },
+        );
+        onEvent({
+          type: "message_complete",
+          sessionId: ctx.conversationId,
+          ...(emittedAttachments.length > 0
+            ? { attachments: emittedAttachments }
+            : {}),
+          ...(state.lastAssistantMessageId
+            ? { messageId: state.lastAssistantMessageId }
+            : {}),
+        });
+      }
     }
 
     // Second title pass: after 3 completed turns, re-generate the title

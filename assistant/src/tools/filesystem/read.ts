@@ -1,13 +1,20 @@
+import { extname } from "node:path";
+
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
+import {
+  IMAGE_EXTENSIONS,
+  readImageFile,
+} from "../shared/filesystem/image-read.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class FileReadTool implements Tool {
   name = "file_read";
-  description = "Read the contents of a file";
+  description =
+    "Read the contents of a file. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis.";
   category = "filesystem";
   defaultRiskLevel = RiskLevel.Low;
 
@@ -54,6 +61,16 @@ class FileReadTool implements Tool {
       };
     }
 
+    // For image files, delegate to the shared image reader.
+    const ext = extname(rawPath).toLowerCase();
+    if (IMAGE_EXTENSIONS.has(ext)) {
+      const pathCheck = sandboxPolicy(rawPath, context.workingDir);
+      if (!pathCheck.ok) {
+        return { content: `Error: ${pathCheck.error}`, isError: true };
+      }
+      return readImageFile(pathCheck.resolved);
+    }
+
     const ops = new FileSystemOps((path, opts) =>
       sandboxPolicy(path, context.workingDir, opts),
     );
@@ -86,4 +103,5 @@ class FileReadTool implements Tool {
   }
 }
 
-registerTool(new FileReadTool());
+export const fileReadTool = new FileReadTool();
+registerTool(fileReadTool);

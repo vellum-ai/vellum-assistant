@@ -19,27 +19,13 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
   latestUserIndex: number | null;
 } {
   let latestUserIndex: number | null = null;
-  let lastSummaryUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "user") continue;
     if (isToolResultOnlyMessage(msg)) continue;
-    if (getSummaryFromContextMessage(msg) != null) {
-      // Track the last summary message as a fallback — after aggressive
-      // compaction (minKeepRecentUserTurns: 0), the summary may be the only
-      // user message left and it can contain preserved image blocks that
-      // should not be stripped.
-      if (lastSummaryUserIndex == null) lastSummaryUserIndex = i;
-      continue;
-    }
+    if (getSummaryFromContextMessage(msg) != null) continue;
     latestUserIndex = i;
     break;
-  }
-
-  // Fall back to the summary message when compaction consumed all user turns,
-  // so images preserved by compaction are not unconditionally stripped.
-  if (latestUserIndex == null && lastSummaryUserIndex != null) {
-    latestUserIndex = lastSummaryUserIndex;
   }
 
   let modified = false;

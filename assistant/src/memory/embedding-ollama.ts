@@ -1,8 +1,10 @@
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type {
   EmbeddingBackend,
+  EmbeddingInput,
   EmbeddingRequestOptions,
 } from "./embedding-backend.js";
+import { normalizeEmbeddingInput } from "./embedding-types.js";
 
 interface OllamaEmbeddingsResponse {
   data?: Array<{ embedding: number[] }>;
@@ -24,10 +26,21 @@ export class OllamaEmbeddingBackend implements EmbeddingBackend {
   }
 
   async embed(
-    texts: string[],
+    inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
-    if (texts.length === 0) return [];
+    if (inputs.length === 0) return [];
+
+    const texts = inputs.map((i) => {
+      const n = normalizeEmbeddingInput(i);
+      if (n.type !== "text") {
+        throw new Error(
+          "Ollama embedding backend only supports text inputs",
+        );
+      }
+      return n.text;
+    });
+
     const response = await fetch(`${this.baseUrl}/embeddings`, {
       method: "POST",
       headers: {

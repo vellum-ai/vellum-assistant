@@ -273,6 +273,8 @@ export interface GenerationHandoff {
   requestId?: string;
   queuedCount: number;
   attachments?: UserMessageAttachment[];
+  /** Database ID of the persisted assistant message, if any. */
+  messageId?: string;
 }
 
 export interface ModelInfo {
@@ -393,7 +395,6 @@ export type SessionErrorCode =
   | "PROVIDER_API"
   | "PROVIDER_BILLING"
   | "CONTEXT_TOO_LARGE"
-  | "QUEUE_FULL"
   | "SESSION_ABORTED"
   | "SESSION_PROCESSING_FAILED"
   | "REGENERATE_FAILED"

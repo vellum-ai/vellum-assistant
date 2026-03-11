@@ -18,14 +18,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { ScaffoldManagedSkillTool } from "../tools/skills/scaffold-managed.js";
+import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
-
-// Use internal class directly to avoid registry side effects
-
-const tool = new (ScaffoldManagedSkillTool as any)() as InstanceType<
-  typeof ScaffoldManagedSkillTool
->;
 
 function makeContext(): ToolContext {
   return {
@@ -47,7 +41,7 @@ afterEach(() => {
 
 describe("scaffold_managed_skill tool", () => {
   test("creates a valid skill and index entry", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "test-skill",
         name: "Test Skill",
@@ -76,7 +70,7 @@ describe("scaffold_managed_skill tool", () => {
   });
 
   test("rejects duplicate unless overwrite=true", async () => {
-    await tool.execute(
+    await executeScaffoldManagedSkill(
       {
         skill_id: "dupe",
         name: "Original",
@@ -86,7 +80,7 @@ describe("scaffold_managed_skill tool", () => {
       makeContext(),
     );
 
-    const result2 = await tool.execute(
+    const result2 = await executeScaffoldManagedSkill(
       {
         skill_id: "dupe",
         name: "Duplicate",
@@ -98,7 +92,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(result2.isError).toBe(true);
     expect(result2.content).toContain("already exists");
 
-    const result3 = await tool.execute(
+    const result3 = await executeScaffoldManagedSkill(
       {
         skill_id: "dupe",
         name: "Overwritten",
@@ -120,13 +114,13 @@ describe("scaffold_managed_skill tool", () => {
     ];
 
     for (const input of cases) {
-      const result = await tool.execute(input, makeContext());
+      const result = await executeScaffoldManagedSkill(input, makeContext());
       expect(result.isError).toBe(true);
     }
   });
 
   test("sanitizes embedded newlines in name/description/emoji to prevent frontmatter injection", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "inject-test",
         name: 'Test\ninjected_field: "evil"',
@@ -143,17 +137,20 @@ describe("scaffold_managed_skill tool", () => {
 
     // Newlines must not appear inside frontmatter values
     const frontmatter = content.split("---")[1];
-    const fmLines = frontmatter.split("\n").filter((l) => l.trim());
-    // Each frontmatter line must start with a known key -- no injected keys
+    // Only check top-level (non-indented) keys — nested YAML under metadata: is expected
+    const fmLines = frontmatter
+      .split("\n")
+      .filter((l) => l.trim() && !l.match(/^\s/));
+    // Each top-level frontmatter line must start with a known key -- no injected keys
     for (const line of fmLines) {
       expect(line).toMatch(
-        /^(name|description|emoji|user-invocable|disable-model-invocation|metadata):\s/,
+        /^(name|description|emoji|user-invocable|disable-model-invocation|metadata)(:\s|:$)/,
       );
     }
   });
 
   test("creates a skill with includes metadata", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "parent-skill",
         name: "Parent",
@@ -167,11 +164,13 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.isError).toBe(false);
     const skillFile = join(TEST_DIR, "skills", "parent-skill", "SKILL.md");
     const content = readFileSync(skillFile, "utf-8");
-    expect(content).toContain('"includes":["child-a","child-b"]');
+    expect(content).toContain("    includes:");
+    expect(content).toContain("      - child-a");
+    expect(content).toContain("      - child-b");
   });
 
   test("normalizes includes — trims and deduplicates", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "norm-skill",
         name: "Normalized",
@@ -185,11 +184,13 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.isError).toBe(false);
     const skillFile = join(TEST_DIR, "skills", "norm-skill", "SKILL.md");
     const content = readFileSync(skillFile, "utf-8");
-    expect(content).toContain('"includes":["child-a","child-b"]');
+    expect(content).toContain("    includes:");
+    expect(content).toContain("      - child-a");
+    expect(content).toContain("      - child-b");
   });
 
   test("rejects includes with non-string elements", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "bad-includes",
         name: "Bad",
@@ -205,7 +206,7 @@ describe("scaffold_managed_skill tool", () => {
   });
 
   test("rejects includes with empty string elements", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "empty-includes",
         name: "Empty",
@@ -221,7 +222,7 @@ describe("scaffold_managed_skill tool", () => {
   });
 
   test("rejects includes with whitespace-only elements", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "ws-includes",
         name: "Whitespace",
@@ -237,7 +238,7 @@ describe("scaffold_managed_skill tool", () => {
   });
 
   test("omits includes when not provided", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "no-includes",
         name: "Solo",
@@ -254,7 +255,7 @@ describe("scaffold_managed_skill tool", () => {
   });
 
   test("rejects invalid skill_id", async () => {
-    const result = await tool.execute(
+    const result = await executeScaffoldManagedSkill(
       {
         skill_id: "../escape",
         name: "Bad",
@@ -269,7 +270,7 @@ describe("scaffold_managed_skill tool", () => {
   });
 
   test("e2e: scaffold child then parent with includes, verify files and index", async () => {
-    const childResult = await tool.execute(
+    const childResult = await executeScaffoldManagedSkill(
       {
         skill_id: "e2e-child",
         name: "E2E Child",
@@ -280,7 +281,7 @@ describe("scaffold_managed_skill tool", () => {
     );
     expect(childResult.isError).toBe(false);
 
-    const parentResult = await tool.execute(
+    const parentResult = await executeScaffoldManagedSkill(
       {
         skill_id: "e2e-parent",
         name: "E2E Parent",
@@ -295,7 +296,8 @@ describe("scaffold_managed_skill tool", () => {
     const parentSkillFile = join(TEST_DIR, "skills", "e2e-parent", "SKILL.md");
     expect(existsSync(parentSkillFile)).toBe(true);
     const parentContent = readFileSync(parentSkillFile, "utf-8");
-    expect(parentContent).toContain('"includes":["e2e-child"]');
+    expect(parentContent).toContain("    includes:");
+    expect(parentContent).toContain("      - e2e-child");
 
     const indexContent = readFileSync(
       join(TEST_DIR, "skills", "SKILLS.md"),

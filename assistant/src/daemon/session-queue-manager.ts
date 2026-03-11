@@ -10,7 +10,10 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage, UserMessageAttachment } from "./message-protocol.js";
+import type {
+  ServerMessage,
+  UserMessageAttachment,
+} from "./message-protocol.js";
 
 const log = getLogger("session-queue");
 
@@ -26,16 +29,16 @@ export interface QueuedMessage {
   turnInterfaceContext?: TurnInterfaceContext;
   /** When false, the turn has no interactive user and should skip clarification prompts. */
   isInteractive?: boolean;
-  /** Timestamp (ms) when the message was enqueued. */
-  queuedAt: number;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
 }
 
-export const MAX_QUEUE_DEPTH = 10;
-/** Messages older than this (ms) are auto-expired from the queue. */
-export const DEFAULT_MAX_WAIT_MS = 60_000;
-const CAPACITY_WARNING_THRESHOLD = 0.8;
+/**
+ * Maximum total estimated bytes across all queued messages per session.
+ * Limits memory consumption when a sender floods messages while the
+ * session is busy.  50 MB is well above any legitimate usage.
+ */
+export const DEFAULT_MAX_QUEUE_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /**
  * Describes why a queued message was promoted from the queue.
@@ -53,75 +56,59 @@ export interface QueuePolicy {
   checkpointHandoffEnabled: boolean;
 }
 
-export interface QueueMetrics {
-  currentDepth: number;
-  totalDropped: number;
-  totalExpired: number;
-  /** Average wait time (ms) of dequeued messages. 0 when no messages have been dequeued. */
-  averageWaitMs: number;
-}
-
 /**
  * Typed wrapper around the queued-message array.
  *
- * Session owns one instance; the wrapper handles capacity checks,
- * expiry, metrics, and iteration so the rest of Session doesn't
- * touch the raw array.
+ * Session owns one instance; the wrapper handles iteration
+ * so the rest of Session doesn't touch the raw array.
+ *
+ * A byte budget caps total memory held by queued messages so a
+ * high-rate sender cannot exhaust the process.
  */
 export class MessageQueue {
   private items: QueuedMessage[] = [];
-  private maxWaitMs: number;
-  private droppedCount = 0;
-  private expiredCount = 0;
-  private totalWaitMs = 0;
-  private dequeuedCount = 0;
-  private capacityWarned = false;
+  private currentBytes = 0;
+  private maxBytes: number;
 
-  constructor(maxWaitMs: number = DEFAULT_MAX_WAIT_MS) {
-    this.maxWaitMs = maxWaitMs;
+  constructor(maxBytes: number = DEFAULT_MAX_QUEUE_BYTES) {
+    this.maxBytes = maxBytes;
   }
 
+  /**
+   * Attempt to enqueue a message.
+   * Returns `true` if accepted, `false` if rejected (over budget).
+   */
   push(item: QueuedMessage): boolean {
-    this.expireStale();
-
-    if (this.items.length >= MAX_QUEUE_DEPTH) {
-      this.droppedCount++;
+    const itemBytes = estimateItemBytes(item);
+    if (this.currentBytes + itemBytes > this.maxBytes && this.items.length > 0) {
+      log.warn(
+        {
+          requestId: item.requestId,
+          queueDepth: this.items.length,
+          currentBytes: this.currentBytes,
+          itemBytes,
+          maxBytes: this.maxBytes,
+        },
+        "Rejecting queued message: queue byte budget exceeded",
+      );
       return false;
     }
-
-    item.queuedAt = Date.now();
     this.items.push(item);
-
-    const ratio = this.items.length / MAX_QUEUE_DEPTH;
-    if (ratio >= CAPACITY_WARNING_THRESHOLD && !this.capacityWarned) {
-      this.capacityWarned = true;
-      log.warn(
-        { depth: this.items.length, max: MAX_QUEUE_DEPTH },
-        "Queue nearing capacity",
-      );
-    } else if (ratio < CAPACITY_WARNING_THRESHOLD) {
-      this.capacityWarned = false;
-    }
-
+    this.currentBytes += itemBytes;
     return true;
   }
 
   shift(): QueuedMessage | undefined {
-    this.expireStale();
     const item = this.items.shift();
     if (item) {
-      this.dequeuedCount++;
-      this.totalWaitMs += Date.now() - item.queuedAt;
-    }
-    if (this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
-      this.capacityWarned = false;
+      this.currentBytes -= estimateItemBytes(item);
     }
     return item;
   }
 
   clear(): void {
     this.items = [];
-    this.capacityWarned = false;
+    this.currentBytes = 0;
   }
 
   get length(): number {
@@ -132,6 +119,10 @@ export class MessageQueue {
     return this.items.length === 0;
   }
 
+  get totalBytes(): number {
+    return this.currentBytes;
+  }
+
   /**
    * Remove a queued message by its requestId.
    * Returns the removed message, or undefined if not found.
@@ -139,60 +130,28 @@ export class MessageQueue {
   removeByRequestId(requestId: string): QueuedMessage | undefined {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
     if (idx === -1) return undefined;
-    return this.items.splice(idx, 1)[0];
-  }
-
-  getMetrics(): QueueMetrics {
-    return {
-      currentDepth: this.items.length,
-      totalDropped: this.droppedCount,
-      totalExpired: this.expiredCount,
-      averageWaitMs:
-        this.dequeuedCount > 0 ? this.totalWaitMs / this.dequeuedCount : 0,
-    };
-  }
-
-  /** Remove messages that have been waiting longer than maxWaitMs. */
-  private expireStale(): void {
-    const now = Date.now();
-    const cutoff = now - this.maxWaitMs;
-    const expired: QueuedMessage[] = [];
-    this.items = this.items.filter((item) => {
-      if (item.queuedAt < cutoff) {
-        this.expiredCount++;
-        expired.push(item);
-        return false;
-      }
-      return true;
-    });
-    for (const item of expired) {
-      log.warn(
-        { requestId: item.requestId, waitMs: now - item.queuedAt },
-        "Expiring stale queued message",
-      );
-      try {
-        item.onEvent({
-          type: "error",
-          message:
-            "Your queued message was dropped because it waited too long in the queue.",
-          category: "queue_expired",
-        });
-      } catch (e) {
-        log.debug(
-          { err: e, requestId: item.requestId },
-          "Failed to notify client of expired message",
-        );
-      }
-    }
-    if (
-      expired.length > 0 &&
-      this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD
-    ) {
-      this.capacityWarned = false;
-    }
+    const [removed] = this.items.splice(idx, 1);
+    this.currentBytes -= estimateItemBytes(removed);
+    return removed;
   }
 
   [Symbol.iterator](): Iterator<QueuedMessage> {
     return this.items[Symbol.iterator]();
   }
+}
+
+/**
+ * Estimate the in-memory byte cost of a queued message.
+ * Dominated by content text and attachment `data` (base64 strings).
+ */
+function estimateItemBytes(item: QueuedMessage): number {
+  let bytes = item.content.length * 2; // JS strings are UTF-16
+  for (const a of item.attachments) {
+    bytes += a.data.length * 2;
+    if (a.extractedText) bytes += a.extractedText.length * 2;
+  }
+  // Small fixed overhead for metadata, pointers, etc. (not worth
+  // measuring precisely — the content/attachment data dominates).
+  bytes += 512;
+  return bytes;
 }

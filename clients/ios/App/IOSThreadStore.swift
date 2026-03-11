@@ -27,7 +27,8 @@ struct IOSThread: Identifiable {
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
 
-    /// Whether this thread was created by a schedule or reminder trigger.
+    /// Whether this thread was created by a schedule trigger (including one-shot/reminders).
+    /// Keeps legacy "Reminder: " prefix check for threads created before unification.
     var isScheduleThread: Bool {
         if scheduleJobId != nil { return true }
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
@@ -142,7 +143,7 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func applySessionMetadata(
-        _ session: IPCSessionListResponseSession,
+        _ session: SessionListResponseSession,
         to thread: inout IOSThread
     ) {
         thread.isPinned = session.isPinned ?? false
@@ -627,7 +628,7 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private func handleHistoryResponse(_ response: HistoryResponseMessage) {
+    private func handleHistoryResponse(_ response: HistoryResponse) {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let vm = viewModels[threadId] else { return }
 
@@ -648,7 +649,7 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {
+    private func handleSubagentDetailResponse(_ response: SubagentDetailResponse) {
         for (_, vm) in viewModels {
             if vm.activeSubagents.contains(where: { $0.id == response.subagentId }) {
                 vm.subagentDetailStore.populateFromDetailResponse(response)
@@ -657,7 +658,7 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
+    private func handleMessageContentResponse(_ response: MessageContentResponse) {
         for (_, vm) in viewModels {
             if vm.messages.contains(where: { $0.daemonMessageId == response.messageId }) {
                 vm.handleMessageContentResponse(response)
@@ -709,7 +710,7 @@ class IOSThreadStore: ObservableObject {
         threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
         saveConnectedCache()
 
-        let signal = IPCConversationSeenSignal(
+        let signal = ConversationSeenSignal(
             conversationId: sessionId,
             sourceChannel: "vellum",
             signalType: Self.attentionSignalType,
@@ -953,7 +954,7 @@ class IOSThreadStore: ObservableObject {
         threads[idx].lastSeenAssistantMessageAt = nil
         saveConnectedCache()
 
-        let signal = IPCConversationUnreadSignal(
+        let signal = ConversationUnreadSignal(
             conversationId: sessionId,
             sourceChannel: "vellum",
             signalType: Self.attentionSignalType,
@@ -1034,12 +1035,12 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func sendReorderThreads() {
-        let updates = threads.compactMap { thread -> IPCReorderThreadsRequestUpdate? in
+        let updates = threads.compactMap { thread -> ReorderThreadsRequestUpdate? in
             guard let sessionId = thread.sessionId, !thread.isArchived, !thread.isPrivate else {
                 return nil
             }
 
-            return IPCReorderThreadsRequestUpdate(
+            return ReorderThreadsRequestUpdate(
                 sessionId: sessionId,
                 displayOrder: thread.displayOrder.map(Double.init),
                 isPinned: thread.isPinned
@@ -1048,7 +1049,7 @@ class IOSThreadStore: ObservableObject {
         guard !updates.isEmpty else { return }
 
         do {
-            try daemonClient.send(IPCReorderThreadsRequest(
+            try daemonClient.send(ReorderThreadsRequest(
                 type: "reorder_threads",
                 updates: updates
             ))

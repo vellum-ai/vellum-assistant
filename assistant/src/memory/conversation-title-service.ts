@@ -30,13 +30,12 @@ export type TitleOrigin =
   | "voice_inbound"
   | "guardian_request"
   | "schedule"
-  | "reminder"
   | "task"
   | "watcher"
   | "subagent"
   | "sequence"
   | "heartbeat"
-  | "ipc"
+  | "local"
   | "task_submit"
   | "misc";
 

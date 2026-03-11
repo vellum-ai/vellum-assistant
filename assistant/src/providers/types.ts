@@ -50,6 +50,19 @@ export interface ToolResultContent {
   contentBlocks?: ContentBlock[];
 }
 
+export interface ServerToolUseContent {
+  type: "server_tool_use";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface WebSearchToolResultContent {
+  type: "web_search_tool_result";
+  tool_use_id: string;
+  content: unknown; // Opaque — encrypted_content in search results is provider-specific
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
@@ -57,7 +70,9 @@ export type ContentBlock =
   | ImageContent
   | FileContent
   | ToolUseContent
-  | ToolResultContent;
+  | ToolResultContent
+  | ServerToolUseContent
+  | WebSearchToolResultContent;
 
 export interface Message {
   role: "user" | "assistant";
@@ -95,7 +110,14 @@ export interface ProviderResponse {
 export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "input_json_delta"; toolName: string; accumulatedJson: string };
+  | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
+  | {
+      type: "input_json_delta";
+      toolName: string;
+      toolUseId: string;
+      accumulatedJson: string;
+    }
+  | { type: "server_tool_start"; name: string; toolUseId: string };
 
 export interface SendMessageConfig {
   model?: string;

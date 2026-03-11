@@ -76,14 +76,14 @@ describe("parseSub", () => {
   });
 
   // -------------------------------------------------------------------------
-  // ipc pattern
+  // local pattern
   // -------------------------------------------------------------------------
 
-  test("parses ipc:<assistantId>:<sessionId>", () => {
-    const result = parseSub("ipc:self:session-xyz");
+  test("parses local:<assistantId>:<sessionId>", () => {
+    const result = parseSub("local:self:session-xyz");
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.principalType).toBe("ipc");
+      expect(result.principalType).toBe("local");
       expect(result.assistantId).toBe("self");
       expect(result.sessionId).toBe("session-xyz");
       expect(result.actorPrincipalId).toBeUndefined();
@@ -158,16 +158,16 @@ describe("parseSub", () => {
     }
   });
 
-  test("fails on ipc with empty sessionId", () => {
-    const result = parseSub("ipc:self:");
+  test("fails on local with empty sessionId", () => {
+    const result = parseSub("local:self:");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("empty");
     }
   });
 
-  test("fails on ipc with empty assistantId", () => {
-    const result = parseSub("ipc::session-abc");
+  test("fails on local with empty assistantId", () => {
+    const result = parseSub("local::session-abc");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("empty");
