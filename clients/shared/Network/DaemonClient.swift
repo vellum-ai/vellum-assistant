@@ -97,6 +97,7 @@ public protocol DaemonClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
+    func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
 extension DaemonClientProtocol {
@@ -109,6 +110,11 @@ extension DaemonClientProtocol {
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
     public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? { nil }
     public func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? { nil }
+
+    /// Default no-op implementation for clients that don't support btw side-chain.
+    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
 }
 
 // MARK: - Usage Response Models
@@ -861,6 +867,77 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
         return await executeLocalRequest(path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
+    }
+
+    // MARK: - BTW Side-Chain
+
+    /// Send a /btw side-chain question and stream the response text.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
+        if let httpTransport {
+            return httpTransport.sendBtwMessage(content: content, conversationKey: conversationKey)
+        }
+
+        // Local daemon path — stream SSE from the daemon's /v1/btw endpoint.
+        return AsyncThrowingStream { continuation in
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                guard var request = self.buildLocalRequest(
+                    target: .daemon,
+                    path: "v1/btw",
+                    method: "POST",
+                    timeout: 120
+                ) else {
+                    continuation.finish(throwing: URLError(.badURL))
+                    return
+                }
+
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                let body: [String: String] = [
+                    "conversationKey": conversationKey,
+                    "content": content,
+                ]
+
+                do {
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        throw URLError(.badServerResponse, userInfo: [
+                            NSLocalizedDescriptionKey: "HTTP \(statusCode)"
+                        ])
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+
+                        if line.hasPrefix("data: ") {
+                            let jsonString = String(line.dropFirst(6))
+                            if let data = jsonString.data(using: .utf8),
+                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                if let text = parsed["text"] as? String {
+                                    continuation.yield(text)
+                                }
+                                if let type = parsed["type"] as? String, type == "btw_complete" {
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     // MARK: - Workspace API

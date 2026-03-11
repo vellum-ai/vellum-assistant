@@ -533,6 +533,13 @@ public final class ChatViewModel: ObservableObject {
     /// send `hasMore` in the history response.
     @Published public var hasMoreHistory: Bool = false
 
+    // MARK: - BTW Side-Chain State
+
+    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
+    @Published public var btwResponse: String?
+    /// True while a /btw request is in flight.
+    @Published public var btwLoading: Bool = false
+
     /// Whether there are more messages above the current display window.
     /// True when either:
     ///   1. There are locally loaded messages outside the current display suffix, OR
@@ -967,6 +974,15 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
+        // Intercept /btw side-chain messages before the normal send path.
+        if text.hasPrefix("/btw ") {
+            let question = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            inputText = ""
+            flushCoalescedPublish()
+            sendBtwMessage(question: question)
+            return
+        }
+
         // Confirmation state is now server-authoritative: the daemon emits
         // `confirmation_state_changed` events for all resolution paths.
         // No client-side pessimistic denial is needed.
@@ -1097,6 +1113,37 @@ public final class ChatViewModel: ObservableObject {
             // Subsequent messages: send directly (daemon queues if busy)
             sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId)
         }
+    }
+
+    // MARK: - BTW Side-Chain
+
+    /// Send a /btw side-chain question and stream the response into `btwResponse`.
+    public func sendBtwMessage(question: String) {
+        guard !question.isEmpty else { return }
+        btwLoading = true
+        btwResponse = ""
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let stream = self.daemonClient.sendBtwMessage(
+                    content: question,
+                    conversationKey: self.sessionId ?? ""
+                )
+                for try await delta in stream {
+                    self.btwResponse = (self.btwResponse ?? "") + delta
+                }
+            } catch {
+                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
+            }
+            self.btwLoading = false
+        }
+    }
+
+    /// Clear btw side-chain state.
+    public func dismissBtw() {
+        btwResponse = nil
+        btwLoading = false
     }
 
     private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
