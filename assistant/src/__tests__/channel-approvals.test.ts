@@ -85,6 +85,7 @@ function registerPendingConfirmation(
 ): void {
   const mockSession = {
     handleConfirmationResponse: mock(() => {}),
+    ensureActorScopedHistory: async () => {},
   } as unknown as Session;
 
   pendingInteractions.register(requestId, {

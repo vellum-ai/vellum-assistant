@@ -123,6 +123,7 @@ function registerPendingInteraction(
   const handleConfirmationResponse = mock(() => {});
   const mockSession = {
     handleConfirmationResponse,
+    ensureActorScopedHistory: async () => {},
   } as unknown as Session;
 
   pendingInteractions.register(requestId, {
