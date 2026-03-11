@@ -96,10 +96,10 @@ const scheduleCreateDef = scheduleToolsJson.tools.find(
 );
 
 // =====================================================================
-// 1. System prompt: buildTaskScheduleReminderRoutingSection
+// 1. System prompt: task/schedule/notification dispatch hints
 // =====================================================================
 
-describe("Task/Schedule routing section in system prompt", () => {
+describe("Task/Schedule routing dispatch hints in system prompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -117,7 +117,7 @@ describe("Task/Schedule routing section in system prompt", () => {
     );
   });
 
-  test("routing section lists all three tools in the summary table", () => {
+  test("routing section lists all three tools as dispatch hints", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("`task_list_add`");
     expect(prompt).toContain("`schedule_create`");
@@ -126,38 +126,27 @@ describe("Task/Schedule routing section in system prompt", () => {
 
   test("routing section warns that send_notification is immediate-only", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("send_notification` is immediate-only");
+    expect(prompt).toContain("immediate-only");
     expect(prompt).toContain("fires NOW");
   });
 
-  test("routing section includes quick routing rules", () => {
+  test("routing section references the time-based-actions skill for full framework", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("Quick routing rules");
-    expect(prompt).toContain("Future time, one-shot");
-    expect(prompt).toContain("Recurring pattern");
-    expect(prompt).toContain("No time, track as work");
+    expect(prompt).toContain("time-based-actions");
   });
 
-  test("routing section documents entity type routing", () => {
+  test("routing section mentions fire_at for one-shot schedules", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain(
-      "Entity type routing: work items vs task templates",
+    expect(prompt).toContain("fire_at");
+  });
+
+  test("routing section is compact -- no verbose decision tree or entity type routing", () => {
+    const prompt = buildSystemPrompt();
+    // These details now live in the time-based-actions skill, not the global prompt
+    expect(prompt).not.toContain("### Quick routing rules");
+    expect(prompt).not.toContain(
+      "### Entity type routing: work items vs task templates",
     );
-    expect(prompt).toContain("**Work items**");
-    expect(prompt).toContain("**Task templates**");
-  });
-
-  test("routing section references the Time-Based Actions skill", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("Time-Based Actions");
-  });
-
-  test("routing section is present in the system prompt", () => {
-    const prompt = buildSystemPrompt();
-    const taskRoutingIdx = prompt.indexOf(
-      "## Tool Routing: Tasks vs Schedules vs Notifications",
-    );
-    expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -234,10 +223,10 @@ describe("cross-tool routing consistency", () => {
 });
 
 // =====================================================================
-// 4. Guardian verification routing section in system prompt
+// 4. Guardian verification routing dispatch hint in system prompt
 // =====================================================================
 
-describe("Guardian verification routing section in system prompt", () => {
+describe("Guardian verification routing dispatch hint in system prompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -253,87 +242,155 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("## Routing: Guardian Verification");
   });
 
-  test('routing section includes trigger phrase "verify guardian"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify guardian");
-  });
-
-  test("routing section does not include legacy channel trigger phrases", () => {
-    const prompt = buildSystemPrompt();
-    // Verify no legacy channel trigger phrases remain in the routing section
-    expect(prompt).not.toContain("set guardian for");
-  });
-
-  test('routing section includes trigger phrase "verify my Telegram account"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify my Telegram account");
-  });
-
-  test('routing section includes trigger phrase "verify phone channel"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify phone channel");
-  });
-
-  test('routing section includes trigger phrase "verify my phone number"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify my phone number");
-  });
-
-  test('routing section includes trigger phrase "set up guardian verification"', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("set up guardian verification");
-  });
-
   test("routing section references the guardian-verify-setup skill", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("guardian-verify-setup");
   });
 
-  test("routing section mentions phone and telegram channels but not legacy channels", () => {
+  test("routing section directs to load the skill exclusively", () => {
     const prompt = buildSystemPrompt();
-    const routingStart = prompt.indexOf("## Routing: Guardian Verification");
-    const routingSection = prompt.substring(routingStart, routingStart + 1000);
-    expect(routingSection).toContain("phone");
-    expect(routingSection).toContain("telegram");
+    expect(prompt).toContain("exclusively");
   });
 
-  test("routing section contains exclusivity wording", () => {
+  test("routing section prohibits loading phone-calls for verification intents", () => {
     const prompt = buildSystemPrompt();
     const lower = prompt.toLowerCase();
-    // Must contain "exclusively" or "must only" to enforce exclusive handling
-    expect(lower.includes("exclusively") || lower.includes("must only")).toBe(
-      true,
-    );
-  });
-
-  test("routing section prohibits loading phone-calls for guardian verification", () => {
-    const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    // Must explicitly prohibit phone-calls for guardian verification intents
     expect(lower).toContain("do not load");
     expect(lower).toContain("phone-calls");
   });
 
-  test("routing section includes channel-preservation guidance", () => {
+  test("routing section advises not to re-ask channel if already specified", () => {
     const prompt = buildSystemPrompt();
     const lower = prompt.toLowerCase();
-    // Must advise not to re-ask channel if already specified
-    expect(
-      lower.includes("do not re-ask") || lower.includes("already specified"),
-    ).toBe(true);
+    expect(lower).toContain("do not re-ask");
   });
 
   test('routing section disambiguates "set myself up as your guardian" phrasing', () => {
     const prompt = buildSystemPrompt();
     const lower = prompt.toLowerCase();
     expect(lower).toContain("help me set myself up as your guardian");
-    expect(lower).toContain("asking to verify themselves as guardian");
   });
 
-  test("routing section discourages conceptual detours for direct setup requests", () => {
+  test("routing section is compact -- detailed steps live in the skill", () => {
     const prompt = buildSystemPrompt();
-    const lower = prompt.toLowerCase();
-    expect(lower).toContain("do not give conceptual");
-    expect(lower).toContain("unless the user explicitly asks");
+    // These details now live in the guardian-verify-setup skill, not the global prompt
+    expect(prompt).not.toContain("### Trigger phrases");
+    expect(prompt).not.toContain("### What it does");
+    expect(prompt).not.toContain("### Exclusivity rules");
+  });
+});
+
+// =====================================================================
+// 5. Guardian-verify-setup skill contains relocated detail
+// =====================================================================
+
+describe("guardian-verify-setup SKILL.md contains routing detail", () => {
+  const skillContent = readFileSync(
+    join(import.meta.dirname, "../../../skills/guardian-verify-setup/SKILL.md"),
+    "utf-8",
+  );
+
+  test("skill has trigger phrases section", () => {
+    expect(skillContent).toContain("## Trigger Phrases");
+    expect(skillContent).toContain("verify guardian");
+    expect(skillContent).toContain("verify my Telegram account");
+    expect(skillContent).toContain("verify phone channel");
+  });
+
+  test("skill has exclusivity rules section", () => {
+    expect(skillContent).toContain("## Exclusivity Rules");
+    expect(skillContent).toContain("load it exclusively");
+    expect(skillContent).toContain("Do NOT load `phone-calls`");
+  });
+
+  test("skill has channel-preservation guidance", () => {
+    expect(skillContent).toContain("do not re-ask which channel");
+  });
+});
+
+// =====================================================================
+// 6. Phone-calls SKILL.md contains relocated detail
+// =====================================================================
+
+describe("phone-calls SKILL.md contains routing detail", () => {
+  const skillContent = readFileSync(
+    join(
+      import.meta.dirname,
+      "../config/bundled-skills/phone-calls/SKILL.md",
+    ),
+    "utf-8",
+  );
+
+  test("skill has trigger phrases section", () => {
+    expect(skillContent).toContain("## Trigger Phrases");
+    expect(skillContent).toContain("Set up phone calling");
+    expect(skillContent).toContain("Make a call to");
+  });
+
+  test("skill has exclusivity rules section", () => {
+    expect(skillContent).toContain("## Exclusivity Rules");
+    expect(skillContent).toContain("Do NOT improvise Twilio setup");
+    expect(skillContent).toContain("guardian-verify-setup");
+  });
+});
+
+// =====================================================================
+// 7. Voice-setup SKILL.md contains relocated detail
+// =====================================================================
+
+describe("voice-setup SKILL.md contains routing detail", () => {
+  const skillContent = readFileSync(
+    join(import.meta.dirname, "../../../skills/voice-setup/SKILL.md"),
+    "utf-8",
+  );
+
+  test("skill has trigger phrases section", () => {
+    expect(skillContent).toContain("## Trigger Phrases");
+    expect(skillContent).toContain("Help me set up voice");
+    expect(skillContent).toContain("PTT isn't working");
+  });
+
+  test("skill has disambiguation section", () => {
+    expect(skillContent).toContain("## Disambiguation");
+    expect(skillContent).toContain("local PTT, wake word, microphone permissions");
+    expect(skillContent).toContain("Twilio-powered voice calls");
+  });
+});
+
+// =====================================================================
+// 8. Time-based-actions SKILL.md is current (no stale reminder_create)
+// =====================================================================
+
+describe("time-based-actions SKILL.md is up to date", () => {
+  const skillContent = readFileSync(
+    join(
+      import.meta.dirname,
+      "../../../skills/time-based-actions/SKILL.md",
+    ),
+    "utf-8",
+  );
+
+  test("does not reference the removed reminder_create tool", () => {
+    expect(skillContent).not.toContain("reminder_create");
+  });
+
+  test("uses schedule_create with fire_at for one-shot reminders", () => {
+    expect(skillContent).toContain("schedule_create");
+    expect(skillContent).toContain("fire_at");
+  });
+
+  test("warns that send_notification is immediate-only", () => {
+    expect(skillContent).toContain("IMMEDIATE-ONLY");
+  });
+
+  test("includes entity type routing guidance", () => {
+    expect(skillContent).toContain("Entity Type Routing");
+    expect(skillContent).toContain("Work items");
+    expect(skillContent).toContain("Task templates");
+  });
+
+  test("includes relative time parsing guidance", () => {
+    expect(skillContent).toContain("Relative Time Parsing");
+    expect(skillContent).toContain("Anchored & Ambiguous Relative Time");
   });
 });

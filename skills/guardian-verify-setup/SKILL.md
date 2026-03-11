@@ -11,6 +11,24 @@ metadata:
 
 You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
 
+## Trigger Phrases
+
+- "verify guardian"
+- "verify my Telegram account"
+- "verify phone channel"
+- "verify my phone number"
+- "set up guardian verification"
+- "help me set myself up as your guardian"
+
+Interpret "help me set myself up as your guardian" as the user asking to verify themselves as guardian (not asking the assistant to self-assign permissions). Do not give conceptual "I cannot set myself as guardian" explanations unless the user explicitly asks a conceptual/security question.
+
+## Exclusivity Rules
+
+- Guardian verification intents must only be handled by this skill -- load it exclusively.
+- Do NOT load `phone-calls` for guardian verification intent routing. The phone-calls skill does not orchestrate verification flows.
+- If the user asks to "load phone-calls and guardian verification", prioritize this skill and continue the verification flow. Only load `phone-calls` if the user also asks to configure or place regular calls.
+- If the user has already explicitly specified a channel (e.g., "verify my phone for voice", "verify my Telegram"), do not re-ask which channel unless the input is contradictory.
+
 ## Prerequisites
 
 - Run shell commands for this skill with `bash`.
