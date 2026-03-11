@@ -1246,7 +1246,6 @@ function ChatApp({
 
   const showSpinner = useCallback((text: string) => {
     setSpinnerText(text);
-    setInputFocused(false);
   }, []);
 
   const hideSpinner = useCallback(() => {
@@ -1518,6 +1517,7 @@ function ChatApp({
           const decoder = new TextDecoder();
           if (reader) {
             let buffer = "";
+            let currentEvent = "";
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
@@ -1525,17 +1525,22 @@ function ChatApp({
               const lines = buffer.split("\n");
               buffer = lines.pop() ?? "";
               for (const line of lines) {
-                if (line.startsWith("data: ")) {
+                if (line.startsWith("event: ")) {
+                  currentEvent = line.slice(7).trim();
+                } else if (line.startsWith("data: ")) {
                   try {
                     const data = JSON.parse(line.slice(6));
-                    if (data.error) {
-                      sseError = data.error;
+                    if (currentEvent === "btw_error" || data.error) {
+                      sseError = data.error ?? data.text ?? "Unknown error";
                     } else if (data.text) {
                       fullText += data.text;
                     }
                   } catch {
                     /* skip malformed */
                   }
+                } else if (line.trim() === "") {
+                  // Empty line marks end of SSE event; reset event type
+                  currentEvent = "";
                 }
               }
             }
@@ -1880,7 +1885,6 @@ function ChatApp({
         }
 
         h.showSpinner("Working...");
-        setInputFocused(true);
 
         while (true) {
           await new Promise((resolve) =>
@@ -1906,7 +1910,6 @@ function ChatApp({
                 bearerToken,
               );
               h.showSpinner("Working...");
-              setInputFocused(true);
               continue;
             }
 
@@ -1933,7 +1936,6 @@ function ChatApp({
                 },
               );
               h.showSpinner("Working...");
-              setInputFocused(true);
               continue;
             }
           } catch {
