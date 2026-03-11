@@ -295,6 +295,8 @@ struct AssistantProgressView: View {
                 Text(headlineText)
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
             }
         }
