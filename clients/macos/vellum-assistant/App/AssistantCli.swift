@@ -4,6 +4,24 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
 
+/// Thread-safe accumulator for collecting stderr output from a child process.
+private final class StderrAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+
+    func append(_ line: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        lines.append(line)
+    }
+
+    var content: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// Thread-safe one-shot flag for ensuring a continuation is resumed exactly once.
 private final class OnceFlag: @unchecked Sendable {
     private let lock = NSLock()
@@ -401,6 +419,9 @@ final class AssistantCli {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        // Accumulate stderr so the error message includes the actual failure reason.
+        let stderrAccumulator = StderrAccumulator()
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else {
@@ -419,6 +440,7 @@ final class AssistantCli {
             }
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                stderrAccumulator.append(trimmed)
                 onOutput(trimmed)
             }
         }
@@ -445,8 +467,12 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI remote hatch failed with exit code \(status)")
-            throw CLIError.executionFailed("Hatch process exited with code \(status)")
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Hatch process exited with code \(status)"
+                : stderr
+            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
+            throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI remote hatch completed successfully")
@@ -487,6 +513,8 @@ final class AssistantCli {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
+        let stderrAccumulator = StderrAccumulator()
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
@@ -498,7 +526,10 @@ final class AssistantCli {
             let data = handle.availableData
             guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { onOutput(trimmed) }
+            if !trimmed.isEmpty {
+                stderrAccumulator.append(trimmed)
+                onOutput(trimmed)
+            }
         }
 
         // proc.run() is called INSIDE the continuation to avoid a race
@@ -520,8 +551,12 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI pair failed with exit code \(status)")
-            throw CLIError.executionFailed("Pair process exited with code \(status)")
+            let stderr = stderrAccumulator.content
+            let detail = stderr.isEmpty
+                ? "Pair process exited with code \(status)"
+                : stderr
+            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
+            throw CLIError.executionFailed(detail)
         }
 
         log.info("CLI pair completed successfully")

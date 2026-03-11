@@ -428,6 +428,68 @@ async function isDaemonResponsive(daemonPort: number): Promise<boolean> {
   return httpHealthCheck(daemonPort);
 }
 
+interface PortListenerInfo {
+  pid: number;
+  command: string;
+}
+
+/**
+ * Returns info about the process listening on a TCP port, including PID and
+ * command name. Uses `lsof` on macOS/Linux.
+ */
+function getPortListenerInfo(port: number): PortListenerInfo | undefined {
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-iTCP:" + port, "-sTCP:LISTEN", "-n", "-P"],
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    ).trim();
+    // Parse lsof output: first line is header, subsequent lines are results.
+    const lines = output.split("\n");
+    if (lines.length < 2) return undefined;
+    // Columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+    const parts = lines[1].split(/\s+/);
+    const command = parts[0];
+    const pid = parseInt(parts[1], 10);
+    if (!command || isNaN(pid)) return undefined;
+    return { pid, command };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Log which processes (if any) are listening on the daemon, gateway, and
+ * qdrant ports. Helps diagnose port conflicts when hatch fails.
+ */
+export function logPortDiagnostics(resources: LocalInstanceResources): void {
+  const ports = [
+    { name: "daemon", port: resources.daemonPort },
+    { name: "gateway", port: resources.gatewayPort },
+    { name: "qdrant", port: resources.qdrantPort },
+  ];
+
+  const lines: string[] = [];
+  for (const { name, port } of ports) {
+    const info = getPortListenerInfo(port);
+    if (info) {
+      lines.push(`   ${name} port ${port}: pid ${info.pid} (${info.command})`);
+    } else {
+      lines.push(`   ${name} port ${port}: available`);
+    }
+  }
+
+  console.log("Port diagnostics:");
+  for (const line of lines) {
+    console.log(line);
+  }
+  console.log("");
+}
+
 /**
  * Find the PID of the process listening on the given TCP port.
  * Uses `lsof` on macOS/Linux. Returns undefined if no listener is found
