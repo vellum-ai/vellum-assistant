@@ -140,6 +140,9 @@ import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
 import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js";
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
+// ── skill-management ─────────────────────────────────────────────────────────
+import * as skillMgmtDeleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
+import * as skillMgmtScaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
 // ── slack ────────────────────────────────────────────────────────────────────
 import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
 import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
@@ -329,6 +332,10 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["schedule:tools/schedule-list.ts", scheduleList],
   ["schedule:tools/schedule-update.ts", scheduleUpdate],
   ["schedule:tools/schedule-delete.ts", scheduleDelete],
+
+  // skill-management
+  ["skill-management:tools/scaffold-managed.ts", skillMgmtScaffoldManaged],
+  ["skill-management:tools/delete-managed.ts", skillMgmtDeleteManaged],
 
   // slack
   ["slack:tools/slack-scan-digest.ts", slackScanDigest],
