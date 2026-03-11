@@ -62,11 +62,6 @@ const memoryManageProperties = {
     type: "string" as const,
     description: "Short subject/topic label, 2-8 words (optional, save only)",
   },
-  reason: {
-    type: "string" as const,
-    description:
-      "Brief non-technical explanation shown to the user as a status update",
-  },
 };
 
 export const memoryManageDefinition: ToolDefinition = {

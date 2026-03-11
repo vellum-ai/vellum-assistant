@@ -42,11 +42,6 @@ class ScreenWatchTool implements Tool {
             type: "string",
             description: "What to focus on observing",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are watching and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
         required: ["focus_area"],
       },

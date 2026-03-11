@@ -298,11 +298,6 @@ const definition: ToolDefinition = {
         type: "number",
         description: `Maximum results to return (default ${DEFAULT_LIMIT}, max ${MAX_RESULTS}).`,
       },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are searching for and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-      },
     },
     required: [],
   },

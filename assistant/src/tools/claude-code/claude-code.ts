@@ -123,11 +123,6 @@ export const claudeCodeTool: Tool = {
             description:
               "Worker profile that scopes tool access. Defaults to general (backward compatible).",
           },
-          reason: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are delegating and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-          },
         },
       },
     };
