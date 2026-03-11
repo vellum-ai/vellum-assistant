@@ -363,7 +363,7 @@ struct ChatView: View {
             .padding(VSpacing.md)
             .background(VColor.surface)
             .cornerRadius(VRadius.md)
-            .vShadow(.sm)
+            .vShadow(VShadow.sm)
             .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, 80)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
