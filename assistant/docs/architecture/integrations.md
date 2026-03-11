@@ -16,30 +16,61 @@ The integration framework lets Vellum connect to third-party services via OAuth2
 ```mermaid
 graph TB
     subgraph "Messaging Skill (bundled-skills/messaging/)"
-        SKILL_MD["SKILL.md<br/>agent instructions"]
-        TOOLS_JSON["TOOLS.json<br/>tool manifest"]
-        subgraph "Generic Tools"
-            AUTH_TEST["messaging_auth_test"]
-            LIST["messaging_list_conversations"]
-            READ["messaging_read"]
-            SEARCH["messaging_search"]
-            SEND["messaging_send (+ reply via thread_id)"]
-            MARK_READ["messaging_mark_read"]
-            STYLE["messaging_analyze_style"]
-            DRAFT["messaging_draft"]
-        end
-        subgraph "Slack-specific Tools"
-            REACT["slack_add_reaction"]
-            LEAVE["slack_leave_channel"]
-        end
-        subgraph "Gmail-specific Tools"
-            ARCHIVE["gmail_archive"]
-            LABEL["gmail_label"]
-            TRASH["gmail_trash"]
-            UNSUB["gmail_unsubscribe"]
-            GMAIL_DRAFT["gmail_draft"]
-        end
+        MSG_SKILL_MD["SKILL.md<br/>agent instructions"]
+        MSG_TOOLS_JSON["TOOLS.json<br/>tool manifest"]
+        AUTH_TEST["messaging_auth_test"]
+        LIST["messaging_list_conversations"]
+        READ["messaging_read"]
+        SEARCH["messaging_search"]
+        SEND["messaging_send (+ reply via thread_id)"]
+        MARK_READ["messaging_mark_read"]
+        STYLE["messaging_analyze_style"]
+        DRAFT["messaging_draft"]
+        SENDER_DIGEST["messaging_sender_digest"]
+        ARCHIVE_BY_SENDER["messaging_archive_by_sender"]
         SHARED["shared.ts<br/>resolveProvider + withProviderToken"]
+    end
+
+    subgraph "Gmail Skill (bundled-skills/gmail/)"
+        GMAIL_SKILL_MD["SKILL.md<br/>agent instructions"]
+        GMAIL_ARCHIVE["gmail_archive"]
+        GMAIL_LABEL["gmail_label"]
+        GMAIL_TRASH["gmail_trash"]
+        GMAIL_UNSUB["gmail_unsubscribe"]
+        GMAIL_DRAFT["gmail_draft"]
+        GMAIL_SEND_DRAFT["gmail_send_draft"]
+        GMAIL_ATTACHMENTS["gmail_attachments"]
+        GMAIL_FORWARD["gmail_forward"]
+        GMAIL_FOLLOW_UP["gmail_follow_up"]
+        GMAIL_FILTERS["gmail_filters"]
+        GMAIL_VACATION["gmail_vacation"]
+        GMAIL_SENDER_DIGEST["gmail_sender_digest"]
+        GMAIL_OUTREACH["gmail_outreach_scan"]
+    end
+
+    subgraph "Slack Skill (bundled-skills/slack/)"
+        SLACK_SKILL_MD["SKILL.md<br/>agent instructions"]
+        SLACK_SCAN["slack_scan_digest"]
+        SLACK_DETAILS["slack_channel_details"]
+        SLACK_CONFIGURE["slack_configure_channels"]
+        SLACK_REACT["slack_add_reaction"]
+        SLACK_DELETE["slack_delete_message"]
+        SLACK_EDIT["slack_edit_message"]
+        SLACK_LEAVE["slack_leave_channel"]
+        SLACK_PERMS["slack_channel_permissions"]
+    end
+
+    subgraph "Sequences Skill (bundled-skills/sequences/)"
+        SEQ_SKILL_MD["SKILL.md<br/>agent instructions"]
+        SEQ_CREATE["sequence_create"]
+        SEQ_LIST["sequence_list"]
+        SEQ_GET["sequence_get"]
+        SEQ_UPDATE["sequence_update"]
+        SEQ_DELETE["sequence_delete"]
+        SEQ_ENROLL["sequence_enroll"]
+        SEQ_ENROLLMENT_LIST["sequence_enrollment_list"]
+        SEQ_IMPORT["sequence_import"]
+        SEQ_ANALYTICS["sequence_analytics"]
     end
 
     subgraph "Messaging Layer (messaging/)"
@@ -74,10 +105,9 @@ graph TB
     LIST --> SHARED
     SEARCH --> SHARED
     SEND --> SHARED
-    REACT --> SLACK_ADAPTER
-    ARCHIVE --> GMAIL_ADAPTER
-    ACTIVITY --> ACTIVITY_ANALYZER
     STYLE --> STYLE_ANALYZER
+    GMAIL_ARCHIVE --> GMAIL_ADAPTER
+    SLACK_REACT --> SLACK_ADAPTER
 ```
 
 ### Data Flow
