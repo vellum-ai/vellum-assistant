@@ -106,6 +106,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "gmail",
+      "scope": "assistant",
+      "key": "feature_flags.gmail.enabled",
+      "label": "Gmail",
+      "description": "Enable Gmail management skill (archive, label, triage, declutter)",
+      "defaultEnabled": true
+    },
+    {
       "id": "sequences",
       "scope": "assistant",
       "key": "feature_flags.sequences.enabled",

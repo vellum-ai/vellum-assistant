@@ -7,6 +7,7 @@ metadata:
   vellum:
     display-name: "Email Sequences"
     user-invocable: true
+    feature-flag: "sequences"
 ---
 
 You are an email sequence assistant. Use the sequence tools to help users create and manage automated multi-step email drip campaigns.
