@@ -410,11 +410,11 @@ export async function handleSessionCreate(
     // Only create the host bash proxy for desktop client interfaces that can
     // execute commands on the user's machine.
     if (transportInterface === "macos" || transportInterface === "ios") {
-      session.setHostBashProxy(
-        new HostBashProxy(sendEvent, (requestId) => {
-          pendingInteractions.resolve(requestId);
-        }),
-      );
+      const proxy = new HostBashProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      proxy.updateSender(sendEvent, true);
+      session.setHostBashProxy(proxy);
     }
     session
       .processMessage(msg.initialMessage, [], sendEvent, requestId)
