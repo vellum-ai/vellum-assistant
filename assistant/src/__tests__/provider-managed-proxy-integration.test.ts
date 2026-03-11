@@ -4,6 +4,35 @@ import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
 import { credentialKey } from "../security/credential-key.js";
 
 // ---------------------------------------------------------------------------
+// Mock @google/genai to capture constructor arguments for Gemini base URL
+// assertions. Must be before importing the registry.
+// ---------------------------------------------------------------------------
+let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
+
+mock.module("@google/genai", () => ({
+  GoogleGenAI: class MockGoogleGenAI {
+    constructor(opts: Record<string, unknown>) {
+      lastGeminiConstructorOpts = opts;
+    }
+    models = {
+      generateContentStream: async () => ({
+        [Symbol.asyncIterator]: async function* () {
+          /* no chunks */
+        },
+      }),
+    };
+  },
+  ApiError: class FakeApiError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.name = "ApiError";
+    }
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Mock the underlying dependencies that the real context module relies on.
 // This avoids mocking the context module directly and prevents mock conflicts
 // with context.test.ts (which also mocks these same underlying deps).
@@ -73,6 +102,7 @@ function userKeysFor(...names: string[]): Record<string, string> {
 
 beforeEach(() => {
   disableManagedProxy();
+  lastGeminiConstructorOpts = null;
 });
 
 describe("managed proxy integration — credential precedence", () => {
@@ -182,21 +212,15 @@ describe("managed proxy integration — credential precedence", () => {
         model: "test-model",
       });
 
-      const provider = getProvider("gemini");
-
-      // Unwrap RetryProvider → LogfireProvider → GeminiProvider to inspect
-      // the GoogleGenAI client's configured base URL.
-      const retryInner = (provider as any).inner;
-      const logfireInner = (retryInner as any).inner ?? retryInner;
-      const geminiClient = (logfireInner as any).client;
-
-      expect(geminiClient).toBeDefined();
-      // GoogleGenAI exposes a protected `apiClient` with getBaseUrl()
-      const apiClient = (geminiClient as any).apiClient;
-      const baseUrl: string =
-        apiClient?.getCustomBaseUrl?.() ?? apiClient?.getBaseUrl?.() ?? "";
-      expect(baseUrl).toContain("/v1/runtime-proxy/vertex");
-      expect(baseUrl).not.toContain("/v1/runtime-proxy/gemini");
+      // The GoogleGenAI constructor was captured by the mock — verify it
+      // received httpOptions.baseUrl pointing at the vertex proxy path.
+      expect(lastGeminiConstructorOpts).toBeDefined();
+      const httpOptions = lastGeminiConstructorOpts!.httpOptions as
+        | { baseUrl?: string }
+        | undefined;
+      expect(httpOptions).toBeDefined();
+      expect(httpOptions!.baseUrl).toContain("/v1/runtime-proxy/vertex");
+      expect(httpOptions!.baseUrl).not.toContain("/v1/runtime-proxy/gemini");
     });
   });
 
