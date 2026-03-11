@@ -15,7 +15,6 @@ export const PROVIDER_BASE_URLS: Record<string, string> = {
 export const GOOGLE_CALENDAR_BASE_URL =
   "https://www.googleapis.com/calendar/v3";
 export const GOOGLE_PEOPLE_BASE_URL = "https://people.googleapis.com/v1";
-export const GMAIL_BATCH_BASE_URL = "https://www.googleapis.com/batch/gmail/v1";
 
 export function getProviderBaseUrl(providerKey: string): string | undefined {
   return PROVIDER_BASE_URLS[providerKey];
