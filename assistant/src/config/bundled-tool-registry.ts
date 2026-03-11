@@ -248,6 +248,21 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["followups:tools/followup-list.ts", followupList],
   ["followups:tools/followup-resolve.ts", followupResolve],
 
+  // gmail
+  ["gmail:tools/gmail-archive.ts", gmailArchive],
+  ["gmail:tools/gmail-label.ts", gmailLabel],
+  ["gmail:tools/gmail-trash.ts", gmailTrash],
+  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
+  ["gmail:tools/gmail-draft.ts", gmailDraft],
+  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
+  ["gmail:tools/gmail-attachments.ts", gmailAttachments],
+  ["gmail:tools/gmail-forward.ts", gmailForward],
+  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
+  ["gmail:tools/gmail-filters.ts", gmailFilters],
+  ["gmail:tools/gmail-vacation.ts", gmailVacation],
+  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
+  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
+
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
   ["google-calendar:tools/calendar-get-event.ts", calendarGetEvent],
@@ -271,21 +286,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["media-processing:tools/analyze-keyframes.ts", analyzeKeyframes],
   ["media-processing:tools/query-media-events.ts", queryMediaEvents],
   ["media-processing:tools/generate-clip.ts", generateClip],
-
-  // gmail
-  ["gmail:tools/gmail-archive.ts", gmailArchive],
-  ["gmail:tools/gmail-label.ts", gmailLabel],
-  ["gmail:tools/gmail-trash.ts", gmailTrash],
-  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
-  ["gmail:tools/gmail-draft.ts", gmailDraft],
-  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["gmail:tools/gmail-attachments.ts", gmailAttachments],
-  ["gmail:tools/gmail-forward.ts", gmailForward],
-  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
-  ["gmail:tools/gmail-filters.ts", gmailFilters],
-  ["gmail:tools/gmail-vacation.ts", gmailVacation],
-  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
-  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
 
   // messaging
   ["messaging:tools/messaging-auth-test.ts", messagingAuthTest],
