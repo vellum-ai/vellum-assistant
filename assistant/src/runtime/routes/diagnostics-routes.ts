@@ -186,6 +186,7 @@ async function handleDiagnosticsExport(body: {
     // been persisted — the user message and in-flight tool/usage data are
     // still captured.
     let anchorMessage;
+    let anchorIsFallback = false;
     if (anchorMessageId) {
       anchorMessage = db
         .select()
@@ -220,6 +221,7 @@ async function handleDiagnosticsExport(body: {
         .orderBy(desc(messages.createdAt))
         .limit(1)
         .get();
+      anchorIsFallback = true;
     }
 
     // 2. Compute the export time range.
@@ -250,15 +252,15 @@ async function handleDiagnosticsExport(body: {
       rangeStart =
         precedingUserMessage?.createdAt ?? anchorMessage.createdAt - 2000;
 
-      // When the anchor is not an assistant message (e.g. the fallback "any
-      // message" path hit because the assistant reply hasn't been persisted
-      // yet), extend the range to the current time so in-flight tool
-      // invocations and usage recorded after the user message are captured.
-      const anchorIsAssistant = anchorMessage.role === "assistant";
-      rangeEnd = anchorIsAssistant ? anchorMessage.createdAt : now;
-      usageRangeEnd = anchorIsAssistant
-        ? anchorMessage.createdAt + 5000
-        : now + 5000;
+      // When the anchor was selected via the fallback "any message" path
+      // (because the assistant reply hasn't been persisted yet), extend the
+      // range to the current time so in-flight tool invocations and usage
+      // recorded after the user message are captured. An explicit anchor to a
+      // non-assistant message uses the message's own timestamp.
+      rangeEnd = anchorIsFallback ? now : anchorMessage.createdAt;
+      usageRangeEnd = anchorIsFallback
+        ? now + 5000
+        : anchorMessage.createdAt + 5000;
     } else {
       // No messages at all — use the current time so we capture any
       // in-flight LLM usage or tool invocations.
