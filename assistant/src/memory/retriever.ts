@@ -538,7 +538,7 @@ async function generateQueryEmbedding(
         };
       }
       logMemoryEmbeddingWarning(err, "query");
-      degraded = config.memory.embeddings.required;
+      degraded = true;
       reason = `memory.embedding_failure: ${
         err instanceof Error ? err.message : String(err)
       }`;
