@@ -78,11 +78,11 @@ describe("browser skill migration end-state", () => {
 
   test("startup tool definition count is reduced (no browser tools)", () => {
     const definitions = getAllToolDefinitions();
-    // Startup has ~9 definitions after moving scaffold/settings/skill-management
+    // Startup has ~20 definitions after moving scaffold/settings/skill-management
     // tools to bundled skills (no browser tools).
     // Allow wider drift for unrelated tool additions while still failing if
     // browser tools are reintroduced at startup (+14 definitions).
-    expect(definitions.length).toBeGreaterThanOrEqual(5);
+    expect(definitions.length).toBeGreaterThanOrEqual(15);
     expect(definitions.length).toBeLessThanOrEqual(50);
 
     const defNames = definitions.map((d) => d.name);
