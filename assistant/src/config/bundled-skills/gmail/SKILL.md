@@ -70,7 +70,6 @@ Workflow: use `gmail_list_attachments` to discover attachments, then `gmail_down
 ### Forward & Thread Operations
 
 - **Forward**: `gmail_forward` — forward a message to another recipient, preserving all attachments. Optionally prepend your own text
-- **Summarize Thread**: `gmail_summarize_thread` — LLM-powered thread summary with participants, decisions, open questions, and sentiment
 - **Follow-up Tracking**: `gmail_follow_up` — track/untrack messages for follow-up using a dedicated "Follow-up" label, or list all tracked messages
 
 ### Smart Triage
