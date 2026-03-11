@@ -585,10 +585,52 @@ public func confirmationHumanDescription(
     let reason = (input["reason"]?.value as? String) ?? ""
     let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
 
+    // Derive permissionFriendlyName from input when not provided
+    let perm: String = permissionFriendlyName ?? {
+        guard let type = input["permission_type"]?.value as? String else { return "Permission" }
+        switch type {
+        case "full_disk_access": return "Full Disk Access"
+        case "accessibility": return "Accessibility"
+        case "screen_recording": return "Screen Recording"
+        case "calendar": return "Calendar"
+        case "contacts": return "Contacts"
+        case "photos": return "Photos"
+        case "location": return "Location Services"
+        case "microphone": return "Microphone"
+        case "camera": return "Camera"
+        default: return type.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }()
+
+    // Derive toolCategory from toolName when not provided
+    let tc: String = toolCategory ?? {
+        switch toolName {
+        case "bash", "host_bash":                    return "Run Command"
+        case "file_write", "host_file_write":        return "Write File"
+        case "file_edit", "host_file_edit":           return "Edit File"
+        case "file_read", "host_file_read":           return "Read File"
+        case "web_fetch":                             return "Fetch URL"
+        case "web_search":                            return "Web Search"
+        case "credential_store":                      return "Secure Storage"
+        case _ where toolName.hasPrefix("browser_"):  return "Browser"
+        case _ where toolName.hasPrefix("schedule_"): return "Scheduling"
+        case _ where toolName.hasPrefix("watcher_"):  return "Watcher"
+        case _ where toolName.hasPrefix("memory_"):   return "Memory"
+        case "skill_load":                            return "Skill"
+        case "evaluate_typescript_code":              return "Code Sandbox"
+        case "document_create", "document_update":    return "Document"
+        default:
+            return toolName
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }()
+
     switch toolName {
     case "request_system_permission":
         if reason.isEmpty {
-            let perm = permissionFriendlyName ?? "Permission"
             return "I need \(perm) access to continue."
         }
         return reason
@@ -657,9 +699,8 @@ public func confirmationHumanDescription(
     case "schedule_delete":
         return "Allow deleting a schedule?"
     default:
-        let tc = (toolCategory ?? toolName.replacingOccurrences(of: "_", with: " ").capitalized).lowercased()
-        if !r.isEmpty { return "Allow using \(tc) \(r)?" }
-        return "Allow using \(tc)?"
+        if !r.isEmpty { return "Allow using \(tc.lowercased()) \(r)?" }
+        return "Allow using \(tc.lowercased())?"
     }
 }
 
