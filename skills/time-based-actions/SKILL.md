@@ -28,6 +28,7 @@ Quick-reference decision guide for choosing the right tool when users ask about 
    - Examples: "send me a notification", "alert me now", "ping me"
 
 4. **Is the request about tracking work with no time trigger?**
+
    - YES -> `task_list_add`
    - Examples: "add to my tasks", "remind me to do X" (no time), "put this on my list"
 
