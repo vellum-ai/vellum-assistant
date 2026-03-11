@@ -1,6 +1,7 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { credentialKey } from "../credential-key.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -48,8 +49,8 @@ function makeCaches(
       ? (opts.ingressUrl ?? undefined)
       : "https://example.ngrok.io";
   const credentialMap: Record<string, string | undefined> = {
-    "credential:telegram:bot_token": botToken,
-    "credential:telegram:webhook_secret": webhookSecret,
+    [credentialKey("telegram", "bot_token")]: botToken,
+    [credentialKey("telegram", "webhook_secret")]: webhookSecret,
   };
   const credentials = {
     get: async (key: string) => credentialMap[key],

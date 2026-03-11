@@ -76,6 +76,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
+import { credentialKey } from "../security/credential-key.js";
 import { executeBrowserFillCredential } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -142,7 +143,9 @@ describe("executeBrowserFillCredential", () => {
       '[data-vellum-eid="e1"]',
       "super-secret-password",
     );
-    expect(mockGetSecureKey).toHaveBeenCalledWith("credential:gmail:password");
+    expect(mockGetSecureKey).toHaveBeenCalledWith(
+      credentialKey("gmail", "password"),
+    );
   });
 
   test("fills credential by CSS selector", async () => {
@@ -297,7 +300,7 @@ describe("executeBrowserFillCredential", () => {
         "password",
       );
       expect(mockGetSecureKey).toHaveBeenCalledWith(
-        "credential:gmail:password",
+        credentialKey("gmail", "password"),
       );
     });
 

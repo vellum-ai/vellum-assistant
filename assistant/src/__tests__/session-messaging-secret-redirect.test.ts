@@ -5,6 +5,7 @@ import {
   redirectToSecurePrompt,
 } from "../daemon/session-messaging.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { credentialKey } from "../security/credential-key.js";
 
 const setSecureKeyMock = mock((_key?: string, _value?: string) => true);
 const upsertCredentialMetadataMock = mock(
@@ -108,7 +109,7 @@ describe("session-messaging secret redirect", () => {
       label: "Telegram Bot Token",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:telegram:bot_token",
+      credentialKey("telegram", "bot_token"),
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
     expect(upsertCredentialMetadataMock).toHaveBeenCalledWith(
@@ -158,7 +159,7 @@ describe("session-messaging secret redirect", () => {
       label: "Telegram Bot Token",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:telegram:bot_token",
+      credentialKey("telegram", "bot_token"),
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
   });
@@ -197,7 +198,7 @@ describe("session-messaging secret redirect", () => {
       label: "Telegram Bot Token",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:telegram:bot_token",
+      credentialKey("telegram", "bot_token"),
       "123456789:ABCDefGHIJklmnopQRSTuvwxyz012345678",
     );
   });
@@ -231,7 +232,7 @@ describe("session-messaging secret redirect", () => {
       label: "Secure Credential Entry",
     });
     expect(setSecureKeyMock).toHaveBeenCalledWith(
-      "credential:detected:Some Unknown Secret",
+      credentialKey("detected", "Some Unknown Secret"),
       "opaque-secret",
     );
     expect(upsertCredentialMetadataMock).toHaveBeenCalledWith(
