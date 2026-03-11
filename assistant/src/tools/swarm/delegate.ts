@@ -8,7 +8,6 @@ import { executeSwarm } from "../../swarm/orchestrator.js";
 import { generatePlan } from "../../swarm/router-planner.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("swarm-delegate");
@@ -204,8 +203,6 @@ export const swarmDelegateTool: Tool = {
     }
   },
 };
-
-registerTool(swarmDelegateTool);
 
 /** Clear all active sessions — only for testing. */
 export function _resetSwarmActive(): void {
