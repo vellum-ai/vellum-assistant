@@ -51,7 +51,7 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
-  const apiKey = config.apiKeys.gemini;
+  const apiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
 
   // Resolve credentials: prefer direct API key, fall back to managed proxy
   let credentials: ImageGenCredentials | undefined;
