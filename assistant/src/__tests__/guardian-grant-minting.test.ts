@@ -51,6 +51,7 @@ import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createApprovalRequest,
+  getPendingApprovalForRequest,
   type GuardianApprovalRequest,
 } from "../memory/guardian-approvals.js";
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
@@ -245,6 +246,40 @@ describe("guardian grant minting on tool-approval decisions", () => {
 
     deliverSpy.mockRestore();
     composeSpy.mockRestore();
+  });
+
+  test("guardian reaction approve_always is downgraded to one-time approval", async () => {
+    const requestId = "req-grant-reaction-1";
+    const approval = createTestGuardianApproval(requestId, {
+      conversationId: CONVERSATION_ID,
+      channel: "slack",
+      guardianChatId: GUARDIAN_CHAT,
+    });
+    const handleConfirmationResponse = registerPendingInteraction(
+      requestId,
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    const result = await handleApprovalInterception({
+      conversationId: "guardian-conv-1",
+      callbackData: "reaction:white_check_mark",
+      content: "",
+      conversationExternalId: GUARDIAN_CHAT,
+      sourceChannel: "slack",
+      actorExternalId: GUARDIAN_USER,
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: makeTrustContext(),
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("guardian_decision_applied");
+    expect(handleConfirmationResponse).toHaveBeenCalledWith(requestId, "allow");
+
+    const updatedApproval = getPendingApprovalForRequest(approval.requestId);
+    expect(updatedApproval).toBeNull();
   });
 
   // ── 2. approve_once for non-tool-approval does NOT mint a grant ──
