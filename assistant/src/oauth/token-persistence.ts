@@ -137,17 +137,31 @@ export async function storeOAuth2Tokens(
   if (resolvedAccountInfo) {
     try {
       const {
+        deleteNestedKey,
+        getNestedValue,
         invalidateConfigCache,
         loadRawConfig,
         saveRawConfig,
         setNestedValue,
       } = await import("../config/loader.js");
       const raw = loadRawConfig();
-      setNestedValue(
-        raw,
-        `integrations.accountInfo.${service}`,
-        resolvedAccountInfo,
-      );
+
+      // Migrate old path → new path if needed
+      const oldPath = `integrations.accountInfo.${service}`;
+      const newPath = `integrations.${service}.accountInfo`;
+      const oldValue = getNestedValue(raw, oldPath);
+      if (oldValue != null && getNestedValue(raw, newPath) == null) {
+        setNestedValue(raw, newPath, oldValue);
+      }
+
+      // Write to the new namespaced path
+      setNestedValue(raw, newPath, resolvedAccountInfo);
+
+      // Clean up old path if it existed
+      if (oldValue != null) {
+        deleteNestedKey(raw, ["integrations", "accountInfo", service]);
+      }
+
       saveRawConfig(raw);
       invalidateConfigCache();
     } catch {
