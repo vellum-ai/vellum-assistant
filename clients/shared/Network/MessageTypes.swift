@@ -135,8 +135,6 @@ public struct AnyCodable: Codable, Equatable, @unchecked Sendable {
 /// Attachment payload sent inline as base64.
 /// Backed by generated `UserMessageAttachment`.
 public typealias Attachment = UserMessageAttachment
-@available(*, deprecated, renamed: "Attachment")
-public typealias IPCAttachment = UserMessageAttachment
 
 extension UserMessageAttachment {
     public init(filename: String, mimeType: String, data: String, extractedText: String?) {
