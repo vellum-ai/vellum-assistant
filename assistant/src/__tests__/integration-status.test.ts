@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { OAuthConnectionRow } from "../oauth/oauth-store.js";
 import { credentialKey } from "../security/credential-key.js";
 
 const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
 
-/** Simulated active OAuth connections keyed by provider. */
-const oauthConnections = new Map<string, OAuthConnectionRow>();
+/** Set of providers that should report as connected via isProviderConnected(). */
+const connectedProviders = new Set<string>();
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
@@ -22,26 +21,13 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
-  getConnectionByProvider: (providerKey: string) =>
-    oauthConnections.get(providerKey),
+  isProviderConnected: (providerKey: string) =>
+    connectedProviders.has(providerKey),
 }));
 
-/** Helper to insert a fake active connection for a provider. */
+/** Mark a provider as fully connected (active row + access token). */
 function setOAuthConnected(providerKey: string): void {
-  oauthConnections.set(providerKey, {
-    id: "fake-id",
-    oauthAppId: "fake-app",
-    providerKey,
-    accountInfo: null,
-    grantedScopes: "[]",
-    expiresAt: null,
-    hasRefreshToken: 0,
-    status: "active",
-    label: null,
-    metadata: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
+  connectedProviders.add(providerKey);
 }
 
 const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
@@ -50,7 +36,7 @@ const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
 describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
-    oauthConnections.clear();
+    connectedProviders.clear();
     mockTwilioAccountSid = undefined;
   });
 

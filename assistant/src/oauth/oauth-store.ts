@@ -16,6 +16,7 @@ import {
 } from "../memory/schema/oauth.js";
 import {
   deleteSecureKeyAsync,
+  getSecureKey,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 
@@ -355,6 +356,20 @@ export function getConnectionByProvider(
     .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
     .limit(1)
     .get();
+}
+
+/**
+ * Check whether a provider has a usable OAuth connection: an active row in the
+ * database AND a corresponding access token in secure storage.
+ *
+ * This guards against the edge case where the connection row was created/updated
+ * but the secure-key write for the access token failed, which would make
+ * `resolveOAuthConnection()` throw at usage time.
+ */
+export function isProviderConnected(providerKey: string): boolean {
+  const conn = getConnectionByProvider(providerKey);
+  if (!conn || conn.status !== "active") return false;
+  return getSecureKey(`oauth_connection/${conn.id}/access_token`) !== undefined;
 }
 
 /**

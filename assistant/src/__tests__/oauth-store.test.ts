@@ -27,9 +27,12 @@ const mockDeleteSecureKeyAsync = mock(() =>
   Promise.resolve("deleted" as const),
 );
 const mockSetSecureKeyAsync = mock(() => Promise.resolve(true));
+/** Simulated secure key store for getSecureKey lookups. */
+const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
   setSecureKeyAsync: mockSetSecureKeyAsync,
+  getSecureKey: (account: string) => secureKeyValues.get(account),
 }));
 
 import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
@@ -43,6 +46,7 @@ import {
   getConnection,
   getConnectionByProvider,
   getProvider,
+  isProviderConnected,
   listConnections,
   registerProvider,
   seedProviders,
@@ -79,6 +83,7 @@ beforeEach(() => {
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
   mockDeleteSecureKeyAsync.mockClear();
   mockSetSecureKeyAsync.mockClear();
+  secureKeyValues.clear();
 });
 
 afterAll(() => {
@@ -440,6 +445,54 @@ describe("connection operations", () => {
 
     test("returns undefined when no active connections exist", () => {
       expect(getConnectionByProvider("github")).toBeUndefined();
+    });
+  });
+
+  describe("isProviderConnected", () => {
+    test("returns true when active connection has an access token in secure storage", async () => {
+      const app = await createTestApp("github", "client-1");
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok");
+
+      expect(isProviderConnected("github")).toBe(true);
+    });
+
+    test("returns false when active connection exists but access token is missing", async () => {
+      const app = await createTestApp("github", "client-1");
+      createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      // No secure key set — simulates failed token write
+      expect(isProviderConnected("github")).toBe(false);
+    });
+
+    test("returns false when no connection exists", () => {
+      expect(isProviderConnected("github")).toBe(false);
+    });
+
+    test("returns false when connection is revoked even with token in store", async () => {
+      const app = await createTestApp("github", "client-1");
+      const conn = createConnection({
+        oauthAppId: app.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      updateConnection(conn.id, { status: "revoked" });
+      secureKeyValues.set(`oauth_connection/${conn.id}/access_token`, "tok");
+
+      expect(isProviderConnected("github")).toBe(false);
     });
   });
 
