@@ -60,7 +60,7 @@
     },
     {
       "name": "computer_use_type_text",
-      "description": "Type text at the current cursor position. The target field must already be focused (click it first).",
+      "description": "Type text at the current cursor position. First click a text field (by element_id) to focus it, then call this tool. If a field shows 'FOCUSED', skip the click.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
