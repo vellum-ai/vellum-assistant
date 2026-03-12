@@ -16,6 +16,7 @@ export function classifyProcess(command: string): string {
   if (/openclaw/.test(command)) return "openclaw-adapter";
   if (/vellum-daemon/.test(command)) return "assistant";
   if (/daemon\s+(start|restart)/.test(command)) return "assistant";
+  if (/vellum-cli/.test(command)) return "vellum";
   // Exclude macOS desktop app processes — their path contains .app/Contents/MacOS/
   // but they are not background service processes.
   if (/\.app\/Contents\/MacOS\//.test(command)) return "unknown";
