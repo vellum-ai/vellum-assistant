@@ -26,6 +26,20 @@ extension HTTPTransport {
         }
     }
 
+    // MARK: - Session ID Translation
+
+    /// Given a client-local session ID, find the corresponding server conversation ID
+    /// by doing a reverse lookup in `serverToLocalSessionMap`. Returns the original ID
+    /// if no mapping exists (the ID is already a server conversation ID, e.g. restored threads).
+    func serverSessionId(forLocal localId: String) -> String {
+        for (serverId, mappedLocalId) in serverToLocalSessionMap {
+            if mappedLocalId == localId {
+                return serverId
+            }
+        }
+        return localId
+    }
+
     // MARK: - Subagents HTTP Endpoints
 
     private func fetchSubagentDetail(subagentId: String, conversationId: String, isRetry: Bool = false) async {
@@ -70,10 +84,12 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        // The abort endpoint requires a sessionId in the body
+        // The abort endpoint requires a sessionId in the body.
+        // Translate client-local session ID → server conversation ID so the
+        // server's ownership check (parentSessionId) passes.
         var body: [String: Any] = [:]
         if let sessionId = sessionId {
-            body["sessionId"] = sessionId
+            body["sessionId"] = serverSessionId(forLocal: sessionId)
         }
 
         do {
@@ -106,9 +122,11 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
+        // Translate client-local session ID → server conversation ID so the
+        // server's ownership check (parentSessionId) passes.
         var body: [String: Any] = ["content": content]
         if let sessionId = sessionId {
-            body["sessionId"] = sessionId
+            body["sessionId"] = serverSessionId(forLocal: sessionId)
         }
 
         do {
