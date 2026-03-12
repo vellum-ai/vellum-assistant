@@ -98,8 +98,14 @@ export class ConfigWatcher {
    * Start all file watchers. `onSessionEvict` is called when watched
    * files change and sessions need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
+   * `onMcpReload` is called when the MCP section of config.json changes
+   * or when a `mcp-reload` signal file appears in the workspace directory.
    */
-  start(onSessionEvict: () => void, onIdentityChanged?: () => void): void {
+  start(
+    onSessionEvict: () => void,
+    onIdentityChanged?: () => void,
+    onMcpReload?: () => void,
+  ): void {
     const workspaceDir = getWorkspaceDir();
     const protectedDir = join(getRootDir(), "protected");
 
@@ -107,14 +113,26 @@ export class ConfigWatcher {
       "config.json": () => {
         if (this.suppressReload) return;
         try {
+          const prevConfig = getConfig();
+          const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
           const changed = this.refreshConfigFromSources();
-          if (changed) onSessionEvict();
+          if (changed) {
+            onSessionEvict();
+            const newConfig = getConfig();
+            const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
+            if (newMcpFingerprint !== prevMcpFingerprint) {
+              onMcpReload?.();
+            }
+          }
         } catch (err) {
           log.error(
             { err, configPath: join(workspaceDir, "config.json") },
             "Failed to reload config after file change. Previous config remains active.",
           );
         }
+      },
+      "mcp-reload": () => {
+        onMcpReload?.();
       },
       "SOUL.md": () => onSessionEvict(),
       "IDENTITY.md": () => {

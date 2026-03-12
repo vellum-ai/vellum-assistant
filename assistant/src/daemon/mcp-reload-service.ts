@@ -1,8 +1,8 @@
 /**
  * Shared MCP reload business logic.
  *
- * Used by the HTTP route (`runtime/routes/mcp-routes.ts`) so the reload
- * behaviour is defined in exactly one place.
+ * Called by the ConfigWatcher when config.json changes or a reload signal
+ * file is detected, so the daemon automatically reconnects MCP servers.
  */
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";

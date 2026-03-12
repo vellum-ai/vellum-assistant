@@ -1,3 +1,6 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -11,7 +14,7 @@ import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
-import { httpSend } from "../http-client.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
@@ -51,6 +54,19 @@ export async function checkServerHealth(
   }
 }
 
+/**
+ * Write a signal file so the daemon's ConfigWatcher triggers an MCP reload.
+ * Used after operations (like OAuth auth) that don't modify config.json
+ * but require the daemon to reconnect MCP servers.
+ */
+function signalMcpReload(): void {
+  try {
+    writeFileSync(join(getWorkspaceDir(), "mcp-reload"), "");
+  } catch {
+    // Best-effort — the daemon may not be running or the directory may not exist.
+  }
+}
+
 export function registerMcpCommand(program: Command): void {
   const mcp = program
     .command("mcp")
@@ -67,8 +83,8 @@ server uses one of three transport types:
   sse               Remote server using Server-Sent Events
   streamable-http   Remote server using Streamable HTTP transport
 
-After changing MCP server configuration, run 'vellum mcp reload' to apply
-changes without restarting the assistant.
+MCP server configuration changes are detected automatically by the running
+assistant — no manual reload is needed.
 
 Examples:
   $ assistant mcp list
@@ -246,69 +262,6 @@ Examples:
     });
 
   mcp
-    .command("reload")
-    .description("Reload MCP server connections in the running assistant")
-    .addHelpText(
-      "after",
-      `
-Sends a message to the running assistant to disconnect and reconnect all MCP
-servers using the current configuration from disk. Active sessions pick up
-new tools on their next turn automatically. The assistant must be running.
-
-Examples:
-  $ vellum mcp reload
-  $ vellum mcp reload   # after editing config.json to add a new server
-  $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
-    )
-    .action(async () => {
-      log.info("Sending reload request to assistant...");
-      try {
-        const res = await httpSend("/v1/mcp/reload", { method: "POST" });
-        const response = (await res.json()) as {
-          success: boolean;
-          serverCount?: number;
-          toolCount?: number;
-          servers?: {
-            id: string;
-            connected: boolean;
-            disabled?: boolean;
-            toolCount: number;
-            tools: string[];
-          }[];
-          error?: string;
-        };
-        if (response.success) {
-          log.info(
-            `MCP servers reloaded: ${response.serverCount} server(s), ${response.toolCount} tool(s)\n`,
-          );
-          if (response.servers && response.servers.length > 0) {
-            for (const server of response.servers) {
-              const status = server.disabled
-                ? "⊘ Disabled"
-                : server.connected
-                  ? "\u2713 Connected"
-                  : "\u2717 Not connected";
-              log.info(`  ${server.id}`);
-              log.info(`    Status: ${status}`);
-              log.info(
-                `    Tools:  ${server.toolCount > 0 ? server.tools.join(", ") : "(none)"}`,
-              );
-              log.info("");
-            }
-          }
-        } else {
-          log.error(`Failed to reload: ${response.error}`);
-          process.exitCode = 1;
-        }
-      } catch (err) {
-        log.error(
-          `Failed to send reload request: ${err instanceof Error ? err.message : err}`,
-        );
-        process.exitCode = 1;
-      }
-    });
-
-  mcp
     .command("add <name>")
     .description("Add an MCP server configuration")
     .requiredOption(
@@ -422,7 +375,9 @@ Examples:
 
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        log.info("Run 'vellum mcp reload' to apply changes.");
+        log.info(
+          "The running assistant will pick up this change automatically.",
+        );
       },
     );
 
@@ -444,8 +399,8 @@ OAuth flow. If the server already has valid cached tokens, the command succeeds
 immediately without opening a browser. Tokens are cached locally for future use
 by the assistant.
 
-After successful authentication, run 'vellum mcp reload' to apply changes
-without restarting the assistant.
+After successful authentication, the running assistant picks up the new
+credentials automatically.
 
 Examples:
   $ assistant mcp auth my-server
@@ -603,7 +558,8 @@ Examples:
       provider.stopCallbackServer();
 
       log.info(`Authentication successful for "${name}".`);
-      log.info("Run 'vellum mcp reload' to apply changes.");
+      log.info("The running assistant will pick up this change automatically.");
+      signalMcpReload();
       process.exit(0);
     });
 
@@ -621,8 +577,8 @@ any stored OAuth credentials (tokens, client info, discovery metadata) for
 sse/streamable-http servers. If no OAuth credentials exist, the cleanup is
 silently skipped.
 
-After removal, run 'vellum mcp reload' to apply changes without restarting
-the assistant.
+The running assistant detects the removal automatically and disconnects the
+server.
 
 Examples:
   $ assistant mcp remove my-server
@@ -655,6 +611,6 @@ Examples:
       delete servers[name];
       saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
-      log.info("Run 'vellum mcp reload' to apply changes.");
+      log.info("The running assistant will pick up this change automatically.");
     });
 }
