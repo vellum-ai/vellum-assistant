@@ -17,24 +17,30 @@ interface OrgListResponse {
 async function fetchOrganizationId(
   platformUrl: string,
   token: string,
-): Promise<string | null> {
+): Promise<{ orgId: string } | { error: string }> {
   try {
     const response = await fetch(`${platformUrl}/v1/organizations/`, {
       headers: { "X-Session-Token": token },
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return { error: `org lookup failed (${response.status})` };
+    }
     const body = (await response.json()) as OrgListResponse;
-    return body.results?.[0]?.id ?? null;
+    const orgId = body.results?.[0]?.id;
+    if (!orgId) {
+      return { error: "no organization found" };
+    }
+    return { orgId };
   } catch {
-    return null;
+    return { error: "org lookup unreachable" };
   }
 }
 
 export async function checkManagedHealth(
+  runtimeUrl: string,
   assistantId: string,
 ): Promise<HealthCheckResult> {
-  const { getPlatformUrl, readPlatformToken } =
-    await import("./platform-client.js");
+  const { readPlatformToken } = await import("./platform-client.js");
   const token = readPlatformToken();
   if (!token) {
     return {
@@ -43,18 +49,17 @@ export async function checkManagedHealth(
     };
   }
 
-  const platformUrl = getPlatformUrl();
-
-  const orgId = await fetchOrganizationId(platformUrl, token);
-  if (!orgId) {
+  const orgResult = await fetchOrganizationId(runtimeUrl, token);
+  if ("error" in orgResult) {
     return {
       status: "error (auth)",
-      detail: "could not resolve organization",
+      detail: orgResult.error,
     };
   }
+  const { orgId } = orgResult;
 
   try {
-    const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
+    const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),
