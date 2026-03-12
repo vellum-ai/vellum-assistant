@@ -15,10 +15,13 @@ import {
   getMemoryBackendStatus,
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
+import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
 import {
-  isQdrantBreakerOpen,
-} from "./qdrant-circuit-breaker.js";
-import { conversations, memoryItems, memoryItemSources, messages } from "./schema.js";
+  conversations,
+  memoryItems,
+  memoryItemSources,
+  messages,
+} from "./schema.js";
 import {
   buildTwoLayerInjection,
   IDENTITY_KINDS,
@@ -28,7 +31,10 @@ import {
 import { recencySearch } from "./search/lexical.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
-import { classifyTiers, type TieredCandidate } from "./search/tier-classifier.js";
+import {
+  classifyTiers,
+  type TieredCandidate,
+} from "./search/tier-classifier.js";
 import type {
   Candidate,
   DegradationReason,
@@ -318,15 +324,9 @@ export async function buildMemoryRecall(
     } catch (err) {
       semanticSearchFailed = true;
       if (isQdrantConnectionError(err)) {
-        log.warn(
-          { err },
-          "Qdrant unavailable — hybrid search disabled",
-        );
+        log.warn({ err }, "Qdrant unavailable — hybrid search disabled");
       } else {
-        log.warn(
-          { err },
-          "Hybrid search failed, continuing with recency only",
-        );
+        log.warn({ err }, "Hybrid search failed, continuing with recency only");
       }
     }
   }
@@ -460,16 +460,14 @@ export async function buildMemoryRecall(
       .length,
   };
 
-  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion
-    .slice(0, 10)
-    .map((c) => ({
-      key: c.key,
-      type: c.type,
-      kind: c.kind,
-      finalScore: c.finalScore,
-      semantic: c.semantic,
-      recency: c.recency,
-    }));
+  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion.map((c) => ({
+    key: c.key,
+    type: c.type,
+    kind: c.kind,
+    finalScore: c.finalScore,
+    semantic: c.semantic,
+    recency: c.recency,
+  }));
 
   const latencyMs = Date.now() - start;
 
@@ -666,10 +664,7 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
     // doesn't carry it. For now, skip segment source labels as the join path would require
     // importing memorySegments and an additional query. The primary value is item source labels.
   } catch (err) {
-    log.warn(
-      { err },
-      "Failed to enrich candidates with source labels",
-    );
+    log.warn({ err }, "Failed to enrich candidates with source labels");
   }
 }
 
@@ -702,14 +697,19 @@ export function stripMemoryRecallMessages<
     msg.content[0].text === MEMORY_CONTEXT_ACK;
 
   // Check if the recall text uses the <memory_context> XML format
-  const isMemoryContextFormat = recallText.trimStart().startsWith("<memory_context>");
+  const isMemoryContextFormat = recallText
+    .trimStart()
+    .startsWith("<memory_context>");
 
   // Helper: does a text block match the recall text?
   const textMatches = (text: string | undefined): boolean => {
     if (!text) return false;
     if (text === recallText) return true;
     // For <memory_context> format, match any block that starts with the tag
-    if (isMemoryContextFormat && text.trimStart().startsWith("<memory_context>")) {
+    if (
+      isMemoryContextFormat &&
+      text.trimStart().startsWith("<memory_context>")
+    ) {
       return true;
     }
     return false;

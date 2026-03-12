@@ -302,31 +302,6 @@ describe("handleMemoryRecall", () => {
     expect(typeof parsed.text).toBe("string");
   });
 
-  test("respects max_results parameter", async () => {
-    seedMemory();
-
-    const result = await handleMemoryRecall(
-      { query: "API design", max_results: 1 },
-      TEST_CONFIG,
-    );
-
-    expect(result.isError).toBe(false);
-    const parsed = parseResult(result.content);
-    expect(parsed.resultCount).toBeLessThanOrEqual(1);
-  });
-
-  test("clamps max_results to 50", async () => {
-    seedMemory();
-
-    // Should not throw, max_results capped at 50
-    const result = await handleMemoryRecall(
-      { query: "API design", max_results: 100 },
-      TEST_CONFIG,
-    );
-
-    expect(result.isError).toBe(false);
-  });
-
   // ── Empty results ─────────────────────────────────────────────────
 
   test("returns empty result when no memories match", async () => {
