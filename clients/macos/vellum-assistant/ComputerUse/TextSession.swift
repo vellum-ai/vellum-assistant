@@ -124,10 +124,6 @@ final class TextSession: ObservableObject {
                     self.messages.append(ConversationMessage(role: .assistant, text: responseText))
                     return
 
-                case .cuError(let error) where error.sessionId == self.daemonSessionId && self.daemonSessionId != nil:
-                    self.state = .failed(reason: error.message)
-                    return
-
                 case .sessionError(let error) where error.sessionId == self.daemonSessionId && self.daemonSessionId != nil:
                     self.state = .failed(reason: error.userMessage)
                     return
@@ -197,10 +193,6 @@ final class TextSession: ObservableObject {
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
                     self.state = .ready
                     self.messages.append(ConversationMessage(role: .assistant, text: responseText))
-                    return
-
-                case .cuError(let error) where error.sessionId == sessionId:
-                    self.state = .failed(reason: error.message)
                     return
 
                 case .sessionError(let error) where error.sessionId == sessionId:
