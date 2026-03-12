@@ -255,15 +255,16 @@ Examples:
           });
         }
 
-        // Build a lookup of oauth connections keyed by providerKey for enrichment
+        // Build a lookup of oauth connections keyed by providerKey for enrichment.
+        // listConnections() returns rows in no guaranteed order, so we compare
+        // createdAt to keep the most recent active connection per provider —
+        // matching the behaviour of getConnectionByProvider() used by inspect.
         const allConnections = safeListConnections();
         const connectionsByProvider = new Map<string, OAuthConnectionRow>();
         for (const conn of allConnections) {
-          // Keep the most recent active connection per provider
-          if (
-            conn.status === "active" &&
-            !connectionsByProvider.has(conn.providerKey)
-          ) {
+          if (conn.status !== "active") continue;
+          const existing = connectionsByProvider.get(conn.providerKey);
+          if (!existing || conn.createdAt > existing.createdAt) {
             connectionsByProvider.set(conn.providerKey, conn);
           }
         }
@@ -444,10 +445,14 @@ Examples:
           return;
         }
 
-        // Clean up matching oauth_connection row if one exists
-        const connection = safeGetConnectionByProvider(service);
-        if (connection) {
-          safeDeleteConnection(connection.id);
+        // Only delete the oauth_connection when removing the primary credential
+        // (access_token). Deleting auxiliary fields like client_secret should not
+        // destroy the connection that access_token depends on.
+        if (field === "access_token") {
+          const connection = safeGetConnectionByProvider(service);
+          if (connection) {
+            safeDeleteConnection(connection.id);
+          }
         }
 
         writeOutput(cmd, { ok: true, service, field });
