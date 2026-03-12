@@ -53,6 +53,11 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
+import {
+  detectConfiguredHooks,
+  getGitHooksTrustDecision,
+  setGitHooksTrustDecision,
+} from "../workspace/git-hooks-trust.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
 import {
@@ -70,6 +75,7 @@ import {
   buildTemporalContext,
   extractUserTimeZoneFromDynamicProfile,
 } from "./date-context.js";
+import { requestGitHooksTrustApproval } from "./git-hooks-approval.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -215,6 +221,14 @@ export interface AgentLoopSessionContext {
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
 
+  /**
+   * Tracks whether the git hooks trust prompt has already been issued
+   * for the current workspace during this session.  Set to `true` after
+   * the first prompt so subsequent turns in the same session don't
+   * re-prompt the user.
+   */
+  gitHooksTrustPromptIssuedForWorkspace?: string;
+
   emitActivityState(
     phase:
       | "idle"
@@ -338,13 +352,64 @@ export async function runAgentLoopImpl(
   ctx.lastAttachmentWarnings = [];
 
   // Ensure workspace git repo is initialized before any tools run.
+  let workspaceGitServiceForHooks: {
+    runReadOnlyGit(args: string[]): Promise<{ stdout: string; stderr: string }>;
+  } | null = null;
   try {
     const getWorkspaceGitServiceFn =
       ctx.getWorkspaceGitService ?? getWorkspaceGitService;
     const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
     await gitService.ensureInitialized();
+    workspaceGitServiceForHooks =
+      gitService as typeof workspaceGitServiceForHooks;
   } catch (err) {
     rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
+  }
+
+  // After workspace initialization: if the workspace has git hooks configured
+  // and the user hasn't made a trust decision yet, prompt them once per session.
+  // This runs fire-and-forget (we don't await it blocking the main loop) so
+  // that the prompt does not delay normal message processing.  The result is
+  // persisted via setGitHooksTrustDecision so it survives restarts.
+  if (
+    workspaceGitServiceForHooks &&
+    !ctx.hasNoClient &&
+    ctx.gitHooksTrustPromptIssuedForWorkspace !== ctx.workingDir
+  ) {
+    const trustDecision = getGitHooksTrustDecision(ctx.workingDir);
+    if (trustDecision === "ask") {
+      const gitSvc = workspaceGitServiceForHooks;
+      const workingDir = ctx.workingDir;
+      // Mark as issued immediately to prevent duplicate prompts on concurrent turns.
+      ctx.gitHooksTrustPromptIssuedForWorkspace = workingDir;
+      detectConfiguredHooks(workingDir, gitSvc)
+        .then(async (detected) => {
+          if (!detected.hasHooks) return;
+          // Re-check in case another turn resolved it while we were detecting.
+          if (getGitHooksTrustDecision(workingDir) !== "ask") return;
+          try {
+            const approval = await requestGitHooksTrustApproval(ctx.prompter, {
+              signal: abortController.signal,
+            });
+            setGitHooksTrustDecision(
+              workingDir,
+              approval.approved ? "allow" : "deny",
+            );
+          } catch (err) {
+            rlog.warn(
+              { err },
+              "Git hooks trust prompt failed (non-fatal); defaulting to deny",
+            );
+            setGitHooksTrustDecision(workingDir, "deny");
+          }
+        })
+        .catch((err) => {
+          rlog.warn(
+            { err },
+            "Git hooks trust hook detection failed (non-fatal)",
+          );
+        });
+    }
   }
 
   ctx.profiler.startRequest();
