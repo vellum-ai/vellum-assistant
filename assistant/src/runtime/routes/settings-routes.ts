@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
+import { getApp, getConnectionByProvider } from "../../oauth/oauth-store.js";
 import {
   getProviderProfile,
   resolveService,
@@ -173,11 +174,24 @@ async function handleOAuthConnectStart(body: {
 
   const resolvedService = resolveService(body.service);
 
-  // client_id is stored in metadata (oauth2ClientId), not the secure store.
-  let clientId = getCredentialMetadata(
-    resolvedService,
-    "access_token",
-  )?.oauth2ClientId;
+  // Prefer oauth-store for client_id, fall back to metadata-store.
+  let clientId: string | undefined;
+  try {
+    const conn = getConnectionByProvider(resolvedService);
+    if (conn) {
+      const app = getApp(conn.oauthAppId);
+      if (app) clientId = app.clientId;
+    }
+  } catch {
+    // DB not ready — fall through to metadata-store
+  }
+
+  if (!clientId) {
+    clientId = getCredentialMetadata(
+      resolvedService,
+      "access_token",
+    )?.oauth2ClientId;
+  }
   if (!clientId && resolvedService !== body.service) {
     clientId = getCredentialMetadata(
       body.service,
@@ -222,6 +236,15 @@ async function handleOAuthConnectStart(body: {
         authUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
+        // Prefer accountInfo from oauth-store when available.
+        let accountInfo = deferredResult.accountInfo;
+        try {
+          const conn = getConnectionByProvider(resolvedService);
+          if (conn?.accountInfo) accountInfo = conn.accountInfo;
+        } catch {
+          // DB not ready — use orchestrator value
+        }
+
         // Emit oauth_connect_result to all connected SSE clients so the
         // UI can update immediately when the deferred browser flow completes.
         assistantEventHub
@@ -230,7 +253,7 @@ async function handleOAuthConnectStart(body: {
               type: "oauth_connect_result",
               success: deferredResult.success,
               service: deferredResult.service,
-              accountInfo: deferredResult.accountInfo,
+              accountInfo,
               error: deferredResult.error,
             }),
           )
@@ -273,10 +296,19 @@ async function handleOAuthConnectStart(body: {
       });
     }
 
+    // Prefer accountInfo from oauth-store when available.
+    let responseAccountInfo = result.accountInfo;
+    try {
+      const conn = getConnectionByProvider(resolvedService);
+      if (conn?.accountInfo) responseAccountInfo = conn.accountInfo;
+    } catch {
+      // DB not ready — use orchestrator value
+    }
+
     return Response.json({
       ok: true,
       grantedScopes: result.grantedScopes,
-      accountInfo: result.accountInfo,
+      accountInfo: responseAccountInfo,
       ...(authUrl ? { authUrl } : {}),
     });
   } catch (err) {

@@ -5,6 +5,7 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
+import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -35,6 +36,26 @@ export interface SlackChannelConfigResult {
 // -- Business logic --
 
 export function getSlackChannelConfig(): SlackChannelConfigResult {
+  // Prefer oauth-store for connection status, fall back to keychain/config.
+  try {
+    const conn = getConnectionByProvider("slack_channel");
+    if (conn && conn.status === "active") {
+      const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+      return {
+        success: true,
+        hasBotToken: true,
+        hasAppToken: true,
+        connected: true,
+        ...(teamId ? { teamId } : {}),
+        ...(teamName ? { teamName } : {}),
+        ...(botUserId ? { botUserId } : {}),
+        ...(botUsername ? { botUsername } : {}),
+      };
+    }
+  } catch {
+    // DB not ready — fall through to keychain check
+  }
+
   const hasBotToken = !!getSecureKey(
     credentialKey("slack_channel", "bot_token"),
   );

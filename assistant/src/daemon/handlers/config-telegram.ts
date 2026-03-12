@@ -8,6 +8,7 @@ import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
+import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -61,6 +62,23 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 // -- Extracted business logic functions --
 
 export function getTelegramConfig(): TelegramConfigResult {
+  // Prefer oauth-store for connection status, fall back to keychain check.
+  try {
+    const conn = getConnectionByProvider("telegram");
+    if (conn && conn.status === "active") {
+      const botUsername = getTelegramBotUsername();
+      return {
+        success: true,
+        hasBotToken: true,
+        botUsername,
+        connected: true,
+        hasWebhookSecret: true,
+      };
+    }
+  } catch {
+    // DB not ready — fall through to keychain check
+  }
+
   const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
   const hasWebhookSecret = !!getSecureKey(
     credentialKey("telegram", "webhook_secret"),
