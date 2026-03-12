@@ -45,12 +45,16 @@ You open pages via the `open` command (launches in the user's default browser �
 
 ## Opening URLs
 
-Every URL navigation uses this single command. It detects the default browser and reuses the front tab if possible, falling back to `open` for unknown browsers or if no browser window exists yet:
+### Setup: create the navigation helper (do this once at the start of the flow)
+
+Before opening any URLs, create the helper script:
 
 ```
 host_bash:
   command: |
-    URL="TARGET_URL"
+    cat > /tmp/vellum-nav.sh << 'NAVSCRIPT'
+    #!/bin/bash
+    URL="$1"
     BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h['LSHandlerRoleAll']) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
     case "$BROWSER" in
       com.google.chrome)
@@ -64,9 +68,21 @@ host_bash:
       *)
         open "$URL" ;;
     esac
+    NAVSCRIPT
+    chmod +x /tmp/vellum-nav.sh
+    echo "Navigation helper ready."
 ```
 
-Replace `TARGET_URL` with the actual URL for each step. The `|| open` fallback handles the first navigation (when no browser window exists yet) and unknown browsers gracefully.
+### Navigating to a URL
+
+For every URL in the flow, use:
+
+```
+host_bash:
+  command: /tmp/vellum-nav.sh "TARGET_URL"
+```
+
+Replace `TARGET_URL` with the actual URL. The helper detects the default browser and navigates in the existing tab. On the first call (no browser window yet), it falls back to opening a new tab.
 
 ## Step Pattern
 
@@ -82,7 +98,9 @@ Every step follows this rhythm:
 
 ## Pre-Flow
 
-Before beginning, tell the user:
+**First**, create the navigation helper script (see "Opening URLs" above). Do this silently before saying anything to the user.
+
+Then tell the user:
 
 > We're going to set up Google OAuth together — 9 steps, about 3–5 minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
 >
@@ -264,21 +282,7 @@ Copy the required scopes to the clipboard, then open the Data Access page:
 ```
 host_bash:
   command: |
-    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy
-    URL="https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
-    BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h['LSHandlerRoleAll']) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
-    case "$BROWSER" in
-      com.google.chrome)
-        osascript -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
-      com.apple.safari)
-        osascript -e "tell application \"Safari\" to set URL of current tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
-      company.thebrowser.Browser)
-        osascript -e "tell application \"Arc\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
-      com.brave.Browser)
-        osascript -e "tell application \"Brave Browser\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
-      *)
-        open "$URL" ;;
-    esac
+    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy && /tmp/vellum-nav.sh "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
 ```
 
 > Now I've opened the **Data Access** page and copied the required scopes to your clipboard. Click **Add or Remove Scopes**, find the **"Manually add scopes"** text box at the bottom, **paste** (Cmd+V), then click **Add to Table** (or **Update**), and **Save**.
