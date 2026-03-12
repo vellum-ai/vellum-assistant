@@ -459,10 +459,40 @@ export const computerUseRespondTool: Tool = {
 };
 
 // ---------------------------------------------------------------------------
+// observe
+// ---------------------------------------------------------------------------
+
+export const computerUseObserveTool: Tool = {
+  name: "computer_use_observe",
+  description:
+    "Capture the current screen state. Returns the accessibility tree (with [ID] element references for targeting) and a screenshot. Call this before your first computer use action to see what's on screen, or any time you need to check the current state without performing an action.",
+  category: "computer-use",
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: "proxy",
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: "object",
+        properties: {
+          reason: reasonProperty,
+        },
+        required: ["reason"],
+      },
+    };
+  },
+
+  execute: proxyExecute,
+};
+
+// ---------------------------------------------------------------------------
 // All tools exported as array for convenience
 // ---------------------------------------------------------------------------
 
 export const allComputerUseTools: Tool[] = [
+  computerUseObserveTool,
   computerUseClickTool,
   computerUseTypeTextTool,
   computerUseKeyTool,
