@@ -74,7 +74,7 @@ enum LogExporter {
             let feedback = MetricKitManager.UserFeedbackData(
                 comments: formData.message.isEmpty ? nil : formData.message,
                 email: formData.email,
-                name: formData.reason.displayName
+                name: formData.name.isEmpty ? formData.reason.displayName : formData.name
             )
 
             // Route assistant behavior reports to the brain Sentry project
