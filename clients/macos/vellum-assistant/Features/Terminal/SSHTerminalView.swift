@@ -15,6 +15,14 @@ struct SSHTerminalView: NSViewRepresentable {
         terminalView.terminalDelegate = context.coordinator
         terminalView.configureNativeColors()
 
+        // Configure the internal scroller to use overlay style so it auto-hides
+        // when there is nothing to scroll and appears translucent when visible.
+        for subview in terminalView.subviews {
+            if let scroller = subview as? NSScroller {
+                scroller.scrollerStyle = .overlay
+            }
+        }
+
         // Register the coordinator so the session manager can write output to the terminal.
         context.coordinator.terminalView = terminalView
         sessionManager.onData = { [weak coordinator = context.coordinator] base64Data in
