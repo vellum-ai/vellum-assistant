@@ -66,6 +66,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "email-channel",
+      "scope": "assistant",
+      "key": "feature_flags.email-channel.enabled",
+      "label": "Email Channel",
+      "description": "Show the Email channel card on the Contacts page and enable the email-setup skill",
+      "defaultEnabled": false
+    },
+    {
       "id": "outbound-proxy-sidecar",
       "scope": "assistant",
       "key": "feature_flags.outbound-proxy-sidecar.enabled",
