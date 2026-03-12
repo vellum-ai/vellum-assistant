@@ -208,7 +208,13 @@ export function createToolExecutor(
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
-      ) => surfaceProxyResolver(ctx, toolName, proxyInput),
+      ) =>
+        surfaceProxyResolver(
+          ctx,
+          toolName,
+          proxyInput,
+          ctx.abortController?.signal,
+        ),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
         return secretPrompter.prompt(

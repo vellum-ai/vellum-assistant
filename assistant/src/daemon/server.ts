@@ -663,7 +663,11 @@ export class DaemonServer {
         );
       }
       if (!session.isProcessing() || !session.hostCuProxy) {
-        session.setHostCuProxy(new HostCuProxy(session.getCurrentSender()));
+        session.setHostCuProxy(
+          new HostCuProxy(session.getCurrentSender(), (requestId) => {
+            pendingInteractions.resolve(requestId);
+          }),
+        );
       }
     } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);

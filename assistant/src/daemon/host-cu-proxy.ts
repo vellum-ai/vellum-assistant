@@ -65,6 +65,7 @@ interface PendingRequest {
 export class HostCuProxy {
   private pending = new Map<string, PendingRequest>();
   private sendToClient: (msg: ServerMessage) => void;
+  private onInternalResolve?: (requestId: string) => void;
   private clientConnected = false;
 
   // CU state tracking (per-conversation)
@@ -76,9 +77,11 @@ export class HostCuProxy {
 
   constructor(
     sendToClient: (msg: ServerMessage) => void,
+    onInternalResolve?: (requestId: string) => void,
     maxSteps = MAX_STEPS,
   ) {
     this.sendToClient = sendToClient;
+    this.onInternalResolve = onInternalResolve;
     this._maxSteps = maxSteps;
   }
 
@@ -150,6 +153,7 @@ export class HostCuProxy {
     return new Promise<ToolExecutionResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        this.onInternalResolve?.(requestId);
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
           content: "Host CU proxy timed out waiting for client response",
@@ -164,6 +168,7 @@ export class HostCuProxy {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
+            this.onInternalResolve?.(requestId);
             resolve({ content: "Aborted", isError: true });
           }
         };
@@ -200,6 +205,10 @@ export class HostCuProxy {
 
   hasPendingRequest(requestId: string): boolean {
     return this.pending.has(requestId);
+  }
+
+  isAvailable(): boolean {
+    return this.clientConnected;
   }
 
   // ---------------------------------------------------------------------------
@@ -342,8 +351,9 @@ export class HostCuProxy {
   // ---------------------------------------------------------------------------
 
   dispose(): void {
-    for (const [_requestId, entry] of this.pending) {
+    for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
+      this.onInternalResolve?.(requestId);
       entry.reject(
         new AssistantError("Host CU proxy disposed", ErrorCode.INTERNAL_ERROR),
       );

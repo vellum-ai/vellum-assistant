@@ -50,7 +50,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   function setupProxy(maxSteps?: number): SurfaceSessionContext {
     sentMessages = [];
     const sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostCuProxy(sendToClient as never, maxSteps);
+    proxy = new HostCuProxy(sendToClient as never, undefined, maxSteps);
     // Mark client as connected so requests are sent
     proxy.updateSender(sendToClient as never, true);
     return buildMockContext(proxy);
@@ -87,6 +87,20 @@ describe("surfaceProxyResolver — CU tool routing", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("not available");
+    });
+
+    test("returns error when proxy exists but client not connected", async () => {
+      const sendToClient = () => {};
+      const proxyObj = new HostCuProxy(sendToClient as never);
+      // Default clientConnected is false — do NOT call updateSender with true
+      const ctx = buildMockContext(proxyObj);
+      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 1,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("not available");
+      proxyObj.dispose();
     });
 
     test("returns error for terminal tools when no proxy", async () => {

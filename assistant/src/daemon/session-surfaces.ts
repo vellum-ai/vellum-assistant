@@ -938,10 +938,11 @@ export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
   toolName: string,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
-    if (!ctx.hostCuProxy) {
+    if (!ctx.hostCuProxy || !ctx.hostCuProxy.isAvailable()) {
       return {
         content: "Computer use is not available — no desktop client connected.",
         isError: true,
@@ -973,6 +974,7 @@ export async function surfaceProxyResolver(
       ctx.conversationId,
       ctx.hostCuProxy.stepCount,
       reasoning,
+      signal,
     );
   }
 

@@ -421,7 +421,9 @@ export async function handleSessionCreate(
         pendingInteractions.resolve(requestId);
       });
       session.setHostFileProxy(fileProxy);
-      const cuProxy = new HostCuProxy(sendEvent);
+      const cuProxy = new HostCuProxy(sendEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
       session.setHostCuProxy(cuProxy);
     }
     session.updateClient(sendEvent, false);

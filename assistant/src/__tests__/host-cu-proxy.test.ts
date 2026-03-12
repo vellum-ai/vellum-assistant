@@ -6,11 +6,17 @@ describe("HostCuProxy", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
   let sentMessages: unknown[];
   let sendToClient: (msg: unknown) => void;
+  let resolvedRequestIds: string[];
 
   function setup(maxSteps?: number) {
     sentMessages = [];
+    resolvedRequestIds = [];
     sendToClient = (msg: unknown) => sentMessages.push(msg);
-    proxy = new HostCuProxy(sendToClient as never, maxSteps);
+    proxy = new HostCuProxy(
+      sendToClient as never,
+      (requestId: string) => resolvedRequestIds.push(requestId),
+      maxSteps,
+    );
   }
 
   afterEach(() => {
@@ -594,6 +600,79 @@ describe("HostCuProxy", () => {
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
       expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // onInternalResolve callback
+  // -------------------------------------------------------------------------
+
+  describe("onInternalResolve", () => {
+    test("calls onInternalResolve when abort signal fires", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+
+      await resultPromise;
+      expect(resolvedRequestIds).toContain(requestId);
+    });
+
+    test("calls onInternalResolve on dispose", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      proxy.dispose();
+
+      // dispose rejects pending requests — catch to avoid unhandled rejection
+      await resultPromise.catch(() => {});
+
+      expect(resolvedRequestIds).toContain(requestId);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // isAvailable
+  // -------------------------------------------------------------------------
+
+  describe("isAvailable", () => {
+    test("returns false by default", () => {
+      setup();
+      expect(proxy.isAvailable()).toBe(false);
+    });
+
+    test("returns true after updateSender with clientConnected=true", () => {
+      setup();
+      proxy.updateSender(sendToClient as never, true);
+      expect(proxy.isAvailable()).toBe(true);
+    });
+
+    test("returns false after updateSender with clientConnected=false", () => {
+      setup();
+      proxy.updateSender(sendToClient as never, true);
+      proxy.updateSender(sendToClient as never, false);
+      expect(proxy.isAvailable()).toBe(false);
     });
   });
 

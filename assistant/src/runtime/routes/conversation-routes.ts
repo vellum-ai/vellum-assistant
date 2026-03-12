@@ -648,7 +648,9 @@ export async function handleSendMessage(
       session.setHostFileProxy(fileProxy);
     }
     if (!session.isProcessing() || !session.hostCuProxy) {
-      const cuProxy = new HostCuProxy(onEvent);
+      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
       session.setHostCuProxy(cuProxy);
     }
   } else if (!session.isProcessing()) {
