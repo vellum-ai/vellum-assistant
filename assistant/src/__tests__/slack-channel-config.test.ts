@@ -164,14 +164,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
-// Mock oauth-store — getSlackChannelConfig reads connection status from the DB
-let mockOAuthConnection: { id: string; status: string } | undefined;
-
-mock.module("../oauth/oauth-store.js", () => ({
-  getConnectionByProvider: () => mockOAuthConnection,
-  listConnections: () => [],
-}));
-
 // Mock fetch for Slack API validation
 const originalFetch = globalThis.fetch;
 
@@ -196,7 +188,6 @@ describe("Slack channel config handler", () => {
     secureKeyStore = {};
     credentialMetadataStore = [];
     configStore = {};
-    mockOAuthConnection = undefined;
     globalThis.fetch = originalFetch;
   });
 
@@ -209,7 +200,8 @@ describe("Slack channel config handler", () => {
   });
 
   test("GET returns connected: true when both tokens are set", () => {
-    mockOAuthConnection = { id: "conn-slack", status: "active" };
+    secureKeyStore[credentialKey("slack_channel", "bot_token")] = "xoxb-test";
+    secureKeyStore[credentialKey("slack_channel", "app_token")] = "xapp-test";
 
     const result = getSlackChannelConfig();
     expect(result.success).toBe(true);
@@ -219,7 +211,7 @@ describe("Slack channel config handler", () => {
   });
 
   test("GET returns metadata from config when available", () => {
-    mockOAuthConnection = { id: "conn-slack", status: "active" };
+    secureKeyStore[credentialKey("slack_channel", "bot_token")] = "xoxb-test";
     configStore = {
       slack: {
         teamId: "T123",
