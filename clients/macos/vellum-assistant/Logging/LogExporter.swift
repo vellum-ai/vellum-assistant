@@ -37,6 +37,7 @@ enum LogExporter {
                 try await buildArchive(destination: archiveURL, formData: formData)
             } catch {
                 log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
+                NSApp.activate(ignoringOtherApps: true)
                 let alert = NSAlert()
                 alert.messageText = "Send Failed"
                 alert.informativeText = "Could not collect logs: \(error.localizedDescription)"
@@ -193,9 +194,8 @@ enum LogExporter {
         )
 
         // 9. Report metadata — reason and message from the log report form.
-        // Email is intentionally excluded from the archive to avoid sending PII to Sentry.
-        // It is persisted locally via @AppStorage("logReportEmail") and can be correlated
-        // with the device_id Sentry tag when follow-up is needed.
+        // Email is excluded from the archive since it's already sent via
+        // Sentry's UserFeedback API (linked to the event).
         if let formData {
             let metadata: [String: String] = [
                 "reason": formData.reason.rawValue,
