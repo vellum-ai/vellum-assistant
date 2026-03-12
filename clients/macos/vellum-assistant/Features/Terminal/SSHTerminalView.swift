@@ -15,11 +15,12 @@ struct SSHTerminalView: NSViewRepresentable {
         terminalView.terminalDelegate = context.coordinator
         terminalView.configureNativeColors()
 
-        // Configure the internal scroller to use overlay style so it auto-hides
-        // when there is nothing to scroll and appears translucent when visible.
+        // Configure the internal scroller to blend with the dark terminal background.
+        // Use overlay style so the track is invisible and the knob floats over content.
         for subview in terminalView.subviews {
             if let scroller = subview as? NSScroller {
                 scroller.scrollerStyle = .overlay
+                scroller.knobStyle = .light
             }
         }
 
