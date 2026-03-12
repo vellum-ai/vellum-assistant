@@ -584,35 +584,41 @@ struct MainWindowView: View {
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .overlay(alignment: .top) {
-            if let viewModel = threadManager.activeViewModel {
-                ErrorToastOverlay(
-                    errorManager: viewModel.errorManager,
-                    hasAPIKey: windowState.hasAPIKey,
-                    isConnectionError: viewModel.isConnectionError,
-                    isSecretBlockError: viewModel.isSecretBlockError,
-                    isRetryableError: viewModel.isRetryableError,
-                    hasRetryPayload: viewModel.hasRetryPayload,
-                    onOpenSettings: { windowState.selection = .panel(.settings) },
-                    onRetrySessionError: { viewModel.retryAfterSessionError() },
-                    onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
-                    onDismissSessionError: { viewModel.dismissSessionError() },
-                    onSendAnyway: { viewModel.sendAnyway() },
-                    onRetryLastMessage: { viewModel.retryLastMessage() },
-                    onDismissError: { viewModel.dismissError() }
-                )
-            } else if !windowState.hasAPIKey {
-                VStack(spacing: VSpacing.xs) {
-                    ChatSessionErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
-                        icon: .keyRound,
-                        accentColor: VColor.warning,
-                        actionLabel: "Open Settings",
-                        onAction: { windowState.selection = .panel(.settings) }
-                    )
+            GeometryReader { geo in
+                Group {
+                    if let viewModel = threadManager.activeViewModel {
+                        ErrorToastOverlay(
+                            errorManager: viewModel.errorManager,
+                            hasAPIKey: windowState.hasAPIKey,
+                            isConnectionError: viewModel.isConnectionError,
+                            isSecretBlockError: viewModel.isSecretBlockError,
+                            isRetryableError: viewModel.isRetryableError,
+                            hasRetryPayload: viewModel.hasRetryPayload,
+                            maxWidth: geo.size.width * 0.7,
+                            onOpenSettings: { windowState.selection = .panel(.settings) },
+                            onRetrySessionError: { viewModel.retryAfterSessionError() },
+                            onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                            onDismissSessionError: { viewModel.dismissSessionError() },
+                            onSendAnyway: { viewModel.sendAnyway() },
+                            onRetryLastMessage: { viewModel.retryLastMessage() },
+                            onDismissError: { viewModel.dismissError() }
+                        )
+                    } else if !windowState.hasAPIKey {
+                        VStack(spacing: VSpacing.xs) {
+                            ChatSessionErrorToast(
+                                message: "API key not set. Add one in Settings to start chatting.",
+                                icon: .keyRound,
+                                accentColor: VColor.warning,
+                                actionLabel: "Open Settings",
+                                onAction: { windowState.selection = .panel(.settings) }
+                            )
+                        }
+                        .frame(maxWidth: geo.size.width * 0.7)
+                        .padding(.top, VSpacing.sm)
+                        .animation(VAnimation.fast, value: windowState.hasAPIKey)
+                    }
                 }
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.top, VSpacing.sm)
-                .animation(VAnimation.fast, value: windowState.hasAPIKey)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .overlay(alignment: .bottom) {
@@ -863,6 +869,7 @@ private struct ErrorToastOverlay: View {
     let isSecretBlockError: Bool
     let isRetryableError: Bool
     let hasRetryPayload: Bool
+    var maxWidth: CGFloat = .infinity
     let onOpenSettings: () -> Void
     let onRetrySessionError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -902,7 +909,7 @@ private struct ErrorToastOverlay: View {
                 )
             }
         }
-        .padding(.horizontal, VSpacing.xl)
+        .frame(maxWidth: maxWidth)
         .padding(.top, VSpacing.sm)
         .animation(VAnimation.fast, value: hasAPIKey)
         .animation(VAnimation.fast, value: errorManager.sessionError != nil)

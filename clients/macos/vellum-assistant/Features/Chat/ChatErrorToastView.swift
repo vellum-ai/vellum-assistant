@@ -89,16 +89,7 @@ struct ChatSessionErrorToast: View {
             Spacer()
 
             if let actionLabel, let onAction {
-                Button(action: onAction) {
-                    Text(actionLabel)
-                        .font(VFont.captionMedium)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on solid accent background
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(actionLabel)
+                VButton(label: actionLabel, style: .ghost, size: .medium, action: onAction)
             }
 
             if showCopyDebug, let onCopyDebugInfo {
