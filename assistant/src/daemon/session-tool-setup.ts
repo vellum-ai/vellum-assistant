@@ -612,7 +612,7 @@ export function isToolActiveForContext(
  * Core (non-MCP) tool definitions are captured at session creation and
  * reused on each turn. MCP tool definitions are re-read from the global
  * registry on each turn so that tools registered after session creation
- * (e.g. via `vellum mcp reload`) are automatically picked up without
+ * (e.g. after a config change triggers an MCP reload) are automatically picked up without
  * requiring session disposal or app restart.
  */
 export function createResolveToolsCallback(
@@ -652,7 +652,7 @@ export function createResolveToolsCallback(
     );
 
     // Re-read MCP tool definitions from the registry each turn so sessions
-    // automatically pick up tools added/removed by `vellum mcp reload`.
+    // automatically pick up tools added/removed by MCP server reloads.
     const currentMcpDefs = getMcpToolDefinitions();
     log.debug(
       {
