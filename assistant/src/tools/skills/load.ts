@@ -141,7 +141,10 @@ export class SkillLoadTool implements Tool {
     let loaded = loadSkillBySelector(selector);
 
     // Auto-install from catalog if the skill isn't found locally
-    if (!loaded.skill && loaded.error?.includes("No skill matched")) {
+    if (
+      !loaded.skill &&
+      (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
+    ) {
       try {
         const installed = await autoInstallFromCatalog(selector);
         if (installed) {
@@ -149,10 +152,15 @@ export class SkillLoadTool implements Tool {
           loaded = loadSkillBySelector(selector);
         }
       } catch (err) {
+        const installError = err instanceof Error ? err.message : String(err);
         log.warn(
           { err, skillId: selector },
           "Auto-install from catalog failed",
         );
+        return {
+          content: `Error: skill "${selector}" was found in the catalog but installation failed: ${installError}`,
+          isError: true,
+        };
       }
     }
 
