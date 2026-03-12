@@ -825,6 +825,9 @@ public struct ToolCallData: Identifiable, Equatable {
     /// changes without expensive full-string comparison. Incremented on
     /// every write, even when `partialOutput` is at the character cap.
     public var partialOutputRevision: Int = 0
+    /// Live pending confirmation attached to this tool call for inline rendering.
+    /// Set when a `confirmation_request` arrives, cleared when approved/denied.
+    public var pendingConfirmation: ToolConfirmationData?
     /// Sub-tool steps for claude_code tool calls (live progress tracking).
     public var claudeCodeSteps: [ClaudeCodeSubStep] = []
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
@@ -858,6 +861,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.completedAt == rhs.completedAt
             && lhs.confirmationDecision == rhs.confirmationDecision
             && lhs.confirmationLabel == rhs.confirmationLabel
+            && lhs.pendingConfirmation == rhs.pendingConfirmation
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
