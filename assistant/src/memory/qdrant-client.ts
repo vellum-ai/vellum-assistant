@@ -17,7 +17,6 @@ export interface QdrantClientConfig {
   onDisk: boolean;
   quantization: "scalar" | "none";
   embeddingModel?: string;
-  sparseModel?: string;
 }
 
 export interface QdrantPointPayload {
@@ -68,7 +67,6 @@ export class VellumQdrantClient {
   private readonly onDisk: boolean;
   private readonly quantization: "scalar" | "none";
   private readonly embeddingModel?: string;
-  private readonly sparseModel?: string;
   private collectionReady = false;
 
   private readonly SENTINEL_ID = "00000000-0000-0000-0000-000000000000";
@@ -83,7 +81,6 @@ export class VellumQdrantClient {
     this.onDisk = config.onDisk;
     this.quantization = config.quantization;
     this.embeddingModel = config.embeddingModel;
-    this.sparseModel = config.sparseModel;
   }
 
   async ensureCollection(): Promise<{ migrated: boolean }> {
