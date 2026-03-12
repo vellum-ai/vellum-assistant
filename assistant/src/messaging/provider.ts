@@ -83,7 +83,7 @@ export interface MessagingProvider {
   /**
    * Override the default credential check used by getConnectedProviders().
    * When present, the registry calls this instead of checking for an
-   * active oauth-store connection via getConnectionByProvider(). Useful
+   * active oauth-store connection via isProviderConnected(). Useful
    * for providers that don't use OAuth (e.g. Telegram bot tokens stored
    * under a non-standard key).
    */

@@ -1,5 +1,5 @@
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
-import { getConnectionByProvider } from "../oauth/oauth-store.js";
+import { isProviderConnected } from "../oauth/oauth-store.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
 
@@ -14,14 +14,12 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Gmail",
     category: "email",
-    isConnected: () =>
-      getConnectionByProvider("integration:gmail")?.status === "active",
+    isConnected: () => isProviderConnected("integration:gmail"),
   },
   {
     name: "Slack",
     category: "messaging",
-    isConnected: () =>
-      getConnectionByProvider("integration:slack")?.status === "active",
+    isConnected: () => isProviderConnected("integration:slack"),
   },
   {
     name: "Twilio",

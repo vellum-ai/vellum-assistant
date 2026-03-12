@@ -2,7 +2,7 @@
  * Messaging provider registry — register/lookup providers by platform ID.
  */
 
-import { getConnectionByProvider } from "../oauth/oauth-store.js";
+import { isProviderConnected } from "../oauth/oauth-store.js";
 import type { MessagingProvider } from "./provider.js";
 
 const providers = new Map<string, MessagingProvider>();
@@ -26,7 +26,7 @@ export function getMessagingProvider(id: string): MessagingProvider {
 export function getConnectedProviders(): MessagingProvider[] {
   return Array.from(providers.values()).filter((p) => {
     if (p.isConnected) return p.isConnected();
-    return getConnectionByProvider(p.credentialService)?.status === "active";
+    return isProviderConnected(p.credentialService);
   });
 }
 
