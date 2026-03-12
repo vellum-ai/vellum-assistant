@@ -384,6 +384,7 @@ export function handleToolOutputChunk(
       type: "tool_output_chunk",
       chunk: event.chunk,
       sessionId: deps.ctx.conversationId,
+      toolUseId: event.toolUseId,
       subType: structured.subType,
       subToolName: structured.subToolName,
       subToolInput: structured.subToolInput,
@@ -395,6 +396,7 @@ export function handleToolOutputChunk(
       type: "tool_output_chunk",
       chunk: event.chunk,
       sessionId: deps.ctx.conversationId,
+      toolUseId: event.toolUseId,
     });
   }
 }
