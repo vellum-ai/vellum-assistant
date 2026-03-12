@@ -517,7 +517,7 @@ describe("Session dynamic profile injection", () => {
     const session = makeSession(privatePolicy);
     await session.loadFromDb();
 
-    await session.processMessage("What do I prefer?", [], () => {});
+    await session.processMessage("What do I prefer for databases?", [], () => {});
 
     // Profile compiler should receive the private scope with fallback enabled
     expect(profileCompilerCalls).toBe(1);
