@@ -10,6 +10,11 @@
  *    `isAssistantFeatureFlagEnabled('<key>', ...)` in production code must be
  *    declared in the unified registry. This keeps flag usage declarative while
  *    allowing skills to exist without corresponding feature flags.
+ *
+ * 3. Indirect key coverage: all `feature_flags.<id>.enabled` string literals
+ *    anywhere in production code (maps, constants, variables, etc.) must be
+ *    declared in the unified registry. This catches indirect key patterns that
+ *    Guard 2 would miss, such as flag keys stored in lookup maps or constants.
  */
 
 import { execSync } from "node:child_process";
@@ -191,6 +196,77 @@ describe("assistant feature flag declaration coverage guard", () => {
         ...undeclared.map((k) => `  - ${k}`),
         "",
         'To fix: add the missing key(s) to the unified registry with scope "assistant".',
+      ].join("\n");
+
+      expect(undeclared, message).toEqual([]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 3: Indirect key coverage — flag key literals anywhere in production code
+// ---------------------------------------------------------------------------
+
+describe("assistant feature flag indirect key coverage guard", () => {
+  test("all feature_flags.<id>.enabled string literals in production code are declared in the unified registry", () => {
+    const repoRoot = getRepoRoot();
+
+    // Load the unified registry and extract all declared keys (any scope)
+    const registry = loadRegistry();
+    const declaredKeys = new Set(registry.flags.map((f) => f.key));
+
+    // Search for any string literal matching the canonical key pattern
+    // in production .ts files under assistant/src/ and gateway/src/.
+    // This catches keys in maps, constants, variables, or any other
+    // indirect patterns that Guard 2 would miss.
+    let grepOutput = "";
+    try {
+      grepOutput = execSync(
+        `git grep -nE "feature_flags\\.[a-z0-9_-]+\\.enabled" -- 'assistant/src/**/*.ts' 'gateway/src/**/*.ts'`,
+        { encoding: "utf-8", cwd: repoRoot },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const keyPattern = /feature_flags\.[a-z0-9_-]+\.enabled/g;
+    const undeclared: string[] = [];
+
+    for (const line of grepOutput.split("\n")) {
+      if (!line) continue;
+
+      // Format: "file:line:content"
+      const colonIdx = line.indexOf(":");
+      if (colonIdx === -1) continue;
+      const filePath = line.slice(0, colonIdx);
+
+      // Skip test files
+      if (isTestFile(filePath)) continue;
+
+      // Extract all key occurrences from this line
+      const content = line.slice(colonIdx + 1);
+      for (const match of content.matchAll(keyPattern)) {
+        const key = match[0];
+        if (!declaredKeys.has(key)) {
+          undeclared.push(`${filePath}: ${key}`);
+        }
+      }
+    }
+
+    if (undeclared.length > 0) {
+      const message = [
+        "Found feature_flags.<id>.enabled string literals in production code that are NOT declared in the unified registry.",
+        "This catches indirect flag key usage (maps, constants, variables) that the direct-call guard misses.",
+        `Registry: meta/feature-flags/feature-flag-registry.json`,
+        "",
+        "Undeclared keys:",
+        ...undeclared.map((k) => `  - ${k}`),
+        "",
+        "To fix: add the missing key(s) to the unified registry, or remove the stale reference.",
       ].join("\n");
 
       expect(undeclared, message).toEqual([]);
