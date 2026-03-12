@@ -40,13 +40,20 @@ export interface SlackChannelConfigResult {
 // -- Business logic --
 
 export function getSlackChannelConfig(): SlackChannelConfigResult {
+  const hasBotToken = !!getSecureKey(
+    credentialKey("slack_channel", "bot_token"),
+  );
+  const hasAppToken = !!getSecureKey(
+    credentialKey("slack_channel", "app_token"),
+  );
   const conn = getConnectionByProvider("slack_channel");
-  const connected = !!(conn && conn.status === "active");
+  const connected =
+    !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
   const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
   return {
     success: true,
-    hasBotToken: connected,
-    hasAppToken: connected,
+    hasBotToken,
+    hasAppToken,
     connected,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
@@ -229,13 +236,18 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
   );
 
   if (r1 === "error" || r2 === "error") {
-    const errConn = getConnectionByProvider("slack_channel");
-    const errConnected = !!(errConn && errConn.status === "active");
+    // Check each key individually so partial deletions report accurate status.
+    const hasBotToken = !!getSecureKey(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    const hasAppToken = !!getSecureKey(
+      credentialKey("slack_channel", "app_token"),
+    );
     return {
       success: false,
-      hasBotToken: errConnected,
-      hasAppToken: errConnected,
-      connected: errConnected,
+      hasBotToken,
+      hasAppToken,
+      connected: hasBotToken && hasAppToken,
       error: "Failed to delete Slack channel credentials from secure storage",
     };
   }

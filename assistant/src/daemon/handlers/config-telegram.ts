@@ -66,15 +66,19 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 // -- Extracted business logic functions --
 
 export function getTelegramConfig(): TelegramConfigResult {
+  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
+  const hasWebhookSecret = !!getSecureKey(
+    credentialKey("telegram", "webhook_secret"),
+  );
   const conn = getConnectionByProvider("telegram");
   const connected = !!(conn && conn.status === "active");
   const botUsername = getTelegramBotUsername();
   return {
     success: true,
-    hasBotToken: connected,
+    hasBotToken,
     botUsername,
-    connected,
-    hasWebhookSecret: connected,
+    connected: connected && hasBotToken && hasWebhookSecret,
+    hasWebhookSecret,
   };
 }
 
@@ -255,14 +259,16 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   );
 
   if (r1 === "error" || r2 === "error") {
-    // Check what's still in the keychain to report accurate status.
-    const errConn = getConnectionByProvider("telegram");
-    const errConnected = !!(errConn && errConn.status === "active");
+    // Check each key individually so partial deletions report accurate status.
+    const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
+    const hasWebhookSecret = !!getSecureKey(
+      credentialKey("telegram", "webhook_secret"),
+    );
     return {
       success: false,
-      hasBotToken: errConnected,
-      connected: errConnected,
-      hasWebhookSecret: errConnected,
+      hasBotToken,
+      connected: hasBotToken && hasWebhookSecret,
+      hasWebhookSecret,
       error: "Failed to delete Telegram credentials from secure storage",
     };
   }
@@ -345,7 +351,7 @@ export async function setTelegramCommands(
   const cmdConnected = !!(cmdConn && cmdConn.status === "active");
   return {
     success: true,
-    hasBotToken: cmdConnected,
+    hasBotToken: true,
     connected: cmdConnected,
     hasWebhookSecret: cmdConnected,
     commandsRegistered: resolvedCommands.map((c) => c.command),

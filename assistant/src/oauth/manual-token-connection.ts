@@ -8,6 +8,8 @@
  * codebase.
  */
 
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKey } from "../security/secure-keys.js";
 import {
   createConnection,
   deleteConnection,
@@ -61,4 +63,42 @@ export function removeManualTokenConnection(providerKey: string): void {
   const conn = getConnectionByProvider(providerKey);
   if (!conn) return;
   deleteConnection(conn.id);
+}
+
+/**
+ * Backfill oauth_connection rows for manual-token providers that already
+ * have valid keychain credentials but are missing connection records.
+ *
+ * This handles the upgrade path from installations that stored credentials
+ * before the oauth_connection migration. Without this, existing Telegram
+ * and Slack channel integrations would appear disconnected after upgrading
+ * until the user reconfigures them.
+ *
+ * Safe to call on every startup — skips providers that already have a
+ * connection row.
+ */
+export async function backfillManualTokenConnections(): Promise<void> {
+  // Telegram: requires both bot_token and webhook_secret
+  if (!getConnectionByProvider("telegram")) {
+    const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
+    const hasWebhookSecret = !!getSecureKey(
+      credentialKey("telegram", "webhook_secret"),
+    );
+    if (hasBotToken && hasWebhookSecret) {
+      await ensureManualTokenConnection("telegram");
+    }
+  }
+
+  // Slack channel: requires both bot_token and app_token
+  if (!getConnectionByProvider("slack_channel")) {
+    const hasBotToken = !!getSecureKey(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    const hasAppToken = !!getSecureKey(
+      credentialKey("slack_channel", "app_token"),
+    );
+    if (hasBotToken && hasAppToken) {
+      await ensureManualTokenConnection("slack_channel");
+    }
+  }
 }
