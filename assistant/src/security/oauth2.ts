@@ -691,7 +691,7 @@ export async function startOAuth2Flow(
   if (transport === "gateway") {
     if (!hasPublicUrl) {
       throw new Error(
-        "Gateway transport requires a public ingress URL. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL, or use loopback transport.",
+        "Gateway transport requires a public ingress URL. Set ingress.publicBaseUrl, or use loopback transport.",
       );
     }
     log.debug({ transport: "gateway" }, "OAuth2 flow starting");

@@ -58,18 +58,16 @@ export function getGatewayInternalBaseUrl(): string {
 
 // ── Ingress ──────────────────────────────────────────────────────────────────
 
-/** Read the INGRESS_PUBLIC_BASE_URL env var (may be mutated at runtime by config handlers). */
+let _ingressPublicBaseUrl: string | undefined;
+
+/** Read the ingress public base URL (module-level state, mutated at runtime by config handlers). */
 export function getIngressPublicBaseUrl(): string | undefined {
-  return str("INGRESS_PUBLIC_BASE_URL");
+  return _ingressPublicBaseUrl;
 }
 
-/** Set or clear the INGRESS_PUBLIC_BASE_URL env var (used by config handlers). */
+/** Set or clear the ingress public base URL (used by config handlers). */
 export function setIngressPublicBaseUrl(value: string | undefined): void {
-  if (value) {
-    process.env.INGRESS_PUBLIC_BASE_URL = value;
-  } else {
-    delete process.env.INGRESS_PUBLIC_BASE_URL;
-  }
+  _ingressPublicBaseUrl = value;
 }
 
 // ── Runtime HTTP ─────────────────────────────────────────────────────────────

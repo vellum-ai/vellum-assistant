@@ -986,7 +986,7 @@ class CredentialStoreTool implements Tool {
             redirectUri = `${baseUrl}/webhooks/oauth/callback`;
           } catch {
             redirectUri =
-              "(requires INGRESS_PUBLIC_BASE_URL — not currently configured)";
+              "(requires ingress.publicBaseUrl — not currently configured)";
           }
         }
 

@@ -36,7 +36,7 @@ bun run dev
 | `GATEWAY_UNMAPPED_POLICY`            | No       | `reject`                           | Policy for unmapped users: `reject` or `default`                                                                                                                                                                                                                                                                                                                                   |
 | `GATEWAY_PORT`                       | No       | `7830`                             | Port for the gateway HTTP server                                                                                                                                                                                                                                                                                                                                                   |
 | `GATEWAY_INTERNAL_BASE_URL`          | No       | `http://127.0.0.1:${GATEWAY_PORT}` | Base URL for runtime→gateway callbacks (e.g., the `replyCallbackUrl` sent to the assistant runtime for Telegram reply delivery). Defaults to `http://127.0.0.1:${GATEWAY_PORT}`. Override when the gateway and runtime are not co-located (e.g., separate containers, hosts, or behind a service mesh).                                                                            |
-| `INGRESS_PUBLIC_BASE_URL`            | No       | —                                  | Public URL where the gateway is reachable (e.g. `https://abc123.ngrok-free.app`). Used by the assistant runtime to construct webhook and OAuth callback URLs. Set this to your tunnel's public URL.                                                                                                                                                                                |
+| ~~`INGRESS_PUBLIC_BASE_URL`~~        | No       | —                                  | **Removed.** The gateway now reads `ingress.publicBaseUrl` from the workspace config file via `ConfigFileCache`. Set it via Settings > Public Ingress or `config set ingress.publicBaseUrl <url>`.                                                                                                                                                                                 |
 | `GATEWAY_RUNTIME_PROXY_ENABLED`      | No       | `false`                            | Enable runtime proxy for non-Telegram requests                                                                                                                                                                                                                                                                                                                                     |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No       | `true`                             | Require bearer auth for proxied requests                                                                                                                                                                                                                                                                                                                                           |
 | `RUNTIME_BEARER_TOKEN`               | No       | —                                  | Bearer token (JWT) used by gateway when forwarding requests to assistant runtime internal endpoints (Twilio/OAuth/proxy upstream).                                                                                                                                                                                                                                                 |
@@ -71,7 +71,7 @@ v1 uses deterministic settings-based routing (no database):
 
 ## Setting up the Telegram webhook
 
-Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change and triggers webhook reconciliation directly — no daemon involvement or gateway restart is needed.
+Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${ingress.publicBaseUrl}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change and triggers webhook reconciliation directly — no daemon involvement or gateway restart is needed.
 
 For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
 
@@ -228,7 +228,7 @@ Then point your tunnel to that same local target (for example `http://127.0.0.1:
 
 1. Start your tunnel (e.g. ngrok, Cloudflare Tunnel, or similar) targeting `http://127.0.0.1:7830`
 2. Copy the public URL provided by the tunnel service (e.g. `https://abc123.ngrok-free.app`)
-3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable.
+3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section).
 4. Use the Settings UI "Local Gateway Target" value as the source of truth for tunnel destination (it reflects `GATEWAY_PORT`).
 
 In local tunnel setups, updating `ingress.publicBaseUrl` in Settings is typically live for Twilio inbound validation (no manual gateway restart required) because the gateway also validates signatures against forwarded public URL headers.
@@ -241,7 +241,7 @@ The gateway is the **sole public ingress point** for all external webhooks. The 
 
 ### Signature URL Tightening
 
-When the ingress public base URL is configured (via `ingress.publicBaseUrl` in workspace config or `INGRESS_PUBLIC_BASE_URL` env var, read through `ConfigFileCache`), the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
+When the ingress public base URL is configured (via `ingress.publicBaseUrl` in workspace config, read through `ConfigFileCache`), the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
 
 ## Default Mode: Dedicated Routes Only
 

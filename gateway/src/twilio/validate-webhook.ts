@@ -366,7 +366,7 @@ export async function validateTwilioWebhookRequest(
         ingressPublicBaseUrl: ingressUrl,
       },
       "Twilio signature validated against raw request URL fallback — " +
-        "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",
+        "ingress.publicBaseUrl may be stale or mismatched with the actual webhook registration",
     );
   } else {
     log.info(successLogContext, "Twilio webhook signature validated");

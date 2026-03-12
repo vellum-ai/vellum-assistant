@@ -76,7 +76,6 @@ vellum hatch [species] [options]
 | `GCP_DEFAULT_ZONE`        | `gcp`        | GCP zone for the compute instance.                                                                 |
 | `VELLUM_CUSTOM_HOST`      | `custom`     | SSH host in `user@hostname` format.                                                                |
 | `VELLUM_GATEWAY_DIR`      | `local`      | Optional absolute path to a local gateway source directory to run instead of the packaged gateway. |
-| `INGRESS_PUBLIC_BASE_URL` | `local`      | Optional fallback public ingress URL when `ingress.publicBaseUrl` is not set in workspace config.  |
 
 #### Examples
 
