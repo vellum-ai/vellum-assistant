@@ -226,13 +226,16 @@ If the user lands on a page with numbered steps (App Information → Audience �
 > It looks like Google is showing the setup wizard. Let's walk through it:
 >
 > **Step 1 — App Information:**
+>
 > - **App name:** `Vellum Assistant`
 > - Leave everything else as-is
 >
 > **Step 2 — Audience:**
+>
 > - Select **External** — this lets any Google account authorize (it starts in testing mode, so only test users you add can access it)
 >
 > **Step 3 — Contact Information:**
+>
 > - Enter your email address
 >
 > Then click **Create** at the bottom.

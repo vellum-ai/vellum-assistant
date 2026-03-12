@@ -72,7 +72,6 @@ Tell the user:
 >   - User support email: **your email**
 >   - Developer contact email: **your email**
 >   - Click **Save**
->
 > - **3b. Audience** — Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 >   - Set user type to **External** if not already set
 >   - Scroll to **Test users**, click **+ Add users**, add **your email**, click **Save**
