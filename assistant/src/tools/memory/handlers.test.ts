@@ -492,28 +492,27 @@ describe("handleMemoryRecall", () => {
   // ── Error handling ────────────────────────────────────────────────
 
   test("retrieval failure returns error message, does not throw", async () => {
-    // Create a config that will cause the retrieval pipeline to throw
-    // by making memory disabled in a way that buildMemoryRecall breaks.
-    // We mock the retriever to throw an error.
-    const badConfig: AssistantConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        // Force retrieval with impossible settings to trigger an error path
-        retrieval: {
-          ...TEST_CONFIG.memory.retrieval,
-        },
-      },
+    // Mock buildMemoryRecall to throw, simulating an internal retrieval failure
+    const retrieverModule = await import("../../memory/retriever.js");
+    const original = retrieverModule.buildMemoryRecall;
+    (retrieverModule as Record<string, unknown>).buildMemoryRecall = async () => {
+      throw new Error("Simulated retrieval failure");
     };
 
-    // Even if the query fails internally, the handler should catch and return
-    // an error result rather than throwing
-    const result = await handleMemoryRecall({ query: "test query" }, badConfig);
+    try {
+      const result = await handleMemoryRecall(
+        { query: "test query" },
+        TEST_CONFIG,
+      );
 
-    // The function should either succeed gracefully or return an error
-    // but never throw
-    expect(typeof result.content).toBe("string");
-    expect(typeof result.isError).toBe("boolean");
+      // The handler should catch the error and return an error result,
+      // never throw
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Simulated retrieval failure");
+    } finally {
+      // Restore original implementation
+      (retrieverModule as Record<string, unknown>).buildMemoryRecall = original;
+    }
   });
 
   test("result shape matches MemoryRecallToolResult when successful", async () => {
