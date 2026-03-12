@@ -48,7 +48,7 @@ struct ChatSessionErrorToast: View {
         message: String,
         subtitle: String? = nil,
         icon: VIcon = .circleAlert,
-        accentColor: Color = Danger._700,
+        accentColor: Color = VColor.systemNegativeStrong,
         actionLabel: String? = nil,
         onAction: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil
@@ -93,12 +93,12 @@ struct ChatSessionErrorToast: View {
                 Button(action: onAction) {
                     Text(actionLabel)
                         .font(VFont.caption)
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite) // color-literal-ok
                         .padding(.horizontal, VSpacing.sm)
                         .frame(height: 24)
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(Color.white, lineWidth: 1.5)
+                                .strokeBorder(VColor.auxWhite, lineWidth: 1.5)
                         )
                 }
                 .buttonStyle(.plain)
@@ -169,15 +169,15 @@ struct ChatSessionErrorToast: View {
     private static func accentColor(for category: SessionErrorCategory) -> Color {
         switch category {
         case .rateLimit:
-            return Amber._550
+            return VColor.systemMidStrong
         case .providerNetwork:
-            return Amber._550
+            return VColor.systemMidStrong
         case .sessionAborted:
-            return Forest._700
+            return VColor.systemPositiveStrong
         case .contextTooLarge:
-            return Amber._550
+            return VColor.systemMidStrong
         default:
-            return Danger._700
+            return VColor.systemNegativeStrong
         }
     }
 
