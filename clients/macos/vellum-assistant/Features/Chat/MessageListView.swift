@@ -966,7 +966,7 @@ private struct MessageCellView: View {
             let msg = messages[i]
             guard msg.role == .assistant, msg.confirmation == nil else { continue }
             return msg.toolCalls.contains { tc in
-                tc.toolUseId == confirmationToolUseId
+                tc.toolUseId == confirmationToolUseId && tc.pendingConfirmation != nil
             }
         }
         return false
