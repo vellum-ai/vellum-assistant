@@ -3,8 +3,9 @@
  *
  * Tests:
  *   - 401 unauthorized (missing bearer token)
- *   - 400 when conversationKey is absent
+ *   - 200 when conversationKey is omitted (unfiltered subscription)
  *   - Happy path: stream receives a published AssistantEvent
+ *   - Unfiltered: streams events from multiple conversations
  */
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -125,15 +126,13 @@ describe("SSE assistant-events endpoint", () => {
 
   // ── Validation ────────────────────────────────────────────────────────────
 
-  test("400 when conversationKey is missing", async () => {
+  test("200 when conversationKey is omitted (unfiltered subscription)", async () => {
     await startServer();
 
     const res = await fetch(eventsUrl(), { headers: AUTH_HEADERS });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { message: string; code?: string };
-    };
-    expect(body.error.message).toContain("conversationKey");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    await res.body?.cancel();
 
     await stopServer();
   });
@@ -183,5 +182,54 @@ describe("SSE assistant-events endpoint", () => {
     expect(frame).toContain(`"assistantId":"self"`);
     expect(frame).toContain(`"sessionId":"${conversationId}"`);
     expect(frame).toContain('"type":"pong"');
+  });
+
+  // ── Unfiltered subscription ──────────────────────────────────────────────
+
+  test("streams all events when conversationKey is omitted", async () => {
+    // Subscribe without a conversationKey — should receive events from any session.
+    const ac = new AbortController();
+    const req = new Request("http://localhost/v1/events", {
+      signal: ac.signal,
+    });
+
+    const { AssistantEventHub } =
+      await import("../runtime/assistant-event-hub.js");
+    const testHub = new AssistantEventHub();
+
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
+    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
+      hub: testHub,
+      skipActorVerification: true,
+    });
+
+    expect(response.status).toBe(200);
+
+    const reader = response.body!.getReader();
+
+    // Consume the initial heartbeat.
+    const heartbeat = await reader.read();
+    expect(heartbeat.done).toBe(false);
+    expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
+
+    // Publish events with two different sessionIds.
+    const eventA = buildAssistantEvent("self", { type: "pong" }, "session-aaa");
+    const eventB = buildAssistantEvent("self", { type: "pong" }, "session-bbb");
+    await testHub.publish(eventA);
+    await testHub.publish(eventB);
+
+    // Read both frames from the stream.
+    const frameA = await reader.read();
+    expect(frameA.done).toBe(false);
+    const textA = new TextDecoder().decode(frameA.value);
+    expect(textA).toContain("session-aaa");
+
+    const frameB = await reader.read();
+    expect(frameB.done).toBe(false);
+    const textB = new TextDecoder().decode(frameB.value);
+    expect(textB).toContain("session-bbb");
+
+    ac.abort();
   });
 });

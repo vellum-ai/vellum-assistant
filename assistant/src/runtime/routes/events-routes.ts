@@ -7,12 +7,17 @@
  * is called. The AuthContext is threaded through from the HTTP server
  * layer, so no additional actor-token verification is needed here.
  *
- * Subscribers receive all assistant events scoped to the given conversation.
+ * When `conversationKey` is provided, subscribers receive events scoped to
+ * that conversation. When omitted, subscribers receive events from ALL
+ * conversations for this assistant (unfiltered).
  */
 
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
-import type { AssistantEventSubscription } from "../assistant-event-hub.js";
+import type {
+  AssistantEventFilter,
+  AssistantEventSubscription,
+} from "../assistant-event-hub.js";
 import {
   AssistantEventHub,
   assistantEventHub,
@@ -26,10 +31,12 @@ import type { RouteDefinition } from "../http-router.js";
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
- * Stream assistant events as Server-Sent Events for a specific conversation.
+ * Stream assistant events as Server-Sent Events.
  *
  * Query params:
- *   conversationKey -- required; scopes the stream to one conversation.
+ *   conversationKey -- optional; when provided, scopes the stream to one
+ *                      conversation. When omitted, the stream delivers events
+ *                      from ALL conversations for this assistant.
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
@@ -56,15 +63,18 @@ export function handleSubscribeAssistantEvents(
   // scope and principal type requirements.
 
   const conversationKey = url.searchParams.get("conversationKey");
-  if (!conversationKey) {
-    return httpError("BAD_REQUEST", "conversationKey is required", 400);
-  }
 
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
-  const mapping = getOrCreateConversation(conversationKey);
+  const filter: AssistantEventFilter = {
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+  };
+  if (conversationKey) {
+    const mapping = getOrCreateConversation(conversationKey);
+    filter.sessionId = mapping.conversationId;
+  }
   const encoder = new TextEncoder();
 
   // -- Eager subscribe --------------------------------------------------------
@@ -90,10 +100,7 @@ export function handleSubscribeAssistantEvents(
 
   try {
     sub = hub.subscribe(
-      {
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-        sessionId: mapping.conversationId,
-      },
+      filter,
       (event) => {
         const controller = controllerRef;
         if (!controller) return;
