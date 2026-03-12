@@ -47,6 +47,7 @@ let mockGetProvider: (
 let mockGetProviderBehavior: (
   providerKey: string,
 ) => Record<string, unknown> | undefined = () => undefined;
+let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
 
 function nextUUID(): string {
   idCounter += 1;
@@ -109,7 +110,7 @@ mock.module("../oauth/oauth-store.js", () => ({
 
 // Stub out transitive dependencies that token-manager would normally pull in
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: () => undefined,
+  getSecureKey: (account: string) => mockGetSecureKey(account),
   setSecureKey: () => true,
   getSecureKeyAsync: async () => undefined,
   setSecureKeyAsync: async () => true,
@@ -653,6 +654,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     mockGetMostRecentAppByProvider = () => undefined;
     mockGetProvider = () => undefined;
     mockGetProviderBehavior = () => undefined;
+    mockGetSecureKey = () => undefined;
   });
 
   test("completes interactive flow and prints success (human mode)", async () => {
@@ -735,6 +737,34 @@ describe("assistant oauth connections connect <provider-key>", () => {
 
     await runCli(["connections", "connect", "integration:gmail"]);
     expect(capturedClientId).toBe("db-client-id");
+  });
+
+  test("resolves client_secret from secure store when not provided", async () => {
+    mockGetMostRecentAppByProvider = () => ({
+      id: "app-1",
+      clientId: "db-client-id",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    mockGetSecureKey = (account: string) =>
+      account === "oauth_app/app-1/client_secret" ? "db-secret" : undefined;
+
+    let capturedOpts: Record<string, unknown> | undefined;
+    mockOrchestrateOAuthConnect = async (opts) => {
+      capturedOpts = opts;
+      return {
+        success: true,
+        deferred: false,
+        grantedScopes: [],
+      };
+    };
+
+    await runCli(["connections", "connect", "integration:gmail"]);
+    expect(capturedOpts).toBeDefined();
+    expect(capturedOpts!.clientId).toBe("db-client-id");
+    expect(capturedOpts!.clientSecret).toBe("db-secret");
   });
 
   test("outputs error from orchestrator", async () => {

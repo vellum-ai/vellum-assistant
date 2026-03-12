@@ -24,6 +24,7 @@ import {
   assertMetadataWritable,
   deleteCredentialMetadata,
 } from "../../../tools/credentials/metadata-store.js";
+import { isLinux, isMacOS } from "../../../util/platform.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -395,12 +396,11 @@ Examples:
             const providerRow = getProvider(resolvedServiceKey);
             const behavior = getProviderBehavior(resolvedServiceKey);
 
-            const requiresSecret = behavior?.setup?.requiresClientSecret
-              ? true
-              : !!(
-                  providerRow?.tokenEndpointAuthMethod ||
-                  providerRow?.extraParams
-                );
+            const requiresSecret =
+              behavior?.setup?.requiresClientSecret ??
+              !!(
+                providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams
+              );
 
             if (requiresSecret) {
               writeOutput(cmd, {
@@ -420,10 +420,22 @@ Examples:
             isInteractive: !opts.urlOnly,
             openUrl: !opts.urlOnly
               ? (url) => {
-                  Bun.spawn(["open", url], {
-                    stdout: "ignore",
-                    stderr: "ignore",
-                  });
+                  if (isMacOS()) {
+                    Bun.spawn(["open", url], {
+                      stdout: "ignore",
+                      stderr: "ignore",
+                    });
+                  } else if (isLinux()) {
+                    Bun.spawn(["xdg-open", url], {
+                      stdout: "ignore",
+                      stderr: "ignore",
+                    });
+                  } else {
+                    // Fallback: print URL for manual opening
+                    process.stdout.write(
+                      `Open this URL to authorize:\n\n${url}\n`,
+                    );
+                  }
                 }
               : undefined,
             ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
