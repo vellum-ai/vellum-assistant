@@ -53,6 +53,9 @@ export const memoryItems = sqliteTable(
     lastUsedAt: integer("last_used_at"),
     validFrom: integer("valid_from"),
     invalidAt: integer("invalid_at"),
+    supersedes: text("supersedes"),
+    supersededBy: text("superseded_by"),
+    overrideConfidence: text("override_confidence").default("inferred"),
   },
   (table) => [
     index("idx_memory_items_scope_id").on(table.scopeId),

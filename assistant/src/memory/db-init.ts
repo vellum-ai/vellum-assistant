@@ -63,6 +63,7 @@ import {
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
+  migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
@@ -351,6 +352,9 @@ export function initializeDb(): void {
 
   // 55. Add ping_url column to oauth_providers
   migrateOAuthProvidersPingUrl(database);
+
+  // 56. Add supersession tracking columns and override confidence to memory_items
+  migrateMemoryItemSupersession(database);
 
   validateMigrationState(database);
 

@@ -27,18 +27,12 @@ import { clampUnitInterval } from "./validation.js";
 const log = getLogger("memory-items-extractor");
 
 export type MemoryItemKind =
+  | "identity"
   | "preference"
-  | "profile"
   | "project"
   | "decision"
-  | "todo"
-  | "fact"
   | "constraint"
-  | "relationship"
-  | "event"
-  | "opinion"
-  | "instruction"
-  | "style";
+  | "event";
 
 interface ExtractedItem {
   kind: MemoryItemKind;
@@ -50,24 +44,32 @@ interface ExtractedItem {
 }
 
 const VALID_KINDS = new Set<string>([
+  "identity",
   "preference",
-  "profile",
   "project",
   "decision",
-  "todo",
-  "fact",
   "constraint",
-  "relationship",
   "event",
-  "opinion",
-  "instruction",
-  "style",
 ]);
 
+/** Maps old kind names to their new equivalents for graceful migration. */
+const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
+  profile: "identity",
+  fact: "identity",
+  relationship: "identity",
+  opinion: "preference",
+  todo: "project",
+  instruction: "constraint",
+  style: "preference",
+};
+
 const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
-  "decision",
+  "identity",
   "preference",
+  "project",
+  "decision",
   "constraint",
+  "event",
 ]);
 
 // ── Semantic density gating ────────────────────────────────────────────
@@ -132,18 +134,12 @@ function hasSemanticDensity(text: string): boolean {
 const EXTRACTION_SYSTEM_PROMPT = `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
 
 Extract items in these categories:
-- preference: User likes, dislikes, preferred approaches/tools/styles
-- profile: Personal info (name, role, location, timezone, background)
-- project: Project names, repos, tech stacks, architecture details
+- identity: Personal info (name, role, location, timezone, background), notable facts, relationships between people/teams/systems
+- preference: User likes, dislikes, preferred approaches/tools/styles, communication style patterns, opinions and evaluations
+- project: Project names, repos, tech stacks, architecture details, action items, follow-ups, things to do later
 - decision: Choices made, approaches selected, trade-offs resolved
-- todo: Action items, follow-ups, things to do later
-- fact: Notable facts, definitions, technical details worth remembering
-- constraint: Rules, requirements, things that must/must not be done
-- relationship: Connections between people, teams, projects, systems
+- constraint: Rules, requirements, things that must/must not be done, explicit directives on how the assistant should behave
 - event: Deadlines, milestones, meetings, releases, dates
-- opinion: Viewpoints, assessments, evaluations of tools/approaches
-- instruction: Explicit directives on how the assistant should behave
-- style: Communication style patterns — writing tone, formatting habits, vocabulary choices, greeting/sign-off conventions
 
 For each item, provide:
 - kind: One of the categories above
@@ -272,7 +268,9 @@ async function extractItemsWithLLM(
 
       const items: ExtractedItem[] = [];
       for (const raw of input.items) {
-        if (!VALID_KINDS.has(raw.kind)) continue;
+        // Apply kind migration map for old kind names, then validate
+        const resolvedKind = KIND_MIGRATION_MAP[raw.kind] ?? raw.kind;
+        if (!VALID_KINDS.has(resolvedKind)) continue;
         if (!raw.subject || !raw.statement) continue;
         const subject = truncate(String(raw.subject), 80, "");
         const statement = truncate(String(raw.statement), 500, "");
@@ -280,12 +278,12 @@ async function extractItemsWithLLM(
         const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
         const fingerprint = computeMemoryFingerprint(
           scopeId,
-          raw.kind,
+          resolvedKind,
           subject,
           statement,
         );
         items.push({
-          kind: raw.kind as MemoryItemKind,
+          kind: resolvedKind as MemoryItemKind,
           subject,
           statement,
           confidence,
@@ -533,7 +531,7 @@ function classifySentence(
       "timezone",
     ])
   ) {
-    return { kind: "profile", confidence: 0.72, importance: 0.8 };
+    return { kind: "identity", confidence: 0.72, importance: 0.8 };
   }
   if (includesAny(lower, ["project", "repository", "repo", "codebase"])) {
     return { kind: "project", confidence: 0.68, importance: 0.6 };
@@ -546,7 +544,7 @@ function classifySentence(
   if (
     includesAny(lower, ["todo", "to do", "next step", "follow up", "need to"])
   ) {
-    return { kind: "todo", confidence: 0.74, importance: 0.6 };
+    return { kind: "project", confidence: 0.74, importance: 0.6 };
   }
   if (
     includesAny(lower, [
@@ -560,7 +558,7 @@ function classifySentence(
     return { kind: "constraint", confidence: 0.7, importance: 0.7 };
   }
   if (includesAny(lower, ["remember", "important", "fact", "noted"])) {
-    return { kind: "fact", confidence: 0.62, importance: 0.5 };
+    return { kind: "identity", confidence: 0.62, importance: 0.5 };
   }
   return null;
 }
