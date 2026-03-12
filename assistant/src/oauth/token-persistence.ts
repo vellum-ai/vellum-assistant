@@ -125,6 +125,7 @@ export async function storeOAuth2Tokens(
   if (existingConn) {
     connId = existingConn.id;
     updateConnection(connId, {
+      oauthAppId: app.id,
       accountInfo: resolvedAccountInfo,
       grantedScopes,
       expiresAt,

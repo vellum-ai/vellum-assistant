@@ -458,6 +458,27 @@ describe("connection operations", () => {
       expect(fetched!.updatedAt).toBeGreaterThanOrEqual(conn.createdAt);
     });
 
+    test("updates oauthAppId to a different app", () => {
+      const app1 = createTestApp("github", "client-1");
+      const app2 = upsertApp("github", "client-2");
+
+      const conn = createConnection({
+        oauthAppId: app1.id,
+        providerKey: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      expect(getConnection(conn.id)!.oauthAppId).toBe(app1.id);
+
+      const updated = updateConnection(conn.id, { oauthAppId: app2.id });
+      expect(updated).toBe(true);
+
+      const fetched = getConnection(conn.id);
+      expect(fetched).toBeDefined();
+      expect(fetched!.oauthAppId).toBe(app2.id);
+    });
+
     test("returns false for nonexistent id", () => {
       expect(updateConnection("nonexistent-id", { status: "revoked" })).toBe(
         false,
