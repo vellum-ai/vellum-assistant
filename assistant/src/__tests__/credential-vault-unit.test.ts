@@ -689,6 +689,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       id: "test-app-id",
       providerKey: "integration:gmail",
       clientId: "stored-client-id-123",
+      clientSecretCredentialPath: "oauth_app/test-app-id/client_secret",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
@@ -737,6 +738,8 @@ describe("credential_store tool — oauth2_connect error paths", () => {
             id: "matched-app-id",
             providerKey: "integration:gmail",
             clientId: "caller-supplied-client-id",
+            clientSecretCredentialPath:
+              "oauth_app/matched-app-id/client_secret",
             createdAt: Date.now(),
           };
         }
@@ -781,6 +784,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       id: "recent-app-id",
       providerKey: "integration:gmail",
       clientId: "recent-client-id",
+      clientSecretCredentialPath: "oauth_app/recent-app-id/client_secret",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
