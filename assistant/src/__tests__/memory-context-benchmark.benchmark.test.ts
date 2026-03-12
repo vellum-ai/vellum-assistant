@@ -281,7 +281,6 @@ describe("Memory context benchmark", () => {
 
     // Seed Qdrant mock with a representative decision segment so
     // the benchmark validates content quality, not just pipeline completion.
-    const now = 1_700_500_000_000;
     mockQdrantResults = [
       {
         id: "emb-bench-decision",
