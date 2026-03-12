@@ -140,13 +140,13 @@ import os
             let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
             SentrySDK.flush(timeout: flushTimeout)
 
-            // Restore SDK state: if we switched DSN, close and restart with
-            // the original DSN (if it was running). If the SDK was originally
-            // disabled, close it.
+            // Restore SDK state: if we switched DSN, close and restart
+            // synchronously with the original DSN so no queued events are
+            // dropped. If the SDK was originally disabled, just close it.
             if needsDSNSwitch {
                 SentrySDK.close()
                 if wasEnabled {
-                    startSentry()
+                    restartSentryInline()
                 }
             } else if needsStart {
                 // SDK was disabled before we started it — close the temp session.
@@ -174,29 +174,33 @@ import os
     /// `nonisolated` so Settings code can call it without crossing @MainActor.
     nonisolated static func startSentry() {
         sentrySerialQueue.async {
-            guard !SentrySDK.isEnabled else { return }
-            // Defense-in-depth: respect the primary usage-data opt-out even if
-            // the caller forgot to check. Prevents re-enabling Sentry after a
-            // rapid toggle sequence (collectUsageData off → sendPerformanceReports change).
-            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-            guard collectUsageData else { return }
-            let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
-            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-            SentrySDK.start { options in
-                options.dsn = macosDSN
-                options.releaseName = "vellum-macos@\(version)"
-                options.dist = build
-                options.environment = SentryDeviceInfo.sentryEnvironment
-                options.debug = false
-                options.tracesSampleRate = 0.1
-                options.configureProfiling = { profilingOptions in
-                    profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
-                }
-                options.sendDefaultPii = false
-            }
-            SentryDeviceInfo.configureSentryScope()
+            restartSentryInline()
         }
+    }
+
+    /// Synchronous Sentry restart — must be called from `sentrySerialQueue`.
+    /// Shared by `startSentry()` and inline DSN restoration in `sendManualReport`
+    /// so no queued events are dropped between close and restart.
+    private nonisolated static func restartSentryInline() {
+        guard !SentrySDK.isEnabled else { return }
+        let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+        guard collectUsageData else { return }
+        let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        SentrySDK.start { options in
+            options.dsn = macosDSN
+            options.releaseName = "vellum-macos@\(version)"
+            options.dist = build
+            options.environment = SentryDeviceInfo.sentryEnvironment
+            options.debug = false
+            options.tracesSampleRate = 0.1
+            options.configureProfiling = { profilingOptions in
+                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+            }
+            options.sendDefaultPii = false
+        }
+        SentryDeviceInfo.configureSentryScope()
     }
 }
 
