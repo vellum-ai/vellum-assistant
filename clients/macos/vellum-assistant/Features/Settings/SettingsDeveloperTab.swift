@@ -299,11 +299,11 @@ struct SettingsDeveloperTab: View {
             }
 
             if let memory = healthz.memory {
-                infoRow(label: "Memory", value: "\(formatMb(memory.currentMb)) RSS / \(formatMb(memory.maxMb)) max")
+                infoRow(label: "Memory", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
             }
 
             if let cpu = healthz.cpu {
-                infoRow(label: "CPU", value: String(format: "%.1f%% (%d cores)", cpu.currentPercent, cpu.maxCores))
+                infoRow(label: "CPU", value: String(format: "%.1f%%", cpu.currentPercent))
             }
         } else {
             HStack(spacing: VSpacing.sm) {

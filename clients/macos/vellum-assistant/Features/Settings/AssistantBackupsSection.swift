@@ -57,6 +57,11 @@ struct AssistantBackupsSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task {
+            if assistant.isManaged || assistant.isRemote {
+                await loadManagedBackupsQuietly()
+            }
+        }
     }
 
     // MARK: - Local Backup Content

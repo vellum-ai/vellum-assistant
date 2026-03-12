@@ -147,8 +147,16 @@ struct AssistantUpgradeSection: View {
                 errorMessage = "Failed to check for updates"
                 return
             }
-            let decoded = try JSONDecoder().decode(ReleasesResponse.self, from: data)
-            availableReleases = decoded.releases
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            // Try paginated response { "results": [...] }, then plain array [...]
+            if let decoded = try? decoder.decode(PaginatedReleasesResponse.self, from: data) {
+                availableReleases = decoded.results
+            } else if let decoded = try? decoder.decode(ReleasesResponse.self, from: data) {
+                availableReleases = decoded.releases
+            } else {
+                availableReleases = try decoder.decode([AssistantRelease].self, from: data)
+            }
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
         }
@@ -226,4 +234,8 @@ struct AssistantRelease: Decodable, Identifiable {
 
 private struct ReleasesResponse: Decodable {
     let releases: [AssistantRelease]
+}
+
+private struct PaginatedReleasesResponse: Decodable {
+    let results: [AssistantRelease]
 }
