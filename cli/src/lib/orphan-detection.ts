@@ -88,7 +88,7 @@ export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   try {
     const output = await execOutput("sh", [
       "-c",
-      "ps ax -o pid=,ppid=,args= | grep -E 'vellum-daemon|vellum-gateway|vellum-cli|vellum hatch|vellum sleep|vellum wake|vellum retire|qdrant|openclaw' | grep -v grep",
+      "ps ax -o pid=,ppid=,args= | grep -E 'vellum|qdrant|openclaw' | grep -v grep",
     ]);
     const procs = parseRemotePs(output);
     const ownPid = String(process.pid);
