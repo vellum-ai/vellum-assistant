@@ -12,11 +12,7 @@ import pino from "pino";
 import type { PrettyOptions } from "pino-pretty";
 import pinoPretty from "pino-pretty";
 
-import {
-  getDebugMode,
-  getDebugStdoutLogs,
-  getLogStderr,
-} from "../config/env-registry.js";
+import { getDebugStdoutLogs } from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
 import { getLogPath } from "./platform.js";
 
@@ -110,31 +106,18 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   activeLogDate = today;
   activeLogFileConfig = config;
 
-  const level = getDebugMode() ? "debug" : "info";
-
-  if (getDebugMode()) {
-    const prettyStream = pinoPretty(prettyOpts({ destination: 2 }));
-    return pino(
-      { name: "assistant", level, serializers: logSerializers },
-      pino.multistream([
-        { stream: fileStream, level: "info" as const },
-        { stream: prettyStream, level: "debug" as const },
-      ]),
-    );
-  }
-
   // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
   // write to the rotating file only — the hatch log already captured early
   // startup output and echoing pino output there is unnecessary duplication.
   if (!process.stdout.isTTY) {
     return pino(
-      { name: "assistant", level, serializers: logSerializers },
+      { name: "assistant", level: "info", serializers: logSerializers },
       fileStream,
     );
   }
 
   return pino(
-    { name: "assistant", level, serializers: logSerializers },
+    { name: "assistant", level: "info", serializers: logSerializers },
     pino.multistream([
       { stream: fileStream, level: "info" as const },
       {
@@ -173,13 +156,11 @@ function getRootLogger(): pino.Logger {
   }
   if (!rootLogger) {
     const forceStderr =
-      process.env.BUN_TEST === "1" ||
-      process.env.NODE_ENV === "test" ||
-      getLogStderr();
+      process.env.BUN_TEST === "1" || process.env.NODE_ENV === "test";
     if (forceStderr) {
       rootLogger = pino(
         {
-          level: getDebugMode() ? "debug" : "info",
+          level: "info",
           serializers: logSerializers,
         },
         pino.destination(2),
@@ -208,17 +189,7 @@ function getRootLogger(): pino.Logger {
         prettyOpts({ destination: fileDest, colorize: false }),
       );
 
-      if (getDebugMode()) {
-        const prettyStream = pinoPretty(prettyOpts({ destination: 2 }));
-        const multi = pino.multistream([
-          { stream: fileStream, level: "info" as const },
-          { stream: prettyStream, level: "debug" as const },
-        ]);
-        rootLogger = pino(
-          { level: "debug", serializers: logSerializers },
-          multi,
-        );
-      } else if (getDebugStdoutLogs()) {
+      if (getDebugStdoutLogs()) {
         rootLogger = pino(
           { level: "info", serializers: logSerializers },
           pino.multistream([
@@ -238,7 +209,7 @@ function getRootLogger(): pino.Logger {
     } catch {
       rootLogger = pino(
         {
-          level: getDebugMode() ? "debug" : "info",
+          level: "info",
           serializers: logSerializers,
         },
         pinoPretty(prettyOpts({ destination: 2 })),
@@ -248,9 +219,9 @@ function getRootLogger(): pino.Logger {
   return rootLogger;
 }
 
-/** Returns true when VELLUM_DEBUG=1 is set. */
+/** Returns whether debug mode is active. Currently always false. */
 export function isDebug(): boolean {
-  return getDebugMode();
+  return false;
 }
 
 /**
