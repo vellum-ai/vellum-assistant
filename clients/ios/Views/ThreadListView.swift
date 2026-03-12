@@ -378,7 +378,7 @@ struct ThreadListView: View {
                         } label: {
                             Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
-                        .tint(VColor.systemDangerHover)
+                        .tint(VColor.systemNegativeHover)
                     }
                     .swipeActions(edge: .leading) {
                         Button {
@@ -508,7 +508,7 @@ struct ThreadListView: View {
                     } label: {
                         Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
-                    .tint(VColor.systemDangerHover)
+                    .tint(VColor.systemNegativeHover)
                 }
                 .swipeActions(edge: .leading) {
                     Button {
@@ -543,7 +543,7 @@ struct ThreadListView: View {
                             } label: {
                                 Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
-                            .tint(VColor.systemDangerHover)
+                            .tint(VColor.systemNegativeHover)
                         }
                         .swipeActions(edge: .leading) {
                             Button {
@@ -569,7 +569,7 @@ struct ThreadListView: View {
                                 .accessibilityLabel("Pinned")
                         }
                         if scheduleGroupHasUnread(group) {
-                            VBadge(style: .dot, color: VColor.systemDangerHover)
+                            VBadge(style: .dot, color: VColor.systemNegativeHover)
                                 .accessibilityLabel("Unread")
                         }
                         Text("\(group.threads.count)")
@@ -609,7 +609,7 @@ struct ThreadListView: View {
                         .accessibilityLabel("Pinned")
                 }
                 if store.isConnectedMode && thread.hasUnseenLatestAssistantMessage {
-                    VBadge(style: .dot, color: VColor.systemDangerHover)
+                    VBadge(style: .dot, color: VColor.systemNegativeHover)
                         .accessibilityLabel("Unread")
                 }
                 Spacer()

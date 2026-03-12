@@ -30,7 +30,7 @@ struct LoginView: View {
             if let error = authManager.errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.systemDangerStrong)
+                    .foregroundColor(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
             }

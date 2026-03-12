@@ -389,7 +389,7 @@ struct ChatContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemDangerStrong banner
+                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemNegativeStrong banner
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             } else if viewModel.isRetryableError {
@@ -399,7 +399,7 @@ struct ChatContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemDangerStrong banner
+                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemNegativeStrong banner
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             }
@@ -411,7 +411,7 @@ struct ChatContentView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.systemDangerStrong)
+        .background(VColor.systemNegativeStrong)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -433,11 +433,11 @@ struct ChatContentView: View {
 
     private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
         switch category {
-        case .rateLimit: return VColor.systemDangerHover
+        case .rateLimit: return VColor.systemNegativeHover
         case .providerNetwork: return .orange
         case .sessionAborted: return VColor.contentSecondary
-        case .contextTooLarge: return VColor.systemDangerHover
-        default: return VColor.systemDangerStrong
+        case .contextTooLarge: return VColor.systemNegativeHover
+        default: return VColor.systemNegativeStrong
         }
     }
 

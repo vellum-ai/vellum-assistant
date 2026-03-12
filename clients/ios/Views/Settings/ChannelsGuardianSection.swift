@@ -119,7 +119,7 @@ struct ChannelsGuardianSection: View {
                 showRevokeConfirmation = true
             } label: {
                 VIconView(.circleX, size: 14)
-                    .foregroundColor(VColor.systemDangerStrong)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Revoke channel \(channel.address)")
@@ -155,8 +155,8 @@ struct ChannelsGuardianSection: View {
         let (color, label): (Color, String) = {
             switch policy {
             case "allow": return (VColor.systemPositiveStrong, "Allow")
-            case "deny": return (VColor.systemDangerStrong, "Deny")
-            case "escalate": return (VColor.systemDangerHover, "Escalate")
+            case "deny": return (VColor.systemNegativeStrong, "Deny")
+            case "escalate": return (VColor.systemNegativeHover, "Escalate")
             default: return (VColor.contentTertiary, policy.capitalized)
             }
         }()
@@ -175,8 +175,8 @@ struct ChannelsGuardianSection: View {
         let (color, label): (Color, String) = {
             switch status {
             case "active": return (VColor.systemPositiveStrong, "Active")
-            case "revoked": return (VColor.systemDangerStrong, "Revoked")
-            case "pending": return (VColor.systemDangerHover, "Pending")
+            case "revoked": return (VColor.systemNegativeStrong, "Revoked")
+            case "pending": return (VColor.systemNegativeHover, "Pending")
             default: return (VColor.contentTertiary, status.capitalized)
             }
         }()

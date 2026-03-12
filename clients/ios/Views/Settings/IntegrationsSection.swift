@@ -38,7 +38,7 @@ struct IntegrationsSection: View {
                                     disconnectIntegration(integration.id)
                                 }
                                 .font(.caption)
-                                .foregroundColor(VColor.systemDangerStrong)
+                                .foregroundColor(VColor.systemNegativeStrong)
                             } else {
                                 Button("Connect") {
                                     connectIntegration(integration.id)

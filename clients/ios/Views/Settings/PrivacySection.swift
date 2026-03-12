@@ -69,8 +69,8 @@ struct PrivacySection: View {
         let (color, label): (Color, String) = {
             switch status {
             case .granted: return (VColor.systemPositiveStrong, "Granted")
-            case .denied: return (VColor.systemDangerStrong, "Denied")
-            case .notDetermined: return (VColor.systemDangerHover, "Not Set")
+            case .denied: return (VColor.systemNegativeStrong, "Denied")
+            case .notDetermined: return (VColor.systemNegativeHover, "Not Set")
             }
         }()
         Text(label)

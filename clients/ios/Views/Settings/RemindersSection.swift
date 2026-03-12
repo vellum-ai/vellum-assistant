@@ -75,7 +75,7 @@ struct RemindersSection: View {
     private func statusBadge(_ status: String) -> some View {
         let (color, label): (Color, String) = {
             switch status {
-            case "active": return (VColor.systemDangerHover, "Active")
+            case "active": return (VColor.systemNegativeHover, "Active")
             case "fired": return (VColor.systemPositiveStrong, "Fired")
             case "cancelled": return (VColor.contentTertiary, "Cancelled")
             default: return (VColor.contentSecondary, status.capitalized)

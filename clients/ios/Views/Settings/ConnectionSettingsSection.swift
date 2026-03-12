@@ -73,7 +73,7 @@ struct DaemonConnectionSection: View {
                         // Disconnected state — gateway configured but not connected
                         HStack {
                             VIconView(.circleAlert, size: 16)
-                                .foregroundColor(VColor.systemDangerStrong)
+                                .foregroundColor(VColor.systemNegativeStrong)
                             Text("Disconnected")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.contentDefault)
@@ -159,7 +159,7 @@ struct DaemonConnectionSection: View {
                 if let error = authManager.errorMessage {
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.systemDangerStrong)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
             } header: {
                 Text("Vellum Account")

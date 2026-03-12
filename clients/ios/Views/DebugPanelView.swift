@@ -84,7 +84,7 @@ struct DebugPanelView: View {
                         icon: .triangleAlert,
                         label: "Failures",
                         value: "\(failures)",
-                        color: VColor.systemDangerStrong
+                        color: VColor.systemNegativeStrong
                     )
                 }
             }
@@ -224,7 +224,7 @@ struct TraceTimelineIOSView: View {
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .foregroundColor(VColor.systemDangerHover)
+                        .foregroundColor(VColor.systemNegativeHover)
                         .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
@@ -257,7 +257,7 @@ struct TraceTimelineIOSView: View {
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.small)
-                        .foregroundColor(VColor.systemDangerHover)
+                        .foregroundColor(VColor.systemNegativeHover)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
@@ -265,7 +265,7 @@ struct TraceTimelineIOSView: View {
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
-                        .foregroundColor(VColor.systemDangerStrong)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
 
                 Rectangle()
@@ -293,9 +293,9 @@ struct TraceTimelineIOSView: View {
         switch status {
         case .active: return VColor.systemPositiveStrong
         case .completed: return VColor.systemPositiveStrong
-        case .cancelled: return VColor.systemDangerHover
+        case .cancelled: return VColor.systemNegativeHover
         case .handedOff: return VColor.systemPositiveWeak
-        case .error: return VColor.systemDangerStrong
+        case .error: return VColor.systemNegativeStrong
         }
     }
 
@@ -401,8 +401,8 @@ struct TraceTimelineIOSView: View {
 
     private func statusColor(for status: String?) -> Color {
         switch status {
-        case "error": return VColor.systemDangerStrong
-        case "warning": return VColor.systemDangerHover
+        case "error": return VColor.systemNegativeStrong
+        case "warning": return VColor.systemNegativeHover
         case "success": return VColor.systemPositiveStrong
         default: return VColor.contentTertiary
         }

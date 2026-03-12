@@ -61,7 +61,7 @@ struct PermissionRowView: View {
     private var statusColor: Color {
         switch status {
         case .granted: return VColor.systemPositiveStrong
-        case .denied: return VColor.systemDangerStrong
+        case .denied: return VColor.systemNegativeStrong
         case .notDetermined: return VColor.contentTertiary
         }
     }

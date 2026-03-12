@@ -184,7 +184,7 @@ struct QRPairingSheet: View {
             Spacer()
 
             VIconView(.triangleAlert, size: 48)
-                .foregroundColor(VColor.systemDangerStrong)
+                .foregroundColor(VColor.systemNegativeStrong)
 
             Text("Pairing Failed")
                 .font(VFont.title)

@@ -93,8 +93,8 @@ struct TrustRulesSection: View {
         let (color, label): (Color, String) = {
             switch decision {
             case "allow": return (VColor.systemPositiveStrong, "Allow")
-            case "deny": return (VColor.systemDangerStrong, "Deny")
-            default: return (VColor.systemDangerHover, "Ask")
+            case "deny": return (VColor.systemNegativeStrong, "Deny")
+            default: return (VColor.systemNegativeHover, "Ask")
             }
         }()
         Text(label)

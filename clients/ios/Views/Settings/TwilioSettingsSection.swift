@@ -44,7 +44,7 @@ struct TwilioSettingsSection: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             VIconView(.circleX, size: 16)
-                                .foregroundColor(VColor.systemDangerStrong)
+                                .foregroundColor(VColor.systemNegativeStrong)
                             Text("Not configured")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -163,7 +163,7 @@ struct TwilioSettingsSection: View {
                     if let error = errorMessage {
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(VColor.systemDangerStrong)
+                            .foregroundColor(VColor.systemNegativeStrong)
                     }
                 }
             }
