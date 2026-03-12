@@ -159,6 +159,9 @@ export async function detectConfiguredHooks(
       "hooks",
     ]);
     const resolvedPath = gitPathStdout.trim();
+    if (!resolvedPath) {
+      throw new Error("git rev-parse --git-path hooks returned empty output");
+    }
     hooksDir = resolvedPath.startsWith("/")
       ? resolvedPath
       : join(workspaceDir, resolvedPath);
