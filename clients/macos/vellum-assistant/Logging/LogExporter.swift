@@ -47,18 +47,17 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            event.message = SentryMessage(formatted: "\(formData.reason.displayName) log report")
-            if !formData.message.isEmpty {
-                event.error = NSError(
-                    domain: "com.vellum.log-report",
-                    code: 0,
-                    userInfo: [NSLocalizedDescriptionKey: formData.message]
-                )
-            }
+            let messageText = formData.message.isEmpty
+                ? "\(formData.reason.displayName) log report"
+                : "\(formData.reason.displayName) log report: \(formData.message)"
+            event.message = SentryMessage(formatted: messageText)
             event.tags = [
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
             ]
+            // Group all reports by reason so different user messages don't
+            // fragment into separate Sentry issues.
+            event.fingerprint = ["log_report", formData.reason.rawValue]
 
             // User-provided context (message, email, category) is sent via
             // Sentry's UserFeedback API, linked to the event. This keeps PII
