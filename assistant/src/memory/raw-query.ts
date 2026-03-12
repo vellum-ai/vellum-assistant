@@ -24,7 +24,7 @@
  *   use Drizzle's `sql` template, but raw SQL is acceptable when simpler.
  *
  * - **Bulk deletes across virtual tables**: Operations like clearing
- *   memory_segment_fts that reference virtual tables not modeled in Drizzle.
+ *   messages_fts that reference virtual tables not modeled in Drizzle.
  *
  * For everything else — selects, inserts, updates, deletes, joins, aggregations,
  * filtering, ordering, pagination — use Drizzle.
