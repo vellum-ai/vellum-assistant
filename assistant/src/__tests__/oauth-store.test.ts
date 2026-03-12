@@ -23,11 +23,19 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const mockDeleteSecureKeyAsync = mock(() =>
+  Promise.resolve("deleted" as const),
+);
+mock.module("../security/secure-keys.js", () => ({
+  deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
+}));
+
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import {
   createConnection,
   deleteApp,
   deleteConnection,
+  disconnectOAuthProvider,
   getApp,
   getAppByProviderAndClientId,
   getConnection,
@@ -67,6 +75,7 @@ beforeEach(() => {
   // Explicitly clear all OAuth tables to prevent cross-test state pollution.
   // Delete in FK-dependency order: connections → apps → providers.
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
+  mockDeleteSecureKeyAsync.mockClear();
 });
 
 afterAll(() => {
@@ -559,6 +568,43 @@ describe("connection operations", () => {
     test("returns false for nonexistent id", () => {
       expect(deleteConnection("nonexistent-id")).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// disconnectOAuthProvider
+// ---------------------------------------------------------------------------
+
+describe("disconnectOAuthProvider", () => {
+  test("returns false when no connection exists for the provider", async () => {
+    const result = await disconnectOAuthProvider("github");
+    expect(result).toBe(false);
+    expect(mockDeleteSecureKeyAsync).not.toHaveBeenCalled();
+  });
+
+  test("returns true and deletes connection row and secure keys when connection exists", async () => {
+    const app = createTestApp("github", "client-1");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      providerKey: "github",
+      grantedScopes: ["repo"],
+      hasRefreshToken: true,
+    });
+
+    const result = await disconnectOAuthProvider("github");
+    expect(result).toBe(true);
+
+    // Verify secure keys were deleted
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledTimes(2);
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+      `oauth_connection/${conn.id}/access_token`,
+    );
+    expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+      `oauth_connection/${conn.id}/refresh_token`,
+    );
+
+    // Verify connection row was deleted
+    expect(getConnection(conn.id)).toBeUndefined();
   });
 });
 

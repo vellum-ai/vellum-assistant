@@ -14,6 +14,7 @@ import {
   oauthConnections,
   oauthProviders,
 } from "../memory/schema/oauth.js";
+import { deleteSecureKeyAsync } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -362,4 +363,29 @@ export function deleteConnection(id: string): boolean {
   const db = getDb();
   db.delete(oauthConnections).where(eq(oauthConnections.id, id)).run();
   return rawChanges() > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Disconnect (full cleanup)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fully disconnect an OAuth provider: delete the new-format secure keys
+ * (access_token and refresh_token) and remove the connection row from SQLite.
+ *
+ * Returns `true` if a connection was found and cleaned up, `false` if no
+ * active connection existed for the given provider.
+ */
+export async function disconnectOAuthProvider(
+  providerKey: string,
+): Promise<boolean> {
+  const conn = getConnectionByProvider(providerKey);
+  if (!conn) return false;
+
+  await deleteSecureKeyAsync(`oauth_connection/${conn.id}/access_token`);
+  await deleteSecureKeyAsync(`oauth_connection/${conn.id}/refresh_token`);
+
+  deleteConnection(conn.id);
+
+  return true;
 }
