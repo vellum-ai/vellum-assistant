@@ -465,7 +465,7 @@ GET /v1/events?conversationKey=<key>
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `conversationKey` | Yes | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. |
+| `conversationKey` | No | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. When omitted, subscribes to events from all conversations. |
 
 **Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
 

@@ -1709,7 +1709,7 @@ graph TB
     end
 
     subgraph "SSE Transport"
-        SSE_ROUTE["SSE Route<br/>GET /v1/events?conversationKey=...<br/>(events-routes.ts)<br/>──────────────────────<br/>ReadableStream + CountQueuingStrategy(16)<br/>Heartbeat every 30 s<br/>Slow-consumer shed"]
+        SSE_ROUTE["SSE Route<br/>GET /v1/events[?conversationKey=...]<br/>(events-routes.ts)<br/>──────────────────────<br/>ReadableStream + CountQueuingStrategy(16)<br/>Heartbeat every 30 s<br/>Slow-consumer shed"]
     end
 
     subgraph "Clients"
