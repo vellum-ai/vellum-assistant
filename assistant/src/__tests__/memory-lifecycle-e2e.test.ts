@@ -11,7 +11,6 @@ import {
   test,
 } from "bun:test";
 
-
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "memory-lifecycle-e2e-"));

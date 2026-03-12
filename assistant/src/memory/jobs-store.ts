@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
-import { getDb, rawAll, rawChanges, rawGet } from "./db.js";
+import { getDb, rawAll, rawChanges } from "./db.js";
 import { memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-jobs-store");
