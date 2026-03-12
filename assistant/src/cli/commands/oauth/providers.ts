@@ -171,6 +171,10 @@ Examples:
       }
       return port;
     })
+    .option(
+      "--ping-url <url>",
+      "Health-check endpoint URL for token validation",
+    )
     .addHelpText(
       "after",
       `
@@ -186,6 +190,9 @@ Arguments (via options):
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
   --loopback-port       Port number for the local loopback callback server (1-65535).
+  --ping-url            Optional URL for a lightweight health-check endpoint.
+                        Used by "connections ping" to validate that a stored token
+                        is still functional (e.g. "https://api.example.com/user").
 
 Registers a new OAuth provider configuration in the local store. This is
 used for custom integrations not covered by the built-in provider seeds.
@@ -200,7 +207,12 @@ Examples:
       --provider-key integration:my-service \\
       --auth-url https://my-service.com/auth \\
       --token-url https://my-service.com/token \\
-      --scopes read,write --json`,
+      --scopes read,write --json
+  $ assistant oauth providers register \\
+      --provider-key integration:custom-api \\
+      --auth-url https://example.com/auth \\
+      --token-url https://example.com/token \\
+      --ping-url https://example.com/user`,
     )
     .action(
       (
@@ -214,6 +226,7 @@ Examples:
           tokenAuthMethod?: string;
           callbackTransport?: string;
           loopbackPort?: number;
+          pingUrl?: string;
         },
         cmd: Command,
       ) => {
@@ -229,6 +242,7 @@ Examples:
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             callbackTransport: opts.callbackTransport,
             loopbackPort: opts.loopbackPort,
+            pingUrl: opts.pingUrl,
           });
 
           writeOutput(cmd, parseProviderRow(row));
