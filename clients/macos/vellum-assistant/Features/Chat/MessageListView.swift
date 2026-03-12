@@ -959,11 +959,14 @@ private struct MessageCellView: View {
         messages: [ChatMessage],
         at index: Int
     ) -> Bool {
+        guard let confirmationToolUseId = confirmation.toolUseId, !confirmationToolUseId.isEmpty else {
+            return false
+        }
         for i in (0..<index).reversed() {
             let msg = messages[i]
             guard msg.role == .assistant, msg.confirmation == nil else { continue }
             return msg.toolCalls.contains { tc in
-                tc.pendingConfirmation?.requestId == confirmation.requestId
+                tc.toolUseId == confirmationToolUseId
             }
         }
         return false
