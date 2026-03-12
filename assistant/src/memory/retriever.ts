@@ -302,7 +302,8 @@ export async function buildMemoryRecall(
   let sparseVectorUsed = false;
   const hybridSearchStart = Date.now();
 
-  if (queryVector && !isQdrantBreakerOpen()) {
+  const qdrantBreakerOpen = isQdrantBreakerOpen();
+  if (queryVector && !qdrantBreakerOpen) {
     try {
       hybridCandidates = await semanticSearch(
         queryVector,
@@ -365,7 +366,23 @@ export async function buildMemoryRecall(
   allCandidates.sort((a, b) => b.finalScore - a.finalScore);
 
   // ── Step 6: Tier classification ─────────────────────────────────
+  // Recency-only candidates (semantic=0) can never reach the tier 2 threshold
+  // (>0.6) since their max finalScore is 0.3. Promote them directly to tier 2
+  // so recent conversation context is preserved even without semantic signal.
+  const recencyOnlyKeys = new Set(
+    allCandidates
+      .filter((c) => c.semantic === 0 && c.recency > 0)
+      .map((c) => c.key),
+  );
   const tiered = classifyTiers(allCandidates);
+  if (recencyOnlyKeys.size > 0) {
+    const alreadyTiered = new Set(tiered.map((c) => c.key));
+    for (const c of allCandidates) {
+      if (recencyOnlyKeys.has(c.key) && !alreadyTiered.has(c.key)) {
+        tiered.push({ ...c, tier: 2 });
+      }
+    }
+  }
 
   // ── Step 6b: Enrich candidates with source labels ──────────────
   enrichSourceLabels(tiered);
@@ -456,14 +473,18 @@ export async function buildMemoryRecall(
 
   const latencyMs = Date.now() - start;
 
-  // Propagate degradation from semantic search failure
+  // Propagate degradation from semantic search failure or breaker-open skip
   if (
     semanticSearchFailed ||
+    qdrantBreakerOpen ||
     (!queryVector && config.memory.embeddings.required)
   ) {
     embeddingResult.degraded = true;
     embeddingResult.reason =
-      embeddingResult.reason ?? "memory.hybrid_search_failure";
+      embeddingResult.reason ??
+      (qdrantBreakerOpen
+        ? "memory.qdrant_breaker_open"
+        : "memory.hybrid_search_failure");
   }
 
   log.debug(
