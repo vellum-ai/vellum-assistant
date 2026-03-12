@@ -117,6 +117,27 @@ export function getOrCreateConversation(conversationKey: string): {
       return { conversationId: existing.conversationId, created: false };
     }
 
+    // Check if the conversationKey itself is an existing conversation ID.
+    // This happens when the client loads a thread from the conversations list
+    // and uses the server's conversationId as its local sessionId / conversationKey.
+    const existingConversation = tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.id, conversationKey))
+      .get();
+
+    if (existingConversation) {
+      tx.insert(conversationKeys)
+        .values({
+          id: uuid(),
+          conversationKey,
+          conversationId: existingConversation.id,
+          createdAt: Date.now(),
+        })
+        .run();
+      return { conversationId: existingConversation.id, created: false };
+    }
+
     const now = Date.now();
     const conversationId = uuid();
 
