@@ -109,31 +109,6 @@ struct DebugPanel: View {
                             color: Amber._400
                         )
                     }
-                    metric(
-                        icon: "memorychip",
-                        label: "Pending Conflicts",
-                        value: formatWhole(memory.conflictsPending)
-                    )
-                    metric(
-                        icon: "checkmark.seal",
-                        label: "Resolved Conflicts",
-                        value: formatWhole(memory.conflictsResolved)
-                    )
-                    metric(
-                        icon: VIcon.history.rawValue,
-                        label: "Oldest Pending",
-                        value: formatDurationMs(memory.oldestPendingConflictAgeMs)
-                    )
-                    metric(
-                        icon: "tray.full",
-                        label: "Cleanup Backlog",
-                        value: "R \(formatWhole(memory.cleanupResolvedJobsPending)) / S \(formatWhole(memory.cleanupSupersededJobsPending))"
-                    )
-                    metric(
-                        icon: "sparkles",
-                        label: "Cleanup 24h",
-                        value: "R \(formatWhole(memory.cleanupResolvedJobsCompleted24h)) / S \(formatWhole(memory.cleanupSupersededJobsCompleted24h))"
-                    )
                 }
             }
             .padding(.horizontal, VSpacing.xl)

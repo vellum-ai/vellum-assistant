@@ -25,7 +25,8 @@ export interface MemoryRecalled {
   recencyHits: number;
   tier1Count: number;
   tier2Count: number;
-  hybridSearchMs: number;
+  hybridSearchLatencyMs: number;
+  sparseVectorUsed: boolean;
   mergedCount: number;
   selectedCount: number;
   injectedTokens: number;
@@ -41,10 +42,6 @@ export interface MemoryStatus {
   reason?: string;
   provider?: string;
   model?: string;
-  cleanupResolvedJobsPending: number;
-  cleanupSupersededJobsPending: number;
-  cleanupResolvedJobsCompleted24h: number;
-  cleanupSupersededJobsCompleted24h: number;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
