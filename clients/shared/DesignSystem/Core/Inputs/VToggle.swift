@@ -27,12 +27,12 @@ public struct VToggle: View {
                     if let label {
                         Text(label)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
+                            .foregroundColor(isEnabled ? VColor.contentDefault : VColor.contentTertiary)
                     }
                     if let helperText {
                         Text(helperText)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
             }
@@ -64,23 +64,23 @@ public struct VToggle: View {
             Circle()
                 .fill(knobColor)
                 .frame(width: knobSize, height: knobSize)
-                .shadow(color: Color.black.opacity(0.08), radius: 2, x: 0, y: 1)
+                .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 0, y: 1)
                 .padding(.horizontal, knobPadding)
         }
     }
 
     private var trackColor: Color {
         if !isEnabled {
-            return isOn ? VColor.toggleOn.opacity(0.5) : VColor.toggleOff
+            return isOn ? VColor.primaryDisabled : VColor.surfaceBase
         }
-        return isOn ? VColor.toggleOn : VColor.toggleOff
+        return isOn ? VColor.primaryBase : VColor.surfaceBase
     }
 
     private var knobColor: Color {
         if !isEnabled {
-            return VColor.toggleKnobDisabled
+            return VColor.contentDisabled
         }
-        return VColor.toggleKnob
+        return VColor.contentInset
     }
 }
 
@@ -99,7 +99,7 @@ private struct VTogglePreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 16) {
                 VToggle(isOn: $isOnA, label: "Enabled toggle")
                 VToggle(isOn: $isOnB, label: "Disabled toggle")

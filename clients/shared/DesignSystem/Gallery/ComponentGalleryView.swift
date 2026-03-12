@@ -74,7 +74,7 @@ struct ComponentGalleryView: View {
                 .padding(VSpacing.xxl)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.background)
+            .background(VColor.surfaceOverlay)
         }
     }
 }
@@ -87,10 +87,10 @@ struct GallerySectionHeader: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(title)
                 .font(VFont.largeTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Text(description)
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
     }
 }

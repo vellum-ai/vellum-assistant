@@ -23,7 +23,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 // Main content - styled as panel
                 main
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(mainBackground ?? VColor.backgroundSubtle)
+                    .background(mainBackground ?? VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                     .padding([.bottom, .leading], VSpacing.xs)
                     .padding(.trailing, showPanel ? 0 : VSpacing.xs)
@@ -36,7 +36,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     panel
                         .frame(width: panelWidth)
                         .animation(nil, value: panelWidth)  // Disable animation on width changes
-                        .background(VColor.backgroundSubtle)
+                        .background(VColor.surfaceBase)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                         .padding([.bottom, .trailing], VSpacing.xs)
                         .transition(.move(edge: .trailing))
@@ -51,13 +51,13 @@ public struct VSplitView<Main: View, Panel: View>: View {
         ZStack {
             // Thin vertical line
             Rectangle()
-                .fill(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder)
+                .fill(isDividerHovered || isDragging ? VColor.primaryBase : VColor.borderBase)
                 .frame(width: 1)
 
             // Small pill — only visible on hover/drag
             if isDividerHovered || isDragging {
                 Capsule()
-                    .fill(VColor.accent)
+                    .fill(VColor.primaryBase)
                     .frame(width: 4, height: 32)
                     .transition(.opacity)
             }
@@ -162,20 +162,20 @@ public extension VSplitView where Panel == EmptyView {
 
         var body: some View {
             ZStack {
-                VColor.background.ignoresSafeArea()
+                VColor.surfaceOverlay.ignoresSafeArea()
                 VSplitView(panelWidth: $panelWidth, showPanel: true) {
                     VStack {
                         Text("Main Content")
                             .font(VFont.title)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.surface)
+                    .background(VColor.surfaceBase)
                 } panel: {
                     VSidePanel(title: "Panel", pinnedContent: { EmptyView() }) {
                         Text("Side panel")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
             }

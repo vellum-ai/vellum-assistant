@@ -6,7 +6,7 @@ public struct PanelBackgroundModifier: ViewModifier {
     public func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceBase)
     }
 }
 
@@ -18,14 +18,14 @@ public extension View {
 
 #Preview("PanelBackground") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         HStack(spacing: 0) {
             Text("Main area")
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             Text("Panel area")
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(width: 150)
                 .vPanelBackground()
         }

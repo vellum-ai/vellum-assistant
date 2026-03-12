@@ -29,7 +29,7 @@ struct CloudCredentialsStepView: View {
     var body: some View {
         Text(titleText)
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -37,7 +37,7 @@ struct CloudCredentialsStepView: View {
 
         Text(subtitleText)
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
@@ -112,16 +112,16 @@ struct CloudCredentialsStepView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("IAM Role ARN")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 TextField("arn:aws:iam::123456789012:role/VellumAssistantRole", text: $state.awsRoleArn)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                     .focused($arnFieldFocused)
                     .onSubmit {
@@ -140,7 +140,7 @@ struct CloudCredentialsStepView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("QR Code Image")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 filePickerButton(
                     fileName: qrCodeImageFileName,
                     prompt: "Select QR Code PNG",
@@ -172,16 +172,16 @@ struct CloudCredentialsStepView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Project ID")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 TextField("my-gcp-project-id", text: $state.gcpProjectId)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                     .focused($projectIdFieldFocused)
             }
@@ -189,7 +189,7 @@ struct CloudCredentialsStepView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Zone")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Picker("", selection: $state.gcpZone) {
                     ForEach(Self.gcpZones, id: \.self) { zone in
                         Text(zone).tag(zone)
@@ -198,20 +198,20 @@ struct CloudCredentialsStepView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .font(.system(size: 14, weight: .medium, design: .monospaced))
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Service Account Key (JSON)")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 filePickerButton(
                     fileName: gcpServiceAccountFileName,
                     prompt: "Select Service Account JSON File",
@@ -229,7 +229,7 @@ struct CloudCredentialsStepView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Before continuing, set up the following in the AWS Console:")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 setupStep("1. Create an IAM role with EC2 full access permissions (e.g., AmazonEC2FullAccess).")
                 setupStep("2. Configure the role's trust policy to allow Vellum to assume it.")
@@ -238,7 +238,7 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.aws.amazon.com/iam/home#/roles")!) {
                 Text("Open AWS IAM Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.onboardingLink)
+                    .foregroundColor(VColor.primaryBase)
             }
             .pointerCursor()
         }
@@ -247,7 +247,7 @@ struct CloudCredentialsStepView: View {
         .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.codeBlockBackground)
+                .fill(VColor.surfaceActive)
         )
     }
 
@@ -255,7 +255,7 @@ struct CloudCredentialsStepView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Set up your Mac mini, then upload the QR code:")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 setupStep("1. On your Mac mini, run: curl -fsSL https://assistant.vellum.ai/install.sh | bash")
                 setupStep("2. Upload the QR code PNG generated by the install script below.")
@@ -266,7 +266,7 @@ struct CloudCredentialsStepView: View {
         .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.codeBlockBackground)
+                .fill(VColor.surfaceActive)
         )
     }
 
@@ -274,7 +274,7 @@ struct CloudCredentialsStepView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Before continuing, set up the following in the Google Cloud Console:")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 setupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
                 setupStep("2. Create a Service Account with the Compute Admin role.")
@@ -283,7 +283,7 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
                 Text("Open Google Cloud Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.onboardingLink)
+                    .foregroundColor(VColor.primaryBase)
             }
             .pointerCursor()
         }
@@ -292,14 +292,14 @@ struct CloudCredentialsStepView: View {
         .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.codeBlockBackground)
+                .fill(VColor.surfaceActive)
         )
     }
 
     private func setupStep(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12))
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
     }
 
     // MARK: - File Picker UI
@@ -315,16 +315,16 @@ struct CloudCredentialsStepView: View {
             Button(action: onPick) {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.filePlus, size: 14)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Text(prompt)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, VSpacing.lg)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
+                        .stroke(VColor.borderBase, style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
                 )
             }
             .buttonStyle(.plain)
@@ -332,17 +332,17 @@ struct CloudCredentialsStepView: View {
         } else {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.file, size: 14)
-                    .foregroundColor(VColor.onboardingFileIcon)
+                    .foregroundColor(VColor.primaryBase)
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 Spacer()
                 Button(action: onClear) {
                     VIconView(.circleX, size: 14)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -351,7 +351,7 @@ struct CloudCredentialsStepView: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.onboardingBorderStroke, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
         }
     }
@@ -433,7 +433,7 @@ struct CloudCredentialsStepView: View {
         Button(action: { goBack() }) {
             Text("Back")
                 .font(.system(size: 13))
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .buttonStyle(.plain)
         .pointerCursor()
@@ -487,7 +487,7 @@ struct CloudCredentialsStepView: View {
 
 #Preview("AWS") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")
@@ -509,7 +509,7 @@ struct CloudCredentialsStepView: View {
 
 #Preview("GCP") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")
@@ -531,7 +531,7 @@ struct CloudCredentialsStepView: View {
 
 #Preview("Custom Hardware") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")

@@ -20,7 +20,7 @@ private struct CodeBlockView: View {
                 if !lang.isEmpty {
                     Text(lang)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
                 Button(action: copyCode) {
@@ -31,7 +31,7 @@ private struct CodeBlockView: View {
                                 .font(VFont.monoSmall)
                         }
                     }
-                    .foregroundColor(showCopied ? VColor.success : VColor.textMuted)
+                    .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -40,12 +40,12 @@ private struct CodeBlockView: View {
 
             Text(code)
                 .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .background(VColor.codeBackground)
+        .background(VColor.surfaceActive)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
@@ -247,14 +247,14 @@ public struct MarkdownRenderer: View {
         case .heading(let level, let text):
             Text(inlineMarkdown(text))
                 .font(level <= 2 ? VFont.headline : VFont.bodyMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .paragraph(let text):
             Text(inlineMarkdown(text))
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .tint(VColor.accent)
+                .foregroundColor(VColor.contentDefault)
+                .tint(VColor.primaryBase)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
 
@@ -267,12 +267,12 @@ public struct MarkdownRenderer: View {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         Text(ordered ? "\(index + 1)." : "•")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(minWidth: ordered ? 24 : 12, alignment: .leading)
                         Text(inlineMarkdown(item))
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .tint(VColor.accent)
+                            .foregroundColor(VColor.contentDefault)
+                            .tint(VColor.primaryBase)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
@@ -281,7 +281,7 @@ public struct MarkdownRenderer: View {
 
         case .horizontalRule:
             Rectangle()
-                .fill(VColor.surfaceBorder)
+                .fill(VColor.borderBase)
                 .frame(maxWidth: .infinity)
                 .frame(height: 1)
         }
@@ -301,13 +301,13 @@ public struct MarkdownRenderer: View {
             }
         }
         for range in codeRanges.reversed() {
-            result[range].foregroundColor = VColor.codeText
-            result[range].backgroundColor = VColor.codeBackground
+            result[range].foregroundColor = VColor.systemNegativeStrong
+            result[range].backgroundColor = VColor.surfaceActive
             var trailing = AttributedString("\u{2009}")
-            trailing.backgroundColor = VColor.codeBackground
+            trailing.backgroundColor = VColor.surfaceActive
             result.insert(trailing, at: range.upperBound)
             var leading = AttributedString("\u{2009}")
-            leading.backgroundColor = VColor.codeBackground
+            leading.backgroundColor = VColor.surfaceActive
             result.insert(leading, at: range.lowerBound)
         }
         return result
@@ -344,5 +344,5 @@ public struct MarkdownRenderer: View {
         """)
         .padding()
     }
-    .background(VColor.background)
+    .background(VColor.surfaceOverlay)
 }

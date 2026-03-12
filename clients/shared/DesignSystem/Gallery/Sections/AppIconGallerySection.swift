@@ -20,13 +20,13 @@ struct AppIconGallerySection: View {
                         let icon = VAppIconGenerator.generate(from: app)
                         VStack(spacing: VSpacing.sm) {
                             VIconView(icon, size: 28)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .frame(width: 64, height: 64)
-                                .background(Moss._100)
+                                .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             Text(app)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
                 }

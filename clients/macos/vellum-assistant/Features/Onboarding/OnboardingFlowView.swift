@@ -29,7 +29,7 @@ struct OnboardingFlowView: View {
     var body: some View {
         GeometryReader { geometry in
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
 
             if state.isHatching {
                 HatchingStepView(state: state)
@@ -37,8 +37,8 @@ struct OnboardingFlowView: View {
                     .background(
                         RadialGradient(
                             colors: [
-                                VColor.background,
-                                VColor.onboardingHatchGradientOuter
+                                VColor.surfaceOverlay,
+                                VColor.surfaceOverlay
                             ],
                             center: .center,
                             startRadius: 0,
@@ -115,8 +115,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            VColor.onboardingGradientEdge,
-                            VColor.onboardingGradientOuter
+                            VColor.surfaceBase,
+                            VColor.surfaceOverlay
                         ],
                         center: .center,
                         startRadius: 0,
@@ -199,17 +199,17 @@ struct OnboardingFlowView: View {
                         .progressViewStyle(.circular)
                     Text("Setting up your assistant...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 Text("Setup failed")
                     .font(VFont.title)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let error = managedBootstrapError {
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 280)
                 }

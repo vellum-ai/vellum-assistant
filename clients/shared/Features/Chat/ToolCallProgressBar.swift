@@ -71,28 +71,28 @@ public struct ToolCallProgressBar: View {
                 if toolCall.isComplete {
                     // Filled circle for completed steps
                     Circle()
-                        .fill(toolCall.isError ? VColor.error : VColor.accent)
+                        .fill(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
                         .frame(width: 20, height: 20)
 
                     if toolCall.isError {
                         // Error icon
                         VIconView(.x, size: 8)
-                            .foregroundColor(.white)
+                            .foregroundColor(VColor.auxWhite)
                     } else {
                         // Checkmark
                         VIconView(.check, size: 8)
-                            .foregroundColor(.white)
+                            .foregroundColor(VColor.auxWhite)
                     }
                 } else {
                     // Outlined circle for in-progress
                     Circle()
-                        .strokeBorder(VColor.accent, lineWidth: 2)
+                        .strokeBorder(VColor.primaryBase, lineWidth: 2)
                         .frame(width: 20, height: 20)
 
                     // Loading spinner inside
                     ProgressView()
                         .scaleEffect(0.35)
-                        .tint(VColor.accent)
+                        .tint(VColor.primaryBase)
                         .frame(width: 20, height: 20)
                 }
             }
@@ -132,7 +132,7 @@ public struct ToolCallProgressBar: View {
 
     private func connectorLine(isComplete: Bool) -> some View {
         Rectangle()
-            .fill(VColor.surfaceBorder)
+            .fill(VColor.borderBase)
             .frame(width: 32, height: 2)
     }
 
@@ -144,11 +144,11 @@ public struct ToolCallProgressBar: View {
             // Header
             HStack {
                 VIconView(.terminal, size: 12)
-                    .foregroundColor(toolCall.isError ? VColor.error : VColor.accent)
+                    .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
 
                 Text(toolCall.friendlyName)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
 
@@ -158,7 +158,7 @@ public struct ToolCallProgressBar: View {
                     }
                 } label: {
                     VIconView(.x, size: 10)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close details")
@@ -169,11 +169,11 @@ public struct ToolCallProgressBar: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Input")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     Text(toolCall.inputSummary)
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                 }
             }
@@ -183,7 +183,7 @@ public struct ToolCallProgressBar: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Screenshot")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     #if os(macOS)
                     Image(nsImage: cachedImage)
@@ -206,21 +206,21 @@ public struct ToolCallProgressBar: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Result")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     if let exitCode = ToolCallChip.parseExitCode(from: result) {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             HStack(spacing: VSpacing.xs) {
                                 VIconView(.triangleAlert, size: 11)
-                                    .foregroundColor(VColor.error)
+                                    .foregroundColor(VColor.systemNegativeStrong)
                                 Text("Exit code \(exitCode)")
                                     .font(VFont.captionMedium)
-                                    .foregroundColor(VColor.error)
+                                    .foregroundColor(VColor.systemNegativeStrong)
                             }
                             if let explanation = ToolCallChip.exitCodeExplanation(exitCode) {
                                 Text(explanation)
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
+                                    .foregroundColor(VColor.contentSecondary)
                             }
                             let extraOutput = result
                                 .replacingOccurrences(of: #"<command_exit code="\d+" />"#, with: "", options: .regularExpression)
@@ -228,23 +228,23 @@ public struct ToolCallProgressBar: View {
                             if !extraOutput.isEmpty {
                                 Text(extraOutput)
                                     .font(VFont.monoSmall)
-                                    .foregroundColor(VColor.textSecondary)
+                                    .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
                             }
                         }
                     } else if result == "<command_completed />" {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleCheck, size: 11)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                             Text("Command completed successfully (no output).")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     } else {
                         ScrollView {
                             Text(result)
                                 .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
@@ -256,11 +256,11 @@ public struct ToolCallProgressBar: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
 
@@ -268,31 +268,31 @@ public struct ToolCallProgressBar: View {
 
     private func stepBackgroundColor(for toolCall: ToolCallData) -> Color {
         if toolCall.isError {
-            return VColor.error
+            return VColor.systemNegativeStrong
         } else if !toolCall.isComplete {
-            return VColor.accent
+            return VColor.primaryBase
         } else {
-            return VColor.accent
+            return VColor.primaryBase
         }
     }
 
     private func stepBorderColor(for toolCall: ToolCallData) -> Color {
         if toolCall.isError {
-            return VColor.error
+            return VColor.systemNegativeStrong
         } else if !toolCall.isComplete {
-            return VColor.accent.opacity(0.5)
+            return VColor.primaryBase.opacity(0.5)
         } else {
-            return VColor.accent.opacity(0.8)
+            return VColor.primaryBase.opacity(0.8)
         }
     }
 
     private func stepTextColor(for toolCall: ToolCallData) -> Color {
         if toolCall.isError {
-            return VColor.error
+            return VColor.systemNegativeStrong
         } else if !toolCall.isComplete {
-            return VColor.textSecondary
+            return VColor.contentSecondary
         } else {
-            return VColor.textPrimary
+            return VColor.contentDefault
         }
     }
 }
@@ -302,7 +302,7 @@ public struct ToolCallProgressBar: View {
 #if DEBUG
 #Preview("ToolCallProgressBar") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
 
         VStack(spacing: VSpacing.xl) {
             // In progress example

@@ -5,12 +5,12 @@ import SwiftUI
 /// and falls back to a static indicator when reduced motion is enabled.
 public struct VBusyIndicator: View {
     public var size: CGFloat = 10
-    public var color: Color = VColor.accent
+    public var color: Color = VColor.primaryBase
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
-    public init(size: CGFloat = 10, color: Color = VColor.accent) {
+    public init(size: CGFloat = 10, color: Color = VColor.primaryBase) {
         self.size = size
         self.color = color
     }
@@ -43,19 +43,19 @@ public struct VBusyIndicator: View {
 
 #Preview("VBusyIndicator") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 24) {
             HStack(spacing: 24) {
                 VBusyIndicator(size: 8)
                 VBusyIndicator()
                 VBusyIndicator(size: 14)
-                VBusyIndicator(color: VColor.success)
+                VBusyIndicator(color: VColor.systemPositiveStrong)
             }
             HStack(spacing: 24) {
                 Text("Reduced motion:")
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("(reads @Environment automatically)")
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .font(VFont.caption)
             }
         }

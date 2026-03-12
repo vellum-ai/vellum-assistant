@@ -66,10 +66,53 @@ enum LogExporter {
             if formData.reason == .assistantBehavior {
                 tags["client"] = "macos"
             }
+
+            // Surface active session state as tags so the Sentry event itself
+            // is useful for triage without downloading the log archive.
+            var extra: [String: Any] = [:]
+            let threadManager = AppDelegate.shared?.mainWindow?.threadManager
+            if let activeThread = threadManager?.activeThread {
+                extra["thread_title"] = activeThread.title
+                if let sessionId = activeThread.sessionId {
+                    tags["session_id"] = sessionId
+                    // conversation_id mirrors session_id — the daemon tags its
+                    // Sentry events with both names for the same value. Setting
+                    // it here enables cross-project search: find the daemon error
+                    // that corresponds to a macOS log report by querying
+                    // conversation_id in the vellum-assistant-brain Sentry project.
+                    tags["conversation_id"] = sessionId
+                }
+            }
+            var errorCategoryString: String?
+            if let vm = threadManager?.activeViewModel {
+                extra["message_count"] = vm.messages.count
+                if let sessionError = vm.sessionError {
+                    let category = "\(sessionError.category)"
+                    tags["session_error_category"] = category
+                    errorCategoryString = category
+                    if let debugDetails = sessionError.debugDetails {
+                        extra["session_error_debug_details"] = debugDetails
+                    }
+                }
+                if let sessionId = vm.sessionId {
+                    // Prefer the view model's sessionId (most up-to-date)
+                    tags["session_id"] = sessionId
+                    tags["conversation_id"] = sessionId
+                }
+            }
+            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                tags["assistant_id"] = assistantId
+            }
+            if !extra.isEmpty {
+                event.extra = extra
+            }
+
             event.tags = tags
-            // Group all reports by reason so different user messages don't
-            // fragment into separate Sentry issues.
-            event.fingerprint = ["log_report", formData.reason.rawValue]
+            // Group reports by reason and error category so different root
+            // causes (e.g. providerApi vs contextTooLarge) create separate
+            // Sentry issues instead of being mixed into one.
+            let categoryComponent = errorCategoryString ?? "none"
+            event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
 
             // User-provided context (message, email, category) is sent via
             // Sentry's UserFeedback API, linked to the event. This keeps PII

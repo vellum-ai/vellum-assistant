@@ -59,23 +59,23 @@ struct OnboardingButton: View {
     private var foregroundColor: Color {
         switch style {
         case .primary:
-            return disabled ? Color.white.opacity(0.4) : .white
+            return disabled ? VColor.auxWhite.opacity(0.4) : VColor.auxWhite
         case .tertiary:
-            return disabled ? VColor.textPrimary.opacity(0.3) : VColor.textPrimary.opacity(0.85)
+            return disabled ? VColor.contentDefault.opacity(0.3) : VColor.contentDefault.opacity(0.85)
         }
     }
 
     private var background: some ShapeStyle {
         switch style {
         case .primary:
-            return AnyShapeStyle(disabled ? VColor.accent.opacity(0.3) : VColor.accent)
+            return AnyShapeStyle(disabled ? VColor.primaryBase.opacity(0.3) : VColor.primaryBase)
         case .tertiary:
             return AnyShapeStyle(Color.clear)
         }
     }
 
     private var borderColor: Color {
-        style == .tertiary ? VColor.textPrimary.opacity(disabled ? 0.1 : 0.25) : .clear
+        style == .tertiary ? VColor.contentDefault.opacity(disabled ? 0.1 : 0.25) : .clear
     }
 
     private var opacity: Double {
@@ -85,7 +85,7 @@ struct OnboardingButton: View {
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.surfaceOverlay
         VStack(spacing: VSpacing.xl) {
             OnboardingButton(title: "Say hello", style: .primary) {}
             OnboardingButton(title: "Skip", style: .tertiary) {}

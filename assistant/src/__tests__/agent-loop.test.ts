@@ -869,11 +869,13 @@ describe("AgentLoop", () => {
     await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
 
     expect(checkpoints).toHaveLength(1);
-    expect(checkpoints[0]).toEqual({
+    expect(checkpoints[0]).toMatchObject({
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
     });
+    // history should contain the full conversation at checkpoint time
+    expect(checkpoints[0].history.length).toBeGreaterThanOrEqual(3);
   });
 
   // 17. Returning 'continue' lets the loop proceed normally

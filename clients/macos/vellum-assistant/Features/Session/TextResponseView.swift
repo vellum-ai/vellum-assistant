@@ -41,7 +41,7 @@ struct TextResponseView: View {
             if case .failed(let reason) = session.state {
                 HStack(spacing: 6) {
                     VIconView(.circleX, size: 14)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                     Text(reason)
                         .font(VFont.caption)
                         .foregroundStyle(.secondary)
@@ -55,7 +55,7 @@ struct TextResponseView: View {
             if case .cancelled = session.state {
                 Text("Cancelled")
                     .font(VFont.caption.bold())
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VColor.systemNegativeHover)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.md)
             }
@@ -65,7 +65,7 @@ struct TextResponseView: View {
                 onClose?()
             } label: {
                 VIconView(.x, size: 12)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -131,13 +131,13 @@ struct TextResponseView: View {
 
             Text(Self.markdownString(text))
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surface.opacity(0.5))
+                        .fill(VColor.surfaceBase.opacity(0.5))
                 )
                 .frame(maxWidth: 320, alignment: .leading)
 
@@ -156,7 +156,7 @@ struct TextResponseView: View {
                 .padding(.vertical, VSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surface.opacity(0.5))
+                        .fill(VColor.surfaceBase.opacity(0.5))
                 )
 
             Spacer(minLength: 0)
@@ -179,7 +179,7 @@ struct TextResponseView: View {
             // Mic indicator — shows when Fn-hold voice input is active
             if inputState.isRecording {
                 Image(systemName: "mic.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                     .font(.system(size: 14))
                     .symbolEffect(.pulse)
             }
@@ -187,11 +187,11 @@ struct TextResponseView: View {
             // Send button
             Button(action: sendMessage) {
                 VIconView(.arrowUp, size: 12)
-                    .foregroundColor(.white)
+                    .foregroundColor(VColor.auxWhite)
                     .frame(width: 28, height: 28)
                     .background(
                         Circle()
-                            .fill(inputState.inputText.isEmpty ? VColor.sendButton.opacity(0.4) : VColor.sendButton)
+                            .fill(inputState.inputText.isEmpty ? VColor.primaryBase.opacity(0.4) : VColor.primaryBase)
                     )
             }
             .buttonStyle(.plain)
@@ -210,7 +210,7 @@ struct TextResponseView: View {
                 session.cancel()
             }
             .buttonStyle(.bordered)
-            .tint(.red)
+            .tint(VColor.systemNegativeStrong)
             .controlSize(.small)
             Spacer()
         }
@@ -262,8 +262,8 @@ struct ConversationBubble: View {
 
             Text(Self.markdownString(message.text))
                 .font(VFont.body)
-                .foregroundColor(isAssistant ? VColor.textPrimary : .white)
-                .tint(isAssistant ? VColor.accent : .white)
+                .foregroundColor(isAssistant ? VColor.contentDefault : VColor.auxWhite)
+                .tint(isAssistant ? VColor.primaryBase : VColor.auxWhite)
                 .if(isAssistant) { view in
                     view.textSelection(.enabled)
                 }
@@ -290,7 +290,7 @@ struct ConversationBubble: View {
 
     private var bubbleFill: some ShapeStyle {
         if isAssistant {
-            return AnyShapeStyle(VColor.surface.opacity(0.5))
+            return AnyShapeStyle(VColor.surfaceBase.opacity(0.5))
         } else {
             return AnyShapeStyle(
                 LinearGradient(
@@ -317,7 +317,7 @@ struct BouncingDots: View {
         HStack(spacing: VSpacing.xs) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(VColor.textSecondary)
+                    .fill(VColor.contentSecondary)
                     .frame(width: 6, height: 6)
                     .opacity(phase == index ? 1.0 : 0.4)
             }

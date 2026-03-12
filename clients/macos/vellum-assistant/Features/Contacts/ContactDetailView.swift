@@ -80,7 +80,7 @@ struct ContactDetailView: View {
             }
             .padding(VSpacing.xl)
         }
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
         .confirmationDialog(
             "Delete \(displayContact.displayName)?",
             isPresented: $showDeleteConfirmation,
@@ -132,13 +132,13 @@ struct ContactDetailView: View {
                 if isEditing && displayContact.role != "guardian" {
                     TextField("Display name", text: $editedName)
                         .font(VFont.largeTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .textFieldStyle(.plain)
                         .onSubmit { Task { await saveCardEdits() } }
                 } else {
                     Text(displayContact.displayName)
                         .font(VFont.largeTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
 
                 Spacer()
@@ -153,7 +153,7 @@ struct ContactDetailView: View {
                         } label: {
                             Text("Cancel")
                                 .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                         .keyboardShortcut(.escape, modifiers: [])
@@ -165,7 +165,7 @@ struct ContactDetailView: View {
                         isEditing = true
                     } label: {
                         VIconView(.pencil, size: 12)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
                     .opacity(isHoveringHeader ? 1 : 0)
@@ -179,7 +179,7 @@ struct ContactDetailView: View {
                                     .controlSize(.small)
                             } else {
                                 VIconView(.trash, size: 14)
-                                    .foregroundColor(VColor.error)
+                                    .foregroundColor(VColor.systemNegativeStrong)
                             }
                         }
                         .buttonStyle(.plain)
@@ -200,42 +200,42 @@ struct ContactDetailView: View {
             HStack(spacing: VSpacing.sm) {
                 Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 if let lastInteraction = displayContact.lastInteraction {
                     Text("\u{00B7}")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text("Last \(relativeTime(epochMs: Int(lastInteraction)))")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
-            Divider().background(VColor.divider)
+            Divider().background(VColor.borderBase)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 if isEditing {
                     TextEditor(text: $editedNotes)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 60, maxHeight: 160)
                         .padding(VSpacing.xs)
-                        .background(VColor.inputBackground)
+                        .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 } else if let notes = displayContact.notes, !notes.isEmpty {
                     Text(notes)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text("No notes")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -243,7 +243,7 @@ struct ContactDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .onHover { hovering in
             isHoveringHeader = hovering
         }
@@ -254,18 +254,18 @@ struct ContactDetailView: View {
             if displayContact.role == "guardian" {
                 Text("Guardian")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.accentSubtle)
+                    .background(VColor.systemPositiveWeak)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
             } else {
                 Text("Contact")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.surfaceSubtle)
+                    .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
             }
         }
@@ -275,8 +275,8 @@ struct ContactDetailView: View {
         VBadge(
             style: .label(formatContactType(displayContact.contactType)),
             color: displayContact.contactType == "assistant"
-                ? VColor.accent
-                : VColor.textSecondary
+                ? VColor.primaryBase
+                : VColor.contentSecondary
         )
     }
 
@@ -286,7 +286,7 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Channels")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             let channelsByType = Dictionary(
                 grouping: displayContact.channels,
@@ -310,12 +310,12 @@ struct ContactDetailView: View {
                         channelRow(channel)
 
                         if channelIndex < channels.count - 1 {
-                            Divider().background(VColor.divider)
+                            Divider().background(VColor.borderBase)
                         }
                     }
 
                     if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.divider)
+                        Divider().background(VColor.borderBase)
                     }
                 } else if let readiness = channelReadiness[type] {
                     if readiness.ready {
@@ -327,7 +327,7 @@ struct ContactDetailView: View {
                     }
 
                     if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.divider)
+                        Divider().background(VColor.borderBase)
                     }
                 } else if readinessFetchFailed && Self.codeInviteChannels.contains(type) {
                     // Readiness fetch failed — show as unavailable so channels
@@ -335,7 +335,7 @@ struct ContactDetailView: View {
                     unavailableChannelRow(type: type, reason: "Unable to check readiness")
 
                     if type != lastVisibleType || hasExtraChannels {
-                        Divider().background(VColor.divider)
+                        Divider().background(VColor.borderBase)
                     }
                 }
             }
@@ -344,25 +344,25 @@ struct ContactDetailView: View {
                 channelRow(channel)
 
                 if index < extraChannels.count - 1 {
-                    Divider().background(VColor.divider)
+                    Divider().background(VColor.borderBase)
                 }
             }
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let inviteError {
                 Text(inviteError)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
@@ -378,14 +378,14 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(channelIcon(for: channel.type), size: 14)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .frame(width: 20, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(channel.address)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         statusBadge(for: channel)
@@ -396,13 +396,13 @@ struct ContactDetailView: View {
                         let via = channel.verifiedVia ?? "unknown"
                         Text("Verified via \(via) on \(dateStr)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     if let lastSeenAt = channel.lastSeenAt, lastSeenAt > 0 {
                         Text("Last seen \(relativeTime(epochMs: lastSeenAt))")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     if channel.policy != "allow" {
@@ -411,7 +411,7 @@ struct ContactDetailView: View {
                             Text("Policy: \(channel.policy)")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     }
                 }
 
@@ -432,17 +432,17 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .frame(width: 20, alignment: .center)
 
                 Text(channelLabel(for: type))
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let handle = channelReadiness[type]?.channelHandle {
                     Text(handle)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
 
@@ -450,7 +450,7 @@ struct ContactDetailView: View {
 
                 Text("Not set up")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             // Guardian contacts get the full channel verification flow; others get invite button
@@ -510,24 +510,24 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(channelIcon(for: type), size: 14)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(width: 20, alignment: .center)
 
                 Text(channelLabel(for: type))
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
 
                 Spacer()
 
                 Text("Unavailable")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             if let reason {
                 Text(reason)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -542,7 +542,7 @@ struct ContactDetailView: View {
                 if let instruction = result.guardianInstruction {
                     Text(instruction)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -554,7 +554,7 @@ struct ContactDetailView: View {
                             : shareUrl
                         Text(truncated)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
 
                         VButton(
                             label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
@@ -580,7 +580,7 @@ struct ContactDetailView: View {
                     HStack(spacing: VSpacing.sm) {
                         Text(channelHandle)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
 
                         VButton(
                             label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
@@ -605,7 +605,7 @@ struct ContactDetailView: View {
                 // Large monospaced invite code for readability
                 Text(inviteCode)
                     .font(VFont.inviteCode)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .tracking(4)
                     .padding(.vertical, VSpacing.xs)
 
@@ -636,7 +636,7 @@ struct ContactDetailView: View {
                     : shareableText
                 Text(truncated)
                     .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy",
@@ -736,17 +736,17 @@ struct ContactDetailView: View {
                         .controlSize(.small)
                     Text("Sending verification code...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
             if verificationSuccessChannelId == channel.id {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text("Verification code sent")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 }
             }
 
@@ -756,7 +756,7 @@ struct ContactDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Ask your contact to open this link to start the Telegram chat:")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     Button {
                         NSWorkspace.shared.open(url)
@@ -766,7 +766,7 @@ struct ContactDetailView: View {
                             Text("Open Telegram")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
@@ -838,19 +838,19 @@ struct ContactDetailView: View {
 
     private func statusBadgeStyle(for channel: ContactChannelPayload) -> (String, Color, Color) {
         if channel.status == "active" && channel.verifiedAt != nil {
-            return ("Verified", VColor.accentSubtle, VColor.success)
+            return ("Verified", VColor.systemPositiveWeak, VColor.systemPositiveStrong)
         }
         switch channel.status {
         case "active":
-            return ("Active", Color.blue.opacity(0.15), Color.blue)
+            return ("Active", VColor.systemPositiveWeak, VColor.systemPositiveStrong)
         case "pending":
-            return ("Pending", Color.yellow.opacity(0.15), VColor.warning)
+            return ("Pending", VColor.systemMidWeak, VColor.systemNegativeHover)
         case "revoked":
-            return ("Revoked", Color.red.opacity(0.15), VColor.error)
+            return ("Revoked", VColor.systemNegativeWeak, VColor.systemNegativeStrong)
         case "blocked":
-            return ("Blocked", Color.red.opacity(0.15), VColor.error)
+            return ("Blocked", VColor.systemNegativeWeak, VColor.systemNegativeStrong)
         default:
-            return ("Unverified", VColor.surfaceSubtle, VColor.textMuted)
+            return ("Unverified", VColor.surfaceOverlay, VColor.contentTertiary)
         }
     }
 
@@ -1142,7 +1142,7 @@ struct ContactDetailView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ContactDetailView(
             contact: ContactPayload(
                 id: "contact-1",
@@ -1198,7 +1198,7 @@ struct ContactDetailView: View {
 
 #Preview("Guardian Contact") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ContactDetailView(
             contact: ContactPayload(
                 id: "contact-guardian",

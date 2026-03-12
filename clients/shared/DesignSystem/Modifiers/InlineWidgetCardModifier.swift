@@ -15,21 +15,21 @@ public struct InlineWidgetCardModifier: ViewModifier {
             .padding(VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface)
+                    .fill(VColor.surfaceBase)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                    .stroke(VColor.borderBase.opacity(0.4), lineWidth: 1)
                     .allowsHitTesting(false)
             )
             .overlay(
                 Group {
                     if interactive && isHovered {
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.hoverOverlay.opacity(0.03))
+                            .fill(VColor.contentEmphasized.opacity(0.03))
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                                    .stroke(VColor.borderBase.opacity(0.3), lineWidth: 1)
                                     .blur(radius: 3)
                                     .padding(1)
                                     .mask(RoundedRectangle(cornerRadius: VRadius.lg))
@@ -85,25 +85,25 @@ public extension View {
 #if DEBUG
 #Preview("InlineWidgetCard") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: VSpacing.lg) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Widget Title")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Some body content for the widget card.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
             .inlineWidgetCard()
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Another Widget")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Both cards share the same chrome.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
             .inlineWidgetCard()
         }

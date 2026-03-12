@@ -27,7 +27,7 @@ struct NewSkillSheet: View {
         VStack(spacing: 0) {
             header
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -40,12 +40,12 @@ struct NewSkillSheet: View {
                 .padding(VSpacing.xl)
             }
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             footer
         }
         .frame(width: 560, height: 560)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onChange(of: skillsManager.draftResult?.skillId) {
             if let result = skillsManager.draftResult {
@@ -73,18 +73,18 @@ struct NewSkillSheet: View {
     private var header: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.sparkles, size: 14)
-                .foregroundColor(Forest._400)
+                .foregroundColor(VColor.systemPositiveWeak)
             Text("New Skill")
                 .font(VFont.display)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Spacer()
             Button {
                 dismiss()
             } label: {
                 VIconView(.x, size: 11)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .frame(width: 24, height: 24)
-                    .background(VColor.ghostHover)
+                    .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
             .buttonStyle(.plain)
@@ -104,13 +104,13 @@ struct NewSkillSheet: View {
             // Divider with "or"
             HStack(spacing: VSpacing.md) {
                 Rectangle()
-                    .fill(VColor.surfaceBorder)
+                    .fill(VColor.borderBase)
                     .frame(height: 1)
                 Text("or paste content")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Rectangle()
-                    .fill(VColor.surfaceBorder)
+                    .fill(VColor.borderBase)
                     .frame(height: 1)
             }
 
@@ -118,14 +118,14 @@ struct NewSkillSheet: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 TextEditor(text: $sourceText)
                     .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .scrollContentBackground(.hidden)
                     .padding(VSpacing.sm)
-                    .background(VColor.surfaceSubtle)
+                    .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                     .frame(minHeight: 140)
             }
@@ -143,29 +143,29 @@ struct NewSkillSheet: View {
     private var dropZone: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(isDropTargeted ? Forest._900.opacity(0.3) : VColor.surfaceSubtle)
+                .fill(isDropTargeted ? VColor.borderActive.opacity(0.3) : VColor.surfaceOverlay)
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(
-                    isDropTargeted ? Forest._500 : VColor.surfaceBorder,
+                    isDropTargeted ? VColor.primaryActive : VColor.borderBase,
                     style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1, dash: [6, 4])
                 )
 
             VStack(spacing: VSpacing.md) {
                 VIconView(isDropTargeted ? .arrowDownToLine : .fileText, size: 28)
-                    .foregroundColor(isDropTargeted ? Forest._400 : VColor.textMuted)
+                    .foregroundColor(isDropTargeted ? VColor.systemPositiveWeak : VColor.contentTertiary)
 
                 VStack(spacing: VSpacing.xs) {
                     Text("Drop a .md or .txt file here")
                         .font(VFont.bodyMedium)
-                        .foregroundColor(isDropTargeted ? Forest._300 : VColor.textSecondary)
+                        .foregroundColor(isDropTargeted ? VColor.systemPositiveWeak : VColor.contentSecondary)
 
                     if let fileName = droppedFileName {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleCheck, size: 11)
-                                .foregroundColor(VColor.success)
+                                .foregroundColor(VColor.systemPositiveStrong)
                             Text(fileName)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -188,10 +188,10 @@ struct NewSkillSheet: View {
                     ForEach(warnings, id: \.self) { warning in
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.triangleAlert, size: 11)
-                                .foregroundColor(VColor.warning)
+                                .foregroundColor(VColor.systemNegativeHover)
                             Text(warning)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
                 }
@@ -205,17 +205,17 @@ struct NewSkillSheet: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Body")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 TextEditor(text: $bodyMarkdown)
                     .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .scrollContentBackground(.hidden)
                     .padding(VSpacing.sm)
-                    .background(VColor.surfaceSubtle)
+                    .background(VColor.surfaceOverlay)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                     .frame(minHeight: 200)
             }
@@ -240,7 +240,7 @@ struct NewSkillSheet: View {
                         Text("Back")
                             .font(VFont.bodyMedium)
                     }
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 }
                 .buttonStyle(.plain)
             }
@@ -362,10 +362,10 @@ struct NewSkillSheet: View {
     private func errorLabel(_ text: String) -> some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.circleAlert, size: 11)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
             Text(text)
                 .font(VFont.caption)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
         }
     }
 
@@ -373,17 +373,17 @@ struct NewSkillSheet: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.sm)
-                .background(VColor.surfaceSubtle)
+                .background(VColor.surfaceOverlay)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(error != nil ? VColor.error : VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(error != nil ? VColor.systemNegativeStrong : VColor.borderBase, lineWidth: 1)
                 )
             if let error {
                 errorLabel(error)

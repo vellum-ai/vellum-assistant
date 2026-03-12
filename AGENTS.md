@@ -33,10 +33,19 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
   `cd assistant && bun test src/path/to/file.test.ts`
 - To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
 - Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
+- **Regression tests for unfixed bugs**: When adding tests that reproduce a bug or document expected behavior before the fix lands, use `test.todo("description", () => {})` so mainline stays green. Never commit normally-failing `test(...)` cases — red CI blocks merges and erodes signal. Convert `test.todo` to `test` when the implementation PR lands.
 
 ## PR Workflow
 
-- **Linear tickets**: Include issue ID in branch names and commit messages. Keep status in sync: In Progress when starting, In Review when PR is created, Done when merged.
+- **Linear tickets**: When a Linear ticket is provided anywhere in context (user message, TODO, plan), use the issue identifier (e.g. `JARVIS-123`) throughout:
+  - **Branch name**: Include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
+  - **Single-PR workflows** (`/do`, `/work`, standalone PRs):
+    - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
+    - **PR description**: Mention `Closes JARVIS-123` in the PR body for redundancy.
+  - **Multi-PR plans** (`/run-plan`, `/blitz`, `/safe-blitz`):
+    - **Intermediate PRs**: Use `Part of JARVIS-123` in commit messages and PR bodies. This links the PR to the issue without triggering Linear's auto-close automation.
+    - **Final PR only**: Use `Closes JARVIS-123` to trigger the auto-close.
+  - **Status sync**: Set In Progress when starting work. For single-PR workflows, move to In Review when the PR is opened. For multi-PR plans, do not toggle status between PRs — let the final PR's `Closes` keyword handle the Done transition.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 

@@ -28,14 +28,14 @@ enum SkillCategory: String, CaseIterable {
 
     var color: Color {
         switch self {
-        case .communication: return VColor.skillCatCommunication
-        case .productivity: return VColor.skillCatProductivity
-        case .development: return VColor.skillCatDevelopment
-        case .media: return VColor.skillCatMedia
-        case .automation: return VColor.skillCatAutomation
-        case .webSocial: return VColor.skillCatWebSocial
-        case .knowledge: return VColor.skillCatKnowledge
-        case .integration: return VColor.skillCatIntegration
+        case .communication: return VColor.funPurple
+        case .productivity: return VColor.funTeal
+        case .development: return VColor.funRed
+        case .media: return VColor.funPink
+        case .automation: return VColor.funYellow
+        case .webSocial: return VColor.funCoral
+        case .knowledge: return VColor.funGreen
+        case .integration: return VColor.primaryBase
         }
     }
 
@@ -220,7 +220,7 @@ private struct CategoryNodeView: View {
 
             Text(category.displayName)
                 .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: size * 0.85)
@@ -228,7 +228,7 @@ private struct CategoryNodeView: View {
         .frame(width: size, height: size)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.surfaceOverlay)
                 RoundedRectangle(cornerRadius: VRadius.xl).fill(category.color.opacity(isHovered ? 0.25 : 0.14))
             }
         )
@@ -263,7 +263,7 @@ private struct SubCategoryNodeView: View {
 
             Text(label)
                 .font(VFont.small)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: size * 0.85)
@@ -271,7 +271,7 @@ private struct SubCategoryNodeView: View {
         .frame(width: size, height: size)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
                 RoundedRectangle(cornerRadius: VRadius.lg).fill(category.color.opacity(isHovered ? 0.20 : 0.10))
             }
         )
@@ -315,7 +315,7 @@ private struct SkillNodeView: View {
 
             Text(item.label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
@@ -324,7 +324,7 @@ private struct SkillNodeView: View {
         .frame(width: size, height: size)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.background)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
                 RoundedRectangle(cornerRadius: VRadius.lg).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
             }
         )
@@ -385,14 +385,14 @@ private struct SkillPopoverView: View {
 
                 Text(item.label)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = item.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(4)
             }
 
@@ -412,11 +412,11 @@ private struct SkillPopoverView: View {
         .frame(maxWidth: 250, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .vShadow(VShadow.md)
     }
@@ -1019,11 +1019,11 @@ struct ConstellationView: View {
         .padding(VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface.opacity(0.85))
+                .fill(VColor.surfaceBase.opacity(0.85))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
 
@@ -1034,7 +1034,7 @@ struct ConstellationView: View {
         ZStack {
             // Background radial glow
             RadialGradient(
-                colors: [Forest._600.opacity(0.06), Color.clear],
+                colors: [VColor.primaryBase.opacity(0.06), Color.clear],
                 center: .center,
                 startRadius: 0,
                 endRadius: min(size.width, size.height) * 0.5
@@ -1129,8 +1129,8 @@ struct ConstellationView: View {
                             .fill(
                                 RadialGradient(
                                     colors: [
-                                        Forest._500.opacity(0.25),
-                                        Forest._500.opacity(0.08),
+                                        VColor.primaryActive.opacity(0.25),
+                                        VColor.primaryActive.opacity(0.08),
                                         Color.clear
                                     ],
                                     center: .center,
@@ -1145,8 +1145,8 @@ struct ConstellationView: View {
                             .fill(
                                 RadialGradient(
                                     colors: [
-                                        VColor.background.opacity(0.95),
-                                        VColor.background.opacity(0.85)
+                                        VColor.surfaceOverlay.opacity(0.95),
+                                        VColor.surfaceOverlay.opacity(0.85)
                                     ],
                                     center: .center,
                                     startRadius: 0,
@@ -1157,7 +1157,7 @@ struct ConstellationView: View {
 
                         // Subtle inner ring
                         Circle()
-                            .stroke(Forest._500.opacity(0.3), lineWidth: 1.5)
+                            .stroke(VColor.primaryActive.opacity(0.3), lineWidth: 1.5)
                             .frame(width: centerAvatarSize + 16, height: centerAvatarSize + 16)
                     }
                 )
@@ -1195,7 +1195,7 @@ private struct DottedGridBackground: View {
                     )
                     context.fill(
                         Path(ellipseIn: rect),
-                        with: .color(VColor.textMuted.opacity(0.2))
+                        with: .color(VColor.contentTertiary.opacity(0.2))
                     )
                 }
             }

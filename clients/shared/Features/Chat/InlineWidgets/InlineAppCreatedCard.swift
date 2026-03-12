@@ -34,14 +34,14 @@ struct InlineAppCreatedCard: View {
 
                 Text(preview.title)
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = preview.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(3)
             }
 
@@ -66,7 +66,7 @@ struct InlineAppCreatedCard: View {
             }
         }
         .padding(16)
-        .background(RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.appCardBackground))
+        .background(RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
@@ -109,7 +109,7 @@ struct InlineAppCreatedCard: View {
 #if DEBUG
 #Preview("InlineAppCreatedCard") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         InlineAppCreatedCard(
             preview: DynamicPagePreview(
                 title: "Kanban Board",

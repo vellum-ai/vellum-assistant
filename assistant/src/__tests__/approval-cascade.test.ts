@@ -81,7 +81,6 @@ mock.module("../config/loader.js", () => ({
     timeouts: { permissionTimeoutSec: 300 },
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
-    memory: { retrieval: { injectionStrategy: "inline" } },
     permissions: { mode: "workspace" },
   }),
   loadRawConfig: () => ({}),
@@ -131,12 +130,9 @@ mock.module("../security/secret-allowlist.js", () => ({
 }));
 
 mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+  getMemoryCleanupStats: () => ({
     cleanup: {
-      resolvedBacklog: 0,
       supersededBacklog: 0,
-      resolvedCompleted24h: 0,
       supersededCompleted24h: 0,
     },
   }),
@@ -182,13 +178,12 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 

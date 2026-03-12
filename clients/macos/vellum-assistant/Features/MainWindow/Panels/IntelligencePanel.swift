@@ -26,12 +26,10 @@ struct IntelligencePanel: View {
             HStack(alignment: .center) {
                 Text("Intelligence")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentEmphasized)
                 Spacer()
             }
             .padding(.bottom, VSpacing.md)
-
-            Divider().background(VColor.surfaceBorder)
 
             // Tab bar
             VStack(spacing: 0) {
@@ -42,7 +40,7 @@ struct IntelligencePanel: View {
                     Spacer()
                 }
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderDisabled)
             }
             .padding(.top, VSpacing.md)
             .padding(.bottom, VSpacing.md)
@@ -65,11 +63,11 @@ struct IntelligencePanel: View {
             VStack(spacing: VSpacing.sm) {
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(isActive ? VColor.textPrimary : VColor.textMuted)
+                    .foregroundColor(isActive ? VColor.primaryActive : VColor.contentSecondary)
                     .padding(.bottom, VSpacing.xs)
 
                 Rectangle()
-                    .fill(isActive ? VColor.textPrimary : Color.clear)
+                    .fill(isActive ? VColor.borderActive : Color.clear)
                     .frame(height: 2)
             }
             .fixedSize()

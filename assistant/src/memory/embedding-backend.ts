@@ -15,11 +15,7 @@ import {
   type TextEmbeddingInput,
 } from "./embedding-types.js";
 
-export type {
-  EmbeddingInput,
-  MultimodalEmbeddingInput,
-  TextEmbeddingInput,
-};
+export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
 export { embeddingInputContentHash, normalizeEmbeddingInput };
 
 const log = getLogger("memory-embeddings");
@@ -413,7 +409,12 @@ export async function embedWithBackend(
 
   // ── In-memory cache check (primary provider only) ──────────────
   const cached: (number[] | null)[] = inputs.map((input) => {
-    const v = getFromVectorCache(primaryProvider, primaryModel, input, vectorExtras);
+    const v = getFromVectorCache(
+      primaryProvider,
+      primaryModel,
+      input,
+      vectorExtras,
+    );
     if (v && v.length === expectedDim) return v;
     return null;
   });
@@ -444,7 +445,8 @@ export async function embedWithBackend(
 
     // Skip text-only backends for multimodal inputs
     const hasNonText = inputsToEmbed.some(
-      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+      (i) =>
+        typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
     if (backend.provider !== "gemini" && hasNonText) {
       continue;
@@ -503,7 +505,8 @@ export async function embedWithBackend(
   }
   if (!anyBackendAttempted) {
     const hasMultimodal = inputs.some(
-      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+      (i) =>
+        typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
     if (hasMultimodal) {
       throw new Error(

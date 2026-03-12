@@ -162,15 +162,15 @@ struct SecretPromptView: View {
                 // Header
                 HStack(spacing: VSpacing.md) {
                     VIconView(.shield, size: 20)
-                        .foregroundStyle(VColor.accent)
+                        .foregroundStyle(VColor.primaryBase)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Secure Credential")
                             .font(VFont.headline)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Text(label)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .textSelection(.enabled)
 
@@ -181,7 +181,7 @@ struct SecretPromptView: View {
                 if let description = description {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                 }
 
@@ -212,10 +212,10 @@ struct SecretPromptView: View {
                 if saved {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.circleCheck, size: 14)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                         Text("Saved securely")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                             .textSelection(.enabled)
                     }
                 } else {
@@ -240,7 +240,7 @@ struct SecretPromptView: View {
                     if allowOneTimeSend {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.triangleAlert, size: 10)
-                                .foregroundColor(VColor.warning)
+                                .foregroundColor(VColor.systemNegativeHover)
                             VButton(label: "Send Once (not saved)", style: .tertiary) {
                                 let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
@@ -267,7 +267,7 @@ struct SecretPromptView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Usage Scope")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             if let purpose = purpose {
                 contextBullet(icon: "info.circle.fill", label: "Purpose", value: purpose)
@@ -282,7 +282,7 @@ struct SecretPromptView: View {
             }
         }
         .padding(VSpacing.sm)
-        .background(VColor.surface.opacity(0.5))
+        .background(VColor.surfaceBase.opacity(0.5))
         .cornerRadius(6)
         .textSelection(.enabled)
     }
@@ -290,22 +290,22 @@ struct SecretPromptView: View {
     private func contextBullet(icon: String, label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .frame(width: 14, alignment: .center)
             Text("\(label): \(value)")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
     private func safetyBullet(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
-                .foregroundColor(VColor.success)
+                .foregroundColor(VColor.systemPositiveStrong)
                 .frame(width: 14, alignment: .center)
             Text(text)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 }

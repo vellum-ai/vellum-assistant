@@ -428,6 +428,153 @@ describe("repairHistory", () => {
     expect(stats.orphanToolResultsDowngraded).toBe(0);
     expect(stats.consecutiveSameRoleMerged).toBe(0);
   });
+
+  test("preserves server_tool_use and web_search_tool_result pairing", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Search for cats" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "stu_1",
+            name: "web_search",
+            input: { query: "cats" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_1",
+            content: [{ type: "web_search_result", url: "https://cats.com" }],
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Here are the results." }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(repaired).toEqual(messages);
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+  });
+
+  test("inserts synthetic web_search_tool_result when missing", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Search" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "stu_1",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "next message" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(1);
+
+    const userMsg = repaired[2];
+    const wsBlocks = userMsg.content.filter(
+      (b) => b.type === "web_search_tool_result",
+    );
+    expect(wsBlocks).toHaveLength(1);
+    expect(wsBlocks[0]).toMatchObject({
+      type: "web_search_tool_result",
+      tool_use_id: "stu_1",
+    });
+  });
+
+  test("does not orphan web_search_tool_result paired with server_tool_use", () => {
+    // This is the exact scenario from the bug: server_tool_use followed by
+    // web_search_tool_result should NOT be treated as orphaned
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Search" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_abc",
+            name: "web_search",
+            input: { query: "test" },
+          },
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "bash",
+            input: { cmd: "ls" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_abc",
+            content: [
+              { type: "web_search_result", url: "https://example.com" },
+            ],
+          },
+          { type: "tool_result", tool_use_id: "tu_1", content: "files" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(repaired).toEqual(messages);
+  });
+
+  test("injects synthetic user message for trailing server_tool_use", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Go" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "stu_1",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(1);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[2].role).toBe("user");
+    expect(repaired[2].content[0]).toMatchObject({
+      type: "web_search_tool_result",
+      tool_use_id: "stu_1",
+    });
+  });
 });
 
 describe("deepRepairHistory", () => {

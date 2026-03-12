@@ -17,7 +17,5 @@ export function classifyTier(score: number): Tier {
 export function classifyTiers(candidates: Candidate[]): TieredCandidate[] {
   return candidates
     .map((c) => ({ ...c, tier: classifyTier(c.finalScore) }))
-    .filter(
-      (c): c is TieredCandidate & { tier: 1 | 2 } => c.tier != null,
-    );
+    .filter((c): c is TieredCandidate & { tier: 1 | 2 } => c.tier != null);
 }

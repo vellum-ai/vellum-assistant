@@ -43,18 +43,18 @@ public struct VDisclosureSection<Content: View>: View {
                 HStack(spacing: VSpacing.sm) {
                     if let icon {
                         VIconView(.resolve(icon), size: 14)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 20)
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         if let subtitle {
                             Text(subtitle)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -63,7 +63,7 @@ public struct VDisclosureSection<Content: View>: View {
                     Spacer()
 
                     VIconView(.chevronRight, size: 10)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
                 }
@@ -92,7 +92,7 @@ public struct VDisclosureSection<Content: View>: View {
 
         var body: some View {
             ZStack {
-                VColor.background.ignoresSafeArea()
+                VColor.surfaceOverlay.ignoresSafeArea()
                 VStack(spacing: VSpacing.lg) {
                     VDisclosureSection(
                         title: "Gateway",
@@ -101,10 +101,10 @@ public struct VDisclosureSection<Content: View>: View {
                     ) {
                         Text("Gateway content goes here")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
+                    .vCard(background: VColor.surfaceOverlay)
 
                     VDisclosureSection(
                         title: "Advanced",
@@ -114,10 +114,10 @@ public struct VDisclosureSection<Content: View>: View {
                     ) {
                         Text("Advanced content goes here")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
+                    .vCard(background: VColor.surfaceOverlay)
 
                     VDisclosureSection(
                         title: "Diagnostics",
@@ -126,10 +126,10 @@ public struct VDisclosureSection<Content: View>: View {
                     ) {
                         Text("Diagnostics content goes here")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
+                    .vCard(background: VColor.surfaceOverlay)
                 }
                 .padding()
             }

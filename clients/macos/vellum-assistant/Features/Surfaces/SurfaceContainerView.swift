@@ -36,12 +36,12 @@ struct SurfaceContainerView: View {
                     if let title = surface.title {
                         Text(title)
                             .font(VFont.headline)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                     Spacer()
                     Button(action: { viewModel.onDismiss() }) {
                         VIconView(.x, size: 10)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
                 }

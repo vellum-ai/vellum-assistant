@@ -71,9 +71,9 @@ struct ComposerSection: View {
         .background(
             LinearGradient(
                 stops: [
-                    .init(color: VColor.chatBackground.opacity(0), location: 0),
-                    .init(color: VColor.chatBackground.opacity(0.5), location: 0.5),
-                    .init(color: VColor.chatBackground.opacity(0.65), location: 1.0)
+                    .init(color: VColor.surfaceBase.opacity(0), location: 0),
+                    .init(color: VColor.surfaceBase.opacity(0.5), location: 0.5),
+                    .init(color: VColor.surfaceBase.opacity(0.65), location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom

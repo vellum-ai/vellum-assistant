@@ -44,7 +44,7 @@ public struct VToast: View {
                 .foregroundColor(iconColor)
             Text(message)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(3)
 
             Spacer(minLength: 0)
@@ -60,7 +60,7 @@ public struct VToast: View {
                     if let onDismiss {
                         Button(action: onDismiss) {
                             VIconView(.x, size: 12)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
@@ -71,7 +71,7 @@ public struct VToast: View {
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
@@ -104,9 +104,9 @@ public struct VToast: View {
     /// Border color tinted by toast style for visual emphasis.
     private var accentBorder: Color {
         switch style {
-        case .error: return VColor.error.opacity(0.4)
-        case .warning: return VColor.warning.opacity(0.4)
-        default: return VColor.surfaceBorder
+        case .error: return VColor.systemNegativeStrong.opacity(0.4)
+        case .warning: return VColor.systemNegativeHover.opacity(0.4)
+        default: return VColor.borderBase
         }
     }
 
@@ -121,17 +121,17 @@ public struct VToast: View {
 
     private var iconColor: Color {
         switch style {
-        case .info: return VColor.accent
-        case .success: return VColor.success
-        case .warning: return VColor.warning
-        case .error: return VColor.error
+        case .info: return VColor.primaryBase
+        case .success: return VColor.systemPositiveStrong
+        case .warning: return VColor.systemNegativeHover
+        case .error: return VColor.systemNegativeStrong
         }
     }
 }
 
 #Preview("VToast") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 12) {
             VToast(message: "Information message", style: .info)
             VToast(message: "Success message", style: .success)

@@ -55,7 +55,6 @@ mock.module("../config/loader.js", () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
-    memory: { retrieval: { injectionStrategy: "inline" } },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -118,23 +117,19 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
 mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+  getMemoryCleanupStats: () => ({
     cleanup: {
-      resolvedBacklog: 0,
       supersededBacklog: 0,
-      resolvedCompleted24h: 0,
       supersededCompleted24h: 0,
     },
   }),

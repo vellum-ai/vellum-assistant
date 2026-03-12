@@ -17,12 +17,7 @@ import { enqueueMemoryJob } from "./jobs-store.js";
 import { extractTextFromStoredMessageContent } from "./message-content.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
-import {
-  memoryItemConflicts,
-  memoryItems,
-  memoryItemSources,
-  messages,
-} from "./schema.js";
+import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { isConversationFailed } from "./task-memory-cleanup.js";
 import { clampUnitInterval } from "./validation.js";
 
@@ -138,7 +133,12 @@ function hasSemanticDensity(text: string): boolean {
 // ── LLM-powered extraction ────────────────────────────────────────────
 
 function buildExtractionSystemPrompt(
-  existingItems: Array<{ id: string; kind: string; subject: string; statement: string }>,
+  existingItems: Array<{
+    id: string;
+    kind: string;
+    subject: string;
+    statement: string;
+  }>,
 ): string {
   let prompt = `You are a memory extraction system. Given a message from a conversation, extract structured memory items that would be valuable to remember for future interactions.
 
@@ -245,10 +245,7 @@ function queryExistingItemsForContext(
       })
       .from(memoryItems)
       .where(
-        and(
-          eq(memoryItems.scopeId, scopeId),
-          eq(memoryItems.status, "active"),
-        ),
+        and(eq(memoryItems.scopeId, scopeId), eq(memoryItems.status, "active")),
       )
       .limit(10 - rows.length)
       .all();
@@ -513,12 +510,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
         verificationState === "user_reported"
           ? "user_reported"
           : existing.verificationState;
-      // Preserve pending_clarification if this item has an unresolved conflict
-      effectiveStatus =
-        existing.status === "pending_clarification" &&
-        hasPendingConflict(existing.id)
-          ? "pending_clarification"
-          : "active";
+      effectiveStatus = "active";
       db.update(memoryItems)
         .set({
           status: effectiveStatus,
@@ -666,11 +658,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
       .run();
 
     enqueueMemoryJob("embed_item", { itemId: memoryItemId });
-
-    // Queue contradiction check for newly inserted items
-    if (!existing) {
-      enqueueMemoryJob("check_contradictions", { itemId: memoryItemId });
-    }
   }
 
   log.debug(
@@ -811,21 +798,4 @@ function parseScore(value: unknown, fallback: number): number {
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-/** Returns true if the given memory item is the candidate in an unresolved conflict. */
-function hasPendingConflict(itemId: string): boolean {
-  const db = getDb();
-  const row = db
-    .select({ id: memoryItemConflicts.id })
-    .from(memoryItemConflicts)
-    .where(
-      and(
-        eq(memoryItemConflicts.candidateItemId, itemId),
-        eq(memoryItemConflicts.status, "pending_clarification"),
-      ),
-    )
-    .limit(1)
-    .get();
-  return row != null;
 }

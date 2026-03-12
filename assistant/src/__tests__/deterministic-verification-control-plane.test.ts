@@ -406,7 +406,8 @@ describe("Verification control messages are deterministic (guard)", () => {
       await import("../runtime/routes/inbound-message-handler.js");
     const { createOutboundSession } =
       await import("../runtime/channel-verification-service.js");
-    const { upsertContactChannel } = await import("../contacts/contacts-write.js");
+    const { upsertContactChannel } =
+      await import("../contacts/contacts-write.js");
 
     const blockedIdentity = {
       sourceChannel: "telegram",
@@ -462,5 +463,4 @@ describe("Verification control messages are deterministic (guard)", () => {
     expect(body.verificationOutcome).toBeUndefined();
     expect(processMessageCalled).toBe(false);
   });
-
 });

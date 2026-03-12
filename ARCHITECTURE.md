@@ -204,11 +204,8 @@ subgraph "Text Q&A Session"
         subgraph "Memory System"
             CONV_STORE["ConversationStore<br/>Drizzle ORM CRUD"]
             INDEXER["Memory Indexer<br/>segment + extract"]
-            RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity Graph + RRF<br/>Trust + Freshness + Scope"]
-            CONFLICT_STORE["ConflictStore<br/>pending/resolved clarification state"]
-            CLARIFICATION_RESOLVER["ClarificationResolver<br/>heuristics + timeout-bounded LLM fallback"]
-            PROFILE_COMPILER["ProfileCompiler<br/>canonical trusted profile<br/>strict token-cap trimming"]
-            JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
+            RECALL["Memory Recall<br/>Hybrid Search (dense + sparse RRF)<br/>Tier Classification + Staleness<br/>Scope Filtering + Two-Layer Injection"]
+            JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s<br/>embed, extract, cleanup_stale"]
         end
 
         subgraph "SQLite Database (~/.vellum/workspace/data/db/assistant.db)"
@@ -216,13 +213,8 @@ subgraph "Text Q&A Session"
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
             DB_SEG["memory_segments"]
-            DB_FTS["memory_segment_fts (FTS5)"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
-            DB_CONFLICTS["memory_item_conflicts"]
-            DB_ENT["memory_entities"]
-            DB_REL["memory_entity_relations"]
-            DB_ITEM_ENT["memory_item_entities"]
             DB_SUM["memory_summaries"]
             DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
@@ -380,7 +372,7 @@ subgraph "Text Q&A Session"
     SESSION_MGR --> GEMINI
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
-    SESSION_MGR --> PROFILE_COMPILER
+    SESSION_MGR --> RECALL
     HANDLERS -->|"session_create.transport"| PLAYBOOK_MGR
     PLAYBOOK_MGR --> PLAYBOOK_REG
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
@@ -390,19 +382,13 @@ subgraph "Text Q&A Session"
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
     CONV_STORE --> DB_ATTACH
-    PROFILE_COMPILER --> DB_ITEMS
     INDEXER --> DB_SEG
-    INDEXER --> DB_FTS
     INDEXER --> DB_ITEMS
     INDEXER --> DB_SRC
     INDEXER --> DB_JOBS
     JOBS_WORKER --> DB_JOBS
     JOBS_WORKER --> DB_EMB
-    JOBS_WORKER --> DB_ENT
-    JOBS_WORKER --> DB_REL
-    JOBS_WORKER --> DB_ITEM_ENT
     JOBS_WORKER --> DB_SUM
-    RECALL --> DB_FTS
     RECALL --> DB_EMB
 
     %% Gateway flow — Telegram path

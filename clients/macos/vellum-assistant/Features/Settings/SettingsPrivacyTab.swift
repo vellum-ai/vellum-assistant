@@ -38,10 +38,10 @@ struct SettingsPrivacyTab: View {
             if let error = loadError {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
             }
 
@@ -49,10 +49,10 @@ struct SettingsPrivacyTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Collect usage data")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Text("Send crash reports and error diagnostics to help improve the app. No personal data or message content is ever sent.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
                 VToggle(isOn: Binding(
@@ -75,12 +75,12 @@ struct SettingsPrivacyTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Share performance metrics")
                         .font(VFont.body)
-                        .foregroundColor(collectUsageData ? VColor.textSecondary : VColor.textMuted)
+                        .foregroundColor(collectUsageData ? VColor.contentSecondary : VColor.contentTertiary)
                     Text(collectUsageData
                          ? "Send anonymised performance metrics (hang rate, scroll speed) to help us improve responsiveness. No personal data or message content is included."
                          : "Requires \"Collect usage data\" to be enabled.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
                 VToggle(isOn: Binding(
@@ -146,7 +146,7 @@ struct SettingsPrivacyTab: View {
 
 #Preview("SettingsPrivacyTab") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         SettingsPrivacyTab(daemonClient: nil, store: SettingsStore())
             .frame(width: 480)
             .padding()

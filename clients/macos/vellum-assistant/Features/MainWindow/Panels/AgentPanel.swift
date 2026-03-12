@@ -66,13 +66,13 @@ struct AgentPanelContent: View {
                                 Text("New Skill")
                             }
                             .font(VFont.body)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("New Skill")
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
                 }
                 .padding(.bottom, VSpacing.lg)
             }
@@ -137,11 +137,11 @@ struct AgentPanelContent: View {
             VStack(spacing: VSpacing.sm) {
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(isActive ? VColor.textPrimary : VColor.textMuted)
+                    .foregroundColor(isActive ? VColor.contentDefault : VColor.contentTertiary)
                     .padding(.bottom, VSpacing.xs)
 
                 Rectangle()
-                    .fill(isActive ? VColor.textPrimary : Color.clear)
+                    .fill(isActive ? VColor.contentDefault : Color.clear)
                     .frame(height: 2)
             }
             .fixedSize()
@@ -230,7 +230,7 @@ struct AgentPanelContent: View {
                             } label: {
                                 Text("Show \(filteredUserSkills.count) match\(filteredUserSkills.count == 1 ? "" : "es") in Installed")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.accent)
+                                    .foregroundColor(VColor.primaryBase)
                             }
                             .buttonStyle(.plain)
                         }
@@ -280,17 +280,17 @@ struct AgentPanelContent: View {
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .top, spacing: VSpacing.md) {
                 VIconView(skill.isVellum ? .package : .package, size: 16)
-                    .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
+                    .foregroundColor(skill.isVellum ? VColor.primaryBase : VColor.contentTertiary)
                     .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(skill.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     Text(skill.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(2)
 
                     // Pill badges row
@@ -305,8 +305,8 @@ struct AgentPanelContent: View {
                             VSkillTypePill(type: .custom(
                                 label: "New",
                                 icon: "sparkles",
-                                foreground: Amber._500,
-                                background: Amber._500.opacity(0.15)
+                                foreground: VColor.systemNegativeHover,
+                                background: VColor.systemNegativeHover.opacity(0.15)
                             ))
                         }
                     }
@@ -318,7 +318,7 @@ struct AgentPanelContent: View {
                 if isAlreadyInstalled {
                     Text("Installed")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 } else {
                     VButton(
                         label: isInstalling ? "Installing..." : "Install",
@@ -378,7 +378,7 @@ struct AgentPanelContent: View {
                 }
             }
             .font(VFont.small)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
             .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
@@ -391,7 +391,7 @@ struct AgentPanelContent: View {
                 }
             }
         }
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
     }
 
     // MARK: - Skill Detail View
@@ -415,7 +415,7 @@ struct AgentPanelContent: View {
                     Text("Available Skills")
                         .font(VFont.caption)
                 }
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
 
@@ -423,16 +423,16 @@ struct AgentPanelContent: View {
             HStack(spacing: VSpacing.sm) {
                 Text(skillsManager.inspectedSkill?.skill.displayName ?? searchItem.name)
                     .font(VFont.cardTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if searchItem.isVellum {
                     Text("VELLUM")
                         .font(VFont.small)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                 } else if isNew {
                     Text("NEW")
                         .font(VFont.small)
-                        .foregroundColor(Amber._500)
+                        .foregroundColor(VColor.systemNegativeHover)
                 }
 
                 Spacer()
@@ -444,10 +444,10 @@ struct AgentPanelContent: View {
             if searchItem.isVellum {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.badgeCheck, size: 12)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     Text("First-party skill by Vellum")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else if let owner = skillsManager.inspectedSkill?.owner {
                 HStack(spacing: VSpacing.sm) {
@@ -456,25 +456,25 @@ struct AgentPanelContent: View {
                             image.resizable().aspectRatio(contentMode: .fill)
                         } placeholder: {
                             VIconView(.circleUser, size: 20)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .frame(width: 20, height: 20)
                         .clipShape(Circle())
                     } else {
                         VIconView(.circleUser, size: 16)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     Text(owner.displayName.isEmpty ? owner.handle : owner.displayName)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else if !searchItem.author.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.user, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text(searchItem.author)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -484,7 +484,7 @@ struct AgentPanelContent: View {
             if !description.isEmpty {
                 Text(description)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -526,7 +526,7 @@ struct AgentPanelContent: View {
                                 .controlSize(.small)
                             Text("Loading more details...")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         Spacer()
                     }
@@ -534,10 +534,10 @@ struct AgentPanelContent: View {
                 } else if let error = skillsManager.inspectError {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.triangleAlert, size: 11)
-                            .foregroundColor(Amber._500)
+                            .foregroundColor(VColor.systemNegativeHover)
                         Text(error)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 } else if let data = skillsManager.inspectedSkill {
                     // Enriched content from inspect (version, README, files)
@@ -557,17 +557,17 @@ struct AgentPanelContent: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("v\(version.version)")
                     .font(VFont.mono)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
                 if let changelog = version.changelog, !changelog.isEmpty {
                     Text(changelog)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.surfaceSubtle)
+            .background(VColor.surfaceOverlay)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
 
@@ -576,22 +576,22 @@ struct AgentPanelContent: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("README")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
 
                 ScrollView {
                     Text(md)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(VSpacing.md)
                 }
                 .frame(maxHeight: 250)
-                .background(VColor.surfaceSubtle)
+                .background(VColor.surfaceOverlay)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
             }
         }
@@ -601,19 +601,19 @@ struct AgentPanelContent: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Files")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
 
                 ForEach(files, id: \.path) { file in
                     HStack {
                         VIconView(.fileText, size: 10)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(file.path)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Spacer()
                         Text(formatFileSize(file.size))
                             .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
             }
@@ -626,7 +626,7 @@ struct AgentPanelContent: View {
             Text(value)
         }
         .font(VFont.small)
-        .foregroundColor(VColor.textMuted)
+        .foregroundColor(VColor.contentTertiary)
     }
 
     private func formatFileSize(_ bytes: Int) -> String {
@@ -673,7 +673,7 @@ struct AgentPanelContent: View {
             if isError, let msg = errorMessage {
                 Text(msg)
                     .font(VFont.caption)
-                    .foregroundColor(Danger._500)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }
@@ -774,7 +774,7 @@ struct AgentPanelContent: View {
                         } label: {
                             Text("Show \(availableClawhubSkills.count) match\(availableClawhubSkills.count == 1 ? "" : "es") in Available")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
                     }
@@ -784,7 +784,7 @@ struct AgentPanelContent: View {
                 VStack(spacing: VSpacing.md) {
                     Text("No skills installed")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button(action: { skillsManager.fetchSkills() }) {
@@ -793,7 +793,7 @@ struct AgentPanelContent: View {
                             Text("Refresh")
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     }
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -840,11 +840,11 @@ struct AgentPanelContent: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(skill.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     Text(skill.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(2)
 
                     VSkillTypePill(source: skill.source)
@@ -859,12 +859,12 @@ struct AgentPanelContent: View {
                 } label: {
                     Text("Remove")
                         .font(VFont.caption)
-                        .foregroundColor(Danger._500)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(Danger._500, lineWidth: 1)
+                                .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
@@ -903,7 +903,7 @@ struct AgentPanelContent: View {
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
         .contentShape(Rectangle())
-        .vCard(radius: VRadius.lg, background: VColor.surfaceSubtle)
+        .vCard(radius: VRadius.lg, background: VColor.surfaceOverlay)
     }
 
     // MARK: - Installed Skill Detail View
@@ -922,7 +922,7 @@ struct AgentPanelContent: View {
                     Text("Installed Skills")
                         .font(VFont.caption)
                 }
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
 
@@ -932,12 +932,12 @@ struct AgentPanelContent: View {
 
                 Text(skill.name)
                     .font(VFont.cardTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if skill.updateAvailable {
                     Text("UPDATE")
                         .font(VFont.small)
-                        .foregroundColor(Amber._500)
+                        .foregroundColor(VColor.systemNegativeHover)
                 }
 
                 // Source badge
@@ -977,7 +977,7 @@ struct AgentPanelContent: View {
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -989,9 +989,9 @@ struct AgentPanelContent: View {
 
                 if skill.updateAvailable {
                     if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                        skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: Amber._500)
+                        skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
                     } else {
-                        skillMetaItem(icon: .circleArrowUp, value: "Update available", color: Amber._500)
+                        skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
                     }
                 }
 
@@ -1006,7 +1006,7 @@ struct AgentPanelContent: View {
                             Text("View on \(provenance.provider ?? "source")")
                                 .font(VFont.small)
                         }
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1021,11 +1021,11 @@ struct AgentPanelContent: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 300)
-            .background(VColor.surfaceSubtle)
+            .background(VColor.surfaceOverlay)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
 
         }
@@ -1061,29 +1061,29 @@ struct AgentPanelContent: View {
     private func sourceBadgeColor(_ source: String) -> Color {
         switch source {
         case "bundled":
-            return VColor.accent
+            return VColor.primaryBase
         case "managed", "clawhub":
-            return VColor.success
+            return VColor.systemPositiveStrong
         case "workspace":
-            return Amber._500
+            return VColor.systemNegativeHover
         default:
-            return VColor.textMuted
+            return VColor.contentTertiary
         }
     }
 
     private func provenanceBadgeColor(_ skill: SkillInfo) -> Color {
-        guard let provenance = skill.provenance else { return VColor.textMuted }
+        guard let provenance = skill.provenance else { return VColor.contentTertiary }
         switch provenance.kind {
         case "first-party":
-            return VColor.accent
+            return VColor.primaryBase
         case "third-party":
-            return Amber._500
+            return VColor.systemNegativeHover
         default:
-            return VColor.textMuted
+            return VColor.contentTertiary
         }
     }
 
-    private func skillMetaItem(icon: VIcon, value: String, color: Color = VColor.textMuted) -> some View {
+    private func skillMetaItem(icon: VIcon, value: String, color: Color = VColor.contentTertiary) -> some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(icon, size: 9)
             Text(value)
@@ -1097,7 +1097,7 @@ struct AgentPanelContent: View {
         if let body = skillsManager.loadedBodies[skillId] {
             Text(body)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .textSelection(.enabled)
         } else {
             ProgressView()
@@ -1114,7 +1114,7 @@ struct AgentPanelContent: View {
                 .frame(width: 24, height: 24)
         } else {
             VIconView(.zap, size: 13)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 24, height: 24)
         }
     }
@@ -1137,13 +1137,13 @@ struct AgentPanel: View {
                 HStack(alignment: .center) {
                     Text("Skills")
                         .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Spacer()
                 }
                 .padding(.top, VSpacing.xxl)
                 .padding(.bottom, VSpacing.xl)
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.bottom, VSpacing.xl)
 
                 AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)

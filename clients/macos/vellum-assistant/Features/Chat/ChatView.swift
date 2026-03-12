@@ -7,23 +7,14 @@ struct ChatView: View {
     @Binding var inputText: String
     let hasAPIKey: Bool
     let isThinking: Bool
+    let isCompacting: Bool
     let isSending: Bool
-    let errorText: String?
-    let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
     let isRecording: Bool
-    let onOpenSettings: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
-    let onDismissError: () -> Void
-    let isRetryableError: Bool
-    let onRetryError: () -> Void
-    let isConnectionError: Bool
-    var hasRetryPayload: Bool = true
-    let isSecretBlockError: Bool
-    let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
@@ -45,10 +36,6 @@ struct ChatView: View {
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let sessionError: SessionError?
-    let onRetry: () -> Void
-    let onDismissSessionError: () -> Void
-    let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
@@ -70,7 +57,6 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
-    var connectionDiagnosticHint: String? = nil
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
@@ -190,6 +176,7 @@ struct ChatView: View {
                             messages: messages,
                             isSending: isSending,
                             isThinking: isThinking,
+                            isCompacting: isCompacting,
                             assistantActivityPhase: assistantActivityPhase,
                             assistantActivityAnchor: assistantActivityAnchor,
                             assistantActivityReason: assistantActivityReason,
@@ -282,7 +269,7 @@ struct ChatView: View {
             .background(alignment: .bottom) {
                 chatBackground
             }
-            .background(VColor.chatBackground)
+            .background(VColor.surfaceBase)
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
@@ -297,61 +284,24 @@ struct ChatView: View {
             // Drop target overlay
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.accent.opacity(0.08))
+                            .fill(VColor.primaryBase.opacity(0.08))
                     )
                     .overlay {
                         VStack(spacing: VSpacing.sm) {
                             VIconView(.arrowDownToLine, size: 28)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                             Text("Drop files here")
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                         }
                     }
                     .padding(VSpacing.lg)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
-        }
-        .overlay(alignment: .top) {
-            VStack(spacing: VSpacing.xs) {
-                if !hasAPIKey {
-                    ChatSessionErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
-                        icon: .keyRound,
-                        accentColor: VColor.warning,
-                        actionLabel: "Open Settings",
-                        onAction: onOpenSettings
-                    )
-                }
-
-                if let sessionError {
-                    ChatSessionErrorToast(
-                        error: sessionError,
-                        onRetry: onRetry,
-                        onCopyDebugInfo: onCopyDebugInfo,
-                        onDismiss: onDismissSessionError
-                    )
-                }
-
-                if let errorText, sessionError == nil {
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
-                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
-                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
-                        onDismiss: onDismissError
-                    )
-                }
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.sm)
-            .animation(VAnimation.fast, value: hasAPIKey)
-            .animation(VAnimation.fast, value: sessionError != nil)
-            .animation(VAnimation.fast, value: errorText != nil)
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
@@ -367,7 +317,8 @@ struct ChatView: View {
             }
             return .ignored
         }
-        .onKeyPress("f", modifiers: .command) {
+        .onKeyPress("f", phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
             activateSearch()
             return .handled
         }
@@ -411,11 +362,11 @@ struct ChatView: View {
                 HStack {
                     Text("/btw")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Spacer()
                     Button(action: { onDismissBtw?() }) {
                         VIconView(.x, size: 12)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss btw response")
@@ -423,17 +374,17 @@ struct ChatView: View {
 
                 Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.md)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.md)
             .vShadow(VShadow.sm)
             .padding(.horizontal, VSpacing.lg)
@@ -749,27 +700,19 @@ private struct ChatViewPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             ChatView(
                 messages: sampleMessages,
                 inputText: $text,
                 hasAPIKey: true,
                 isThinking: true,
+                isCompacting: false,
                 isSending: false,
-                errorText: nil,
-                pendingQueuedCount: 0,
                 suggestion: "That sounds great, thanks!",
                 pendingAttachments: [],
                 isRecording: false,
-                onOpenSettings: {},
                 onSend: {},
                 onStop: {},
-                onDismissError: {},
-                isRetryableError: false,
-                onRetryError: {},
-                isConnectionError: false,
-                isSecretBlockError: false,
-                onSendAnyway: {},
                 onAcceptSuggestion: {},
                 onAttach: {},
                 onRemoveAttachment: { _ in },
@@ -785,10 +728,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                sessionError: nil,
-                onRetry: {},
-                onDismissSessionError: {},
-                onCopyDebugInfo: {},
                 watchSession: nil,
                 onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),

@@ -48,19 +48,19 @@ struct AppsGridView: View {
                     HStack(alignment: .center) {
                         Text("Things")
                             .font(VFont.panelTitle)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                     }
                     .padding(.bottom, VSpacing.md)
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     mainContent
                 }
                 .padding(VSpacing.xl)
             }
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .onAppear {
             if !hasFetchedShared { fetchSharedApps() }
         }
@@ -130,16 +130,16 @@ struct AppsGridView: View {
     private var noAppsEmptyState: some View {
         VStack(spacing: VSpacing.xl) {
             VIconView(.layoutGrid, size: 40)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             VStack(spacing: VSpacing.sm) {
                 Text("No things yet")
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
 
                 Text("Ask the assistant to build something")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -181,10 +181,10 @@ struct AppsGridView: View {
                             .clipped()
                     } else {
                         ZStack {
-                            Moss._100
+                            VColor.surfaceBase
 
                             VIconView(appIcon, size: 32)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
@@ -192,7 +192,7 @@ struct AppsGridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
                     ZStack {
@@ -272,12 +272,12 @@ struct AppsGridView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(Self.formatDate(app.lastOpenedAt))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
@@ -336,7 +336,7 @@ struct AppsGridView: View {
                             .clipped()
                     } else {
                         ZStack {
-                            Moss._100
+                            VColor.surfaceBase
 
                             Text(app.icon ?? "\u{1F4F1}")
                                 .font(.system(size: 32))
@@ -347,27 +347,27 @@ struct AppsGridView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         if let signer = app.signerDisplayName {
                             Text("by \(signer)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
 
                     Text(Self.formatISO(app.installedAt))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
@@ -521,7 +521,7 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(apps) { app in
@@ -536,7 +536,7 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
                 .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(apps) { app in
@@ -634,7 +634,7 @@ struct AppsGridView_Previews: PreviewProvider {
 
     static var previews: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             PreviewWrapper()
         }
         .frame(width: 800, height: 600)

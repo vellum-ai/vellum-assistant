@@ -45,24 +45,24 @@ struct AvatarRevealStepView: View {
                 if isGenerating {
                     Text("Creating your avatar\u{2026}")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .transition(.opacity)
 
                     Text("This may take a few seconds")
                         .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .transition(.opacity)
                 } else {
                     Text(generationFailed ? "Meet \(assistantName)!" : "Here's your avatar!")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .opacity(showText ? 1 : 0)
                         .offset(y: showText ? 0 : 8)
 
                     if generationFailed {
                         Text("We'll use this for now -- you can generate a custom avatar later.")
                             .font(.system(size: 14))
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .multilineTextAlignment(.center)
                             .opacity(showText ? 1 : 0)
                             .offset(y: showText ? 0 : 8)
@@ -78,12 +78,12 @@ struct AvatarRevealStepView: View {
                 Button(action: { onContinue() }) {
                     Text("Continue")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite)
                         .frame(maxWidth: 280)
                         .padding(.vertical, VSpacing.lg)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
-                                .fill(VColor.onboardingStepBackground)
+                                .fill(VColor.primaryBase)
                         )
                 }
                 .buttonStyle(.plain)
@@ -109,7 +109,7 @@ struct AvatarRevealStepView: View {
     private var loadingPlaceholder: some View {
         ZStack {
             Circle()
-                .fill(Forest._600.opacity(pulseOpacity))
+                .fill(VColor.primaryBase.opacity(pulseOpacity))
                 .frame(width: 160, height: 160)
                 .onAppear {
                     withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
@@ -119,7 +119,7 @@ struct AvatarRevealStepView: View {
 
             Text(String(assistantName.prefix(1)).uppercased())
                 .font(.system(size: 64, weight: .semibold))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(VColor.auxWhite.opacity(0.6))
         }
     }
 
@@ -133,7 +133,7 @@ struct AvatarRevealStepView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: 160, height: 160)
                     .clipShape(Circle())
-                    .shadow(color: Forest._600.opacity(0.3), radius: 12, y: 4)
+                    .shadow(color: VColor.primaryBase.opacity(0.3), radius: 12, y: 4)
                     .scaleEffect(showAvatar ? 1.0 : 0.8)
                     .opacity(showAvatar ? 1 : 0)
             }
@@ -288,7 +288,7 @@ struct AvatarRevealStepView: View {
 #Preview("Loading") {
     ZStack {
         RadialGradient(
-            colors: [Stone._100, Stone._200],
+            colors: [VColor.surfaceOverlay, VColor.surfaceBase],
             center: .center,
             startRadius: 0,
             endRadius: 500

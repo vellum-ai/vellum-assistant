@@ -147,7 +147,7 @@ extension AppDelegate {
         let dotX = iconSize - dotSize - dotPadding
         let dotY = dotPadding
         let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
-        NSColor.black.withAlphaComponent(0.5).setFill()
+        NSColor(VColor.auxBlack).withAlphaComponent(0.5).setFill()
         NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
         dotColor.withAlphaComponent(dotAlpha).setFill()
         NSBezierPath(ovalIn: dotRect).fill()
@@ -509,7 +509,7 @@ extension AppDelegate {
         )
         window.contentViewController = hostingController
         window.title = "Send Logs to Vellum"
-        window.backgroundColor = NSColor(VColor.backgroundSubtle)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.center()
 

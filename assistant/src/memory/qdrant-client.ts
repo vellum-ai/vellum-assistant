@@ -34,7 +34,6 @@ export interface QdrantPointPayload {
   conversation_id?: string;
   message_id?: string;
   memory_scope_id?: string;
-  entity_ids?: string[];
   modality?: "text" | "image" | "audio" | "video";
 }
 
@@ -87,8 +86,10 @@ export class VellumQdrantClient {
     this.sparseModel = config.sparseModel;
   }
 
-  async ensureCollection(): Promise<void> {
-    if (this.collectionReady) return;
+  async ensureCollection(): Promise<{ migrated: boolean }> {
+    if (this.collectionReady) return { migrated: false };
+
+    let migrated = false;
 
     try {
       const exists = await this.client.collectionExists(this.collection);
@@ -105,10 +106,8 @@ export class VellumQdrantClient {
 
           const currentSize = isUnnamedVectors
             ? (vectorsConfig as { size?: number })?.size
-            : (
-                (vectorsConfig as Record<string, { size?: number }> | undefined)
-                  ?.dense
-              )?.size;
+            : (vectorsConfig as Record<string, { size?: number }> | undefined)
+                ?.dense?.size;
 
           const dimMismatch =
             currentSize != null && currentSize !== this.vectorSize;
@@ -132,6 +131,7 @@ export class VellumQdrantClient {
               "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed.",
             );
             await this.client.deleteCollection(this.collection);
+            migrated = true;
             // Fall through to collection creation below
           } else if (dimMismatch || modelMismatch) {
             log.warn(
@@ -144,12 +144,13 @@ export class VellumQdrantClient {
               "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
+            migrated = true;
             // Fall through to collection creation below
           } else {
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
-            return;
+            return { migrated: false };
           }
         } catch (err) {
           log.warn(
@@ -159,7 +160,7 @@ export class VellumQdrantClient {
           if (await this.ensurePayloadIndexesSafe()) {
             this.collectionReady = true;
           }
-          return;
+          return { migrated: false };
         }
       }
     } catch {
@@ -210,7 +211,7 @@ export class VellumQdrantClient {
         if (await this.ensurePayloadIndexesSafe()) {
           this.collectionReady = true;
         }
-        return;
+        return { migrated };
       }
       throw err;
     }
@@ -227,6 +228,8 @@ export class VellumQdrantClient {
         "Qdrant collection created with payload indexes",
       );
     }
+
+    return { migrated };
   }
 
   async upsert(
@@ -242,7 +245,10 @@ export class VellumQdrantClient {
     const existing = await this.findByTarget(targetType, targetId);
     const pointId = existing ?? uuid();
 
-    const namedVector: Record<string, number[] | { indices: number[]; values: number[] }> = {
+    const namedVector: Record<
+      string,
+      number[] | { indices: number[]; values: number[] }
+    > = {
       dense: vector,
     };
     if (sparseVector) {

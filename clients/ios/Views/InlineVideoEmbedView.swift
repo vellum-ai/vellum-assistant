@@ -43,20 +43,20 @@ struct InlineVideoEmbedView: View {
             // Provider attribution bar
             HStack(spacing: VSpacing.xs) {
                 VIconView(.video, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Text(provider.capitalized)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
         .frame(maxWidth: .infinity)
     }
@@ -91,10 +91,10 @@ struct InlineVideoEmbedView: View {
     private func failedView(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 24)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text("Failed to load video")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             Button("Open in Safari") {
                 UIApplication.shared.open(embedURL)
             }

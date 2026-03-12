@@ -18,57 +18,57 @@ struct FeedbackGallerySection: View {
                     HStack {
                         Text("Count: \(Int(badgeCount))")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Slider(value: $badgeCount, in: 1...99, step: 1)
                             .frame(maxWidth: 200)
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     // Count row
                     HStack(spacing: VSpacing.xl) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Accent").font(VFont.caption).foregroundColor(VColor.textMuted)
-                            VBadge(style: .count(Int(badgeCount)), color: VColor.accent)
+                            Text("Accent").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(style: .count(Int(badgeCount)), color: VColor.primaryBase)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Success").font(VFont.caption).foregroundColor(VColor.textMuted)
-                            VBadge(style: .count(Int(badgeCount)), color: VColor.success)
+                            Text("Success").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(style: .count(Int(badgeCount)), color: VColor.systemPositiveStrong)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
-                            VBadge(style: .count(Int(badgeCount)), color: VColor.error)
+                            Text("Error").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(style: .count(Int(badgeCount)), color: VColor.systemNegativeStrong)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Warning").font(VFont.caption).foregroundColor(VColor.textMuted)
-                            VBadge(style: .count(Int(badgeCount)), color: VColor.warning)
+                            Text("Warning").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            VBadge(style: .count(Int(badgeCount)), color: VColor.systemNegativeHover)
                         }
                     }
 
                     // Dot row
                     HStack(spacing: VSpacing.xl) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Dot").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            Text("Dot").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             HStack(spacing: VSpacing.md) {
-                                VBadge(style: .dot, color: VColor.accent)
-                                VBadge(style: .dot, color: VColor.success)
-                                VBadge(style: .dot, color: VColor.error)
-                                VBadge(style: .dot, color: VColor.warning)
+                                VBadge(style: .dot, color: VColor.primaryBase)
+                                VBadge(style: .dot, color: VColor.systemPositiveStrong)
+                                VBadge(style: .dot, color: VColor.systemNegativeStrong)
+                                VBadge(style: .dot, color: VColor.systemNegativeHover)
                             }
                         }
                     }
 
                     // Label row
                     HStack(spacing: VSpacing.lg) {
-                        VBadge(style: .label("New"), color: VColor.accent)
-                        VBadge(style: .label("Beta"), color: VColor.success)
-                        VBadge(style: .label("Error"), color: VColor.error)
-                        VBadge(style: .label("Warn"), color: VColor.warning)
+                        VBadge(style: .label("New"), color: VColor.primaryBase)
+                        VBadge(style: .label("Beta"), color: VColor.systemPositiveStrong)
+                        VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
+                        VBadge(style: .label("Warn"), color: VColor.systemNegativeHover)
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VLoadingIndicator
             GallerySectionHeader(
@@ -79,33 +79,33 @@ struct FeedbackGallerySection: View {
             VCard {
                 HStack(spacing: VSpacing.xxl) {
                     VStack(spacing: VSpacing.md) {
-                        Text("Small (14)").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VLoadingIndicator(size: 14, color: VColor.accent)
+                        Text("Small (14)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VLoadingIndicator(size: 14, color: VColor.primaryBase)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Default (20)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        Text("Default (20)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                         VLoadingIndicator()
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Large (32)").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VLoadingIndicator(size: 32, color: VColor.accent)
+                        Text("Large (32)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VLoadingIndicator(size: 32, color: VColor.primaryBase)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Success").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VLoadingIndicator(color: VColor.success)
+                        Text("Success").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VLoadingIndicator(color: VColor.systemPositiveStrong)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VLoadingIndicator(color: VColor.error)
+                        Text("Error").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VLoadingIndicator(color: VColor.systemNegativeStrong)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Warning").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VLoadingIndicator(color: VColor.warning)
+                        Text("Warning").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                        VLoadingIndicator(color: VColor.systemNegativeHover)
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VToast
             GallerySectionHeader(
@@ -120,7 +120,7 @@ struct FeedbackGallerySection: View {
                 VToast(message: "Something went wrong.", style: .error)
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VShortcutTag
             GallerySectionHeader(
@@ -133,32 +133,32 @@ struct FeedbackGallerySection: View {
                     // Text only
                     HStack(spacing: VSpacing.lg) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Text only").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            Text("Text only").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             VShortcutTag("\u{2318}K")
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Text only").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            Text("Text only").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             VShortcutTag("\u{2318}G")
                         }
                     }
 
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
 
                     // With icon
                     HStack(spacing: VSpacing.lg) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("With icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            Text("With icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             VShortcutTag("fn", icon: "mic.fill")
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("With icon").font(VFont.caption).foregroundColor(VColor.textMuted)
+                            Text("With icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
                             VShortcutTag("Esc", icon: "escape")
                         }
                     }
                 }
             }
 
-            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
             // MARK: - VToast with Actions
             GallerySectionHeader(

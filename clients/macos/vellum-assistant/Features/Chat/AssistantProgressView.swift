@@ -199,7 +199,7 @@ struct AssistantProgressView: View {
                     .padding(.bottom, VSpacing.xs)
             }
         }
-        .background(colorScheme == .light ? Moss._50 : VColor.surface.opacity(0.5))
+        .background(colorScheme == .light ? VColor.surfaceOverlay : VColor.surfaceBase.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
@@ -289,7 +289,7 @@ struct AssistantProgressView: View {
                 // Chevron (only if tools exist)
                 if hasChevron {
                     VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             .contentShape(Rectangle())
@@ -306,18 +306,18 @@ struct AssistantProgressView: View {
         switch phase {
         case .complete:
             VIconView(hasDeniedTools ? .triangleAlert : .circleCheck, size: 12)
-                .foregroundColor(hasDeniedTools ? VColor.warning : VColor.iconAccent)
+                .foregroundColor(hasDeniedTools ? VColor.systemNegativeHover : VColor.primaryBase)
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
                 VIconView(.clock, size: 12)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 VIconView(.circleAlert, size: 12)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         default:
             Circle()
-                .fill(VColor.accent)
+                .fill(VColor.primaryBase)
                 .frame(width: 8, height: 8)
                 .modifier(AssistantProgressPulsingModifier())
         }
@@ -332,7 +332,7 @@ struct AssistantProgressView: View {
             } else {
                 Text(headlineText)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
@@ -360,12 +360,12 @@ struct AssistantProgressView: View {
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
-                        .fill(VColor.textSecondary)
+                        .fill(VColor.contentSecondary)
                         .frame(width: 5, height: 5)
                         .opacity(dotPhase == index ? 1.0 : 0.4)
                 }
@@ -381,7 +381,7 @@ struct AssistantProgressView: View {
             if elapsed >= 5 {
                 Text(RunningIndicator.formatElapsed(elapsed))
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -398,7 +398,7 @@ struct AssistantProgressView: View {
                 ? String(format: "%.1fs", seconds)
                 : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
@@ -459,14 +459,14 @@ struct AssistantProgressView: View {
                 }) {
                     Text("+\(overflow)")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .padding(.horizontal, VSpacing.xs)
                         .padding(.vertical, VSpacing.xxs)
                         .background(
-                            Capsule().fill(VColor.backgroundSubtle)
+                            Capsule().fill(VColor.surfaceBase)
                         )
                         .overlay(
-                            Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
+                            Capsule().stroke(VColor.borderBase, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)
@@ -534,15 +534,15 @@ private struct StepDetailRow: View {
                     // Status icon
                     if toolCall.isComplete {
                         VIconView(toolCall.isError ? .circleAlert : .circleCheck, size: 12)
-                            .foregroundColor(toolCall.isError ? VColor.error : VColor.iconAccent)
+                            .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
                             .frame(width: 16)
                     } else if phase == .denied {
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 16)
                     } else {
                         Circle()
-                            .fill(VColor.accent)
+                            .fill(VColor.primaryBase)
                             .frame(width: 6, height: 6)
                             .modifier(AssistantProgressPulsingModifier())
                             .frame(width: 16)
@@ -558,7 +558,7 @@ private struct StepDetailRow: View {
                                 return toolCall.actionDescription
                             }())
                                 .font(VFont.caption)
-                                .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
+                                .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         } else if phase == .denied {
@@ -573,7 +573,7 @@ private struct StepDetailRow: View {
                                 )
                             }())
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         } else {
@@ -588,7 +588,7 @@ private struct StepDetailRow: View {
                                 )
                             }())
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         }
@@ -609,12 +609,12 @@ private struct StepDetailRow: View {
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
                             Text(formatDuration(end.timeIntervalSince(start)))
                                 .font(VFont.small)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
 
                         if hasDetails {
                             VIconView(.chevronRight, size: 9)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .rotationEffect(.degrees(isDetailExpanded ? 90 : 0))
                         }
                     }
@@ -627,7 +627,7 @@ private struct StepDetailRow: View {
             .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                    .fill(isHovered && hasDetails ? VColor.borderBase.opacity(0.5) : .clear)
             )
             .padding(.leading, VSpacing.sm)
             .padding(.trailing, VSpacing.xs)
@@ -678,16 +678,16 @@ private struct StepDetailRow: View {
                 HStack {
                     Text("Technical details")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
                     if isTruncated {
                         Text("truncated")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.systemNegativeHover)
                             .padding(.horizontal, VSpacing.xs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.xs)
-                                    .fill(VColor.warning.opacity(0.12))
+                                    .fill(VColor.systemNegativeHover.opacity(0.12))
                             )
                     }
                 }
@@ -696,15 +696,15 @@ private struct StepDetailRow: View {
                     if let reason = toolCall.reasonDescription, !reason.isEmpty {
                         Text(toolCall.actionDescription)
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     Text(toolCall.friendlyName)
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
                         Text(resolvedInputFull)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -716,7 +716,7 @@ private struct StepDetailRow: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Sub-steps")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
                     ClaudeCodeProgressView(
@@ -733,25 +733,25 @@ private struct StepDetailRow: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(toolCall.isComplete ? "Output" : "Live output")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
                     ZStack(alignment: .topTrailing) {
                         ScrollView {
                             Text(toolCall.partialOutput)
                                 .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
                         .defaultScrollAnchor(.bottom)
                         .frame(maxHeight: 200)
                         .padding(VSpacing.sm)
-                        .background(VColor.background.opacity(0.6))
+                        .background(VColor.surfaceOverlay.opacity(0.6))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                                .stroke(VColor.borderBase, lineWidth: 0.5)
                         )
 
                         Button {
@@ -759,9 +759,9 @@ private struct StepDetailRow: View {
                             NSPasteboard.general.setString(toolCall.partialOutput, forType: .string)
                         } label: {
                             VIconView(.copy, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .frame(width: 24, height: 24)
-                                .background(VColor.backgroundSubtle)
+                                .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                         }
                         .buttonStyle(.plain)
@@ -780,7 +780,7 @@ private struct StepDetailRow: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Output")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
                     ZStack(alignment: .topTrailing) {
@@ -792,11 +792,11 @@ private struct StepDetailRow: View {
                         }
                         .frame(maxHeight: 200)
                         .padding(VSpacing.sm)
-                        .background(VColor.background.opacity(0.6))
+                        .background(VColor.surfaceOverlay.opacity(0.6))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                                .stroke(VColor.borderBase, lineWidth: 0.5)
                         )
 
                         Button {
@@ -804,9 +804,9 @@ private struct StepDetailRow: View {
                             NSPasteboard.general.setString(result, forType: .string)
                         } label: {
                             VIconView(.copy, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .frame(width: 24, height: 24)
-                                .background(VColor.backgroundSubtle)
+                                .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                         }
                         .buttonStyle(.plain)
@@ -830,17 +830,17 @@ private struct StepDetailRow: View {
             var part = AttributedString(line)
             let color: Color
             if isError {
-                color = VColor.error
+                color = VColor.systemNegativeStrong
             } else if !isDiff {
-                color = VColor.textSecondary
+                color = VColor.contentSecondary
             } else if line.hasPrefix("+") {
-                color = Emerald._400
+                color = VColor.systemPositiveStrong
             } else if line.hasPrefix("-") {
-                color = Danger._400
+                color = VColor.systemNegativeStrong
             } else if line.hasPrefix("@@") {
-                color = VColor.textMuted
+                color = VColor.contentTertiary
             } else {
-                color = VColor.textSecondary
+                color = VColor.contentSecondary
             }
             part.foregroundColor = color
             attributed.append(part)
@@ -869,9 +869,9 @@ private struct CompactPermissionChip: View {
 
     private var chipColor: Color {
         switch state {
-        case .approved: VColor.iconAccent
-        case .denied: VColor.error
-        default: VColor.textMuted
+        case .approved: VColor.primaryBase
+        case .denied: VColor.systemNegativeStrong
+        default: VColor.contentTertiary
         }
     }
 
@@ -930,7 +930,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Thinking") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [],
             isStreaming: true,
@@ -948,7 +948,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Tool Running") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [
                 ToolCallData(toolName: "file_read", inputSummary: "/src/Config.swift", result: "import Foundation", isComplete: true, startedAt: Date().addingTimeInterval(-2), completedAt: Date().addingTimeInterval(-1)),
@@ -970,7 +970,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Tools Complete Thinking") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [
                 ToolCallData(toolName: "file_read", inputSummary: "/src/main.ts", result: "content", isComplete: true, startedAt: Date().addingTimeInterval(-3), completedAt: Date().addingTimeInterval(-2)),
@@ -991,7 +991,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Processing") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [
                 ToolCallData(toolName: "file_read", inputSummary: "/src/main.ts", result: "content", isComplete: true, startedAt: Date().addingTimeInterval(-3), completedAt: Date().addingTimeInterval(-2)),
@@ -1012,7 +1012,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Complete") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [
                 ToolCallData(toolName: "file_read", inputSummary: "/src/main.ts", result: "content", isComplete: true, startedAt: Date().addingTimeInterval(-3), completedAt: Date().addingTimeInterval(-2)),
@@ -1034,7 +1034,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Complete with Errors (no denied)") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [
                 ToolCallData(toolName: "file_read", inputSummary: "/src/main.ts", result: "content", isComplete: true, startedAt: Date().addingTimeInterval(-2), completedAt: Date().addingTimeInterval(-1)),
@@ -1055,7 +1055,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 
 #Preview("Streaming Code") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         AssistantProgressView(
             toolCalls: [
                 ToolCallData(toolName: "file_read", inputSummary: "/src/App.tsx", result: "content", isComplete: true, startedAt: Date().addingTimeInterval(-2), completedAt: Date().addingTimeInterval(-1)),

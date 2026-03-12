@@ -33,7 +33,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Backups")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if assistant.isManaged || assistant.isRemote {
                 managedBackupContent
@@ -44,18 +44,18 @@ struct AssistantBackupsSection: View {
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let success = successMessage {
                 Text(success)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
             if assistant.isManaged || assistant.isRemote {
@@ -71,7 +71,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Export or restore assistant data as a .vbundle archive.")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
 
         HStack(spacing: VSpacing.md) {
@@ -92,7 +92,7 @@ struct AssistantBackupsSection: View {
                     .controlSize(.small)
                 Text(isExporting ? "Creating backup..." : "Restoring backup...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -104,7 +104,7 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Create and restore cloud backups for this assistant.")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
 
         HStack(spacing: VSpacing.md) {
@@ -125,7 +125,7 @@ struct AssistantBackupsSection: View {
                     .controlSize(.small)
                 Text(isCreatingBackup ? "Creating backup..." : "Loading backups...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
 
@@ -139,18 +139,18 @@ struct AssistantBackupsSection: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Available Backups")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             ForEach(managedBackups, id: \.snapshotName) { backup in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(backup.snapshotName)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         Text(backup.createdAt)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     Spacer()
                     if backup.readyToUse {
@@ -161,7 +161,7 @@ struct AssistantBackupsSection: View {
                     } else {
                         Text("Not ready")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
                 .padding(.vertical, VSpacing.xs)

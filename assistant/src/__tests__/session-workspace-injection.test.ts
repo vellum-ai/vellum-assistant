@@ -45,8 +45,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 100000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -140,23 +141,14 @@ mock.module("../memory/retriever.js", () => ({
     provider: "mock",
     model: "mock",
     injectedText: "",
-    lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
-    entityHits: 0,
-    relationSeedEntityCount: 0,
-    relationTraversedEdgeCount: 0,
-    relationNeighborEntityCount: 0,
-    relationExpandedItemCount: 0,
-    earlyTerminated: false,
     mergedCount: 0,
     selectedCount: 0,
-    rerankApplied: false,
     injectedTokens: 0,
     latencyMs: 0,
     topCandidates: [],
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   injectMemoryRecallAsSeparateMessage: (msgs: Message[]) => msgs,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
@@ -181,31 +173,13 @@ mock.module("../context/window-manager.js", () => ({
   }),
   getSummaryFromContextMessage: () => null,
 }));
-mock.module("../memory/conflict-store.js", () => ({
-  listPendingConflictDetails: () => [],
-  applyConflictResolution: () => true,
-}));
-mock.module("../memory/clarification-resolver.js", () => ({
-  resolveConflictClarification: async () => ({
-    resolution: "still_unclear",
-    strategy: "heuristic",
-    resolvedStatement: null,
-    explanation: "",
-  }),
-}));
 mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+  getMemoryCleanupStats: () => ({
     cleanup: {
-      resolvedBacklog: 0,
       supersededBacklog: 0,
-      resolvedCompleted24h: 0,
       supersededCompleted24h: 0,
     },
   }),
-}));
-mock.module("../memory/profile-compiler.js", () => ({
-  compileDynamicProfile: () => null,
 }));
 mock.module("../memory/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),

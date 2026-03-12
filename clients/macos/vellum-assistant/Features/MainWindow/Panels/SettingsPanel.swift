@@ -46,11 +46,6 @@ struct SettingsPanel: View {
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
 
-    // Setup expanded state for Models & Services credential cards
-    @State private var anthropicSetupExpanded = false
-    @State private var perplexitySetupExpanded = false
-    @State private var braveSetupExpanded = false
-    @State private var imageGenSetupExpanded = false
     @State private var showingTrustRules = false
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
@@ -80,20 +75,20 @@ struct SettingsPanel: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .pointerCursor()
                 .accessibilityLabel("Back")
 
                 Text("Settings")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
             }
             .padding(.trailing, VSpacing.xl)
             .padding(.bottom, VSpacing.md)
 
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
                 .padding(.trailing, VSpacing.xl)
 
             // Body: nav pinned left + centered content with max width
@@ -123,7 +118,7 @@ struct SettingsPanel: View {
         }
         .padding(.top, VSpacing.xl)
         .padding(.leading, VSpacing.xl)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
             // Refresh permission status and feature flags when the view appears
@@ -213,7 +208,7 @@ struct SettingsPanel: View {
             VStack(spacing: VSpacing.md) {
                 Text("Enter passcode")
                     .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 SecureField("", text: $devUnlockText)
                     .vInputStyle()
                     .font(VFont.mono)
@@ -303,303 +298,108 @@ struct SettingsPanel: View {
 
     private var integrationsContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // ANTHROPIC section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Anthropic")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Required for AI responses")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
+            // ANTHROPIC
+            ServiceCredentialCard(
+                title: "Anthropic",
+                subtitle: "Required for AI responses",
+                isConnected: store.hasKey,
+                keyPlaceholder: "Enter your API key",
+                keyText: $apiKeyText,
+                onSave: {
+                    store.saveAPIKey(apiKeyText)
+                    apiKeyText = ""
+                },
+                onReset: {
+                    store.clearAPIKey()
+                    apiKeyText = ""
                 }
-
-                if store.hasKey {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Active Model")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        VDropdown(
-                            placeholder: "Select a model…",
-                            selection: Binding(
-                                get: { store.selectedModel },
-                                set: { model in
-                                    store.selectedModel = model
-                                    store.setModel(model)
-                                }
-                            ),
-                            options: SettingsStore.availableModels.map { model in
-                                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Active Model")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a model…",
+                        selection: Binding(
+                            get: { store.selectedModel },
+                            set: { model in
+                                store.selectedModel = model
+                                store.setModel(model)
                             }
-                        )
-                        .frame(width: 360)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
-                            store.clearAPIKey()
-                            apiKeyText = ""
-                            anthropicSetupExpanded = false
+                        ),
+                        options: SettingsStore.availableModels.map { model in
+                            (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
                         }
-                    }
-                } else if anthropicSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("This is your private generated key", text: $apiKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
-                                store.saveAPIKey(apiKeyText)
-                                apiKeyText = ""
-                                anthropicSetupExpanded = false
-                            }
-                            .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                                apiKeyText = ""
-                                anthropicSetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
-                        anthropicSetupExpanded = true
-                    }
+                    )
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
 
-            // PERPLEXITY SEARCH section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
+            // PERPLEXITY SEARCH
+            ServiceCredentialCard(
+                title: "Perplexity Search",
+                subtitle: "Enables real-time web search in responses",
+                isConnected: store.hasPerplexityKey,
+                keyPlaceholder: "Enter your Perplexity API key",
+                keyText: $perplexityKeyText,
+                onSave: {
+                    store.savePerplexityKey(perplexityKeyText)
+                    perplexityKeyText = ""
+                },
+                onReset: {
+                    store.clearPerplexityKey()
+                    perplexityKeyText = ""
+                }
+            )
+
+            // BRAVE SEARCH
+            ServiceCredentialCard(
+                title: "Brave Search",
+                subtitle: "Enables private web search in responses",
+                isConnected: store.hasBraveKey,
+                keyPlaceholder: "Enter your Brave Search API key",
+                keyText: $braveKeyText,
+                onSave: {
+                    store.saveBraveKey(braveKeyText)
+                    braveKeyText = ""
+                },
+                onReset: {
+                    store.clearBraveKey()
+                    braveKeyText = ""
+                }
+            )
+
+            // IMAGE GENERATION
+            ServiceCredentialCard(
+                title: "Image Generation",
+                subtitle: "Enables AI image generation via Gemini",
+                isConnected: store.hasImageGenKey,
+                keyPlaceholder: "Enter your Gemini API key",
+                keyText: $imageGenKeyText,
+                onSave: {
+                    store.saveImageGenKey(imageGenKeyText)
+                    imageGenKeyText = ""
+                },
+                onReset: {
+                    store.clearImageGenKey()
+                    imageGenKeyText = ""
+                }
+            ) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Perplexity Search")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Enables real-time web search in responses")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                if store.hasPerplexityKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
-                            store.clearPerplexityKey()
-                            perplexityKeyText = ""
-                            perplexitySetupExpanded = false
-                        }
-                    }
-                } else if perplexitySetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
-                                store.savePerplexityKey(perplexityKeyText)
-                                perplexityKeyText = ""
-                                perplexitySetupExpanded = false
-                            }
-                            .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                                perplexityKeyText = ""
-                                perplexitySetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
-                        perplexitySetupExpanded = true
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // BRAVE SEARCH section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Brave Search")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Enables private web search in responses")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                if store.hasBraveKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
-                            store.clearBraveKey()
-                            braveKeyText = ""
-                            braveSetupExpanded = false
-                        }
-                    }
-                } else if braveSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("Your Brave Search API key", text: $braveKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
-                                store.saveBraveKey(braveKeyText)
-                                braveKeyText = ""
-                                braveSetupExpanded = false
-                            }
-                            .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                                braveKeyText = ""
-                                braveSetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
-                        braveSetupExpanded = true
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // IMAGE GENERATION section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Image Generation")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Enables AI image generation via Gemini")
-                        .font(VFont.sectionDescription)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                if store.hasImageGenKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
-                            store.clearImageGenKey()
-                            imageGenKeyText = ""
-                            imageGenSetupExpanded = false
-                        }
-                    }
-
-                    Divider()
-                        .background(VColor.surfaceBorder)
-
-                    HStack {
-                        Text("Model")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        Picker("", selection: Binding(
+                    Text("Model")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a model…",
+                        selection: Binding(
                             get: { store.selectedImageGenModel },
                             set: { store.setImageGenModel($0) }
-                        )) {
-                            ForEach(SettingsStore.availableImageGenModels, id: \.self) { model in
-                                Text(SettingsStore.imageGenModelDisplayNames[model] ?? model)
-                                    .tag(model)
-                            }
+                        ),
+                        options: SettingsStore.availableImageGenModels.map { model in
+                            (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
                         }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                } else if imageGenSetupExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("API Key")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        SecureField("Your Gemini API key", text: $imageGenKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack(spacing: 0) {
-                            Text("Get your API key at ")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.accent)
-                                .pointerCursor()
-                        }
-
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
-                                store.saveImageGenKey(imageGenKeyText)
-                                imageGenKeyText = ""
-                                imageGenSetupExpanded = false
-                            }
-                            .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                                imageGenKeyText = ""
-                                imageGenSetupExpanded = false
-                            }
-                        }
-                    }
-                } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
-                        imageGenSetupExpanded = true
-                    }
+                    )
                 }
             }
-            .padding(VSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
-
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -612,7 +412,7 @@ struct SettingsPanel: View {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("System Permissions")
                     .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 permissionRow(
                     label: "Accessibility",
@@ -670,7 +470,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .vCard(background: VColor.surfaceSubtle)
+            .vCard(background: VColor.surfaceOverlay)
 
             // TRUST RULES section
             if daemonClient != nil {
@@ -678,10 +478,10 @@ struct SettingsPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trust Rules")
                             .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Text("Control which tool actions are automatically allowed or denied")
                             .font(VFont.sectionDescription)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     VButton(label: "Manage", style: .secondary, size: .medium) {
                         daemonClient?.isTrustRulesSheetOpen = true
@@ -691,7 +491,7 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .vCard(background: VColor.surfaceSubtle)
+                .vCard(background: VColor.surfaceOverlay)
             }
 
             // PRIVACY section (merged from SettingsPrivacyTab)
@@ -800,7 +600,7 @@ private struct SettingsNavRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
             }
             .padding(.leading, VSpacing.sm)
@@ -809,7 +609,7 @@ private struct SettingsNavRow: View {
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                (isSelected ? VColor.navActive : VColor.navHover.opacity(isHovered ? 1 : 0))
+                (isSelected ? VColor.surfaceActive : VColor.surfaceBase.opacity(isHovered ? 1 : 0))
                     .animation(VAnimation.fast, value: isHovered)
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -836,13 +636,13 @@ struct SettingsPanelEnvVarsSheet: View {
             HStack {
                 Text("Environment Variables")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 VButton(label: "Done", style: .tertiary) { dismiss() }
             }
             .padding(VSpacing.lg)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -853,28 +653,28 @@ struct SettingsPanelEnvVarsSheet: View {
             }
         }
         .frame(width: 600, height: 500)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 
     private func envVarsSection(title: String, vars: [(String, String)]) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(title)
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             if vars.isEmpty {
                 Text("Loading...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(vars, id: \.0) { key, value in
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Text(key)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(width: 200, alignment: .trailing)
                         Text(value)
                             .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .textSelection(.enabled)
                         Spacer()
                     }
@@ -903,7 +703,7 @@ struct SettingsPanel_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc), authManager: AuthManager())
         }
         .frame(width: 600, height: 700)

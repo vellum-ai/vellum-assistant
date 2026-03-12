@@ -112,21 +112,21 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.brain, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Installed Skills")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.installedSkillsCount > 0 {
                             Text("\(viewModel.installedSkillsCount)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
                                     Capsule()
-                                        .fill(VColor.surfaceBorder)
+                                        .fill(VColor.borderBase)
                                 )
                         }
                     }
@@ -141,11 +141,11 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.globe, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Community Skills")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
                 .disabled(viewModel.skillsStore == nil)
@@ -158,21 +158,21 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.users, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Contacts")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.contactsCount > 0 {
                             Text("\(viewModel.contactsCount)")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
                                     Capsule()
-                                        .fill(VColor.surfaceBorder)
+                                        .fill(VColor.borderBase)
                                 )
                         }
                     }
@@ -187,11 +187,11 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.folder, size: 16)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Browse Workspace")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
             }
@@ -215,12 +215,12 @@ struct IdentityView: View {
                 if !identity.name.isEmpty {
                     Text(identity.name)
                         .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 if !identity.role.isEmpty {
                     Text(identity.role)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -236,16 +236,16 @@ struct IdentityView: View {
     private var disconnectedState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.monitor, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("Connect to your Assistant")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Intelligence information is available when connected to your Assistant.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -266,7 +266,7 @@ struct IdentityView: View {
             ProgressView()
             Text("Loading...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

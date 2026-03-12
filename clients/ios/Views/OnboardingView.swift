@@ -66,12 +66,12 @@ struct WelcomeStep: View {
 
             Text("Welcome to Vellum Assistant")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             Text("AI-powered assistant for your iPhone")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             Spacer()
@@ -96,7 +96,7 @@ struct ChoosePathStep: View {
 
             Text("How would you like to connect?")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: VSpacing.lg) {
@@ -105,21 +105,21 @@ struct ChoosePathStep: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Log in with Vellum")
                                 .font(VFont.bodyBold)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                             Text("Connect to your cloud assistant")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                         Spacer()
                         VIconView(.cloud, size: 20)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                     }
                     .padding(VSpacing.lg)
-                    .background(VColor.surface)
+                    .background(VColor.surfaceBase)
                     .cornerRadius(VRadius.md)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                 }
 
@@ -128,21 +128,21 @@ struct ChoosePathStep: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Connect to Assistant")
                                 .font(VFont.bodyBold)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                             Text("Connect via your local network")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                         Spacer()
                         VIconView(.monitor, size: 20)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                     }
                     .padding(VSpacing.lg)
-                    .background(VColor.surface)
+                    .background(VColor.surfaceBase)
                     .cornerRadius(VRadius.md)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                 }
             }
@@ -167,11 +167,11 @@ struct DaemonSetupStep: View {
 
             Text("Connect to Assistant")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Scan the QR code from your Assistant to pair.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -190,14 +190,14 @@ struct DaemonSetupStep: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.lg)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .cornerRadius(VRadius.md)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
             }
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .padding(.horizontal, VSpacing.xl)
 
             Button("Continue") {
@@ -209,7 +209,7 @@ struct DaemonSetupStep: View {
             Button("Skip for now") {
                 onContinue?()
             }
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
 
             Spacer()
         }
@@ -242,11 +242,11 @@ struct PermissionsStep: View {
 
             Text("Permissions")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Grant permissions for voice input")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: VSpacing.lg) {
@@ -254,7 +254,7 @@ struct PermissionsStep: View {
                 PermissionRowView(permission: .speechRecognition)
             }
             .padding(VSpacing.xl)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.md)
 
             Spacer()
@@ -278,11 +278,11 @@ struct ReadyStep: View {
 
             Text("You're All Set!")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Start chatting with your AI assistant")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Get Started") {

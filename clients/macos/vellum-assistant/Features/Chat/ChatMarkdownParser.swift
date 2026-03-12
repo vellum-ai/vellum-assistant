@@ -352,7 +352,7 @@ struct MarkdownTableView: View {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header)
                         .font(.custom("Inter-Medium", size: 11 * zoomScale))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
@@ -360,7 +360,7 @@ struct MarkdownTableView: View {
                 }
             }
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             // Data rows with separators between them
             ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
@@ -373,15 +373,15 @@ struct MarkdownTableView: View {
                     }
                 }
                 if rowIdx < rows.count - 1 {
-                    Divider().background(VColor.surfaceBorder.opacity(0.5))
+                    Divider().background(VColor.borderBase.opacity(0.5))
                 }
             }
         }
-        .background(VColor.surface.opacity(0.5))
+        .background(VColor.surfaceBase.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                .stroke(VColor.borderBase, lineWidth: 0.5)
         )
         .frame(maxWidth: maxWidth, alignment: .leading)
     }
@@ -390,7 +390,7 @@ struct MarkdownTableView: View {
         let attributed = Self.cachedAttributedString(for: text, zoomScale: zoomScale)
         return Text(attributed)
             .font(.custom("Inter", size: 13 * zoomScale))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
     }
 }

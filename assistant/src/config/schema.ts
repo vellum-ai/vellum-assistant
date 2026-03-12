@@ -91,27 +91,16 @@ export {
   MemoryRetentionConfigSchema,
 } from "./schemas/memory-lifecycle.js";
 export type {
-  MemoryConflictsConfig,
-  MemoryEntityConfig,
   MemoryExtractionConfig,
-  MemoryProfileConfig,
   MemorySummarizationConfig,
 } from "./schemas/memory-processing.js";
 export {
-  MemoryConflictsConfigSchema,
-  MemoryEntityConfigSchema,
   MemoryExtractionConfigSchema,
-  MemoryProfileConfigSchema,
   MemorySummarizationConfigSchema,
 } from "./schemas/memory-processing.js";
-export type {
-  MemoryRerankingConfig,
-  MemoryRetrievalConfig,
-} from "./schemas/memory-retrieval.js";
+export type { MemoryRetrievalConfig } from "./schemas/memory-retrieval.js";
 export {
   MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryRerankingConfigSchema,
   MemoryRetrievalConfigSchema,
 } from "./schemas/memory-retrieval.js";
 export type {

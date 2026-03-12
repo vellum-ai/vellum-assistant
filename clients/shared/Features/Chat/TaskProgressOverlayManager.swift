@@ -171,7 +171,7 @@ private struct TaskProgressOverlayView: View {
                         manager.close()
                     } label: {
                         VIconView(.x, size: 10)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
                     .padding(.top, VSpacing.sm)
@@ -183,7 +183,7 @@ private struct TaskProgressOverlayView: View {
             }
         }
         .frame(width: 260)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 }
 #endif

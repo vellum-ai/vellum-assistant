@@ -2453,39 +2453,31 @@ public struct MemoryRecalled: Codable, Sendable {
     public let provider: String
     public let model: String
     public let degradation: MemoryRecalledDegradation?
-    public let lexicalHits: Double
     public let semanticHits: Double
     public let recencyHits: Double
-    public let entityHits: Double
-    public let relationSeedEntityCount: Int?
-    public let relationTraversedEdgeCount: Int?
-    public let relationNeighborEntityCount: Int?
-    public let relationExpandedItemCount: Int?
-    public let earlyTerminated: Bool?
+    public let tier1Count: Int?
+    public let tier2Count: Int?
+    public let hybridSearchLatencyMs: Double?
+    public let sparseVectorUsed: Bool?
     public let mergedCount: Int
     public let selectedCount: Int
-    public let rerankApplied: Bool
     public let injectedTokens: Int
     public let latencyMs: Double
     public let topCandidates: [MemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
         self.degradation = degradation
-        self.lexicalHits = lexicalHits
         self.semanticHits = semanticHits
         self.recencyHits = recencyHits
-        self.entityHits = entityHits
-        self.relationSeedEntityCount = relationSeedEntityCount
-        self.relationTraversedEdgeCount = relationTraversedEdgeCount
-        self.relationNeighborEntityCount = relationNeighborEntityCount
-        self.relationExpandedItemCount = relationExpandedItemCount
-        self.earlyTerminated = earlyTerminated
+        self.tier1Count = tier1Count
+        self.tier2Count = tier2Count
+        self.hybridSearchLatencyMs = hybridSearchLatencyMs
+        self.sparseVectorUsed = sparseVectorUsed
         self.mergedCount = mergedCount
         self.selectedCount = selectedCount
-        self.rerankApplied = rerankApplied
         self.injectedTokens = injectedTokens
         self.latencyMs = latencyMs
         self.topCandidates = topCandidates
@@ -2532,15 +2524,8 @@ public struct MemoryStatus: Codable, Sendable {
     public let reason: String?
     public let provider: String?
     public let model: String?
-    public let conflictsPending: Double
-    public let conflictsResolved: Double
-    public let oldestPendingConflictAgeMs: Double?
-    public let cleanupResolvedJobsPending: Double
-    public let cleanupSupersededJobsPending: Double
-    public let cleanupResolvedJobsCompleted24h: Double
-    public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -2548,13 +2533,6 @@ public struct MemoryStatus: Codable, Sendable {
         self.reason = reason
         self.provider = provider
         self.model = model
-        self.conflictsPending = conflictsPending
-        self.conflictsResolved = conflictsResolved
-        self.oldestPendingConflictAgeMs = oldestPendingConflictAgeMs
-        self.cleanupResolvedJobsPending = cleanupResolvedJobsPending
-        self.cleanupSupersededJobsPending = cleanupSupersededJobsPending
-        self.cleanupResolvedJobsCompleted24h = cleanupResolvedJobsCompleted24h
-        self.cleanupSupersededJobsCompleted24h = cleanupSupersededJobsCompleted24h
     }
 }
 

@@ -33,10 +33,6 @@ const WEEKDAY_NAMES = [
   "Friday",
   "Saturday",
 ] as const;
-const TIMEZONE_SUBJECT_LINE_RE = /^\s*-\s*time\s*zone\s*:\s*(.+)$/i;
-const TIMEZONE_SUBJECT_COMPACT_RE = /^\s*-\s*timezone\s*:\s*(.+)$/i;
-const TIMEZONE_TOKEN_RE =
-  /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b/gi;
 const UTC_GMT_OFFSET_TOKEN_RE = /^(?:UTC|GMT)([+-])(\d{1,2})(?::?(\d{2}))?$/i;
 
 function normalizeOffsetToken(offsetToken: string): string {
@@ -118,47 +114,6 @@ function canonicalizeTimeZone(timeZone: string): string | null {
   } catch {
     return null;
   }
-}
-
-function extractTimeZoneCandidates(text: string): string[] {
-  const matches = (text.match(TIMEZONE_TOKEN_RE) ?? [])
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-  const ianaTokens = matches.filter((token) => token.includes("/"));
-  const offsetTokens = matches.filter((token) => !token.includes("/"));
-  return [...ianaTokens, ...offsetTokens];
-}
-
-/**
- * Extract a valid user timezone from compiled `<dynamic-user-profile>` text.
- *
- * Prefers explicit `timezone:` profile lines, then falls back to scanning the
- * full profile body for valid IANA timezone identifiers.
- */
-export function extractUserTimeZoneFromDynamicProfile(
-  profileText: string,
-): string | null {
-  const trimmed = profileText.trim();
-  if (trimmed.length === 0) return null;
-
-  const candidateTexts: string[] = [];
-  for (const line of trimmed.split("\n")) {
-    const match =
-      line.match(TIMEZONE_SUBJECT_LINE_RE) ??
-      line.match(TIMEZONE_SUBJECT_COMPACT_RE);
-    if (match) {
-      candidateTexts.push(match[1]);
-    }
-  }
-  candidateTexts.push(trimmed);
-
-  for (const text of candidateTexts) {
-    for (const token of extractTimeZoneCandidates(text)) {
-      const canonical = canonicalizeTimeZone(token);
-      if (canonical) return canonical;
-    }
-  }
-  return null;
 }
 
 /**

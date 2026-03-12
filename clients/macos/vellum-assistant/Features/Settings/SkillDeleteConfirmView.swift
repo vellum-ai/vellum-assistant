@@ -11,11 +11,11 @@ struct SkillDeleteConfirmView: View {
             VStack(spacing: VSpacing.md) {
                 Text("Delete Skill")
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text("Are you sure you want to delete \"\(skillName)\"? This will remove it from ~/.vellum/workspace/skills/.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -31,6 +31,6 @@ struct SkillDeleteConfirmView: View {
         }
         .padding(VSpacing.xl)
         .frame(width: 340)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 }

@@ -12,7 +12,7 @@ struct JITPermissionView: View {
     var body: some View {
         ZStack {
             // Dimmed backdrop
-            Color.black.opacity(showContent ? 0.5 : 0)
+            VColor.auxBlack.opacity(showContent ? 0.5 : 0)
                 .ignoresSafeArea()
                 .allowsHitTesting(manager.activePermissionRequest != nil)
                 .onTapGesture {
@@ -68,14 +68,14 @@ struct JITPermissionView: View {
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [VColor.accent.opacity(0.3), VColor.accent.opacity(0.0)],
+                            colors: [VColor.primaryBase.opacity(0.3), VColor.primaryBase.opacity(0.0)],
                             center: .center, startRadius: 0, endRadius: 40
                         )
                     )
                     .frame(width: 80, height: 80)
                     .scaleEffect(iconScale)
                 VIconView(SFSymbolMapping.icon(forSFSymbol: request.icon, fallback: .puzzle), size: 32)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .scaleEffect(iconScale)
             }
             .opacity(showContent ? 1 : 0)
@@ -85,13 +85,13 @@ struct JITPermissionView: View {
             VStack(spacing: VSpacing.sm) {
                 Text(request.title)
                     .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
 
                 Text(request.message)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
                     .textSelection(.enabled)
@@ -108,11 +108,11 @@ struct JITPermissionView: View {
                 }) {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text("Technical details")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                     }
                 }
                 .buttonStyle(.plain)
@@ -121,13 +121,13 @@ struct JITPermissionView: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text(request.explanation)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
 
                         Text(request.technicalDetails)
                             .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
@@ -140,10 +140,10 @@ struct JITPermissionView: View {
             .padding(VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surface.opacity(0.3))
+                    .fill(VColor.surfaceBase.opacity(0.3))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                            .stroke(VColor.borderBase.opacity(0.4), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)
@@ -178,7 +178,7 @@ struct JITPermissionView: View {
                         .stroke(Meadow.panelBorder, lineWidth: 1)
                 )
         )
-        .shadow(color: .black.opacity(0.5), radius: 32, y: 16)
+        .shadow(color: VColor.auxBlack.opacity(0.5), radius: 32, y: 16)
     }
 
     // MARK: - Helpers
@@ -188,15 +188,15 @@ struct JITPermissionView: View {
         Button(action: action) {
             Text(title)
                 .font(VFont.captionMedium)
-                .foregroundColor(isPrimary ? .white : VColor.textPrimary.opacity(0.85))
+                .foregroundColor(isPrimary ? VColor.auxWhite : VColor.contentDefault.opacity(0.85))
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.sm + VSpacing.xxs)
-                .background(isPrimary ? AnyShapeStyle(VColor.accent) : AnyShapeStyle(Color.clear))
+                .background(isPrimary ? AnyShapeStyle(VColor.primaryBase) : AnyShapeStyle(Color.clear))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(isPrimary ? Color.clear : VColor.textPrimary.opacity(0.2), lineWidth: 1)
+                        .stroke(isPrimary ? Color.clear : VColor.contentDefault.opacity(0.2), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -250,7 +250,7 @@ private struct JITPermissionViewPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             JITPermissionView(manager: manager)
         }
     }

@@ -57,6 +57,8 @@ export interface EventHandlerState {
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
   contextTooLargeDetected: boolean;
+  /** The raw error message from the provider when context_too_large is detected. */
+  contextTooLargeErrorMessage: string | null;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   readonly pendingToolResults: Map<string, PendingToolResult>;
@@ -121,6 +123,7 @@ export function createEventHandlerState(): EventHandlerState {
     orderingErrorDetected: false,
     deferredOrderingError: null,
     contextTooLargeDetected: false,
+    contextTooLargeErrorMessage: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
@@ -595,12 +598,22 @@ export function handleError(
     state.deferredOrderingError = event.error.message;
   } else if (isContextTooLarge(event.error.message)) {
     state.contextTooLargeDetected = true;
+    state.contextTooLargeErrorMessage = event.error.message;
   } else {
     const classified = classifySessionError(event.error, {
       phase: "agent_loop",
     });
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
+      state.contextTooLargeErrorMessage = event.error.message;
+    } else if (
+      classified.code === "PROVIDER_ORDERING" ||
+      classified.code === "PROVIDER_WEB_SEARCH"
+    ) {
+      // Ordering errors detected via classifySessionError (e.g. from ProviderError
+      // with statusCode 400 and ordering message) — trigger the retry path.
+      state.orderingErrorDetected = true;
+      state.deferredOrderingError = event.error.message;
     } else {
       deps.onEvent(
         buildSessionErrorMessage(deps.ctx.conversationId, classified),

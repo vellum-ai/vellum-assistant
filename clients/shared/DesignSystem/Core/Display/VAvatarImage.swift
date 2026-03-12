@@ -8,8 +8,8 @@ public struct VAvatarImage: View {
     public let image: NSImage
     public let size: CGFloat
 
-    /// Optional border color. Defaults to `VColor.surfaceBorder`.
-    public var borderColor: Color = VColor.surfaceBorder
+    /// Optional border color. Defaults to `VColor.borderBase`.
+    public var borderColor: Color = VColor.borderBase
 
     /// Whether to show a subtle border around the avatar.
     public var showBorder: Bool = true
@@ -17,7 +17,7 @@ public struct VAvatarImage: View {
     /// Cached transparency result to avoid expensive bitmap analysis on every render.
     private let isTransparent: Bool
 
-    public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.surfaceBorder, showBorder: Bool = true) {
+    public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
         self.size = size
         self.borderColor = borderColor
@@ -78,7 +78,7 @@ public struct VAvatarImage: View {
 #if DEBUG
 #Preview("VAvatarImage") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         HStack(spacing: VSpacing.lg) {
             VAvatarImage(
                 image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,

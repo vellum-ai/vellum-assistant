@@ -37,10 +37,10 @@ struct InlineVideoEmbedCard: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 0.5)
+                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
                 )
 
             stateContent
@@ -77,11 +77,11 @@ struct InlineVideoEmbedCard: View {
     private var placeholderView: some View {
         VStack(spacing: VSpacing.sm) {
             VIconView(.play, size: 44)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(provider.capitalized)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -108,15 +108,15 @@ struct InlineVideoEmbedCard: View {
     private func failedView(_ message: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.play, size: 16)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(provider.capitalized)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Text(embedURL.absoluteString)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.accent)
+                .foregroundStyle(VColor.primaryBase)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -131,7 +131,7 @@ struct InlineVideoEmbedCard: View {
 #if DEBUG
 #Preview("InlineVideoEmbedCard") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: VSpacing.lg) {
             InlineVideoEmbedCard(
                 provider: "youtube",

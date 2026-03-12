@@ -6,7 +6,7 @@ import VellumAssistantShared
 struct DaemonLoadingChatSkeleton: View {
     var body: some View {
         ZStack {
-            VColor.backgroundSubtle
+            VColor.surfaceBase
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
             ChatLoadingSkeleton()
                 .padding(VSpacing.lg)
@@ -36,7 +36,7 @@ struct DaemonLoadingThreadsSkeleton: View {
 #if DEBUG
 #Preview("DaemonLoadingChatSkeleton") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         DaemonLoadingChatSkeleton()
             .padding(VSpacing.lg)
     }
@@ -45,7 +45,7 @@ struct DaemonLoadingThreadsSkeleton: View {
 
 #Preview("DaemonLoadingThreadsSkeleton") {
     ZStack {
-        VColor.backgroundSubtle.ignoresSafeArea()
+        VColor.surfaceBase.ignoresSafeArea()
         DaemonLoadingThreadsSkeleton()
     }
     .frame(width: 240, height: 300)

@@ -96,30 +96,30 @@ struct HatchingStepView: View {
             if state.hatchFailed {
                 Text("Something went wrong")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 if let reason = failureReason {
                     Text(reason)
                         .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             } else if isCustomHardware {
                 Text("Pairing\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             } else {
                 Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Getting your assistant ready\u{2026}")
                     .font(.system(size: 14))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Text("Your assistant will ask a few quick questions to get started.\nThis usually takes less than a minute.")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -255,7 +255,7 @@ struct HatchingStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         HatchingStepView(state: {
             let s = OnboardingState()
             s.isHatching = true

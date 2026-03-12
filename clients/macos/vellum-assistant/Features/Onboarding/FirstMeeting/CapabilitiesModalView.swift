@@ -11,7 +11,7 @@ struct CapabilitiesModalView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxl) {
                     sectionView(
                         icon: "sparkles",
-                        iconColor: Emerald._500,
+                        iconColor: VColor.systemPositiveStrong,
                         title: "What I can do",
                         items: [
                             "Browse the web and search for information",
@@ -24,7 +24,7 @@ struct CapabilitiesModalView: View {
 
                     sectionView(
                         icon: "shield.lefthalf.filled",
-                        iconColor: Danger._500,
+                        iconColor: VColor.systemNegativeStrong,
                         title: "What I won\u{2019}t do",
                         items: [
                             "Act without asking when something\u{2019}s irreversible",
@@ -36,7 +36,7 @@ struct CapabilitiesModalView: View {
 
                     sectionView(
                         icon: "car.fill",
-                        iconColor: Forest._500,
+                        iconColor: VColor.primaryActive,
                         title: "How control works",
                         items: [
                             "You\u{2019}re always in the driver\u{2019}s seat",
@@ -52,7 +52,7 @@ struct CapabilitiesModalView: View {
             }
 
             Divider()
-                .background(VColor.surfaceBorder.opacity(0.4))
+                .background(VColor.borderBase.opacity(0.4))
 
             VButton(label: "Got it", style: .primary, isFullWidth: true) {
                 dismiss()
@@ -89,7 +89,7 @@ struct CapabilitiesModalView: View {
                     .foregroundColor(iconColor)
                 Text(title)
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -97,10 +97,10 @@ struct CapabilitiesModalView: View {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Text("\u{2022}")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(item)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }

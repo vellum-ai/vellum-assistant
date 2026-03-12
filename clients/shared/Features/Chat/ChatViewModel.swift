@@ -149,6 +149,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantStatusText }
         set { messageManager.assistantStatusText = newValue }
     }
+    public var isCompacting: Bool {
+        get { messageManager.isCompacting }
+        set { messageManager.isCompacting = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }
@@ -355,17 +359,23 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String?
+    private(set) var lastFailedSendError: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    var secretBlockedMessageText: String?
+    var secretBlockedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
     var secretBlockedAttachments: [UserMessageAttachment]?
@@ -1991,6 +2001,17 @@ public final class ChatViewModel: ObservableObject {
     /// Whether the current error is a secret-ingress block that can be bypassed.
     public var isSecretBlockError: Bool {
         secretBlockedMessageText != nil
+    }
+
+    /// Forward retry-related state to `errorManager` so `@ObservedObject` views
+    /// (e.g. `ErrorToastOverlay`) receive reactive updates. Called automatically
+    /// via `didSet` on `lastFailedMessageText`, `lastFailedSendError`, and
+    /// `secretBlockedMessageText`.
+    private func syncRetryStateToErrorManager() {
+        errorManager.isConnectionError = isConnectionError
+        errorManager.isSecretBlockError = isSecretBlockError
+        errorManager.isRetryableError = isRetryableError
+        errorManager.hasRetryPayload = hasRetryPayload
     }
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.

@@ -35,12 +35,12 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                     VStack(spacing: VSpacing.xs) {
                         Text(item.label)
                             .font(VFont.captionMedium)
-                            .foregroundColor(selection == item.tag ? VColor.textPrimary : VColor.textMuted)
+                            .foregroundColor(selection == item.tag ? VColor.contentDefault : VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.xl)
                             .padding(.vertical, VSpacing.xs)
 
                         Rectangle()
-                            .fill(selection == item.tag ? VColor.accent : .clear)
+                            .fill(selection == item.tag ? VColor.primaryBase : .clear)
                             .frame(height: 2)
                     }
                     .contentShape(Rectangle())
@@ -71,7 +71,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.inputBackground)
+                .fill(VColor.surfaceActive)
         )
         .animation(VAnimation.fast, value: selection)
     }
@@ -103,14 +103,14 @@ private struct PillSegment: View {
             Text(label)
                 .font(VFont.body)
                 .fixedSize()
-                .foregroundColor(isSelected ? selectedTextColor : VColor.textSecondary)
+                .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
                 .padding(.horizontal, VSpacing.lg)
                 .frame(maxWidth: .infinity)
                 .frame(height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md - 1)
                         .fill(segmentBackground)
-                        .shadow(color: isSelected ? Color.black.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
+                        .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
                 )
                 .contentShape(Rectangle())
         }
@@ -122,14 +122,14 @@ private struct PillSegment: View {
     }
 
     private var selectedTextColor: Color {
-        VColor.textPrimary
+        VColor.contentDefault
     }
 
     private var segmentBackground: Color {
         if isSelected {
-            return VColor.segmentSelected
+            return VColor.surfaceLift
         } else if isHovered {
-            return VColor.segmentHover
+            return VColor.surfaceActive
         } else {
             return .clear
         }
@@ -151,7 +151,7 @@ private struct VSegmentedControlPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(spacing: VSpacing.xl) {
                 VSegmentedControl(items: ["Profile", "Settings", "Channels", "Overview"], selection: $selection)
 

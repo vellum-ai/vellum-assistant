@@ -51,7 +51,6 @@ public struct VButton: View {
         }
         .pointerCursor()
         .disabled(isDisabled)
-        .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
         .optionalAccessibilityIdentifier(accessibilityID)
     }
@@ -136,57 +135,64 @@ private struct VButtonStyle: ButtonStyle {
         }
     }
 
+    @Environment(\.isEnabled) private var isEnabled
+
     private func backgroundColor(isPressed: Bool) -> Color {
         switch style {
         case .primary:
-            if isPressed { return VColor.buttonPrimaryPressed }
-            if isHovered { return VColor.buttonPrimaryHover }
-            return VColor.buttonPrimary
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.primaryActive }
+            if isHovered { return VColor.primaryHover }
+            return VColor.primaryBase
         case .secondary:
-            if isPressed { return VColor.buttonSecondaryBgPressed }
-            if isHovered { return VColor.buttonSecondaryBgHover }
-            return VColor.buttonSecondaryBg
+            guard isEnabled else { return VColor.surfaceBase }
+            if isPressed { return VColor.surfaceActive }
+            if isHovered { return VColor.surfaceActive }
+            return VColor.surfaceBase
         case .danger:
-            if isPressed { return VColor.buttonDangerPressed }
-            if isHovered { return VColor.buttonDangerHover }
-            return VColor.buttonDanger
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.systemNegativeHover }
+            if isHovered { return VColor.systemNegativeHover }
+            return VColor.systemNegativeStrong
         case .tertiary:
-            if isPressed { return VColor.ghostPressed }
-            if isHovered { return VColor.ghostHover }
+            if isPressed { return VColor.surfaceActive }
+            if isHovered { return VColor.surfaceBase }
             return .clear
         case .ghost:
-            if isPressed { return VColor.ghostPressed }
-            if isHovered { return VColor.ghostHover }
+            if isPressed { return VColor.surfaceActive }
+            if isHovered { return VColor.surfaceBase }
             return .clear
         case .outlined:
             return .clear
         case .success:
-            if isPressed { return VColor.buttonSuccessBgPressed }
-            if isHovered { return VColor.buttonSuccessBgHover }
-            return VColor.buttonSuccessBg
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.primaryBase }
+            if isHovered { return VColor.primaryHover }
+            return VColor.systemPositiveWeak
         }
     }
 
     private var foregroundColor: Color {
+        guard isEnabled else { return VColor.contentDisabled }
         switch style {
-        case .primary: return .white
-        case .tertiary: return VColor.buttonSecondaryText
-        case .secondary: return VColor.buttonSecondaryText
-        case .danger: return .white
-        case .ghost: return VColor.buttonPrimary
-        case .outlined: return VColor.buttonSecondaryText
-        case .success: return VColor.activeIconForeground
+        case .primary: return VColor.auxWhite
+        case .tertiary: return VColor.primaryBase
+        case .secondary: return VColor.primaryBase
+        case .danger: return VColor.auxWhite
+        case .ghost: return VColor.primaryBase
+        case .outlined: return VColor.primaryBase
+        case .success: return VColor.primaryActive
         }
     }
 
     private func borderColor(isPressed: Bool) -> Color {
         switch style {
         case .tertiary:
-            if isPressed { return VColor.ghostPressed }
-            return VColor.buttonSecondaryBorder
+            if isPressed { return VColor.surfaceActive }
+            return VColor.borderActive
         case .outlined:
-            if isPressed { return VColor.buttonSecondaryBorder.opacity(0.7) }
-            return VColor.buttonSecondaryBorder
+            if isPressed { return VColor.borderActive.opacity(0.7) }
+            return VColor.borderActive
         case .secondary, .ghost, .success:
             return .clear
         default:
@@ -208,7 +214,7 @@ private extension View {
 
 #Preview("VButton") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 16) {
             VButton(label: "Primary", style: .primary, size: .medium) {}
             VButton(label: "Secondary", style: .secondary, size: .medium) {}

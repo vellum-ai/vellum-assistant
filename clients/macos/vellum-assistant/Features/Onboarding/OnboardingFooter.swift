@@ -23,13 +23,13 @@ struct OnboardingFooter: View {
     var body: some View {
         Text("\u{00A9} 2026 Vellum Inc.")
             .font(VFont.monoSmall)
-            .foregroundStyle(VColor.textMuted.opacity(0.5))
+            .foregroundStyle(VColor.contentTertiary.opacity(0.5))
     }
 }
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.surfaceOverlay
         VStack(spacing: 24) {
             OnboardingFooter(currentStep: 0)
             OnboardingFooter(currentStep: 1)

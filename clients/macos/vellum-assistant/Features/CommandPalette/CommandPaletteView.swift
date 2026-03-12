@@ -20,13 +20,13 @@ struct CommandPaletteView: View {
                         .frame(width: 16, height: 16)
                 } else {
                     VIconView(.search, size: 16)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 TextField("Search conversations, memories, schedules...", text: $viewModel.query)
                     .textFieldStyle(.plain)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .focused($isSearchFocused)
                     .onSubmit {
                         executeSelected()
@@ -38,7 +38,7 @@ struct CommandPaletteView: View {
                         viewModel.serverResults = .empty
                     } label: {
                         VIconView(.circleX, size: 14)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -46,17 +46,17 @@ struct CommandPaletteView: View {
                 // Shortcut hint
                 Text("\u{2318}K")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.xs)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.surfaceBorder.opacity(0.5))
+                    .background(VColor.borderBase.opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
 
             // Divider
-            VColor.divider
+            VColor.borderBase
                 .frame(height: 1)
 
             // Results list
@@ -104,7 +104,7 @@ struct CommandPaletteView: View {
                                     .controlSize(.mini)
                                 Text("Searching deeper...")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                             }
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, VSpacing.sm)
@@ -116,9 +116,9 @@ struct CommandPaletteView: View {
                 .frame(maxHeight: 400)
             }
         }
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+        .shadow(color: VColor.auxBlack.opacity(0.3), radius: 20, y: 10)
         .frame(width: 600)
         .onAppear {
             isSearchFocused = true
@@ -146,7 +146,7 @@ struct CommandPaletteView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
             .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.lg)
             .padding(.top, VSpacing.sm)
@@ -209,12 +209,12 @@ struct CommandPaletteView: View {
     private func actionRow(_ action: CommandPaletteAction, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.resolve(action.icon), size: 13)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 20, alignment: .center)
 
             Text(action.label)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
             Spacer()
@@ -222,16 +222,16 @@ struct CommandPaletteView: View {
             if let hint = action.shortcutHint {
                 Text(hint)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.xs)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.surfaceBorder.opacity(0.5))
+                    .background(VColor.borderBase.opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
             }
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .padding(.horizontal, VSpacing.xs)
         .contentShape(Rectangle())
@@ -240,23 +240,23 @@ struct CommandPaletteView: View {
     private func recentRow(_ recent: CommandPaletteRecentItem, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.messagesSquare, size: 13)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 20, alignment: .center)
 
             Text(recent.title)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
             Spacer()
 
             Text(relativeTime(recent.lastInteracted))
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .padding(.horizontal, VSpacing.xs)
         .contentShape(Rectangle())
@@ -265,19 +265,19 @@ struct CommandPaletteView: View {
     private func conversationRow(_ conv: SearchResultConversation, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.messagesSquare, size: 13)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(conv.title ?? "Untitled")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 if !conv.excerpt.isEmpty {
                     Text(conv.excerpt)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
             }
@@ -286,11 +286,11 @@ struct CommandPaletteView: View {
 
             Text(relativeTimestamp(conv.updatedAt))
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .padding(.horizontal, VSpacing.xs)
         .contentShape(Rectangle())
@@ -299,21 +299,21 @@ struct CommandPaletteView: View {
     private func memoryRow(_ memory: SearchResultMemory, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.brain, size: 13)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(memory.text)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(memory.kind)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.xs)
                     .padding(.vertical, 1)
-                    .background(VColor.surfaceBorder.opacity(0.5))
+                    .background(VColor.borderBase.opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
             }
 
@@ -321,7 +321,7 @@ struct CommandPaletteView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .padding(.horizontal, VSpacing.xs)
         .contentShape(Rectangle())
@@ -330,18 +330,18 @@ struct CommandPaletteView: View {
     private func scheduleRow(_ schedule: SearchResultSchedule, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.clock, size: 13)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(schedule.name)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 Text(schedule.message)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
 
@@ -349,11 +349,11 @@ struct CommandPaletteView: View {
 
             Text(schedule.enabled ? "Active" : "Paused")
                 .font(VFont.caption)
-                .foregroundColor(schedule.enabled ? VColor.success : VColor.textMuted)
+                .foregroundColor(schedule.enabled ? VColor.systemPositiveStrong : VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .padding(.horizontal, VSpacing.xs)
         .contentShape(Rectangle())
@@ -362,19 +362,19 @@ struct CommandPaletteView: View {
     private func contactRow(_ contact: SearchResultContact, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.users, size: 13)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(contact.displayName)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 if let notes = contact.notes, !notes.isEmpty {
                     Text(notes.components(separatedBy: .newlines).first ?? notes)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
             }
@@ -383,7 +383,7 @@ struct CommandPaletteView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .background(isSelected ? VColor.borderBase.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .padding(.horizontal, VSpacing.xs)
         .contentShape(Rectangle())
@@ -394,14 +394,14 @@ struct CommandPaletteView: View {
             if viewModel.query.isEmpty {
                 Text("Type to search...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 Text("No results found.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Text("Try rephrasing your search.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
         .multilineTextAlignment(.center)

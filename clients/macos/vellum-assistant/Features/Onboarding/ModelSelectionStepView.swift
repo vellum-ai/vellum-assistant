@@ -23,7 +23,7 @@ struct ModelSelectionStepView: View {
         // Title
         Text("Choose your model")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -32,7 +32,7 @@ struct ModelSelectionStepView: View {
         // Subtitle
         Text("Pick the model that powers your assistant.")
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -52,12 +52,12 @@ struct ModelSelectionStepView: View {
             Button(action: { saveModelAndContinue() }) {
                 Text("Select model")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(VColor.auxWhite)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, VSpacing.lg)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.onboardingStepBackground)
+                            .fill(VColor.primaryBase)
                     )
             }
             .buttonStyle(.plain)
@@ -66,7 +66,7 @@ struct ModelSelectionStepView: View {
             Button(action: { goBack() }) {
                 Text("Back")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -97,20 +97,20 @@ struct ModelSelectionStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Text(detail)
                         .font(.system(size: 12))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 Spacer()
                 Circle()
-                    .fill(isSelected ? Forest._600 : Color.clear)
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
                     .overlay(
-                        Circle().stroke(isSelected ? Forest._600 : VColor.surfaceBorder, lineWidth: 1.5)
+                        Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: 1.5)
                     )
                     .overlay(
                         isSelected
-                            ? Circle().fill(Color.white).frame(width: 6, height: 6)
+                            ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
                             : nil
                     )
                     .frame(width: 18, height: 18)
@@ -120,10 +120,10 @@ struct ModelSelectionStepView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? Forest._600.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? Forest._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(isSelected ? VColor.primaryBase.opacity(0.5) : VColor.borderBase, lineWidth: 1)
                     )
             )
         }
@@ -150,7 +150,7 @@ struct ModelSelectionStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")

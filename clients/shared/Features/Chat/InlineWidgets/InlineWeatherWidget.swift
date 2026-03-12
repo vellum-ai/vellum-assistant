@@ -195,17 +195,17 @@ public struct InlineWeatherWidget: View {
         VStack(alignment: .leading, spacing: 0) {
             heroSection
             if !data.hourly.isEmpty {
-                Divider().background(Moss._700.opacity(0.3))
+                Divider().background(VColor.surfaceActive.opacity(0.3))
                 hourlySection
             }
-            Divider().background(Moss._700.opacity(0.3))
+            Divider().background(VColor.surfaceActive.opacity(0.3))
             dailyForecastHeader
-            Divider().background(Moss._700.opacity(0.3))
+            Divider().background(VColor.surfaceActive.opacity(0.3))
 
             ForEach(Array(data.forecast.enumerated()), id: \.element.id) { index, item in
                 forecastRow(item, isFirst: index == 0)
                 if index < data.forecast.count - 1 {
-                    Divider().background(Moss._700.opacity(0.3))
+                    Divider().background(VColor.surfaceActive.opacity(0.3))
                 }
             }
         }
@@ -220,7 +220,7 @@ public struct InlineWeatherWidget: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(data.location)
                         .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 Spacer()
                 Picker("", selection: $useFahrenheit) {
@@ -237,10 +237,10 @@ public struct InlineWeatherWidget: View {
                 HStack(alignment: .top, spacing: 0) {
                     Text("\(data.currentTemp(useFahrenheit: useFahrenheit))")
                         .font(.system(size: 48, weight: .thin, design: .rounded))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Text("°")
                         .font(.system(size: 28, weight: .thin, design: .rounded))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .offset(y: 4)
                 }
 
@@ -253,19 +253,19 @@ public struct InlineWeatherWidget: View {
                         }
                         Text(data.condition)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
 
                     // Feels like
                     Text("Feels like \(data.feelsLike(useFahrenheit: useFahrenheit))°")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     // H/L
                     if let hl = todayHighLow {
                         Text("H:\(hl.high)°  L:\(hl.low)°")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
                 .padding(.top, VSpacing.sm)
@@ -279,7 +279,7 @@ public struct InlineWeatherWidget: View {
                 } icon: {
                     VIconView(.wind, size: 12)
                 }
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
                 Label {
                     Text("\(data.humidity)%")
@@ -287,7 +287,7 @@ public struct InlineWeatherWidget: View {
                 } icon: {
                     VIconView(.droplets, size: 12)
                 }
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             }
         }
         .padding(.vertical, VSpacing.sm)
@@ -300,15 +300,15 @@ public struct InlineWeatherWidget: View {
             // Header
             HStack(spacing: VSpacing.xs) {
                 VIconView(.clock, size: 12)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Text("HOURLY FORECAST")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
             .padding(.vertical, VSpacing.sm)
 
-            Divider().background(Moss._700.opacity(0.3))
+            Divider().background(VColor.surfaceActive.opacity(0.3))
 
             // Scrollable hourly row
             ScrollView(.horizontal, showsIndicators: false) {
@@ -317,7 +317,7 @@ public struct InlineWeatherWidget: View {
                         VStack(spacing: VSpacing.sm) {
                             Text(item.time)
                                 .font(item.time == "Now" ? VFont.bodyBold : VFont.caption)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
 
                             VIconView(SFSymbolMapping.icon(forSFSymbol: item.icon, fallback: .cloud), size: 18)
                                 .foregroundColor(iconColor(for: item.icon))
@@ -325,7 +325,7 @@ public struct InlineWeatherWidget: View {
 
                             Text("\(item.temp(useFahrenheit: useFahrenheit))°")
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                         }
                         .frame(minWidth: 44)
                     }
@@ -340,10 +340,10 @@ public struct InlineWeatherWidget: View {
     private var dailyForecastHeader: some View {
         HStack {
             VIconView(.calendar, size: 12)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Text("\(data.forecast.count)-DAY FORECAST")
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
             Spacer()
         }
         .padding(.vertical, VSpacing.sm)
@@ -359,7 +359,7 @@ public struct InlineWeatherWidget: View {
             // Day name
             Text(item.day)
                 .font(item.day == "Today" ? VFont.bodyBold : VFont.bodyMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(width: 46, alignment: .leading)
 
             // Weather icon + optional precip
@@ -371,7 +371,7 @@ public struct InlineWeatherWidget: View {
                 if let precip = item.precip {
                     Text("\(precip)%")
                         .font(VFont.small)
-                        .foregroundColor(Amber._500)
+                        .foregroundColor(VColor.systemNegativeHover)
                 }
             }
             .frame(width: 36)
@@ -379,7 +379,7 @@ public struct InlineWeatherWidget: View {
             // Low temp
             Text("\(low)°")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(width: 32, alignment: .trailing)
 
             // Temperature bar
@@ -388,7 +388,7 @@ public struct InlineWeatherWidget: View {
             // High temp
             Text("\(high)°")
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(width: 32, alignment: .trailing)
         }
         .padding(.vertical, VSpacing.sm)
@@ -412,14 +412,14 @@ public struct InlineWeatherWidget: View {
             ZStack(alignment: .leading) {
                 // Background track
                 Capsule()
-                    .fill(Moss._700.opacity(0.3))
+                    .fill(VColor.surfaceActive.opacity(0.3))
                     .frame(height: 4)
 
                 // Filled portion with gradient
                 Capsule()
                     .fill(
                         LinearGradient(
-                            colors: [Forest._400, Emerald._400],
+                            colors: [VColor.systemPositiveWeak, VColor.systemPositiveStrong],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -432,9 +432,9 @@ public struct InlineWeatherWidget: View {
                     let dotFraction = CGFloat(temp - range.min) / CGFloat(span)
                     let dotX = totalWidth * dotFraction
                     Circle()
-                        .fill(Color.white)
+                        .fill(VColor.auxWhite)
                         .frame(width: 6, height: 6)
-                        .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                        .shadow(color: VColor.auxBlack.opacity(0.3), radius: 1, y: 1)
                         .offset(x: dotX - 3)
                 }
             }
@@ -446,16 +446,16 @@ public struct InlineWeatherWidget: View {
 
     private func iconColor(for sfSymbol: String) -> Color {
         switch sfSymbol {
-        case "sun.max.fill": return Amber._400
-        case "cloud.sun.fill": return Amber._300
-        case "moon.fill": return Forest._200
-        case "cloud.moon.fill": return Forest._300
-        case "cloud.fill": return Stone._400
-        case "cloud.rain.fill": return Forest._400
-        case "snowflake": return Forest._300
-        case "cloud.bolt.fill": return Amber._500
-        case "cloud.fog.fill": return Stone._500
-        default: return VColor.textSecondary
+        case "sun.max.fill": return VColor.systemNegativeHover
+        case "cloud.sun.fill": return VColor.systemNegativeWeak
+        case "moon.fill": return VColor.systemPositiveWeak
+        case "cloud.moon.fill": return VColor.systemPositiveWeak
+        case "cloud.fill": return VColor.borderHover
+        case "cloud.rain.fill": return VColor.systemPositiveWeak
+        case "snowflake": return VColor.systemPositiveWeak
+        case "cloud.bolt.fill": return VColor.systemNegativeHover
+        case "cloud.fog.fill": return VColor.contentDisabled
+        default: return VColor.contentSecondary
         }
     }
 }
@@ -465,7 +465,7 @@ public struct InlineWeatherWidget: View {
 #if DEBUG
 #Preview("InlineWeatherWidget") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ScrollView {
             InlineWeatherWidget(data: WeatherForecastData(
                 location: "New York, NY",

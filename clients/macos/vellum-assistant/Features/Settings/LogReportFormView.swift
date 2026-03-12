@@ -28,7 +28,7 @@ struct LogReportFormView: View {
             actionRow
         }
         .padding(VSpacing.xl)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceOverlay)
         .frame(width: 480)
     }
 
@@ -38,10 +38,10 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text("Send Logs")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Text("Select a reason for your report so we can triage it faster.")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -62,7 +62,7 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Name (optional)")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             VTextField(
                 placeholder: "Your name",
                 text: $name,
@@ -75,7 +75,7 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("What happened?")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             VTextEditor(
                 placeholder: "Describe what happened...",
                 text: $message,
@@ -89,7 +89,7 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Email")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             VTextField(
                 placeholder: "you@example.com",
                 text: $email,
@@ -136,25 +136,25 @@ private struct ReasonRow: View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
                 VIconView(.resolve(reason.icon), size: 14)
-                    .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
+                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentSecondary)
                 Text(reason.displayName)
                     .font(VFont.body)
-                    .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
+                    .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentSecondary)
                 Spacer()
                 if isSelected {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                 }
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.surface : (isHovered ? VColor.surface.opacity(0.5) : Color.clear))
+                    .fill(isSelected ? VColor.surfaceActive : (isHovered ? VColor.surfaceActive.opacity(0.5) : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isSelected ? VColor.accent.opacity(0.5) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? VColor.primaryBase.opacity(0.5) : Color.clear, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
@@ -171,7 +171,7 @@ private struct ReasonRow: View {
 #if DEBUG
 #Preview("LogReportFormView") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceBase.ignoresSafeArea()
         LogReportFormView(
             onSend: { _ in },
             onCancel: {}

@@ -24,7 +24,7 @@ struct ComingAliveOverlay: View {
 
     var body: some View {
         ZStack {
-            VColor.background
+            VColor.surfaceOverlay
                 .ignoresSafeArea()
 
             // Radiating glow pulse

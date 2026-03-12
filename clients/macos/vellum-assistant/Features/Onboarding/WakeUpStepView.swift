@@ -40,7 +40,7 @@ struct WakeUpStepView: View {
         // Title
         Text("Welcome to Vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xs)
@@ -48,7 +48,7 @@ struct WakeUpStepView: View {
         // Subtitle
         Text("The safest way to create your\npersonal assistant.")
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
@@ -63,7 +63,7 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Checking...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else if authManager?.isSubmitting == true {
@@ -73,7 +73,7 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Signing in...")
                         .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else {
@@ -92,7 +92,7 @@ struct WakeUpStepView: View {
             if let error = authManager?.errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
             }
         }
@@ -116,7 +116,7 @@ struct WakeUpStepView: View {
 
         Text("\u{00A9} 2026 Vellum Inc.")
             .font(VFont.monoSmall)
-            .foregroundStyle(VColor.textMuted.opacity(0.5))
+            .foregroundStyle(VColor.contentTertiary.opacity(0.5))
             .padding(.bottom, VSpacing.sm)
 
         // Characters peeking up from the bottom — single composed image
@@ -139,7 +139,7 @@ struct WakeUpStepView: View {
 
 #Preview("Onboarding context") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")

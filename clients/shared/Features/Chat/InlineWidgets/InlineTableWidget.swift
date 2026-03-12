@@ -41,7 +41,7 @@ public struct InlineTableWidget: View {
                         toggleSelectAll()
                     } label: {
                         VIconView(allSelected ? .circleCheck : .circle, size: 14)
-                            .foregroundColor(allSelected ? VColor.accent : VColor.textMuted)
+                            .foregroundColor(allSelected ? VColor.primaryBase : VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
@@ -53,7 +53,7 @@ public struct InlineTableWidget: View {
                 ForEach(data.columns) { column in
                     Text(column.label)
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .columnFrame(column.width)
                         .textSelection(.enabled)
                 }
@@ -61,7 +61,7 @@ public struct InlineTableWidget: View {
             .padding(.bottom, VSpacing.xxs)
 
             Divider()
-                .background(VColor.surfaceBorder.opacity(0.3))
+                .background(VColor.borderBase.opacity(0.3))
 
             // Rows
             ForEach(data.rows) { row in
@@ -71,7 +71,7 @@ public struct InlineTableWidget: View {
             if let caption = data.caption {
                 Text(caption)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(.top, VSpacing.xs)
             }
         }
@@ -94,7 +94,7 @@ public struct InlineTableWidget: View {
                     toggleSelection(row.id)
                 } label: {
                     VIconView(isSelected ? .circleCheck : .circle, size: 14)
-                        .foregroundColor(isSelected ? VColor.accent : VColor.textMuted)
+                        .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .frame(width: 28)
@@ -110,7 +110,7 @@ public struct InlineTableWidget: View {
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -130,7 +130,7 @@ public struct InlineTableWidget: View {
             }
             Text(value?.text ?? "")
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
                 .textSelection(.enabled)
         }
@@ -139,11 +139,11 @@ public struct InlineTableWidget: View {
 
     private func resolveIconColor(_ token: String?) -> Color {
         switch token {
-        case "success": return Emerald._500
-        case "warning": return Amber._500
-        case "error": return Danger._500
-        case "muted": return VColor.textMuted
-        default: return VColor.textPrimary
+        case "success": return VColor.systemPositiveStrong
+        case "warning": return VColor.systemNegativeHover
+        case "error": return VColor.systemNegativeStrong
+        case "muted": return VColor.contentTertiary
+        default: return VColor.contentDefault
         }
     }
 
@@ -177,7 +177,7 @@ public struct InlineTableWidget: View {
 #if DEBUG
 #Preview("InlineTableWidget") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         InlineTableWidget(
             data: TableSurfaceData(
                 columns: [

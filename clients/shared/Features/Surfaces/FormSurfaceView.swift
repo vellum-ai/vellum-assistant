@@ -33,12 +33,12 @@ public struct FormSurfaceView: View {
                 let page = pages[safePageIndex]
                 Text(page.title)
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let desc = page.description {
                     Text(desc)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
 
                 if hasPasswordFields {
@@ -55,7 +55,7 @@ public struct FormSurfaceView: View {
                 if let description = data.description {
                     Text(description)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
 
                 if hasPasswordFields {
@@ -91,13 +91,13 @@ public struct FormSurfaceView: View {
         HStack(spacing: VSpacing.xs) {
             ForEach(0..<totalPages, id: \.self) { index in
                 Circle()
-                    .fill(index == currentPage ? VColor.accent : VColor.surfaceBorder)
+                    .fill(index == currentPage ? VColor.primaryBase : VColor.borderBase)
                     .frame(width: 6, height: 6)
             }
             Spacer()
             Text("\(currentPage + 1) of \(totalPages)")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
@@ -159,10 +159,10 @@ public struct FormSurfaceView: View {
                 Text("Secured input")
                     .font(VFont.caption)
             }
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
-            .background(VColor.backgroundSubtle.opacity(0.5))
+            .background(VColor.surfaceBase.opacity(0.5))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -170,10 +170,10 @@ public struct FormSurfaceView: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Password Security")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Password values are masked in the UI using a secure text field. Submitted values are sent to the assistant for processing and are not logged.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(VSpacing.lg)
@@ -215,13 +215,13 @@ public struct FormSurfaceView: View {
                 )
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                 )
                 .onSubmit { handleEnterKey() }
             case .toggle:
@@ -235,11 +235,11 @@ public struct FormSurfaceView: View {
         HStack(spacing: VSpacing.xxs) {
             Text(field.label)
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             if field.required {
                 Text("*")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }
@@ -257,7 +257,7 @@ public struct FormSurfaceView: View {
         }
         .pickerStyle(.menu)
         .font(VFont.body)
-        .foregroundColor(VColor.textPrimary)
+        .foregroundColor(VColor.contentDefault)
     }
 
     // MARK: - Bindings
@@ -359,7 +359,7 @@ public struct FormSurfaceView: View {
                 .controlSize(.small)
             Text("Submitting\u{2026}")
                 .font(VFont.bodyMedium)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 32)

@@ -30,9 +30,9 @@ extension MainWindowView {
     /// Maps a thread's interaction state to a dot color for VThreadIcon.
     func interactionDotColor(for thread: ThreadModel) -> Color? {
         switch threadManager.interactionState(for: thread.id) {
-        case .processing: return VColor.accent
-        case .waitingForInput: return VColor.warning
-        case .error: return VColor.error
+        case .processing: return VColor.primaryBase
+        case .waitingForInput: return VColor.systemNegativeHover
+        case .error: return VColor.systemNegativeStrong
         case .idle: return nil
         }
     }
@@ -120,7 +120,7 @@ extension MainWindowView {
         .padding(.top, VSpacing.md)
         .padding(.bottom, sidebarExpanded ? VSpacing.md : VSpacing.sm)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
         .alert("Rename Thread", isPresented: Binding(
@@ -247,7 +247,7 @@ extension MainWindowView {
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
-                                        .fill(VColor.dropIndicator)
+                                        .fill(VColor.primaryBase)
                                         .frame(height: 2)
                                         .transition(.opacity)
                                 }
@@ -280,7 +280,7 @@ extension MainWindowView {
                         } label: {
                             Text(sidebar.showAllThreads ? "Show less" : "Show more")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.sidebarActionText)
+                                .foregroundColor(VColor.primaryBase)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                 .padding(.top, VSpacing.sm)
@@ -295,7 +295,7 @@ extension MainWindowView {
                         HStack {
                             Text("Scheduled")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             Spacer()
                         }
                         .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
@@ -317,7 +317,7 @@ extension MainWindowView {
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
                                             Rectangle()
-                                                .fill(VColor.dropIndicator)
+                                                .fill(VColor.primaryBase)
                                                 .frame(height: 2)
                                                 .transition(.opacity)
                                         }
@@ -346,12 +346,12 @@ extension MainWindowView {
                                     HStack(spacing: VSpacing.xs) {
                                         HStack(spacing: 2) {
                                             VIconView(.chevronRight, size: 10)
-                                                .foregroundColor(VColor.textMuted)
+                                                .foregroundColor(VColor.contentTertiary)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
                                                 .animation(VAnimation.fast, value: isGroupExpanded)
                                             if hasUnread {
                                                 Circle()
-                                                    .fill(VColor.unreadIndicator)
+                                                    .fill(VColor.systemNegativeStrong)
                                                     .frame(width: 6, height: 6)
                                                     .transition(.opacity)
                                             }
@@ -359,17 +359,17 @@ extension MainWindowView {
                                         .frame(height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
-                                            .foregroundColor(VColor.textPrimary)
+                                            .foregroundColor(VColor.contentDefault)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                         Text("\(group.threads.count)")
                                             .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
                                             .background(
                                                 Capsule()
-                                                    .fill(VColor.textMuted.opacity(0.12))
+                                                    .fill(VColor.contentTertiary.opacity(0.12))
                                             )
                                         Spacer()
                                     }
@@ -397,7 +397,7 @@ extension MainWindowView {
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                 if sidebar.dropTargetThreadId == thread.id {
                                                     Rectangle()
-                                                        .fill(VColor.dropIndicator)
+                                                        .fill(VColor.primaryBase)
                                                         .frame(height: 2)
                                                         .transition(.opacity)
                                                 }
@@ -430,7 +430,7 @@ extension MainWindowView {
                             } label: {
                                 Text(sidebar.showAllScheduleThreads ? "Show less" : "Show more")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.sidebarActionText)
+                                    .foregroundColor(VColor.primaryBase)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                     .padding(.top, VSpacing.sm)
@@ -502,20 +502,20 @@ extension MainWindowView {
                     ZStack(alignment: .bottomTrailing) {
                         Text(switcher.badgeText)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(VColor.buttonSecondaryText)
+                            .foregroundColor(VColor.primaryBase)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
                             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.md)
                                     .fill(windowState.isShowingChat && threadManager.activeThread != nil
-                                        ? VColor.navActive
-                                        : VColor.navHover)
+                                        ? VColor.surfaceActive
+                                        : VColor.surfaceBase)
                             )
 
                         if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()
-                                .fill(VColor.unreadIndicator)
+                                .fill(VColor.systemNegativeStrong)
                                 .frame(width: 8, height: 8)
                                 .offset(x: 4, y: 4)
                         }
@@ -563,7 +563,7 @@ extension MainWindowView {
     /// Horizontal inset adapts to expanded/collapsed; vertical rhythm is always compact.
     @ViewBuilder
     func sidebarSectionDivider(isExpanded: Bool) -> some View {
-        VColor.divider
+        VColor.borderBase
             .frame(height: 1)
             .padding(.horizontal, isExpanded
                 ? SidebarLayoutMetrics.dividerHorizontalPaddingExpanded
