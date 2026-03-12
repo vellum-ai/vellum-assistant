@@ -121,7 +121,6 @@ import {
 import {
   _setMetadataPath,
   getCredentialMetadata,
-  upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
@@ -1269,7 +1268,6 @@ describe("withValidToken refresh deduplication", () => {
       "valid-refresh-token",
     );
     setSecureKey(`oauth_app/${appId}/client_secret`, "test-client-secret");
-    upsertCredentialMetadata(service, "access_token", {});
   }
 
   test("3 concurrent 401 refreshes for the same service call doRefresh exactly once", async () => {
@@ -1409,11 +1407,11 @@ describe("withValidToken refresh deduplication", () => {
     expect(r1).toBe("token-1");
     expect(refreshCount).toBe(1);
 
-    // Set up so the next call will also get a 401 (token-1 stored from first refresh)
+    // Set up so the next call will also get a 401 (legacy key still has "old-access-token")
     const r2 = await withValidToken(
       "integration:gmail",
       async (token: string) => {
-        if (token === "token-1") throw err401;
+        if (token === "old-access-token") throw err401;
         return token;
       },
     );

@@ -242,9 +242,11 @@ export function createConnection(params: {
   hasRefreshToken: boolean;
   label?: string;
   metadata?: Record<string, unknown>;
+  /** Override the creation timestamp. Useful in tests to ensure deterministic ordering. */
+  createdAt?: number;
 }): OAuthConnectionRow {
   const db = getDb();
-  const now = Date.now();
+  const now = params.createdAt ?? Date.now();
   const id = uuid();
 
   const row = {

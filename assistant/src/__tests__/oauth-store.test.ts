@@ -11,7 +11,7 @@ mock.module("../util/platform.js", () => ({
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
+  getDbPath: () => ":memory:",
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
 }));
@@ -351,12 +351,13 @@ describe("connection operations", () => {
     test("returns the most recent active connection", () => {
       const app = createTestApp("github", "client-1");
 
-      // Create two connections; the second should be more recent
+      // Create two connections with explicit timestamps so ordering is deterministic
       createConnection({
         oauthAppId: app.id,
         providerKey: "github",
         grantedScopes: ["repo"],
         hasRefreshToken: false,
+        createdAt: 1000,
       });
 
       const conn2 = createConnection({
@@ -364,6 +365,7 @@ describe("connection operations", () => {
         providerKey: "github",
         grantedScopes: ["repo", "user"],
         hasRefreshToken: true,
+        createdAt: 2000,
       });
 
       const result = getConnectionByProvider("github");
