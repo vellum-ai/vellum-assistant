@@ -68,7 +68,6 @@ mock.module("../config/loader.js", () => ({
 }));
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { indexMessageNow } from "../memory/indexer.js";
-
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
   resetCleanupScheduleThrottle,
