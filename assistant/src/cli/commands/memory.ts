@@ -19,8 +19,9 @@ export function registerMemoryCommand(program: Command): void {
   memory.addHelpText(
     "after",
     `
-The memory subsystem indexes conversation segments into full-text search (FTS)
-and vector embeddings for semantic recall.
+The memory subsystem indexes conversation segments using hybrid search (dense
+and sparse vector embeddings) for semantic recall, with tier classification
+to prioritize high-value memories.
 
 Key concepts:
   segments     Chunks of conversation text extracted for indexing
@@ -91,8 +92,8 @@ Examples:
     .addHelpText(
       "after",
       `
-Queues a background job to index unprocessed conversation segments into FTS
-and vector embeddings. The job resumes from where the last backfill left off,
+Queues a background job to index unprocessed conversation segments into
+vector embeddings. The job resumes from where the last backfill left off,
 processing only new or unindexed segments.
 
 The --force flag restarts the backfill from the very beginning, reprocessing
@@ -157,7 +158,7 @@ Examples:
 Arguments:
   text   The recall query string used to search memory (e.g. "What is the
          project deadline?"). Matched against indexed segments using the full
-         recall pipeline: lexical (FTS), semantic (vector similarity), and recency
+         recall pipeline: semantic (dense + sparse vector similarity) and recency
          (time-weighted).
 
 Runs the complete memory recall pipeline and displays hit counts for each
@@ -197,13 +198,13 @@ Examples:
 
   memory
     .command("rebuild-index")
-    .description("Queue a memory FTS+embedding index rebuild job")
+    .description("Queue a memory embedding index rebuild job")
     .addHelpText(
       "after",
       `
-Queues a background job that performs a full rebuild of both the FTS (full-text
-search) index and the vector embedding index. All existing index data is
-dropped and reconstructed from the source memory items.
+Queues a background job that performs a full rebuild of the vector embedding
+index. All existing index data is dropped and reconstructed from the source
+memory items.
 
 This is useful after schema changes, embedding model upgrades, or if index
 corruption is suspected. The rebuild runs asynchronously; use "assistant memory

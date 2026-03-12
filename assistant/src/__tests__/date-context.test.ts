@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  buildTemporalContext,
-  extractUserTimeZoneFromDynamicProfile,
-} from "../daemon/date-context.js";
+import { buildTemporalContext } from "../daemon/date-context.js";
 
 // Fixed timestamps for deterministic assertions (all UTC midday to avoid DST edge cases).
 
@@ -149,82 +146,6 @@ describe("buildTemporalContext", () => {
     });
     expect(result).toContain("Current local time: 2026-02-19T00:05:00+00:00");
     expect(result).not.toContain("T24:05:00");
-  });
-});
-
-describe("extractUserTimeZoneFromDynamicProfile", () => {
-  test("extracts canonical timezone from explicit timezone profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: Timezone is America/New_York.",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe(
-      "America/New_York",
-    );
-  });
-
-  test("extracts timezone token from generic profile text when explicit line is absent", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- location: Travels often between Europe and Asia (currently Europe/Paris).",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Europe/Paris");
-  });
-
-  test("returns null when no valid timezone is present", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: Pacific time",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBeNull();
-  });
-
-  test("extracts UTC/GMT offset tokens from explicit timezone profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: UTC+2",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Etc/GMT-2");
-  });
-
-  test("extracts GMT negative offset tokens from generic profile text", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- preferences: schedule notifications in GMT-5 whenever possible.",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Etc/GMT+5");
-  });
-
-  test("extracts fractional UTC offset tokens from explicit timezone profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: UTC+5:30",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("+05:30");
-  });
-
-  test("extracts fractional GMT offset tokens from generic profile text", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- preferences: default reminders to GMT+5:45.",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("+05:45");
-  });
-
-  test("prefers IANA timezone tokens over UTC/GMT offsets in the same profile line", () => {
-    const profile = [
-      "<dynamic-user-profile>",
-      "- timezone: UTC+1 (Europe/Paris)",
-      "</dynamic-user-profile>",
-    ].join("\n");
-    expect(extractUserTimeZoneFromDynamicProfile(profile)).toBe("Europe/Paris");
   });
 });
 
