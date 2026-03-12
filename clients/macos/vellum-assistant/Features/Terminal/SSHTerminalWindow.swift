@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VellumAssistantShared
 
 /// Manages an NSWindow that hosts a native SSH terminal session.
 ///

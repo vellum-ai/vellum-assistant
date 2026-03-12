@@ -50,7 +50,8 @@ struct SSHTerminalView: NSViewRepresentable {
                 terminalView?.feed(text: base64)
                 return
             }
-            terminalView?.feed(byteArray: Array(decoded))
+            let bytes = Array(decoded)
+            terminalView?.feed(byteArray: bytes[bytes.startIndex...])
         }
 
         // MARK: - TerminalViewDelegate

@@ -179,7 +179,7 @@ final class TerminalAPIClient {
             }
         }
 
-        let cancel = {
+        let cancel: () -> Void = {
             task.value?.cancel()
         }
 
