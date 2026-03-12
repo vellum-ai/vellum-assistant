@@ -7,8 +7,8 @@
  *   2. Token estimation significantly underestimates actual token count
  *   3. No mid-loop budget check to prevent hitting the provider limit
  *
- * Tests 2 and 4 pass against the current code.
- * Tests 1, 3, 5 fail (documenting bugs to be fixed in PR 2 and PR 4).
+ * Tests 2, 3, and 4 pass against the current code.
+ * Tests 1, 5 fail (documenting bugs to be fixed in PR 2).
  * Tests 6 and 7 are skipped (depend on mid-loop checkpoint changes in PR 3).
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -825,10 +825,122 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // inaccuracy. For example: 190k / 1.31 ≈ 145k.
   // Planned fix: targetInputTokensOverride should be adjusted based on
   // the ratio between estimated and actual tokens.
-  test.todo(
-    "forced compaction targets a lower budget when estimation has been inaccurate",
-    () => {},
-  );
+  test("forced compaction targets a lower budget when estimation has been inaccurate", async () => {
+    const events: ServerMessage[] = [];
+    let callCount = 0;
+    let capturedTargetTokens: number | undefined;
+
+    // Estimator says 185k (below 190k budget = 200k * 0.95)
+    mockEstimateTokens = 185_000;
+
+    // Reducer captures the targetTokens from the config
+    mockReducerStepFn = (
+      msgs: Message[],
+      cfg: unknown,
+    ) => {
+      capturedTargetTokens = (cfg as { targetTokens: number }).targetTokens;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 100_000,
+        compactionResult: {
+          compacted: true,
+          messages: msgs,
+          compactedPersistedMessages: 10,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 185_000,
+          estimatedInputTokens: 100_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 20,
+          summaryCalls: 1,
+          summaryInputTokens: 800,
+          summaryOutputTokens: 300,
+          summaryModel: "mock-model",
+        },
+      };
+    };
+
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      callCount++;
+      if (callCount === 1) {
+        // Provider rejects: actual tokens 242201, way above estimate of 185k
+        onEvent({
+          type: "error",
+          error: new Error(
+            "prompt is too long: 242201 tokens > 200000 maximum",
+          ),
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 0,
+          outputTokens: 0,
+          model: "test-model",
+          providerDurationMs: 10,
+        });
+        // No progress — return same messages
+        return messages;
+      }
+      // Second call succeeds after compaction
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "recovered" }],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 80_000,
+        outputTokens: 200,
+        model: "test-model",
+        providerDurationMs: 500,
+      });
+      return [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+        },
+      ];
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as AgentLoopSessionContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // The reducer should have been called with a corrected target
+    expect(capturedTargetTokens).toBeDefined();
+
+    // preflightBudget = 200_000 * 0.95 = 190_000
+    // estimationErrorRatio = 242201 / 185000 ≈ 1.309
+    // correctedTarget = floor(190000 / 1.309) ≈ 145_130
+    // The corrected target must be LESS than the uncorrected preflightBudget
+    const preflightBudget = 190_000;
+    expect(capturedTargetTokens!).toBeLessThan(preflightBudget);
+
+    // Verify the approximate corrected value (190000 / (242201/185000))
+    const expectedCorrectedTarget = Math.floor(
+      preflightBudget / (242201 / 185_000),
+    );
+    expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
+
+    // Should recover without session_error
+    const sessionError = events.find((e) => e.type === "session_error");
+    expect(sessionError).toBeUndefined();
+    expect(callCount).toBe(2);
+  });
 
   // ── Test 4 ────────────────────────────────────────────────────────
   // A realistic 75+ message conversation with many tool calls where
