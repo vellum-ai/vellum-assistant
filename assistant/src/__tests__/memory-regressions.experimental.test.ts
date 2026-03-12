@@ -32,7 +32,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Dynamic Qdrant mock: tests can push results to be returned by searchWithFilter/hybridSearch
-let mockQdrantResults: Array<{ id: string; score: number; payload: Record<string, unknown> }> = [];
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
 
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
@@ -96,6 +100,7 @@ describe("Memory regressions (experimental)", () => {
     db.run("DELETE FROM memory_items");
 
     db.run("DELETE FROM memory_segments");
+    db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
@@ -354,7 +359,7 @@ describe("Memory regressions (experimental)", () => {
       },
       {
         id: "emb-semantic-orphan",
-        score: 0.90,
+        score: 0.9,
         payload: {
           target_type: "item",
           target_id: "item-semantic-orphan",
@@ -453,7 +458,7 @@ describe("Memory regressions (experimental)", () => {
       },
       {
         id: "emb-summary-semantic-weekly",
-        score: 0.90,
+        score: 0.9,
         payload: {
           target_type: "summary",
           target_id: "summary-semantic-weekly",

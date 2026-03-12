@@ -50,6 +50,37 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Stub the local embedding backend so the real ONNX model never loads.
+mock.module("../memory/embedding-local.js", () => ({
+  LocalEmbeddingBackend: class {
+    readonly provider = "local" as const;
+    readonly model: string;
+    constructor(model: string) {
+      this.model = model;
+    }
+    async embed(texts: string[]): Promise<number[][]> {
+      return texts.map(() => new Array(384).fill(0));
+    }
+  },
+}));
+
+// Dynamic Qdrant mock so the benchmark can inject high-scoring results
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
+mock.module("../memory/qdrant-client.js", () => ({
+  getQdrantClient: () => ({
+    searchWithFilter: async () => mockQdrantResults,
+    hybridSearch: async () => mockQdrantResults,
+    upsertPoints: async () => {},
+    deletePoints: async () => {},
+  }),
+  initQdrantClient: () => {},
+}));
+
 function makeLongMessages(turns: number): Message[] {
   const rows: Message[] = [];
   const userTail =
@@ -169,6 +200,7 @@ describe("Memory context benchmark", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
+    mockQdrantResults = [];
   });
 
   afterAll(() => {
@@ -247,6 +279,24 @@ describe("Memory context benchmark", () => {
         recallConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
     });
 
+    // Seed Qdrant mock with a representative decision segment so
+    // the benchmark validates content quality, not just pipeline completion.
+    const now = 1_700_500_000_000;
+    mockQdrantResults = [
+      {
+        id: "emb-bench-decision",
+        score: 0.9,
+        payload: {
+          target_type: "segment",
+          target_id: "seg-bench-0",
+          text: "Decision 0: use Bun test fixtures for memory regressions and recall ranking checks.",
+          kind: "segment",
+          created_at: now,
+          last_seen_at: now,
+        },
+      },
+    ];
+
     const recall = await buildMemoryRecall(
       "What decisions did we make about Bun tests and retrieval diagnostics?",
       conversationId,
@@ -254,16 +304,13 @@ describe("Memory context benchmark", () => {
       { maxInjectTokensOverride: recallBudget },
     );
 
-    // In CI, Qdrant/embedding providers are unavailable, so semantic search
-    // fails and the retriever marks the result as degraded.  The benchmark
-    // cares about compaction and recall pipeline completion, not embedding
-    // availability, so we do not assert on `recall.degraded`.
     // Recency search finds conversation-scoped segments.
     expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.enabled).toBe(true);
-    // With Qdrant/embeddings unavailable, recency-only candidates have
-    // low finalScore and are filtered by tier classification, so
-    // injectedTokens may be 0. Verify budget cap is respected.
+    // With Qdrant mock returning a high-scoring result, content should be injected.
+    expect(recall.selectedCount).toBeGreaterThan(0);
+    expect(recall.injectedText).toContain("Bun test fixtures");
+    expect(recall.injectedTokens).toBeGreaterThan(0);
     expect(recall.injectedTokens).toBeLessThanOrEqual(recallBudget);
     expect(recallBudget).toBeGreaterThanOrEqual(
       recallConfig.memory.retrieval.dynamicBudget.minInjectTokens,

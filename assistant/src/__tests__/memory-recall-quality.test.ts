@@ -54,13 +54,17 @@ mock.module("../memory/embedding-local.js", () => ({
   },
 }));
 
-// Mock Qdrant client so semantic search returns empty results instead of
-// throwing "Qdrant client not initialized" (which would discard lexical results
-// due to the single try-catch in buildMemoryRecall).
+// Dynamic Qdrant mock: tests can push results to be returned by searchWithFilter/hybridSearch
+let mockQdrantResults: Array<{
+  id: string;
+  score: number;
+  payload: Record<string, unknown>;
+}> = [];
+
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
-    searchWithFilter: async () => [],
-    hybridSearch: async () => [],
+    searchWithFilter: async () => mockQdrantResults,
+    hybridSearch: async () => mockQdrantResults,
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -262,6 +266,7 @@ describe("Memory Recall Quality", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
+    mockQdrantResults = [];
   });
 
   afterAll(() => {
@@ -335,18 +340,68 @@ describe("Memory Recall Quality", () => {
         now + 2000,
       );
 
+      // Also insert items so the pipeline has structured data to inject
+      insertItem(db, {
+        id: "item-pref-dark",
+        kind: "preference",
+        subject: "display preference",
+        statement: "User prefers dark mode and concise answers",
+        importance: 0.8,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, "item-pref-dark", "msg-pref-1", now);
+      insertItem(db, {
+        id: "item-pref-editor",
+        kind: "preference",
+        subject: "editor preference",
+        statement: "User favorite editor is Neovim",
+        importance: 0.8,
+        firstSeenAt: now + 1000,
+      });
+      insertItemSource(db, "item-pref-editor", "msg-pref-2", now + 1000);
+
+      // Mock Qdrant to return both preference items as high-scoring results
+      mockQdrantResults = [
+        {
+          id: "emb-pref-dark",
+          score: 0.92,
+          payload: {
+            target_type: "item",
+            target_id: "item-pref-dark",
+            text: "User prefers dark mode and concise answers",
+            kind: "preference",
+            status: "active",
+            created_at: now,
+            last_seen_at: now,
+          },
+        },
+        {
+          id: "emb-pref-editor",
+          score: 0.88,
+          payload: {
+            target_type: "item",
+            target_id: "item-pref-editor",
+            text: "User favorite editor is Neovim",
+            kind: "preference",
+            status: "active",
+            created_at: now + 1000,
+            last_seen_at: now + 1000,
+          },
+        },
+      ];
+
       const recall = await buildMemoryRecall(
         "what are my preferences",
         "conv-pref",
         TEST_CONFIG,
       );
 
-      // With Qdrant mocked empty, the only retrieval path is recency search.
-      // Recency candidates score below the tier-2 threshold (finalScore =
-      // semantic*0.7 + recency*0.2 + confidence*0.1 ≈ 0.25 max) so they
-      // don't pass tier classification. Verify recency search ran correctly.
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
+      // With high-scoring Qdrant results, items should be injected
+      expect(recall.semanticHits).toBeGreaterThan(0);
+      expect(recall.injectedText).toContain("dark mode");
+      expect(recall.injectedText).toContain("Neovim");
     });
 
     test("high-importance preferences outrank low-importance facts in recall", async () => {
@@ -410,16 +465,46 @@ describe("Memory Recall Quality", () => {
       });
       insertItemSource(db, "item-lo-fact", "msg-lo", now + 1000);
 
+      // Mock Qdrant to return both items — the high-importance one with a higher score
+      mockQdrantResults = [
+        {
+          id: "emb-hi-pref",
+          score: 0.95,
+          payload: {
+            target_type: "item",
+            target_id: "item-hi-pref",
+            text: "User strongly prefers TypeScript over JavaScript",
+            kind: "preference",
+            status: "active",
+            created_at: now,
+            last_seen_at: now,
+          },
+        },
+        {
+          id: "emb-lo-fact",
+          score: 0.7,
+          payload: {
+            target_type: "item",
+            target_id: "item-lo-fact",
+            text: "The default port is 8080",
+            kind: "project",
+            status: "active",
+            created_at: now + 1000,
+            last_seen_at: now + 1000,
+          },
+        },
+      ];
+
       const recall = await buildMemoryRecall(
         "TypeScript preference language",
         "conv-rank",
         TEST_CONFIG,
       );
 
-      // Recency search finds segments but they don't pass tier classification
-      // (see threshold explanation above). Verify the pipeline ran without error.
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
+      // High-importance preference should be injected
+      expect(recall.injectedText).toContain("TypeScript");
     });
   });
 
@@ -633,16 +718,43 @@ describe("Memory Recall Quality", () => {
         oneMonthAgo,
       );
 
+      // Add items and mock Qdrant with the recent item scoring higher
+      insertItem(db, {
+        id: "item-bun-runtime",
+        kind: "project",
+        subject: "runtime environment",
+        statement: "We are using Bun as our runtime environment",
+        importance: 0.7,
+        firstSeenAt: now - 1000,
+      });
+      insertItemSource(db, "item-bun-runtime", "msg-recent", now - 1000);
+
+      mockQdrantResults = [
+        {
+          id: "emb-bun-runtime",
+          score: 0.9,
+          payload: {
+            target_type: "item",
+            target_id: "item-bun-runtime",
+            text: "We are using Bun as our runtime environment",
+            kind: "project",
+            status: "active",
+            created_at: now - 1000,
+            last_seen_at: now - 1000,
+          },
+        },
+      ];
+
       const recall = await buildMemoryRecall(
         "runtime environment",
         "conv-stale",
         TEST_CONFIG,
       );
 
-      // Recency search finds segments but tier classification filters them.
-      // Verify recency search ran and the pipeline completed without error.
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
+      // Recent Bun item should be injected, old Node reference should not
+      expect(recall.injectedText).toContain("Bun");
     });
 
     test("frequently accessed items surface via recency search when seeded with segments", async () => {
@@ -708,15 +820,46 @@ describe("Memory Recall Quality", () => {
       });
       insertItemSource(db, "item-rare", "msg-rare", now + 1000);
 
+      // Mock Qdrant with the frequently accessed item scoring higher
+      mockQdrantResults = [
+        {
+          id: "emb-freq",
+          score: 0.92,
+          payload: {
+            target_type: "item",
+            target_id: "item-freq",
+            text: "User timezone is America/Los_Angeles",
+            kind: "identity",
+            status: "active",
+            created_at: now,
+            last_seen_at: now,
+          },
+        },
+        {
+          id: "emb-rare",
+          score: 0.75,
+          payload: {
+            target_type: "item",
+            target_id: "item-rare",
+            text: "User timezone offset is UTC-8",
+            kind: "identity",
+            status: "active",
+            created_at: now + 1000,
+            last_seen_at: now + 1000,
+          },
+        },
+      ];
+
       const recall = await buildMemoryRecall(
         "timezone",
         "conv-access",
         TEST_CONFIG,
       );
 
-      // Recency search finds segments but tier classification filters them.
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
+      // Frequently accessed timezone item should be in injected text
+      expect(recall.injectedText).toContain("America/Los_Angeles");
     });
   });
 
@@ -760,16 +903,33 @@ describe("Memory Recall Quality", () => {
       });
       insertItemSource(db, "item-deploy-rule", "msg-seg", now);
 
+      // Mock Qdrant to return the deployment rule item
+      mockQdrantResults = [
+        {
+          id: "emb-deploy-rule",
+          score: 0.91,
+          payload: {
+            target_type: "item",
+            target_id: "item-deploy-rule",
+            text: "Always deploy to staging before production",
+            kind: "constraint",
+            status: "active",
+            created_at: now,
+            last_seen_at: now,
+          },
+        },
+      ];
+
       const recall = await buildMemoryRecall(
         "deployment staging production",
         "conv-multi",
         TEST_CONFIG,
       );
 
-      // Recency search finds segments but tier classification filters them
-      // (score below 0.6 threshold).
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
+      // Deployment rule should be injected
+      expect(recall.injectedText).toContain("staging");
     });
 
     test("recall with no matching content returns empty injection", async () => {

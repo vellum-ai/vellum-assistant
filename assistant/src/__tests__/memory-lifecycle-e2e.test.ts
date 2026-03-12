@@ -333,7 +333,10 @@ describe("Memory lifecycle E2E regression", () => {
         conversationId,
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "My preferred timezone is America/Los_Angeles." },
+          {
+            type: "text",
+            text: "My preferred timezone is America/Los_Angeles.",
+          },
         ]),
         createdAt: now + 10,
       })
@@ -355,11 +358,12 @@ describe("Memory lifecycle E2E regression", () => {
       TEST_CONFIG,
     );
 
-    if (recall.injectedText.length > 0) {
-      // The new pipeline uses <memory_context> format when items exist
-      // or the old <memory> format for segments. Either way, verify structure.
-      expect(recall.injectedTokens).toBeGreaterThan(0);
-    }
+    // Recency search finds segments but their finalScore (semantic*0.7 +
+    // recency*0.2 + confidence*0.1) is too low to pass tier classification
+    // (threshold > 0.6) because semantic=0 with Qdrant mocked empty.
+    // Verify the pipeline ran and recency candidates were found.
+    expect(recall.recencyHits).toBeGreaterThan(0);
+    expect(recall.enabled).toBe(true);
   });
 
   test("stripping removes <memory_context> tags from injected recall", () => {

@@ -103,10 +103,7 @@ import {
 import { extractAndUpsertMemoryItemsForMessage } from "../memory/items-extractor.js";
 import { backfillJob } from "../memory/job-handlers/backfill.js";
 import { buildConversationSummaryJob } from "../memory/job-handlers/summarization.js";
-import {
-  claimMemoryJobs,
-  enqueueMemoryJob,
-} from "../memory/jobs-store.js";
+import { claimMemoryJobs, enqueueMemoryJob } from "../memory/jobs-store.js";
 import {
   maybeEnqueueScheduledCleanupJobs,
   resetCleanupScheduleThrottle,
@@ -1867,6 +1864,10 @@ describe("Memory regressions", () => {
     // With strict policy, only "strict-project" scope segments should be found.
     // The default scope segment should be excluded.
     expect(result.recencyHits).toBe(1);
+    // Assert the returned candidate is specifically from the strict-project scope,
+    // not the default scope segment (privacy boundary check).
+    expect(result.topCandidates.length).toBe(1);
+    expect(result.topCandidates[0].key).toBe("segment:seg-strict-custom");
   });
 
   test("scope columns: summaries default to scope_id=default", () => {

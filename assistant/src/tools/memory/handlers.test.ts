@@ -94,7 +94,8 @@ import {
   memoryItemSources,
   messages,
 } from "../../memory/schema.js";
-import { handleMemoryRecall, type MemoryRecallToolResult } from "./handlers.js";
+import type { MemoryRecallToolResult } from "./handlers.js";
+import { handleMemoryRecall } from "./handlers.js";
 
 function clearTables() {
   const db = getDb();
@@ -436,31 +437,46 @@ describe("handleMemoryRecall", () => {
   // ── Scope filtering ───────────────────────────────────────────────
 
   test("scope 'conversation' passes scope policy override to retriever", async () => {
-    // With Qdrant mocked empty and no conversation segments, the retriever
-    // returns empty results. This test verifies the handler invocation path
-    // does not error when scope="conversation" is specified.
     const db = getDb();
     const now = Date.now();
+    const convId = "conv-scope-a";
 
-    insertItem(db, {
-      id: "item-scope-a",
-      kind: "identity",
-      subject: "scoped data",
-      statement: "This item is scoped to conversation A",
-      firstSeenAt: now - 10_000,
-      scopeId: "conv-scope-a",
-    });
+    insertConversation(db, convId, now - 10_000);
+    insertMessage(
+      db,
+      "msg-scope-a",
+      convId,
+      "user",
+      "scoped data for conversation A",
+      now - 5_000,
+    );
+
+    // Insert a segment scoped to this conversation's scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-scope-a', 'msg-scope-a', '${convId}', 'user', 0, 'scoped data for conversation A', 8, '${convId}', ${
+        now - 5_000
+      }, ${now - 5_000})
+    `);
+
+    // Insert an out-of-scope segment that should NOT be returned
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-scope-other', 'msg-scope-a', '${convId}', 'user', 1, 'data from a different scope', 8, 'other-scope', ${
+        now - 5_000
+      }, ${now - 5_000})
+    `);
 
     const result = await handleMemoryRecall(
       { query: "scoped data", scope: "conversation" },
       TEST_CONFIG,
-      "conv-scope-a",
+      convId,
     );
 
     expect(result.isError).toBe(false);
     const parsed = parseResult(result.content);
-    // Handler should return a valid result shape (empty with Qdrant mocked)
-    expect(typeof parsed.resultCount).toBe("number");
+    // Verify recency search found the conversation-scoped segment
+    expect(parsed.sources.recency).toBeGreaterThan(0);
   });
 
   test("default scope handler invocation does not error", async () => {
@@ -495,9 +511,10 @@ describe("handleMemoryRecall", () => {
     // Mock buildMemoryRecall to throw, simulating an internal retrieval failure
     const retrieverModule = await import("../../memory/retriever.js");
     const original = retrieverModule.buildMemoryRecall;
-    (retrieverModule as Record<string, unknown>).buildMemoryRecall = async () => {
-      throw new Error("Simulated retrieval failure");
-    };
+    (retrieverModule as Record<string, unknown>).buildMemoryRecall =
+      async () => {
+        throw new Error("Simulated retrieval failure");
+      };
 
     try {
       const result = await handleMemoryRecall(
