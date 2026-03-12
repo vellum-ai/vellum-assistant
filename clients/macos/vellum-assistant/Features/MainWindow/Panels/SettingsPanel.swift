@@ -699,13 +699,3 @@ struct OverlayScrollerStyle: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-struct SettingsPanel_Previews: PreviewProvider {
-    static var previews: some View {
-        let dc = DaemonClient()
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc), authManager: AuthManager())
-        }
-        .frame(width: 600, height: 700)
-    }
-}

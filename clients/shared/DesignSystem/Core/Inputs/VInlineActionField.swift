@@ -110,13 +110,6 @@ public struct VInlineActionField: View {
 }
 
 #if DEBUG
-struct VInlineActionField_Preview: PreviewProvider {
-    static var previews: some View {
-        VInlineActionFieldPreviewWrapper()
-            .frame(width: 450, height: 200)
-            .previewDisplayName("VInlineActionField")
-    }
-}
 
 private struct VInlineActionFieldPreviewWrapper: View {
     @State private var text = ""

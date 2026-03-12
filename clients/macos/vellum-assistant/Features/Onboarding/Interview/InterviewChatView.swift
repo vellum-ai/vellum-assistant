@@ -206,13 +206,6 @@ private struct TypingIndicator: View {
 // MARK: - Preview
 
 #if DEBUG
-struct InterviewChatView_Preview: PreviewProvider {
-    static var previews: some View {
-        InterviewChatViewPreviewWrapper()
-            .frame(width: 600, height: 600)
-            .previewDisplayName("InterviewChatView")
-    }
-}
 
 private struct InterviewChatViewPreviewWrapper: View {
     @State private var text = ""

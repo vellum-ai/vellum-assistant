@@ -766,8 +766,3 @@ struct GeneratedPanel: View {
     }
 }
 
-struct GeneratedPanel_Previews: PreviewProvider {
-    static var previews: some View {
-        GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient(), gatewayBaseURL: "http://127.0.0.1:3000")
-    }
-}

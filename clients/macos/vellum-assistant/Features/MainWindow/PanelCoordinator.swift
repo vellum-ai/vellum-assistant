@@ -1165,11 +1165,3 @@ private struct AppLoadingView: View {
     }
 }
 
-struct MainWindowView_Previews: PreviewProvider {
-    static var previews: some View {
-        let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
-            .frame(width: 900, height: 600)
-            .padding(.top, 36)
-    }
-}

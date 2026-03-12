@@ -125,16 +125,3 @@ struct AppIconPickerSheet: View {
 
 // MARK: - Preview
 
-struct AppIconPickerSheet_Previews: PreviewProvider {
-    static var previews: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            AppIconPickerSheet(
-                appName: "Safari",
-                currentIcon: .globe,
-                onSave: { _ in }
-            )
-        }
-        .frame(width: 360, height: 600)
-    }
-}

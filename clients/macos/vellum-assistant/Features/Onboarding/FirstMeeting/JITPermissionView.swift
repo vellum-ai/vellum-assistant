@@ -220,21 +220,6 @@ struct JITPermissionView: View {
 // MARK: - Preview
 
 #if DEBUG
-struct JITPermissionView_Preview: PreviewProvider {
-    static var previews: some View {
-        JITPermissionViewPreviewWrapper(permission: .microphone)
-            .frame(width: 640, height: 560)
-            .previewDisplayName("Microphone")
-
-        JITPermissionViewPreviewWrapper(permission: .accessibility)
-            .frame(width: 640, height: 560)
-            .previewDisplayName("Accessibility")
-
-        JITPermissionViewPreviewWrapper(permission: .screenCapture)
-            .frame(width: 640, height: 560)
-            .previewDisplayName("Screen Capture")
-    }
-}
 
 private struct JITPermissionViewPreviewWrapper: View {
     let permission: JITPermissionManager.JITPermissionType

@@ -470,13 +470,3 @@ private struct DirectoryAppItem: Identifiable {
     let sharedUUID: String?
 }
 
-struct AppDirectoryView_Previews: PreviewProvider {
-    static var previews: some View {
-        AppDirectoryView(
-            daemonClient: DaemonClient(),
-            onBack: {},
-            onOpenApp: { _ in }
-        )
-        .frame(width: 900, height: 600)
-    }
-}

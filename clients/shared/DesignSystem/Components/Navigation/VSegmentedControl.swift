@@ -137,13 +137,6 @@ private struct PillSegment: View {
 }
 
 #if DEBUG
-struct VSegmentedControl_Preview: PreviewProvider {
-    static var previews: some View {
-        VSegmentedControlPreviewWrapper()
-            .frame(width: 500, height: 120)
-            .previewDisplayName("VSegmentedControl")
-    }
-}
 
 private struct VSegmentedControlPreviewWrapper: View {
     @State private var selection = 1

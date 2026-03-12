@@ -608,35 +608,3 @@ struct AppsGridView: View {
 
 // MARK: - Preview
 
-struct AppsGridView_Previews: PreviewProvider {
-    struct PreviewWrapper: View {
-        @StateObject private var appListManager = AppListManager()
-
-        var body: some View {
-            AppsGridView(
-                appListManager: appListManager,
-                daemonClient: DaemonClient(),
-                gatewayBaseURL: "http://127.0.0.1:3000",
-                onOpenApp: { _ in }
-            )
-            .onAppear {
-                appListManager.recordAppOpen(id: "1", name: "Weather", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "2", name: "Notes", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "3", name: "Calendar", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "4", name: "Music", icon: nil, appType: "app")
-                appListManager.recordAppOpen(id: "5", name: "Photos", icon: nil, appType: "site")
-                appListManager.recordAppOpen(id: "6", name: "Maps", icon: nil, appType: "app")
-                appListManager.pinApp(id: "1")
-                appListManager.pinApp(id: "2")
-            }
-        }
-    }
-
-    static var previews: some View {
-        ZStack {
-            VColor.surfaceOverlay.ignoresSafeArea()
-            PreviewWrapper()
-        }
-        .frame(width: 800, height: 600)
-    }
-}

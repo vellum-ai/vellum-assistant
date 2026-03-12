@@ -85,13 +85,6 @@ public struct VToggle: View {
 }
 
 #if DEBUG
-struct VToggle_Preview: PreviewProvider {
-    static var previews: some View {
-        VTogglePreviewWrapper()
-            .frame(width: 300, height: 200)
-            .previewDisplayName("VToggle")
-    }
-}
 
 private struct VTogglePreviewWrapper: View {
     @State private var isOnA = true

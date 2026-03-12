@@ -519,30 +519,4 @@ struct InputBarView: View {
     }
 }
 
-struct InputBarView_Previews: PreviewProvider {
-    struct PreviewWrapper: View {
-        @State private var text = "Hello world"
-        @FocusState private var isFocused: Bool
-
-        var body: some View {
-            VStack {
-                Spacer()
-                InputBarView(
-                    text: $text,
-                    isInputFocused: $isFocused,
-                    isGenerating: false,
-                    isCancelling: false,
-                    onSend: { log.debug("Send tapped") },
-                    onStop: { log.debug("Stop tapped") },
-                    viewModel: ChatViewModel(daemonClient: DaemonClient(config: .default))
-                )
-            }
-            .background(VColor.surfaceOverlay)
-        }
-    }
-
-    static var previews: some View {
-        PreviewWrapper()
-    }
-}
 #endif

@@ -663,13 +663,6 @@ struct ScrollWheelPassthrough: NSViewRepresentable {
 // MARK: - Preview
 
 #if DEBUG
-struct ChatView_Preview: PreviewProvider {
-    static var previews: some View {
-        ChatViewPreviewWrapper()
-            .frame(width: 600, height: 500)
-            .previewDisplayName("ChatView")
-    }
-}
 
 private struct ChatViewPreviewWrapper: View {
     @State private var text = ""

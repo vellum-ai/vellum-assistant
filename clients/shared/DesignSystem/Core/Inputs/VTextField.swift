@@ -80,13 +80,6 @@ public struct VTextField: View {
 }
 
 #if DEBUG
-struct VTextField_Preview: PreviewProvider {
-    static var previews: some View {
-        VTextFieldPreviewWrapper()
-            .frame(width: 350, height: 280)
-            .previewDisplayName("VTextField")
-    }
-}
 
 private struct VTextFieldPreviewWrapper: View {
     @State private var text = ""

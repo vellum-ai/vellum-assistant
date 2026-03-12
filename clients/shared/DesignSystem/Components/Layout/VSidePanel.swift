@@ -52,13 +52,6 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
 
 
 #if DEBUG
-struct VSidePanel_PinnedContent_Preview: PreviewProvider {
-    static var previews: some View {
-        VSidePanelPinnedPreviewWrapper()
-            .frame(width: 400, height: 350)
-            .previewDisplayName("VSidePanel with Pinned Content")
-    }
-}
 
 private struct VSidePanelPinnedPreviewWrapper: View {
     @State private var tab = 1

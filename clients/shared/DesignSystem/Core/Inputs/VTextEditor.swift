@@ -38,13 +38,6 @@ public struct VTextEditor: View {
 }
 
 #if DEBUG
-struct VTextEditor_Preview: PreviewProvider {
-    static var previews: some View {
-        VTextEditorPreviewWrapper()
-            .frame(width: 400, height: 350)
-            .previewDisplayName("VTextEditor")
-    }
-}
 
 private struct VTextEditorPreviewWrapper: View {
     @State private var text = ""

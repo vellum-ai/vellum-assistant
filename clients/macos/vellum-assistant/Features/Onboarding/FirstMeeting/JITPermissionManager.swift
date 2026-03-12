@@ -150,13 +150,6 @@ final class JITPermissionManager {
 }
 
 #if DEBUG
-struct JITPermissionManager_Preview: PreviewProvider {
-    static var previews: some View {
-        JITPermissionManagerPreviewWrapper()
-            .frame(width: 500, height: 300)
-            .previewDisplayName("JITPermissionManager")
-    }
-}
 
 private struct JITPermissionManagerPreviewWrapper: View {
     @State private var manager = JITPermissionManager()

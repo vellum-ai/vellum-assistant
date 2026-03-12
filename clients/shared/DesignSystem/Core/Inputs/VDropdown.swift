@@ -85,13 +85,6 @@ public struct VDropdown<T: Hashable>: View {
 }
 
 #if DEBUG
-struct VDropdown_Preview: PreviewProvider {
-    static var previews: some View {
-        VDropdownPreviewWrapper()
-            .frame(width: 350, height: 200)
-            .previewDisplayName("VDropdown vs VTextField")
-    }
-}
 
 private struct VDropdownPreviewWrapper: View {
     @State private var selection = ""

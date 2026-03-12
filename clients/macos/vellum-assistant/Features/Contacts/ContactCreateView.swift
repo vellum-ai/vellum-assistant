@@ -162,13 +162,6 @@ struct ContactCreateView: View {
 // MARK: - Preview
 
 #if DEBUG
-struct ContactCreateView_Preview: PreviewProvider {
-    static var previews: some View {
-        ContactCreateViewPreviewWrapper()
-            .frame(width: 400, height: 340)
-            .previewDisplayName("ContactCreateView")
-    }
-}
 
 private struct ContactCreateViewPreviewWrapper: View {
     @State private var isPresented = true

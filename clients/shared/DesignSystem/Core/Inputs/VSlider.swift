@@ -144,13 +144,6 @@ public struct VSlider: View {
 // MARK: - Preview
 
 #if DEBUG
-struct VSlider_Preview: PreviewProvider {
-    static var previews: some View {
-        VSliderPreviewWrapper()
-            .frame(width: 400, height: 300)
-            .previewDisplayName("VSlider")
-    }
-}
 
 private struct VSliderPreviewWrapper: View {
     @State private var value1: Double = 50
