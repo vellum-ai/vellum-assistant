@@ -358,10 +358,16 @@ async function executeBatchCall(
   return connection.withToken(doBatchFetch);
 }
 
+/** Max concurrent individual getMessage requests (matches batch concurrency) */
+const INDIVIDUAL_CONCURRENCY = BATCH_CONCURRENCY;
+
 /**
  * Fetch all messages individually using getMessage (no batch endpoint).
  * Used as a fallback when the batch API is unavailable (e.g. platform connections
  * that cannot expose raw tokens for the multipart batch endpoint).
+ *
+ * Processes messages in waves of INDIVIDUAL_CONCURRENCY to avoid unbounded
+ * parallelism that would trigger 429s on high-volume paths like senderDigest.
  */
 async function fetchMessagesIndividually(
   connection: OAuthConnection,
@@ -370,11 +376,17 @@ async function fetchMessagesIndividually(
   metadataHeaders?: string[],
   fields?: string,
 ): Promise<GmailMessage[]> {
-  return Promise.all(
-    messageIds.map((id) =>
-      getMessage(connection, id, format, metadataHeaders, fields),
-    ),
-  );
+  const results: GmailMessage[] = [];
+  for (let i = 0; i < messageIds.length; i += INDIVIDUAL_CONCURRENCY) {
+    const wave = messageIds.slice(i, i + INDIVIDUAL_CONCURRENCY);
+    const waveResults = await Promise.all(
+      wave.map((id) =>
+        getMessage(connection, id, format, metadataHeaders, fields),
+      ),
+    );
+    results.push(...waveResults);
+  }
+  return results;
 }
 
 /**
