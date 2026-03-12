@@ -239,10 +239,6 @@ struct AssistantProgressView: View {
             if let earliest = toolCalls.compactMap(\.startedAt).min() {
                 startDate = earliest
             }
-            // Auto-expand if a pending confirmation is already present on appear.
-            if hasPendingConfirmation && !isExpanded {
-                isExpanded = true
-            }
         }
     }
 
