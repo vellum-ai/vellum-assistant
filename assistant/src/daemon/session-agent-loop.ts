@@ -390,16 +390,27 @@ export async function runAgentLoopImpl(
             const approval = await requestGitHooksTrustApproval(ctx.prompter, {
               signal: abortController.signal,
             });
+            // If the session was aborted mid-prompt, do not persist any
+            // decision — the prompter resolves with "deny" on abort but that
+            // is an infrastructure event, not a real user choice.  Reset the
+            // guard so the user is re-prompted in the next session.
+            if (abortController.signal.aborted) {
+              ctx.gitHooksTrustPromptIssuedForWorkspace = undefined;
+              return;
+            }
             setGitHooksTrustDecision(
               workingDir,
               approval.approved ? "allow" : "deny",
             );
           } catch (err) {
+            // Infrastructure errors (disposed prompter, timeout, etc.) should
+            // not permanently silence the trust prompt.  Reset the guard so
+            // the user is re-prompted next session.
             rlog.warn(
               { err },
-              "Git hooks trust prompt failed (non-fatal); defaulting to deny",
+              "Git hooks trust prompt failed (non-fatal); will re-prompt next session",
             );
-            setGitHooksTrustDecision(workingDir, "deny");
+            ctx.gitHooksTrustPromptIssuedForWorkspace = undefined;
           }
         })
         .catch((err) => {
