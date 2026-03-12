@@ -64,9 +64,18 @@ const TEST_REGISTRY = {
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
 
+// Save the original committed registry contents so we can restore after tests
+let originalRegistryContents: string | null = null;
+
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   mkdirSync(workspaceDir, { recursive: true });
+  // Preserve the original committed file before overwriting with test data
+  try {
+    originalRegistryContents = readFileSync(defaultsPath, "utf-8");
+  } catch {
+    originalRegistryContents = null;
+  }
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
   resetFeatureFlagDefaultsCache();
 });
@@ -82,9 +91,11 @@ afterEach(() => {
   } catch {
     // best effort cleanup
   }
-  // Clean up the test registry file placed next to gateway source
+  // Restore the original committed registry file instead of deleting it
   try {
-    rmSync(defaultsPath, { force: true });
+    if (originalRegistryContents !== null) {
+      writeFileSync(defaultsPath, originalRegistryContents);
+    }
   } catch {
     // best effort cleanup
   }
