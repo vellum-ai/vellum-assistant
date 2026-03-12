@@ -1,5 +1,11 @@
 import type { Command } from "commander";
 
+import {
+  deleteConnection,
+  getConnectionByProvider,
+  listConnections,
+  type OAuthConnectionRow,
+} from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -49,14 +55,55 @@ function scrubSecret(secret: string | undefined): string {
 }
 
 /**
+ * Safely look up an OAuth connection for a credential service.
+ * Returns undefined when the oauth-store has no data or the tables
+ * haven't been created yet (pre-migration).
+ */
+function safeGetConnectionByProvider(
+  service: string,
+): OAuthConnectionRow | undefined {
+  try {
+    return getConnectionByProvider(service);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Safely list all OAuth connections. Returns an empty array when the
+ * oauth-store has no data or the tables haven't been created yet.
+ */
+function safeListConnections(): OAuthConnectionRow[] {
+  try {
+    return listConnections();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Safely delete an OAuth connection by ID. Returns false on error.
+ */
+function safeDeleteConnection(id: string): boolean {
+  try {
+    return deleteConnection(id);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build a structured credential output object suitable for both `inspect`
  * and `list` responses. Produces an identical shape for every credential.
+ * Optionally enriches with data from the oauth-store when a matching
+ * connection exists.
  */
 function buildCredentialOutput(
   metadata: CredentialMetadata,
   secret: string | undefined,
+  connection?: OAuthConnectionRow,
 ): Record<string, unknown> {
-  return {
+  const output: Record<string, unknown> = {
     ok: true,
     service: metadata.service,
     field: metadata.field,
@@ -75,6 +122,16 @@ function buildCredentialOutput(
     updatedAt: new Date(metadata.updatedAt).toISOString(),
     injectionTemplateCount: metadata.injectionTemplates?.length ?? 0,
   };
+
+  if (connection) {
+    output.oauthConnectionId = connection.id;
+    output.oauthAccountInfo = connection.accountInfo ?? null;
+    output.oauthStatus = connection.status;
+    output.oauthHasRefreshToken = connection.hasRefreshToken === 1;
+    output.oauthLabel = connection.label ?? null;
+  }
+
+  return output;
 }
 
 /**
@@ -110,6 +167,15 @@ function printCredentialHuman(output: Record<string, unknown>): void {
   log.info(`    Updated:     ${output.updatedAt}`);
   if ((output.injectionTemplateCount as number) > 0)
     log.info(`    Templates:   ${output.injectionTemplateCount}`);
+
+  // OAuth connection enrichment
+  if (output.oauthStatus) {
+    log.info(`    OAuth:       ${output.oauthStatus}`);
+    if (output.oauthAccountInfo)
+      log.info(`    Account:     ${output.oauthAccountInfo}`);
+    if (output.oauthLabel) log.info(`    OAuth Label: ${output.oauthLabel}`);
+    log.info(`    Refresh:     ${output.oauthHasRefreshToken ? "yes" : "no"}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -198,9 +264,23 @@ Examples:
           });
         }
 
+        // Build a lookup of oauth connections keyed by providerKey for enrichment
+        const allConnections = safeListConnections();
+        const connectionsByProvider = new Map<string, OAuthConnectionRow>();
+        for (const conn of allConnections) {
+          // Keep the most recent active connection per provider
+          if (
+            conn.status === "active" &&
+            !connectionsByProvider.has(conn.providerKey)
+          ) {
+            connectionsByProvider.set(conn.providerKey, conn);
+          }
+        }
+
         const credentials = allMetadata.map((m) => {
           const secret = getSecureKey(credentialKey(m.service, m.field));
-          return buildCredentialOutput(m, secret);
+          const connection = connectionsByProvider.get(m.service);
+          return buildCredentialOutput(m, secret, connection);
         });
 
         writeOutput(cmd, { ok: true, credentials });
@@ -373,6 +453,12 @@ Examples:
           return;
         }
 
+        // Clean up matching oauth_connection row if one exists
+        const connection = safeGetConnectionByProvider(service);
+        if (connection) {
+          safeDeleteConnection(connection.id);
+        }
+
         writeOutput(cmd, { ok: true, service, field });
 
         if (!shouldOutputJson(cmd)) {
@@ -479,7 +565,8 @@ Examples:
           return;
         }
 
-        const output = buildCredentialOutput(metadata, secret);
+        const connection = safeGetConnectionByProvider(metadata.service);
+        const output = buildCredentialOutput(metadata, secret, connection);
         writeOutput(cmd, output);
 
         if (!shouldOutputJson(cmd)) {
