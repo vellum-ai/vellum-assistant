@@ -36,38 +36,14 @@ export interface SlackChannelConfigResult {
 // -- Business logic --
 
 export function getSlackChannelConfig(): SlackChannelConfigResult {
-  // Prefer oauth-store for connection status, fall back to keychain/config.
-  try {
-    const conn = getConnectionByProvider("slack_channel");
-    if (conn && conn.status === "active") {
-      const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
-      return {
-        success: true,
-        hasBotToken: true,
-        hasAppToken: true,
-        connected: true,
-        ...(teamId ? { teamId } : {}),
-        ...(teamName ? { teamName } : {}),
-        ...(botUserId ? { botUserId } : {}),
-        ...(botUsername ? { botUsername } : {}),
-      };
-    }
-  } catch {
-    // DB not ready — fall through to keychain check
-  }
-
-  const hasBotToken = !!getSecureKey(
-    credentialKey("slack_channel", "bot_token"),
-  );
-  const hasAppToken = !!getSecureKey(
-    credentialKey("slack_channel", "app_token"),
-  );
+  const conn = getConnectionByProvider("slack_channel");
+  const connected = !!(conn && conn.status === "active");
   const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
   return {
     success: true,
-    hasBotToken,
-    hasAppToken,
-    connected: hasBotToken && hasAppToken,
+    hasBotToken: connected,
+    hasAppToken: connected,
+    connected,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
     ...(botUserId ? { botUserId } : {}),

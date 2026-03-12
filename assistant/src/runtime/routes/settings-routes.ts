@@ -29,7 +29,6 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
-import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
@@ -141,20 +140,6 @@ function sanitizeOAuthError(message: string): string {
   return "OAuth authentication failed. Please try again.";
 }
 
-/** Resolve client_secret from the keychain, checking canonical then alias service name. */
-function getClientSecret(
-  resolvedService: string,
-  rawService: string,
-): string | undefined {
-  return (
-    getSecureKey(credentialKey(resolvedService, "client_secret")) ??
-    (resolvedService !== rawService
-      ? getSecureKey(credentialKey(rawService, "client_secret"))
-      : undefined) ??
-    undefined
-  );
-}
-
 async function handleOAuthConnectStart(body: {
   service?: string;
   requestedScopes?: string[];
@@ -196,10 +181,6 @@ async function handleOAuthConnectStart(body: {
       `No client_id found for "${body.service}". Store it first via the credential vault.`,
       400,
     );
-  }
-
-  if (!clientSecret) {
-    clientSecret = getClientSecret(resolvedService, body.service);
   }
 
   const behavior = getProviderBehavior(resolvedService);
