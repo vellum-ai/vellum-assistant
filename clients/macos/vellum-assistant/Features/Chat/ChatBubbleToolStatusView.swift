@@ -44,7 +44,12 @@ extension ChatBubble {
                 streamingCodePreview: message.streamingCodePreview,
                 streamingCodeToolName: message.streamingCodeToolName,
                 decidedConfirmations: effectiveConfirmations,
-                onRehydrate: onRehydrate
+                onRehydrate: onRehydrate,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                activeConfirmationRequestId: activeConfirmationRequestId
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
