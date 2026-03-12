@@ -984,3 +984,145 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// ping
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth connections ping <provider-key>", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    secureKeyStore = new Map();
+    metadataStore = [];
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = "not-found";
+    idCounter = 0;
+  });
+
+  test("returns ok when ping endpoint returns 200", async () => {
+    mockGetProvider = () => ({
+      providerKey: "integration:gmail",
+      pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    try {
+      const { exitCode, stdout } = await runCli([
+        "connections",
+        "ping",
+        "integration:gmail",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("exits 1 when provider not found", async () => {
+    mockGetProvider = () => undefined;
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "ping",
+      "integration:unknown",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Provider not found");
+  });
+
+  test("exits 1 when no ping URL configured", async () => {
+    mockGetProvider = () => ({
+      providerKey: "telegram",
+      pingUrl: null,
+      authUrl: "urn:manual-token",
+      tokenUrl: "urn:manual-token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "ping",
+      "telegram",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("No ping URL configured");
+  });
+
+  test("exits 1 when ping endpoint returns non-2xx", async () => {
+    mockGetProvider = () => ({
+      providerKey: "integration:gmail",
+      pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
+    try {
+      const { exitCode, stdout } = await runCli([
+        "connections",
+        "ping",
+        "integration:gmail",
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.status).toBe(401);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("exits 1 when no token exists", async () => {
+    mockWithValidToken = async () => {
+      throw new Error('No access token found for "integration:gmail".');
+    };
+    mockGetProvider = () => ({
+      providerKey: "integration:gmail",
+      pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "ping",
+      "integration:gmail",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("No access token");
+  });
+});

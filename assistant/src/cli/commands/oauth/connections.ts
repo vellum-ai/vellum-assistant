@@ -88,7 +88,8 @@ Examples:
   $ assistant oauth connections list --provider integration:gmail
   $ assistant oauth connections get --id <uuid>
   $ assistant oauth connections get --provider integration:gmail
-  $ assistant oauth connections token integration:twitter`,
+  $ assistant oauth connections token integration:twitter
+  $ assistant oauth connections ping integration:gmail`,
   );
 
   // ---------------------------------------------------------------------------
@@ -220,6 +221,93 @@ Examples:
           writeOutput(cmd, { ok: true, token });
         } else {
           process.stdout.write(token + "\n");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // connections ping <provider-key>
+  // ---------------------------------------------------------------------------
+
+  connections
+    .command("ping <provider-key>")
+    .description(
+      "Verify that a stored OAuth token is still valid by hitting the provider's health-check endpoint",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider-key   Provider key (e.g. integration:gmail, integration:twitter)
+
+Fetches a valid access token (refreshing if needed) and sends a GET request
+to the provider's configured ping URL. Reports success (HTTP 2xx) or failure.
+
+The ping URL is set per-provider in seed data or via "providers register --ping-url".
+If no ping URL is configured for the provider, exits with an error.
+
+Examples:
+  $ assistant oauth connections ping integration:gmail
+  $ assistant oauth connections ping integration:twitter --json`,
+    )
+    .action(async (providerKey: string, _opts: unknown, cmd: Command) => {
+      try {
+        const provider = getProvider(providerKey);
+        if (!provider) {
+          writeOutput(cmd, {
+            ok: false,
+            error: `Provider not found: ${providerKey}`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        if (!provider.pingUrl) {
+          writeOutput(cmd, {
+            ok: false,
+            error: `No ping URL configured for "${providerKey}"`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        const pingUrl = provider.pingUrl;
+
+        const result = await withValidToken(providerKey, async (token) => {
+          const res = await fetch(pingUrl, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          return { status: res.status, ok: res.ok };
+        });
+
+        if (result.ok) {
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              ok: true,
+              provider: providerKey,
+              status: result.status,
+            });
+          } else {
+            log.info(`${providerKey}: OK (HTTP ${result.status})`);
+            writeOutput(cmd, {
+              ok: true,
+              provider: providerKey,
+              status: result.status,
+            });
+          }
+        } else {
+          writeOutput(cmd, {
+            ok: false,
+            provider: providerKey,
+            status: result.status,
+            error: `Ping failed with HTTP ${result.status}`,
+          });
+          process.exitCode = 1;
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
