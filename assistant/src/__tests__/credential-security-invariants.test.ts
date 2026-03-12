@@ -234,6 +234,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/session-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
       "oauth/oauth-store.ts", // OAuth provider disconnect (delete stored tokens)
+      "cli/commands/oauth/connections.ts", // CLI OAuth connection delete (legacy credential cleanup)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
