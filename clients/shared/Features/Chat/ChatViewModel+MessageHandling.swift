@@ -1368,10 +1368,26 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             guard !isLoadingHistory else { return }
             // Handle structured progress events from claude_code sub-tools
+            // Resolve the target tool call: prefer matching by toolUseId, fall back to positional heuristic.
+            let resolvedStructuredTarget: (msgIndex: Int, tcIndex: Int)? = {
+                if let toolUseId = msg.toolUseId {
+                    for i in stride(from: messages.count - 1, through: 0, by: -1) {
+                        if let tcIdx = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                            return (i, tcIdx)
+                        }
+                    }
+                }
+                if let existingId = currentAssistantMessageId,
+                   let mIdx = messages.firstIndex(where: { $0.id == existingId }),
+                   let tcIdx = messages[mIdx].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
+                    return (mIdx, tcIdx)
+                }
+                return nil
+            }()
             if let subType = msg.subType, !subType.isEmpty,
-               let existingId = currentAssistantMessageId,
-               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
-               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
+               let target = resolvedStructuredTarget {
+                let msgIndex = target.msgIndex
+                let tcIndex = target.tcIndex
                 switch subType {
                 case "tool_start":
                     if let toolName = msg.subToolName {
@@ -1408,10 +1424,26 @@ extension ChatViewModel {
                     break
                 }
             } else if msg.subType == nil || msg.subType?.isEmpty == true,
-                      !msg.chunk.isEmpty,
-                      let existingId = currentAssistantMessageId,
-                      let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
-                      let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                      !msg.chunk.isEmpty {
+                // Resolve target tool call: prefer toolUseId, fall back to positional heuristic.
+                let resolvedPlainTarget: (msgIndex: Int, tcIndex: Int)? = {
+                    if let toolUseId = msg.toolUseId {
+                        for i in stride(from: messages.count - 1, through: 0, by: -1) {
+                            if let tcIdx = messages[i].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                                return (i, tcIdx)
+                            }
+                        }
+                    }
+                    if let existingId = currentAssistantMessageId,
+                       let mIdx = messages.firstIndex(where: { $0.id == existingId }),
+                       let tcIdx = messages[mIdx].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                        return (mIdx, tcIdx)
+                    }
+                    return nil
+                }()
+                guard let target = resolvedPlainTarget else { return }
+                let msgIndex = target.msgIndex
+                let tcIndex = target.tcIndex
                 // Append plain-text output chunks to the coalescing buffer.
                 // Structured JSON sub-events (with a valid subType) are handled above;
                 // the subType guard prevents them from leaking raw JSON here.

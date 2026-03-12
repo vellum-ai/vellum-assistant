@@ -4532,16 +4532,18 @@ public struct ToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
     public let sessionId: String?
+    public let toolUseId: String?
     public let subType: String?
     public let subToolName: String?
     public let subToolInput: String?
     public let subToolIsError: Bool?
     public let subToolId: String?
 
-    public init(type: String, chunk: String, sessionId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
+    public init(type: String, chunk: String, sessionId: String? = nil, toolUseId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
         self.type = type
         self.chunk = chunk
         self.sessionId = sessionId
+        self.toolUseId = toolUseId
         self.subType = subType
         self.subToolName = subToolName
         self.subToolInput = subToolInput
