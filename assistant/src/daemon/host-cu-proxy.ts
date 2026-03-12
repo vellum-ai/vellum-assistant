@@ -197,10 +197,13 @@ export class HostCuProxy {
     clearTimeout(entry.timer);
     this.pending.delete(requestId);
 
+    // Capture pre-update state so formatObservation sees the correct previous AX tree
+    const prevAXTree = this._previousAXTree;
+
     // Update CU state from observation
     this.updateStateFromObservation(observation);
 
-    const result = this.formatObservation(observation);
+    const result = this.formatObservation(observation, prevAXTree);
     entry.resolve(result);
   }
 
@@ -255,7 +258,11 @@ export class HostCuProxy {
    * (AX tree wrapped in markers, diff, warnings) and optional screenshot
    * as an image content block.
    */
-  formatObservation(obs: CuObservationResult): ToolExecutionResult {
+  formatObservation(
+    obs: CuObservationResult,
+    previousAXTree?: string,
+  ): ToolExecutionResult {
+    const prevTree = previousAXTree ?? this._previousAXTree;
     const parts: string[] = [];
 
     // Surface user guidance prominently so the model sees it first
@@ -273,21 +280,30 @@ export class HostCuProxy {
     if (obs.axDiff) {
       parts.push(obs.axDiff);
       parts.push("");
-    } else if (this._previousAXTree != null && obs.axTree != null) {
-      // No diff means the screen didn't change
-      if (
-        this._consecutiveUnchangedSteps >=
-        CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
-      ) {
-        parts.push(
-          `WARNING: ${this._consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach.`,
-        );
-      } else {
-        parts.push(
-          "Your last action had NO VISIBLE EFFECT on the UI. Try something different.",
-        );
+    } else if (prevTree != null && obs.axTree != null) {
+      // Skip unchanged warning after wait actions — they intentionally yield no immediate change
+      const lastAction =
+        this._actionHistory.length > 0
+          ? this._actionHistory[this._actionHistory.length - 1]
+          : undefined;
+      const isWaitAction = lastAction?.toolName === "computer_use_wait";
+
+      if (!isWaitAction) {
+        // No diff means the screen didn't change
+        if (
+          this._consecutiveUnchangedSteps >=
+          CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
+        ) {
+          parts.push(
+            `WARNING: ${this._consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach.`,
+          );
+        } else {
+          parts.push(
+            "Your last action had NO VISIBLE EFFECT on the UI. Try something different.",
+          );
+        }
+        parts.push("");
       }
-      parts.push("");
     }
 
     // Loop detection: identical actions repeated

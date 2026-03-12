@@ -370,6 +370,60 @@ describe("HostCuProxy", () => {
       );
     });
 
+    test("does not emit spurious warning on first observation", async () => {
+      setup();
+
+      // First ever request — no previous AX tree exists
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.resolve(sent1.requestId as string, {
+        axTree: "Button [1]",
+        // No axDiff on first observation — this is normal, not unchanged
+      });
+      const result1 = await p1;
+      expect(result1.content).not.toContain("NO VISIBLE EFFECT");
+    });
+
+    test("skips unchanged warning after computer_use_wait", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.resolve(sent1.requestId as string, {
+        axTree: "Button [1]",
+      });
+      await p1;
+
+      // Wait action with unchanged screen — should NOT warn
+      const p2 = proxy.request(
+        "computer_use_wait",
+        { duration_ms: 2000 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_wait", { duration_ms: 2000 });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.resolve(sent2.requestId as string, {
+        axTree: "Button [1]",
+        // No axDiff — screen unchanged, but that's expected after wait
+      });
+      const result2 = await p2;
+      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+    });
+
     test("resets consecutive count when diff is present", async () => {
       setup();
 
@@ -628,7 +682,7 @@ describe("HostCuProxy", () => {
       proxy.dispose();
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
-      expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
+      await expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
     });
   });
 
