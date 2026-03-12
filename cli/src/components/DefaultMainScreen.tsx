@@ -19,6 +19,10 @@ import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
 import { appendHistory, loadHistory } from "../lib/input-history";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
+import {
+  getTerminalCapabilities,
+  unicodeOrFallback,
+} from "../lib/terminal-capabilities";
 import TextInput from "./TextInput";
 import { Tooltip } from "./Tooltip";
 
@@ -56,7 +60,8 @@ const DEFAULT_TERMINAL_COLUMNS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const LEFT_PANEL_WIDTH = 36;
 
-const HEADER_PREFIX = "── Vellum ";
+const HEADER_PREFIX_UNICODE = "── Vellum ";
+const HEADER_PREFIX_ASCII = "-- Vellum ";
 
 // Left panel structure: HEADER lines + art + FOOTER lines
 const LEFT_HEADER_LINES = 3; // spacer + heading + spacer
@@ -706,6 +711,11 @@ function DefaultMainScreen({
   const config = SPECIES_CONFIG[species];
   const art = config.art;
   const accentColor = species === "openclaw" ? "red" : "magenta";
+  const caps = getTerminalCapabilities();
+  const headerPrefix = caps.unicodeSupported
+    ? HEADER_PREFIX_UNICODE
+    : HEADER_PREFIX_ASCII;
+  const headerSep = caps.unicodeSupported ? "─" : "-";
 
   const { stdout } = useStdout();
   const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
@@ -730,7 +740,10 @@ function DefaultMainScreen({
     { text: "Assistant", style: "heading" },
     { text: assistantId, style: "dim" },
     { text: "Species", style: "heading" },
-    { text: `${config.hatchedEmoji} ${species}`, style: "dim" },
+    {
+      text: `${unicodeOrFallback(config.hatchedEmoji, `[${species}]`)} ${species}`,
+      style: "dim",
+    },
     { text: "Status", style: "heading" },
     { text: withStatusEmoji(healthStatus ?? "checking..."), style: "dim" },
   ];
@@ -740,8 +753,8 @@ function DefaultMainScreen({
   return (
     <Box flexDirection="column" width={totalWidth}>
       <Text dimColor>
-        {HEADER_PREFIX +
-          "─".repeat(Math.max(0, totalWidth - HEADER_PREFIX.length))}
+        {headerPrefix +
+          headerSep.repeat(Math.max(0, totalWidth - headerPrefix.length))}
       </Text>
       <Box flexDirection="row">
         <Box flexDirection="column" width={LEFT_PANEL_WIDTH}>
@@ -756,7 +769,7 @@ function DefaultMainScreen({
             }
             if (i > 2 && i <= 2 + art.length) {
               return (
-                <Text key={i} color={accentColor}>
+                <Text key={i} color={caps.isDumb ? undefined : accentColor}>
                   {line}
                 </Text>
               );

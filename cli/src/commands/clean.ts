@@ -6,7 +6,9 @@ export async function clean(): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum clean");
     console.log("");
-    console.log("Kill all orphaned vellum processes that are not tracked by any assistant.");
+    console.log(
+      "Kill all orphaned vellum processes that are not tracked by any assistant.",
+    );
     process.exit(0);
   }
 
@@ -17,18 +19,21 @@ export async function clean(): Promise<void> {
     return;
   }
 
-  console.log(`Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"}.\n`);
+  console.log(
+    `Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"}.\n`,
+  );
 
   let killed = 0;
   for (const orphan of orphans) {
     const pid = parseInt(orphan.pid, 10);
-    const stopped = await stopProcess(pid, `${orphan.name} (PID ${orphan.pid})`);
+    const stopped = await stopProcess(
+      pid,
+      `${orphan.name} (PID ${orphan.pid})`,
+    );
     if (stopped) {
       killed++;
     }
   }
 
-  console.log(
-    `\nCleaned up ${killed} process${killed === 1 ? "" : "es"}.`,
-  );
+  console.log(`\nCleaned up ${killed} process${killed === 1 ? "" : "es"}.`);
 }

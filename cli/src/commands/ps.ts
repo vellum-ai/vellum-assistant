@@ -150,7 +150,13 @@ async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
   const pids = await pgrepExact(spec.pgrepName);
   if (pids.length > 0) {
     const watch = await isWatchMode(pids[0]);
-    return { name: spec.name, pid: pids[0], port: spec.port, running: true, watch };
+    return {
+      name: spec.name,
+      pid: pids[0],
+      port: spec.port,
+      running: true,
+      watch,
+    };
   }
 
   // Tier 2: TCP port probe (skip for processes without a port)
@@ -171,10 +177,22 @@ async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
   const filePid = readPidFile(spec.pidFile);
   if (filePid && isProcessAlive(filePid)) {
     const watch = await isWatchMode(filePid);
-    return { name: spec.name, pid: filePid, port: spec.port, running: true, watch };
+    return {
+      name: spec.name,
+      pid: filePid,
+      port: spec.port,
+      running: true,
+      watch,
+    };
   }
 
-  return { name: spec.name, pid: null, port: spec.port, running: false, watch: false };
+  return {
+    name: spec.name,
+    pid: null,
+    port: spec.port,
+    running: false,
+    watch: false,
+  };
 }
 
 function formatDetectionInfo(proc: DetectedProcess): string {

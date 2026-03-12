@@ -32,8 +32,7 @@ export function buildDaemonUrl(port: number): string {
  */
 export function readHttpToken(instanceDir?: string): string | undefined {
   const baseDataDir =
-    instanceDir ??
-    (process.env.BASE_DATA_DIR?.trim() || homedir());
+    instanceDir ?? (process.env.BASE_DATA_DIR?.trim() || homedir());
   const tokenPath = join(baseDataDir, ".vellum", "http-token");
   try {
     const token = readFileSync(tokenPath, "utf-8").trim();
