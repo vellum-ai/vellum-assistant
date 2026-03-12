@@ -395,6 +395,8 @@ export function addRule(
     executionTarget?: string;
   },
 ): TrustRule {
+  if (tool.startsWith("__internal:"))
+    throw new Error(`Cannot create internal pseudo-rule via addRule: ${tool}`);
   // Re-read from disk to avoid lost updates if another call modified rules
   // between our last read and now (e.g. two rapid trust rule additions).
   cachedRules = null;
