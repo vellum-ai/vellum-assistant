@@ -1603,8 +1603,26 @@ extension ChatViewModel {
             }
 
         case .sessionError(let msg):
+            // During bootstrap (sessionId is nil), accept errors with empty
+            // sessionId so createConversation failures reset the UI state.
+            if sessionId == nil {
+                guard bootstrapCorrelationId != nil, msg.sessionId.isEmpty else { return }
+                log.error("Bootstrap failed: \(msg.userMessage, privacy: .private)")
+                bootstrapCorrelationId = nil
+                isThinking = false
+                isSending = false
+                lastFailedMessageText = pendingUserMessage
+                lastFailedMessageDisplayText = pendingUserMessageDisplayText
+                lastFailedMessageAttachments = pendingUserAttachments
+                lastFailedSendError = msg.userMessage
+                pendingUserMessage = nil
+                pendingUserMessageDisplayText = nil
+                pendingUserAttachments = nil
+                errorText = msg.userMessage
+                return
+            }
             // Empty sessionId is treated as a broadcast (e.g. transport-level 401)
-            guard sessionId != nil, msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
+            guard msg.sessionId.isEmpty || belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
 
             // Per-message send failure: mark the specific user message instead

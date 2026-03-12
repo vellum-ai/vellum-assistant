@@ -33,6 +33,12 @@ extension HTTPTransport {
                     let conversationKey = "vellum:\(UUID().uuidString)"
                     guard let sessionId = await self.createConversation(conversationKey: conversationKey) else {
                         log.error("createConversation failed — cannot create session")
+                        self.onMessage?(.sessionError(SessionErrorMessage(
+                            sessionId: "",
+                            code: .providerApi,
+                            userMessage: "Failed to create conversation. Please try again.",
+                            retryable: true
+                        )))
                         return
                     }
                     // Track the conversationKey for this session so sendMessage can route correctly
