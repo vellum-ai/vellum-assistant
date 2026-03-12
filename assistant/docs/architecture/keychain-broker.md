@@ -66,7 +66,7 @@ graph LR
 ### Transport
 
 - Unix domain socket: `~/.vellum/keychain-broker.sock`
-- Socket path is passed to daemon/gateway via `VELLUM_KEYCHAIN_BROKER_SOCKET` environment variable
+- Socket path is derived from the data directory (e.g., `join(getRootDir(), "keychain-broker.sock")`)
 - Newline-delimited JSON (`\n` as message boundary)
 
 ### Request envelope
@@ -157,7 +157,7 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ## Developer Experience
 
-- **Debug builds:** The `#if !DEBUG` guard compiles out the entire `KeychainBrokerServer`. The `VELLUM_KEYCHAIN_BROKER_SOCKET` env var is not set, so clients see the broker as unavailable and use the encrypted store. Developers never encounter keychain prompts during the edit-build-run cycle.
+- **Debug builds:** The `#if !DEBUG` guard compiles out the entire `KeychainBrokerServer`. The broker socket is not created, so clients see the broker as unavailable and use the encrypted store. Developers never encounter keychain prompts during the edit-build-run cycle.
 - **Release builds:** The broker starts automatically with the app. The daemon discovers it via the socket env var and token file. No configuration needed.
 - **CLI-only / headless:** No macOS app means no broker socket. All storage uses the encrypted file store. This is the expected path for CI, servers, and non-macOS platforms.
 

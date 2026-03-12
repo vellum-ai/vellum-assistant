@@ -246,15 +246,15 @@ The assistant runtime reads this URL via the centralized `public-ingress-urls.ts
 
 All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
 
-| Function                       | URL Pattern                                                                                                                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Function                       | URL Pattern                                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
-| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                               |
-| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                                |
-| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                                        |
-| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                                                                                                             |
-| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                               |
-| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                                     |
+| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                 |
+| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                         |
+| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                                                                                              |
+| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                |
+| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                      |
 
 ### Telegram Messaging Flow
 
@@ -273,7 +273,7 @@ Outbound proactive (assistant → user, initiated by messaging provider):
   Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendChatAction
 ```
 
-The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
+The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via workspace config. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
 
 The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`telegram.deliverAuthBypass` in `workspace/config.json`) is not set, the endpoint returns 503 rather than allowing unauthenticated access. The bypass requires `APP_VERSION=0.0.0-dev`.
 
@@ -616,12 +616,12 @@ This also runs when the credential watcher detects changes to Telegram credentia
 
 ### Routing Auto-Configuration
 
-In single-assistant mode (the default local deployment), routing is automatically configured by the CLI:
+In single-assistant mode (the default local deployment), routing is automatically configured by the CLI via workspace config:
 
-- `GATEWAY_UNMAPPED_POLICY=default` is set so all inbound messages are forwarded
-- `GATEWAY_DEFAULT_ASSISTANT_ID` is set to the current assistant's ID
+- The unmapped policy is set to `default` so all inbound messages are forwarded
+- The default assistant ID is set to the current assistant's ID
 
-In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat/user IDs to assistant IDs.
+In multi-assistant mode, the operator must configure the assistant routing map in workspace config to map specific chat/user IDs to assistant IDs.
 
 ### Slack Channel (Socket Mode)
 
@@ -1056,7 +1056,7 @@ The resolution is performed by `resolveCallerIdentity()` in `call-domain.ts`:
 
 1. **Per-call override** — If `callerIdentityMode` is provided in the call input and `calls.callerIdentity.allowPerCallOverride` is enabled, the requested mode is used (source: `per_call_override`).
 2. **Implicit default** — Otherwise, `assistant_number` is always used (source: `implicit_default`). There is no configurable default mode — this is a strict policy.
-3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential/twilio/user_phone_number` secure key (source: `secure_key`).
+3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`) or the `credential/twilio/user_phone_number` secure key (source: `secure_key`).
 4. **Eligibility check** — User numbers are verified against the Twilio API to confirm they can be used as an outbound caller ID.
 
 Both the resolved mode and source are logged at info level on success, and rejections are logged at warn level.

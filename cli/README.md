@@ -62,20 +62,19 @@ vellum hatch [species] [options]
 
 #### Remote Targets
 
-- **`local`** -- Starts the local assistant and local gateway. Gateway source resolution order is: `VELLUM_GATEWAY_DIR` override, repo source tree, then installed `@vellumai/vellum-gateway` package.
+- **`local`** -- Starts the local assistant and local gateway. Gateway source resolution order is: repo source tree, then installed `@vellumai/vellum-gateway` package.
 - **`gcp`** -- Creates a GCP Compute Engine VM (`e2-standard-4`: 4 vCPUs, 16 GB) with a startup script that bootstraps the assistant. Requires `gcloud` authentication and `GCP_PROJECT` / `GCP_DEFAULT_ZONE` environment variables.
 - **`aws`** -- Provisions an AWS instance.
 - **`custom`** -- Provisions on an arbitrary SSH host. Set `VELLUM_CUSTOM_HOST` (e.g. `user@hostname`) to specify the target.
 
 #### Environment Variables
 
-| Variable                  | Required For | Description                                                                                        |
-| ------------------------- | ------------ | -------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`       | All          | Anthropic API key passed to the assistant runtime.                                                 |
-| `GCP_PROJECT`             | `gcp`        | GCP project ID. Falls back to the active `gcloud` project.                                         |
-| `GCP_DEFAULT_ZONE`        | `gcp`        | GCP zone for the compute instance.                                                                 |
-| `VELLUM_CUSTOM_HOST`      | `custom`     | SSH host in `user@hostname` format.                                                                |
-| `VELLUM_GATEWAY_DIR`      | `local`      | Optional absolute path to a local gateway source directory to run instead of the packaged gateway. |
+| Variable             | Required For | Description                                                |
+| -------------------- | ------------ | ---------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`  | All          | Anthropic API key passed to the assistant runtime.         |
+| `GCP_PROJECT`        | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
+| `GCP_DEFAULT_ZONE`   | `gcp`        | GCP zone for the compute instance.                         |
+| `VELLUM_CUSTOM_HOST` | `custom`     | SSH host in `user@hostname` format.                        |
 
 #### Examples
 
