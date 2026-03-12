@@ -448,7 +448,13 @@ export function updateRule(
   if (rules[index]!.tool.startsWith("__internal:"))
     throw new Error(`Cannot modify internal pseudo-rule: ${id}`);
   const rule = { ...rules[index] };
-  if (updates.tool != null) rule.tool = updates.tool;
+  if (updates.tool != null) {
+    if (updates.tool.startsWith("__internal:"))
+      throw new Error(
+        `Cannot set tool to internal pseudo-tool namespace: ${updates.tool}`,
+      );
+    rule.tool = updates.tool;
+  }
   if (updates.pattern != null) rule.pattern = updates.pattern;
   if (updates.scope != null) rule.scope = updates.scope;
   if (updates.decision != null) rule.decision = updates.decision;
@@ -601,6 +607,9 @@ export function clearAllRules(): void {
   const pseudoRules = getRules().filter((r) =>
     r.tool.startsWith("__internal:"),
   );
+  // Re-assert: loadFromDisk() (called by getRules above) may have restored the
+  // flag from the persisted file before it is overwritten by saveToDisk below.
+  cachedStarterBundleAccepted = false;
   // Re-backfill default rules so protected directory stays guarded.
   const rules: TrustRule[] = [...pseudoRules];
   backfillDefaults(rules);

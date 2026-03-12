@@ -450,8 +450,11 @@ export async function runAgentLoopImpl(
         .catch((err) => {
           rlog.warn(
             { err },
-            "Git hooks trust hook detection failed (non-fatal)",
+            "Git hooks trust hook detection failed (non-fatal); will re-prompt next session",
           );
+          // Reset the guard so a transient detection failure doesn't
+          // permanently silence the trust prompt for this session.
+          ctx.gitHooksTrustPromptIssuedForWorkspace = undefined;
         });
     }
   }
