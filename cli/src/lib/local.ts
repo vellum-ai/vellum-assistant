@@ -472,48 +472,8 @@ export async function discoverPublicUrl(
   port?: number,
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
-  const cloud = process.env.VELLUM_CLOUD;
 
-  let externalIp: string | undefined;
-
-  // Try cloud-specific metadata services for GCP and AWS.
-  if (cloud === "gcp" || cloud === "aws") {
-    try {
-      if (cloud === "gcp") {
-        const resp = await fetch(
-          "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
-          { headers: { "Metadata-Flavor": "Google" } },
-        );
-        if (resp.ok) externalIp = (await resp.text()).trim();
-      } else if (cloud === "aws") {
-        // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
-        const tokenResp = await fetch(
-          "http://169.254.169.254/latest/api/token",
-          {
-            method: "PUT",
-            headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
-          },
-        );
-        if (tokenResp.ok) {
-          const token = await tokenResp.text();
-          const ipResp = await fetch(
-            "http://169.254.169.254/latest/meta-data/public-ipv4",
-            { headers: { "X-aws-ec2-metadata-token": token } },
-          );
-          if (ipResp.ok) externalIp = (await ipResp.text()).trim();
-        }
-      }
-    } catch {
-      // metadata service not reachable
-    }
-
-    if (externalIp) {
-      console.log(`   Discovered external IP: ${externalIp}`);
-      return `http://${externalIp}:${effectivePort}`;
-    }
-  }
-
-  // For local and custom environments, use the local LAN address.
+  // Use the local LAN address.
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
