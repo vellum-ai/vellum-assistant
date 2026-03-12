@@ -334,7 +334,7 @@ export async function enforceIngressAcl(
                   dmCallbackUrl,
                   {
                     chatId: senderUserId,
-                    text: "I've notified the owner. They'll share a verification code with you if they approve access. You can reply with the code here.",
+                    text: "I've notified the owner that you'd like to chat with me. If they approve your request, they'll share a 6-digit verification code with you. You can reply with the code here.",
                     assistantId,
                   },
                   mintBearerToken(),
@@ -579,7 +579,7 @@ export async function enforceIngressAcl(
                     dmCallbackUrl,
                     {
                       chatId: senderUserId,
-                      text: "I've notified the owner. They'll share a verification code with you if they approve access. You can reply with the code here.",
+                      text: "I've notified the owner that you'd like to chat with me. If they approve your request, they'll share a 6-digit verification code with you. You can reply with the code here.",
                       assistantId,
                     },
                     mintBearerToken(),
