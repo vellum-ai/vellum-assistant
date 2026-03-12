@@ -14,7 +14,10 @@ import {
   oauthConnections,
   oauthProviders,
 } from "../memory/schema/oauth.js";
-import { deleteSecureKeyAsync } from "../security/secure-keys.js";
+import {
+  deleteSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -168,7 +171,11 @@ export function registerProvider(params: {
  * Insert or return an existing app by (provider_key, client_id).
  * Generates a UUID on insert.
  */
-export function upsertApp(providerKey: string, clientId: string): OAuthAppRow {
+export async function upsertApp(
+  providerKey: string,
+  clientId: string,
+  clientSecret?: string,
+): Promise<OAuthAppRow> {
   const db = getDb();
 
   const existing = db
@@ -182,7 +189,18 @@ export function upsertApp(providerKey: string, clientId: string): OAuthAppRow {
     )
     .get();
 
-  if (existing) return existing;
+  if (existing) {
+    if (clientSecret) {
+      const stored = await setSecureKeyAsync(
+        `oauth_app/${existing.id}/client_secret`,
+        clientSecret,
+      );
+      if (!stored) {
+        throw new Error("Failed to store client_secret in secure storage");
+      }
+    }
+    return existing;
+  }
 
   const now = Date.now();
   const id = uuid();
@@ -195,6 +213,16 @@ export function upsertApp(providerKey: string, clientId: string): OAuthAppRow {
   };
 
   db.insert(oauthApps).values(row).run();
+
+  if (clientSecret) {
+    const stored = await setSecureKeyAsync(
+      `oauth_app/${id}/client_secret`,
+      clientSecret,
+    );
+    if (!stored) {
+      throw new Error("Failed to store client_secret in secure storage");
+    }
+  }
 
   return row;
 }
