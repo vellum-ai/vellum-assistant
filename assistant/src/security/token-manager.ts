@@ -340,7 +340,7 @@ async function doRefresh(service: string): Promise<string> {
 
   try {
     updateConnection(connId, {
-      expiresAt: expiresAt ?? undefined,
+      expiresAt,
       hasRefreshToken: !!result.refreshToken,
     });
   } catch (err) {
@@ -370,7 +370,6 @@ export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
 ): Promise<T> {
-
   let token = getSecureKey(credentialKey(service, "access_token"));
   if (!token) {
     throw new TokenExpiredError(
