@@ -11,7 +11,6 @@ import type { CredentialMetadata } from "../tools/credentials/metadata-store.js"
 
 let secureKeyStore = new Map<string, string>();
 let metadataStore: CredentialMetadata[] = [];
-let oauthConnectedProviders = new Set<string>();
 let idCounter = 0;
 
 function nextUUID(): string {
@@ -169,16 +168,16 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Mock oauth-store
 // ---------------------------------------------------------------------------
 
+let disconnectOAuthProviderCalls: string[] = [];
+let disconnectOAuthProviderResult = false;
+
 mock.module("../oauth/oauth-store.js", () => ({
   disconnectOAuthProvider: async (providerKey: string): Promise<boolean> => {
-    if (oauthConnectedProviders.has(providerKey)) {
-      oauthConnectedProviders.delete(providerKey);
-      return true;
-    }
-    return false;
+    disconnectOAuthProviderCalls.push(providerKey);
+    return disconnectOAuthProviderResult;
   },
   getConnectionByProvider: (): undefined => undefined,
-  listConnections: (): [] => [],
+  listConnections: (): never[] => [],
   deleteConnection: (): boolean => false,
 }));
 
@@ -292,7 +291,6 @@ describe("assistant credentials CLI", () => {
   beforeEach(() => {
     secureKeyStore = new Map();
     metadataStore = [];
-    oauthConnectedProviders = new Set();
     idCounter = 0;
     _getSecureKeyCalls = 0;
     _setSecureKeyCalls = 0;
@@ -300,6 +298,8 @@ describe("assistant credentials CLI", () => {
     _listMetadataCalls = 0;
     _getMetadataCalls = 0;
     _getMetadataByIdCalls = 0;
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = false;
     process.exitCode = 0;
   });
 
@@ -630,6 +630,55 @@ describe("assistant credentials CLI", () => {
         ),
       ).toBeUndefined();
     });
+
+    test("calls disconnectOAuthProvider for OAuth cleanup", async () => {
+      seedCredential("gmail", "access_token", "ya29.token_value");
+
+      const result = await runCli(["delete", "gmail:access_token", "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+
+      // disconnectOAuthProvider should have been called with the service name
+      expect(disconnectOAuthProviderCalls).toEqual(["gmail"]);
+    });
+
+    test("succeeds when only OAuth connection exists (no legacy credential)", async () => {
+      // No legacy credential seeded — only the OAuth disconnect finds something
+      disconnectOAuthProviderResult = true;
+
+      const result = await runCli(["delete", "gmail:access_token", "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.service).toBe("gmail");
+      expect(parsed.field).toBe("access_token");
+
+      expect(disconnectOAuthProviderCalls).toEqual(["gmail"]);
+    });
+
+    test("demonstrates colon-in-service-name parsing limitation with integration:gmail", async () => {
+      // parseCredentialName("integration:gmail:access_token") splits on the
+      // first colon, yielding service="integration" and field="gmail:access_token".
+      // This is incorrect for the intended service "integration:gmail". The fix
+      // for this limitation is addressed by introducing a dedicated `disconnect`
+      // subcommand (PR 5).
+      const result = await runCli([
+        "delete",
+        "integration:gmail:access_token",
+        "--json",
+      ]);
+      // The command parses as service="integration", field="gmail:access_token"
+      // which finds nothing and reports not-found.
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("not found");
+
+      // disconnectOAuthProvider was called with "integration" (wrong) instead
+      // of "integration:gmail" (intended).
+      expect(disconnectOAuthProviderCalls).toEqual(["integration"]);
+    });
   });
 
   // =========================================================================
@@ -638,7 +687,7 @@ describe("assistant credentials CLI", () => {
 
   describe("disconnect", () => {
     test("succeeds when an OAuth connection exists", async () => {
-      oauthConnectedProviders.add("integration:gmail");
+      disconnectOAuthProviderResult = true;
 
       const result = await runCli([
         "disconnect",
@@ -650,8 +699,8 @@ describe("assistant credentials CLI", () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.service).toBe("integration:gmail");
 
-      // OAuth connection should be removed
-      expect(oauthConnectedProviders.has("integration:gmail")).toBe(false);
+      // disconnectOAuthProvider should have been called with the full service name
+      expect(disconnectOAuthProviderCalls).toEqual(["integration:gmail"]);
     });
 
     test("reports not-found when nothing exists", async () => {
@@ -716,7 +765,7 @@ describe("assistant credentials CLI", () => {
 
     test("cleans up both OAuth connection and legacy keys when both exist", async () => {
       // Seed OAuth connection
-      oauthConnectedProviders.add("integration:gmail");
+      disconnectOAuthProviderResult = true;
 
       // Seed a legacy credential key
       secureKeyStore.set(
@@ -743,7 +792,7 @@ describe("assistant credentials CLI", () => {
       expect(parsed.ok).toBe(true);
 
       // Both should be cleaned up
-      expect(oauthConnectedProviders.has("integration:gmail")).toBe(false);
+      expect(disconnectOAuthProviderCalls).toEqual(["integration:gmail"]);
       expect(
         secureKeyStore.has(credentialKey("integration:gmail", "access_token")),
       ).toBe(false);
