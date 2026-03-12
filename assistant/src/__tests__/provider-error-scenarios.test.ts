@@ -3,7 +3,6 @@ import { describe, expect, mock, test } from "bun:test";
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-  isDebug: () => false,
 }));
 
 // Only mock sleep so retries complete instantly; keep real retry logic.

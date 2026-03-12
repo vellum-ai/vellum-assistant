@@ -44,7 +44,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-  isDebug: () => false,
 }));
 
 // Allow toggling between no-rule and matched-rule paths

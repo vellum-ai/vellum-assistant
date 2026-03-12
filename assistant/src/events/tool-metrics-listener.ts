@@ -1,4 +1,4 @@
-import { getLogger, isDebug, truncateForLog } from "../util/logger.js";
+import { getLogger, truncateForLog } from "../util/logger.js";
 import type { EventBus, Subscription } from "./bus.js";
 import type { AssistantDomainEvents } from "./domain-events.js";
 
@@ -23,7 +23,7 @@ export function registerToolMetricsLoggingListener(
   options?: MetricsListenerOptions,
 ): Subscription {
   const logger = options?.logger ?? defaultLogger;
-  const debugEnabled = options?.debugEnabled ?? isDebug;
+  const debugEnabled = options?.debugEnabled ?? (() => false);
   const truncate = options?.truncate ?? truncateForLog;
 
   return eventBus.onAny((event) => {

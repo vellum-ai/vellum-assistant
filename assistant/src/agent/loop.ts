@@ -14,7 +14,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { getLogger, isDebug, truncateForLog } from "../util/logger.js";
+import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-loop");
 
@@ -179,7 +179,6 @@ export class AgentLoop {
     let toolUseTurns = 0;
     let nudgedForEmptyResponse = false;
     let lastLlmCallTime = 0;
-    const debug = isDebug();
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Per-run substitution map for sensitive output placeholders.
@@ -191,7 +190,6 @@ export class AgentLoop {
     while (true) {
       if (signal?.aborted) break;
 
-      const turnStart = Date.now();
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
       try {
@@ -225,22 +223,6 @@ export class AgentLoop {
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
-        }
-
-        if (debug) {
-          rlog.debug(
-            {
-              systemPrompt: truncateForLog(turnSystemPrompt, 200),
-              messageCount: history.length,
-              lastMessage:
-                history.length > 0
-                  ? summarizeMessage(history[history.length - 1])
-                  : null,
-              toolCount: currentTools.length,
-              config: providerConfig,
-            },
-            "Sending request to provider",
-          );
         }
 
         const preLlmResult = await getHookManager().trigger("pre-llm-call", {
@@ -327,33 +309,6 @@ export class AgentLoop {
         );
 
         const providerDurationMs = Date.now() - providerStart;
-
-        if (debug) {
-          rlog.debug(
-            {
-              providerDurationMs,
-              model: response.model,
-              stopReason: response.stopReason,
-              inputTokens: response.usage.inputTokens,
-              outputTokens: response.usage.outputTokens,
-              cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
-              cacheReadInputTokens: response.usage.cacheReadInputTokens,
-              contentBlocks: response.content.map((b) => ({
-                type: b.type,
-                ...(b.type === "text"
-                  ? { text: truncateForLog(b.text, 1200) }
-                  : {}),
-                ...(b.type === "tool_use"
-                  ? {
-                      name: b.name,
-                      input: truncateForLog(JSON.stringify(b.input), 1200),
-                    }
-                  : {}),
-              })),
-            },
-            "Provider response received",
-          );
-        }
 
         onEvent({
           type: "usage",
@@ -443,16 +398,6 @@ export class AgentLoop {
             name: toolUse.name,
             input: toolUse.input,
           });
-
-          if (debug) {
-            rlog.debug(
-              {
-                tool: toolUse.name,
-                input: truncateForLog(JSON.stringify(toolUse.input), 300),
-              },
-              "Executing tool",
-            );
-          }
         }
 
         // If already cancelled, synthesize cancelled results and stop
@@ -499,8 +444,6 @@ export class AgentLoop {
         // stuck tools (e.g. a hung browser navigation).
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
-            const toolStart = Date.now();
-
             if (blockedBrowserToolIds.has(toolUse.id)) {
               return {
                 toolUse,
@@ -524,20 +467,6 @@ export class AgentLoop {
               },
               toolUse.id,
             );
-
-            const toolDurationMs = Date.now() - toolStart;
-
-            if (debug) {
-              rlog.debug(
-                {
-                  tool: toolUse.name,
-                  toolDurationMs,
-                  isError: result.isError,
-                  output: truncateForLog(result.content, 300),
-                },
-                "Tool execution complete",
-              );
-            }
 
             return { toolUse, result };
           }),
@@ -658,19 +587,6 @@ export class AgentLoop {
         // Add tool results as a user message and continue the loop
         history.push({ role: "user", content: resultBlocks });
 
-        if (debug) {
-          const turnDurationMs = Date.now() - turnStart;
-          rlog.debug(
-            {
-              turnDurationMs,
-              providerDurationMs,
-              toolCount: toolUseBlocks.length,
-              turn: toolUseTurns,
-            },
-            "Turn complete",
-          );
-        }
-
         // Invoke checkpoint callback after tool results are in history
         if (onCheckpoint) {
           const decision = onCheckpoint({
@@ -713,16 +629,6 @@ export class AgentLoop {
 
     return history;
   }
-}
-
-function summarizeMessage(msg: Message): {
-  role: string;
-  blockTypes: string[];
-} {
-  return {
-    role: msg.role,
-    blockTypes: msg.content.map((b) => b.type),
-  };
 }
 
 /**
