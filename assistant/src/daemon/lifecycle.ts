@@ -33,7 +33,10 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
-import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
+import {
+  selectEmbeddingBackend,
+  SPARSE_EMBEDDING_VERSION,
+} from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
@@ -319,7 +322,7 @@ export async function runDaemon(): Promise<void> {
       await qdrantManager.start();
       const embeddingSelection = selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
-        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
+        ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`
         : undefined;
       const qdrantClient = initQdrantClient({
         url: qdrantUrl,
@@ -337,9 +340,7 @@ export async function runDaemon(): Promise<void> {
       const { migrated } = await qdrantClient.ensureCollection();
       if (migrated) {
         enqueueMemoryJob("rebuild_index", {});
-        log.info(
-          "Qdrant collection was migrated — enqueued rebuild_index job",
-        );
+        log.info("Qdrant collection was migrated — enqueued rebuild_index job");
       }
 
       log.info("Qdrant vector store initialized");

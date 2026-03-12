@@ -626,6 +626,13 @@ function isOllamaConfigured(config: AssistantConfig): boolean {
 
 const SPARSE_VOCAB_SIZE = 30_000;
 
+/**
+ * Bump this version whenever the sparse embedding algorithm changes
+ * (e.g. hash function fix, tokenizer change) to trigger re-indexing
+ * of existing sparse vectors via the sentinel mismatch mechanism.
+ */
+export const SPARSE_EMBEDDING_VERSION = 2;
+
 /** Tokenize text into lowercase alphanumeric tokens (Unicode-aware). */
 function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
