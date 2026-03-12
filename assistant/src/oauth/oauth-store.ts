@@ -307,6 +307,7 @@ export function getConnectionByProvider(
 export function updateConnection(
   id: string,
   updates: Partial<{
+    oauthAppId: string;
     accountInfo: string;
     grantedScopes: string[];
     /** Pass `null` to explicitly clear a stale expiresAt in the DB. */
@@ -324,6 +325,7 @@ export function updateConnection(
   // For expiresAt, null means "clear the column" so we check for undefined
   // explicitly rather than truthiness.
   const set: Record<string, unknown> = { updatedAt: now };
+  if (updates.oauthAppId !== undefined) set.oauthAppId = updates.oauthAppId;
   if (updates.accountInfo !== undefined) set.accountInfo = updates.accountInfo;
   if (updates.grantedScopes !== undefined)
     set.grantedScopes = JSON.stringify(updates.grantedScopes);
