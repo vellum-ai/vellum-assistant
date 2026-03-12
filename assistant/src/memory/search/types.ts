@@ -7,6 +7,8 @@ export type CandidateSource =
   | "entity_relation"
   | "item_direct";
 
+export type StalenessLevel = "fresh" | "aging" | "stale" | "very_stale";
+
 export interface Candidate {
   key: string;
   type: CandidateType;
@@ -22,6 +24,8 @@ export interface Candidate {
   semantic: number;
   recency: number;
   finalScore: number;
+  tier?: 1 | 2;
+  staleness?: StalenessLevel;
 }
 
 export interface MemoryRecallCandiateDebug {
@@ -139,6 +143,7 @@ export interface ItemMetadata {
   accessCount: number;
   lastUsedAt: number | null;
   verificationState: string;
+  sourceConversationCount?: number;
 }
 
 import type { EntityRelationType, EntityType } from "../entity-extractor.js";
