@@ -47,6 +47,12 @@ export function normalizeEmbeddingInput(input: EmbeddingInput): MultimodalEmbedd
   return input;
 }
 
+/** Sparse vector representation: parallel arrays of term indices and weights. */
+export interface SparseEmbedding {
+  indices: number[];
+  values: number[];
+}
+
 export function embeddingInputContentHash(input: EmbeddingInput): string {
   const normalized = normalizeEmbeddingInput(input);
   const hash = createHash("sha256");
