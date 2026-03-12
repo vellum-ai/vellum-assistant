@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { withValidToken } from "../../../security/token-manager.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { registerAppCommands } from "./apps.js";
 import { registerProviderCommands } from "./providers.js";
 
 export function registerOAuthCommand(program: Command): void {
@@ -36,6 +37,12 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerProviderCommands(oauth);
+
+  // ---------------------------------------------------------------------------
+  // apps — subcommand group
+  // ---------------------------------------------------------------------------
+
+  registerAppCommands(oauth);
 
   // ---------------------------------------------------------------------------
   // token — return a guaranteed-valid access token
