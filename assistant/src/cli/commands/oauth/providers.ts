@@ -49,22 +49,38 @@ Each provider is identified by a provider key (e.g. "integration:gmail").`,
   providers
     .command("list")
     .description("List all registered OAuth providers")
+    .option(
+      "--provider-key <key>",
+      "Filter by provider key substring (case-insensitive)",
+    )
     .addHelpText(
       "after",
       `
-Returns all registered OAuth providers, including both built-in providers
+Returns registered OAuth providers, including both built-in providers
 seeded at startup and any dynamically registered via "providers register".
+
+When --provider-key is specified, only providers whose key contains the
+given substring (case-insensitive) are returned. Without the flag, all
+providers are listed.
 
 Each provider row includes its key, auth URL, token URL, default scopes,
 and configuration timestamps.
 
 Examples:
   $ assistant oauth providers list
-  $ assistant oauth providers list --json`,
+  $ assistant oauth providers list --provider-key gmail
+  $ assistant oauth providers list --provider-key slack --json`,
     )
-    .action((_opts: unknown, cmd: Command) => {
+    .action((opts: { providerKey?: string }, cmd: Command) => {
       try {
-        const rows = listProviders().map(parseProviderRow);
+        let rows = listProviders().map(parseProviderRow);
+
+        if (opts.providerKey) {
+          const needle = opts.providerKey.toLowerCase();
+          rows = rows.filter(
+            (r) => r && r.providerKey.toLowerCase().includes(needle),
+          );
+        }
 
         if (!shouldOutputJson(cmd)) {
           log.info(`Found ${rows.length} provider(s)`);
