@@ -265,10 +265,38 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
+let mockGitServiceRunReadOnlyGit: (
+  args: string[],
+) => Promise<{ stdout: string; stderr: string }> = async () => ({
+  stdout: "",
+  stderr: "",
+});
 mock.module("../workspace/git-service.js", () => ({
   getWorkspaceGitService: () => ({
     ensureInitialized: async () => {},
+    runReadOnlyGit: (args: string[]) => mockGitServiceRunReadOnlyGit(args),
   }),
+}));
+
+// Git hooks trust mocks
+let mockGitHooksTrustDecision: "allow" | "deny" | "ask" = "ask";
+const setGitHooksTrustDecisionMock = mock((_dir: string, _dec: string) => {});
+const detectConfiguredHooksMock = mock(async () => ({
+  hasHooks: false,
+  hookFiles: [] as string[],
+  hooksDir: "/tmp/.git/hooks",
+}));
+mock.module("../workspace/git-hooks-trust.js", () => ({
+  getGitHooksTrustDecision: (_dir: string) => mockGitHooksTrustDecision,
+  setGitHooksTrustDecision: setGitHooksTrustDecisionMock,
+  detectConfiguredHooks: detectConfiguredHooksMock,
+}));
+
+// Git hooks approval mock
+let mockGitHooksTrustApprovalResult = { approved: false };
+mock.module("../daemon/git-hooks-approval.js", () => ({
+  requestGitHooksTrustApproval: async () => mockGitHooksTrustApprovalResult,
+  GIT_HOOKS_TRUST_TOOL_NAME: "__internal:git-hooks-trust",
 }));
 
 mock.module("../daemon/session-error.js", () => ({
@@ -454,6 +482,16 @@ beforeEach(() => {
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
   recordUsageMock.mockClear();
+  mockGitHooksTrustDecision = "ask";
+  mockGitHooksTrustApprovalResult = { approved: false };
+  setGitHooksTrustDecisionMock.mockClear();
+  detectConfiguredHooksMock.mockClear();
+  detectConfiguredHooksMock.mockImplementation(async () => ({
+    hasHooks: false,
+    hookFiles: [],
+    hooksDir: "/tmp/.git/hooks",
+  }));
+  mockGitServiceRunReadOnlyGit = async () => ({ stdout: "", stderr: "" });
 });
 
 describe("session-agent-loop", () => {
@@ -1819,6 +1857,131 @@ describe("session-agent-loop", () => {
         (e) => e.type === "assistant_text_delta",
       );
       expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("git hooks trust prompt", () => {
+    test("does not prompt when workspace has no hooks configured", async () => {
+      mockGitHooksTrustDecision = "ask";
+      detectConfiguredHooksMock.mockImplementation(async () => ({
+        hasHooks: false,
+        hookFiles: [],
+        hooksDir: "/tmp/.git/hooks",
+      }));
+
+      const ctx = makeCtx({ hasNoClient: false });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // Wait a tick for the fire-and-forget promise chain to settle.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(setGitHooksTrustDecisionMock).not.toHaveBeenCalled();
+    });
+
+    test("does not prompt when trust decision is already 'allow'", async () => {
+      mockGitHooksTrustDecision = "allow";
+
+      const ctx = makeCtx({ hasNoClient: false });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(detectConfiguredHooksMock).not.toHaveBeenCalled();
+      expect(setGitHooksTrustDecisionMock).not.toHaveBeenCalled();
+    });
+
+    test("does not prompt when trust decision is already 'deny'", async () => {
+      mockGitHooksTrustDecision = "deny";
+
+      const ctx = makeCtx({ hasNoClient: false });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(detectConfiguredHooksMock).not.toHaveBeenCalled();
+      expect(setGitHooksTrustDecisionMock).not.toHaveBeenCalled();
+    });
+
+    test("does not prompt when hasNoClient is true (non-interactive)", async () => {
+      mockGitHooksTrustDecision = "ask";
+      detectConfiguredHooksMock.mockImplementation(async () => ({
+        hasHooks: true,
+        hookFiles: ["/tmp/.git/hooks/pre-commit"],
+        hooksDir: "/tmp/.git/hooks",
+      }));
+
+      const ctx = makeCtx({ hasNoClient: true });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(setGitHooksTrustDecisionMock).not.toHaveBeenCalled();
+    });
+
+    test("persists 'allow' when user approves and hooks are detected", async () => {
+      mockGitHooksTrustDecision = "ask";
+      mockGitHooksTrustApprovalResult = { approved: true };
+      detectConfiguredHooksMock.mockImplementation(async () => ({
+        hasHooks: true,
+        hookFiles: ["/tmp/.git/hooks/pre-commit"],
+        hooksDir: "/tmp/.git/hooks",
+      }));
+
+      const ctx = makeCtx({ hasNoClient: false });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // Drain the microtask queue to let the fire-and-forget chain settle.
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(setGitHooksTrustDecisionMock).toHaveBeenCalledWith(
+        "/tmp",
+        "allow",
+      );
+    });
+
+    test("persists 'deny' when user denies and hooks are detected", async () => {
+      mockGitHooksTrustDecision = "ask";
+      mockGitHooksTrustApprovalResult = { approved: false };
+      detectConfiguredHooksMock.mockImplementation(async () => ({
+        hasHooks: true,
+        hookFiles: ["/tmp/.git/hooks/pre-commit"],
+        hooksDir: "/tmp/.git/hooks",
+      }));
+
+      const ctx = makeCtx({ hasNoClient: false });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(setGitHooksTrustDecisionMock).toHaveBeenCalledWith("/tmp", "deny");
+    });
+
+    test("does not prompt again in the same session for the same workspace", async () => {
+      mockGitHooksTrustDecision = "ask";
+      detectConfiguredHooksMock.mockImplementation(async () => ({
+        hasHooks: true,
+        hookFiles: ["/tmp/.git/hooks/pre-commit"],
+        hooksDir: "/tmp/.git/hooks",
+      }));
+
+      const ctx = makeCtx({ hasNoClient: false });
+
+      // First turn — should trigger the prompt flow.
+      await runAgentLoopImpl(ctx, "turn 1", "msg-1", () => {});
+      await new Promise((r) => setTimeout(r, 10));
+
+      const firstCallCount = detectConfiguredHooksMock.mock.calls.length;
+      expect(firstCallCount).toBe(1);
+
+      // Reset the abortController for the second turn (simulating Session re-arming it).
+      ctx.abortController = new AbortController();
+      ctx.currentRequestId = "test-req-2";
+
+      // Second turn in same session — should NOT re-issue the prompt.
+      await runAgentLoopImpl(ctx, "turn 2", "msg-2", () => {});
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(detectConfiguredHooksMock.mock.calls.length).toBe(firstCallCount);
     });
   });
 });
