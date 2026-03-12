@@ -726,7 +726,6 @@ describe("Session message queue", () => {
     // msg-3 should have completed successfully
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -864,6 +863,7 @@ describe("Session checkpoint handoff", () => {
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
+      history: [],
     });
 
     // Because there is a queued message, the callback should return 'yield'
@@ -906,6 +906,7 @@ describe("Session checkpoint handoff", () => {
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
+      history: [],
     });
 
     // No queued messages → continue
@@ -948,6 +949,7 @@ describe("Session checkpoint handoff", () => {
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
+      history: [],
     });
     expect(decision).toBe("yield");
 
@@ -1001,6 +1003,7 @@ describe("Session checkpoint handoff", () => {
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
+      history: [],
     });
     expect(decision).toBe("yield");
 
@@ -1062,7 +1065,12 @@ describe("Session checkpoint handoff", () => {
     const runA = pendingRuns[0];
     expect(runA.onCheckpoint).toBeDefined();
     expect(
-      runA.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+      runA.onCheckpoint!({
+        turnIndex: 0,
+        toolCount: 1,
+        hasToolUse: true,
+        history: [],
+      }),
     ).toBe("yield");
     resolveRun(0);
     await pA;
@@ -1074,7 +1082,12 @@ describe("Session checkpoint handoff", () => {
     const runB = pendingRuns[1];
     expect(runB.onCheckpoint).toBeDefined();
     expect(
-      runB.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+      runB.onCheckpoint!({
+        turnIndex: 0,
+        toolCount: 1,
+        hasToolUse: true,
+        history: [],
+      }),
     ).toBe("yield");
     resolveRun(1);
     await waitForPendingRun(3);
@@ -1084,7 +1097,12 @@ describe("Session checkpoint handoff", () => {
     expect(runC.onCheckpoint).toBeDefined();
     // Only D remains, still should yield
     expect(
-      runC.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+      runC.onCheckpoint!({
+        turnIndex: 0,
+        toolCount: 1,
+        hasToolUse: true,
+        history: [],
+      }),
     ).toBe("yield");
     resolveRun(2);
     await waitForPendingRun(4);
@@ -1093,7 +1111,12 @@ describe("Session checkpoint handoff", () => {
     const runD = pendingRuns[3];
     expect(runD.onCheckpoint).toBeDefined();
     expect(
-      runD.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+      runD.onCheckpoint!({
+        turnIndex: 0,
+        toolCount: 1,
+        hasToolUse: true,
+        history: [],
+      }),
     ).toBe("continue");
 
     resolveRun(3);
@@ -1491,7 +1514,12 @@ describe("Session attachment event payloads", () => {
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
     expect(
-      run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+      run.onCheckpoint!({
+        turnIndex: 0,
+        toolCount: 1,
+        hasToolUse: true,
+        history: [],
+      }),
     ).toBe("yield");
 
     const assistantMsg: Message = {
@@ -1828,15 +1856,11 @@ describe("MessageQueue byte budget", () => {
     // Total ~6512 bytes. Budget of 5000 should reject.
     const q = new MessageQueue(5_000);
     expect(
-      q.push(
-        makeItem("x".repeat(1000), "r1", [{ data: "a".repeat(2000) }]),
-      ),
+      q.push(makeItem("x".repeat(1000), "r1", [{ data: "a".repeat(2000) }])),
     ).toBe(true); // first message always accepted
     // Second message of same size should be rejected
     expect(
-      q.push(
-        makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }]),
-      ),
+      q.push(makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }])),
     ).toBe(false);
   });
 });

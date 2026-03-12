@@ -1204,39 +1204,358 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
   // ── Test 6 ────────────────────────────────────────────────────────
   // Tests mid-loop budget check via onCheckpoint.
-  // Depends on PR 3 which adds token estimation to the onCheckpoint callback.
-  //
-  // After PR 3:
-  // - The onCheckpoint callback will estimate prompt tokens after each tool round
-  // - When estimate exceeds a mid-loop threshold (e.g., 85% of budget),
-  //   it returns "yield" to break the agent loop
-  // - The session-agent-loop then runs compaction on the yielded history
-  //   and re-enters the agent loop
-  //
-  // Test setup:
-  // - Mock estimatePromptTokens to return increasing values per call
-  //   (simulating growing history from tool results)
-  // - After 3 tool rounds, estimate exceeds mid-loop threshold
-  // - Assert onCheckpoint returns "yield"
-  // - Assert compaction runs on the yielded history
-  // - Assert agent loop re-enters and completes
-  test.todo(
-    "onCheckpoint yields when token estimate exceeds mid-loop budget threshold",
-    () => {},
-  );
+  // The onCheckpoint callback estimates prompt tokens after each tool round.
+  // When estimate exceeds the mid-loop threshold (85% of budget),
+  // it returns "yield" to break the agent loop.
+  // The session-agent-loop then runs compaction and re-enters the agent loop.
+  test("onCheckpoint yields when token estimate exceeds mid-loop budget threshold", async () => {
+    const events: ServerMessage[] = [];
+    let compactionCalled = false;
+
+    // estimatePromptTokens is called:
+    // 1. During preflight budget check (low value, below budget)
+    // 2. During onCheckpoint mid-loop check (high value, above 85% threshold)
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // First call: preflight check — below budget
+      if (estimateCallCount === 1) return 100_000;
+      // Subsequent calls: mid-loop check — above 85% threshold
+      return 170_000;
+    };
+
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (
+      messages,
+      onEvent,
+      _signal,
+      _requestId,
+      onCheckpoint,
+    ) => {
+      agentLoopCallCount++;
+
+      if (agentLoopCallCount === 1) {
+        // Simulate a tool round: assistant calls a tool, results come back
+        const withProgress: Message[] = [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [
+              { type: "text", text: "Let me check." },
+              {
+                type: "tool_use",
+                id: "tu-1",
+                name: "bash",
+                input: { command: "ls" },
+              },
+            ] as ContentBlock[],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tu-1",
+                content: "file1.ts\nfile2.ts",
+                is_error: false,
+              },
+            ] as ContentBlock[],
+          },
+        ];
+
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Let me check." },
+              {
+                type: "tool_use",
+                id: "tu-1",
+                name: "bash",
+                input: { command: "ls" },
+              },
+            ],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+
+        // Call onCheckpoint — this should trigger the mid-loop budget check
+        // which sees 170_000 > 161_500 and returns "yield"
+        if (onCheckpoint) {
+          const decision = onCheckpoint({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: withProgress,
+          });
+          if (decision === "yield") {
+            // Agent loop stops when checkpoint yields
+            return withProgress;
+          }
+        }
+
+        return withProgress;
+      }
+
+      // Second call (after compaction): complete successfully
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done after compaction" }],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 50,
+        outputTokens: 25,
+        model: "test-model",
+        providerDurationMs: 100,
+      });
+      return [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: "done after compaction" },
+          ] as ContentBlock[],
+        },
+      ];
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => {
+          compactionCalled = true;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Mid-loop compaction summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 80_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as AgentLoopSessionContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // The mid-loop budget check should have triggered compaction
+    expect(compactionCalled).toBe(true);
+
+    // Agent loop should have been called twice: once before yield, once after compaction
+    expect(agentLoopCallCount).toBe(2);
+
+    // No session_error should be emitted
+    const sessionError = events.find((e) => e.type === "session_error");
+    expect(sessionError).toBeUndefined();
+
+    // A context_compacted event should have been emitted
+    const compacted = events.find((e) => e.type === "context_compacted");
+    expect(compacted).toBeDefined();
+  });
 
   // ── Test 7 ────────────────────────────────────────────────────────
   // Tests that mid-loop budget check prevents context_too_large entirely.
-  // Depends on PR 3 which adds token estimation to the onCheckpoint callback.
-  //
-  // After PR 3:
-  // - Agent loop runs 5 tool calls, each adding ~10k tokens of results
-  // - After tool call 3, estimated tokens exceed mid-loop threshold
-  // - Assert that the loop yields, compaction runs, and the loop resumes
-  // - Assert that the provider NEVER rejects with context_too_large
-  //   (the mid-loop check prevents us from ever hitting the limit)
-  test.todo(
-    "mid-loop budget check prevents context_too_large when tools produce large results",
-    () => {},
-  );
+  // Agent loop runs tool calls with growing history. After the estimate
+  // exceeds the mid-loop threshold, the loop yields, compaction runs,
+  // and the loop resumes. The provider NEVER rejects with context_too_large.
+  test("mid-loop budget check prevents context_too_large when tools produce large results", async () => {
+    const events: ServerMessage[] = [];
+    let compactionCalled = false;
+
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    // Simulate token growth: preflight = 50k, then each checkpoint call
+    // returns a growing estimate. By tool call 3, we exceed the threshold.
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // First call: preflight — well below budget
+      if (estimateCallCount === 1) return 50_000;
+      // Checkpoint calls grow with each tool round
+      if (estimateCallCount === 2) return 100_000; // tool 1
+      if (estimateCallCount === 3) return 140_000; // tool 2
+      // Tool 3: exceeds 161_500 threshold
+      return 175_000;
+    };
+
+    let agentLoopCallCount = 0;
+    let contextTooLargeEmitted = false;
+
+    const agentLoopRun: AgentLoopRun = async (
+      messages,
+      onEvent,
+      _signal,
+      _requestId,
+      onCheckpoint,
+    ) => {
+      agentLoopCallCount++;
+
+      if (agentLoopCallCount === 1) {
+        const currentHistory = [...messages];
+
+        // Simulate 5 tool rounds — but the checkpoint should yield at round 3
+        for (let i = 0; i < 5; i++) {
+          const toolId = `tu-${i}`;
+          const assistantMsg: Message = {
+            role: "assistant" as const,
+            content: [
+              { type: "text", text: `Step ${i}` },
+              {
+                type: "tool_use",
+                id: toolId,
+                name: "bash",
+                input: { command: `cmd-${i}` },
+              },
+            ] as ContentBlock[],
+          };
+          const resultMsg: Message = {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: toolId,
+                content: "x".repeat(10_000),
+                is_error: false,
+              },
+            ] as ContentBlock[],
+          };
+          currentHistory.push(assistantMsg, resultMsg);
+
+          onEvent({
+            type: "message_complete",
+            message: assistantMsg,
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 50_000 + i * 20_000,
+            outputTokens: 50,
+            model: "test-model",
+            providerDurationMs: 100,
+          });
+
+          if (onCheckpoint) {
+            const decision = onCheckpoint({
+              turnIndex: i,
+              toolCount: 1,
+              hasToolUse: true,
+              history: currentHistory,
+            });
+            if (decision === "yield") {
+              return currentHistory;
+            }
+          }
+        }
+
+        return currentHistory;
+      }
+
+      // Second call (after compaction): complete
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "completed after mid-loop compaction" },
+          ],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 60_000,
+        outputTokens: 100,
+        model: "test-model",
+        providerDurationMs: 200,
+      });
+      return [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: "completed after mid-loop compaction" },
+          ] as ContentBlock[],
+        },
+      ];
+    };
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => {
+          compactionCalled = true;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 8,
+            summaryText: "Compacted large tool results",
+            previousEstimatedInputTokens: 175_000,
+            estimatedInputTokens: 60_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 15,
+            summaryCalls: 1,
+            summaryInputTokens: 800,
+            summaryOutputTokens: 300,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as AgentLoopSessionContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => {
+      events.push(msg);
+      // Track if context_too_large was ever emitted
+      if (
+        msg.type === "session_error" &&
+        "code" in msg &&
+        msg.code === "SESSION_PROCESSING_FAILED"
+      ) {
+        contextTooLargeEmitted = true;
+      }
+    });
+
+    // Compaction should have been triggered by mid-loop budget check
+    expect(compactionCalled).toBe(true);
+
+    // The provider should NEVER have rejected with context_too_large
+    expect(contextTooLargeEmitted).toBe(false);
+
+    // Agent loop called twice: once (yielded at tool 3), once after compaction
+    expect(agentLoopCallCount).toBe(2);
+
+    // No session_error
+    const sessionError = events.find((e) => e.type === "session_error");
+    expect(sessionError).toBeUndefined();
+  });
 });

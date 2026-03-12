@@ -1293,6 +1293,7 @@ describe("session-agent-loop", () => {
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
+            history: messages,
           });
           if (decision === "yield") {
             return [
@@ -1356,7 +1357,12 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          onCheckpoint({ turnIndex: 0, toolCount: 1, hasToolUse: true });
+          onCheckpoint({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: messages,
+          });
         }
         return [
           ...messages,
@@ -1418,7 +1424,12 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          onCheckpoint({ turnIndex: 0, toolCount: 1, hasToolUse: true });
+          onCheckpoint({
+            turnIndex: 0,
+            toolCount: 1,
+            hasToolUse: true,
+            history: messages,
+          });
         }
         return [
           ...messages,

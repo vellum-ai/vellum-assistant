@@ -35,6 +35,7 @@ export interface CheckpointInfo {
   turnIndex: number;
   toolCount: number;
   hasToolUse: boolean;
+  history: Message[]; // current history snapshot for token estimation
 }
 
 export type CheckpointDecision = "continue" | "yield";
@@ -561,6 +562,7 @@ export class AgentLoop {
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
             toolCount: toolUseBlocks.length,
             hasToolUse: true,
+            history,
           });
           if (decision === "yield") {
             break;

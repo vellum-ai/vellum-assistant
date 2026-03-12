@@ -13,6 +13,7 @@ import type {
   AgentEvent,
   AgentLoop,
   CheckpointDecision,
+  CheckpointInfo,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -796,7 +797,9 @@ export async function runAgentLoopImpl(
     const eventHandler = (event: AgentEvent) =>
       dispatchAgentEvent(state, deps, event);
 
-    const onCheckpoint = (): CheckpointDecision => {
+    let yieldedForBudget = false;
+
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       const turnTools = state.currentTurnToolNames;
       state.currentTurnToolNames = [];
 
@@ -809,6 +812,26 @@ export async function runAgentLoopImpl(
           return "yield";
         }
       }
+
+      // Mid-loop token budget check: estimate current context size and
+      // yield if we're approaching the preflight budget. This lets the
+      // session-agent-loop run compaction before the provider rejects.
+      if (overflowRecovery.enabled) {
+        const midLoopThreshold = preflightBudget * 0.85;
+        const estimated = estimatePromptTokens(
+          checkpoint.history,
+          ctx.systemPrompt,
+        );
+        if (estimated > midLoopThreshold) {
+          rlog.warn(
+            { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+            "Token estimate approaching budget — yielding for compaction",
+          );
+          yieldedForBudget = true;
+          return "yield";
+        }
+      }
+
       return "continue";
     };
 
@@ -823,6 +846,106 @@ export async function runAgentLoopImpl(
       reqId,
       onCheckpoint,
     );
+
+    // ── Proactive mid-loop compaction ───────────────────────────────
+    // When the agent loop yielded because the token budget check in
+    // onCheckpoint detected approaching limits, run compaction on the
+    // accumulated history and re-enter the agent loop. This is distinct
+    // from the reactive convergence loop below that fires after a
+    // provider rejection — here we compact *before* hitting the limit.
+    while (
+      yieldedForBudget &&
+      !state.contextTooLargeDetected &&
+      !abortController.signal.aborted
+    ) {
+      yieldedForBudget = false;
+
+      rlog.info(
+        { phase: "mid-loop-compact" },
+        "Running compaction after checkpoint yield",
+      );
+
+      // Strip injected context from updated history before compacting,
+      // so we compact the "raw" persistent messages.
+      const rawHistory = stripInjectedContext(updatedHistory, {
+        stripRecall: (msgs) =>
+          stripMemoryRecallMessages(
+            msgs,
+            recall.injectedText,
+            "separate_context_message",
+          ),
+      });
+      ctx.messages = rawHistory;
+
+      ctx.emitActivityState(
+        "thinking",
+        "thinking_delta",
+        "assistant_turn",
+        reqId,
+        "Compacting context",
+      );
+      const midLoopCompact = await ctx.contextWindowManager.maybeCompact(
+        ctx.messages,
+        abortController.signal,
+        {
+          lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+          force: true,
+          targetInputTokensOverride: preflightBudget,
+        },
+      );
+      if (midLoopCompact.compacted) {
+        ctx.messages = midLoopCompact.messages;
+        ctx.contextCompactedMessageCount +=
+          midLoopCompact.compactedPersistedMessages;
+        ctx.contextCompactedAt = Date.now();
+        updateConversationContextWindow(
+          ctx.conversationId,
+          midLoopCompact.summaryText,
+          ctx.contextCompactedMessageCount,
+        );
+        onEvent({
+          type: "context_compacted",
+          previousEstimatedInputTokens:
+            midLoopCompact.previousEstimatedInputTokens,
+          estimatedInputTokens: midLoopCompact.estimatedInputTokens,
+          maxInputTokens: midLoopCompact.maxInputTokens,
+          thresholdTokens: midLoopCompact.thresholdTokens,
+          compactedMessages: midLoopCompact.compactedMessages,
+          summaryCalls: midLoopCompact.summaryCalls,
+          summaryInputTokens: midLoopCompact.summaryInputTokens,
+          summaryOutputTokens: midLoopCompact.summaryOutputTokens,
+          summaryModel: midLoopCompact.summaryModel,
+        });
+        emitUsage(
+          ctx,
+          midLoopCompact.summaryInputTokens,
+          midLoopCompact.summaryOutputTokens,
+          midLoopCompact.summaryModel,
+          onEvent,
+          "context_compactor",
+          reqId,
+          midLoopCompact.summaryCacheCreationInputTokens ?? 0,
+          midLoopCompact.summaryCacheReadInputTokens ?? 0,
+          collapseRawResponses(midLoopCompact.summaryRawResponses),
+        );
+      }
+
+      // Re-inject runtime context and re-enter the agent loop
+      runMessages = applyRuntimeInjections(ctx.messages, {
+        ...injectionOpts,
+        mode: currentInjectionMode,
+      });
+      preRepairMessages = runMessages;
+      preRunHistoryLength = runMessages.length;
+
+      updatedHistory = await ctx.agentLoop.run(
+        runMessages,
+        eventHandler,
+        abortController.signal,
+        reqId,
+        onCheckpoint,
+      );
+    }
 
     // One-shot ordering error retry
     if (
