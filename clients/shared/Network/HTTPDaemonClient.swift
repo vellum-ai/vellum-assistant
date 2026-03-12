@@ -247,6 +247,7 @@ public final class HTTPTransport {
     enum Endpoint {
         case healthz
         case events(conversationKey: String)
+        case eventsAll  // SSE subscription without conversationKey filter
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
@@ -458,6 +459,8 @@ public final class HTTPTransport {
         case .events(let conversationKey):
             let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
             return ("/v1/events", "conversationKey=\(encoded)")
+        case .eventsAll:
+            return ("/v1/events", nil)
         case .sendMessage:
             return ("/v1/messages", nil)
         case .getMessages(let conversationId):
@@ -840,6 +843,8 @@ public final class HTTPTransport {
         case .events(let conversationKey):
             let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
             return ("\(prefix)/events/", "conversationKey=\(encoded)")
+        case .eventsAll:
+            return ("\(prefix)/events/", nil)
         case .sendMessage:
             return ("\(prefix)/messages/", nil)
         case .getMessages(let conversationId):
@@ -1336,8 +1341,8 @@ public final class HTTPTransport {
     private func startSSEStream() {
         sseTask?.cancel()
 
-        guard let url = buildURL(for: .events(conversationKey: self.conversationKey)) else {
-            log.error("Invalid SSE URL for conversationKey: \(self.conversationKey)")
+        guard let url = buildURL(for: .eventsAll) else {
+            log.error("Invalid SSE URL for unfiltered events")
             return
         }
 
@@ -1569,7 +1574,7 @@ public final class HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = [
-            "conversationKey": conversationKey,
+            "conversationKey": sessionId,
             "sourceChannel": sourceChannel,
             "interface": Self.defaultInterface
         ]
@@ -1588,6 +1593,16 @@ public final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
+                // Learn the server's conversationId for this thread's conversationKey.
+                // For new threads, the sessionId (used as conversationKey) differs from
+                // the server's internal conversationId. Store the mapping so parseSSEData
+                // can remap incoming events to the client's local session ID.
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let serverConvId = json["conversationId"] as? String,
+                   serverConvId != sessionId {
+                    self.serverToLocalSessionMap[serverConvId] = sessionId
+                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(sessionId, privacy: .public)")
+                }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
