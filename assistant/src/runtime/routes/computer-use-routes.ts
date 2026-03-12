@@ -1,7 +1,7 @@
 /**
  * HTTP route handlers for computer use session lifecycle.
  *
- * These endpoints expose CU session management, ride-shotgun, and watch
+ * These endpoints expose CU session management and watch
  * observation functionality over HTTP.
  *
  * All CU write operations require the `chat.write` scope.
@@ -37,27 +37,6 @@ export interface ComputerUseDeps {
   sharedRequestTimestamps: number[];
   /** Sequence tracker for CU observations (per session). */
   cuObservationParseSequence: Map<string, number>;
-  /** Handle a ride-shotgun start request. Returns watchId and sessionId. */
-  handleRideShotgunStart: (params: {
-    durationSeconds: number;
-    intervalSeconds: number;
-    mode?: "observe" | "learn";
-    targetDomain?: string;
-    navigateDomain?: string;
-    autoNavigate?: boolean;
-  }) => Promise<{ watchId: string; sessionId: string }>;
-  /** Handle a ride-shotgun stop request. */
-  handleRideShotgunStop: (watchId: string) => Promise<void>;
-  /** Get ride-shotgun session status by watchId. */
-  getRideShotgunStatus: (watchId: string) =>
-    | {
-        status: "active" | "completing" | "completed" | "cancelled";
-        sessionId: string;
-        recordingId?: string;
-        savedRecordingPath?: string;
-        bootstrapFailureReason?: string;
-      }
-    | undefined;
   /** Handle a watch observation. */
   handleWatchObservation: (params: {
     watchId: string;
@@ -395,120 +374,6 @@ async function handleTaskSubmit(
 }
 
 /**
- * POST /v1/computer-use/ride-shotgun/start — start a ride-shotgun session.
- *
- * Body: { durationSeconds, intervalSeconds, mode?, targetDomain?, navigateDomain?, autoNavigate? }
- */
-async function handleRideShotgunStartRoute(
-  req: Request,
-  deps: ComputerUseDeps,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    durationSeconds?: number;
-    intervalSeconds?: number;
-    mode?: "observe" | "learn";
-    targetDomain?: string;
-    navigateDomain?: string;
-    autoNavigate?: boolean;
-  };
-
-  const {
-    durationSeconds,
-    intervalSeconds,
-    mode,
-    targetDomain,
-    navigateDomain,
-    autoNavigate,
-  } = body;
-
-  if (typeof durationSeconds !== "number" || durationSeconds <= 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "durationSeconds must be a positive number",
-      400,
-    );
-  }
-  if (typeof intervalSeconds !== "number" || intervalSeconds <= 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "intervalSeconds must be a positive number",
-      400,
-    );
-  }
-
-  try {
-    const result = await deps.handleRideShotgunStart({
-      durationSeconds,
-      intervalSeconds,
-      mode,
-      targetDomain,
-      navigateDomain,
-      autoNavigate,
-    });
-
-    log.info(
-      {
-        watchId: result.watchId,
-        sessionId: result.sessionId,
-        durationSeconds,
-        mode,
-      },
-      "Ride shotgun started via HTTP",
-    );
-
-    return Response.json(result, { status: 201 });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to start ride shotgun via HTTP");
-    return httpError("INTERNAL_ERROR", message, 500);
-  }
-}
-
-/**
- * POST /v1/computer-use/ride-shotgun/stop — stop a ride-shotgun session.
- *
- * Body: { watchId }
- */
-async function handleRideShotgunStopRoute(
-  req: Request,
-  deps: ComputerUseDeps,
-): Promise<Response> {
-  const body = (await req.json()) as { watchId?: string };
-
-  if (!body.watchId || typeof body.watchId !== "string") {
-    return httpError("BAD_REQUEST", "watchId is required", 400);
-  }
-
-  try {
-    await deps.handleRideShotgunStop(body.watchId);
-
-    log.info({ watchId: body.watchId }, "Ride shotgun stopped via HTTP");
-    return Response.json({ ok: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, watchId: body.watchId },
-      "Failed to stop ride shotgun via HTTP",
-    );
-    return httpError("INTERNAL_ERROR", message, 500);
-  }
-}
-
-/**
- * GET /v1/computer-use/ride-shotgun/status/:watchId — get ride-shotgun session status.
- */
-function handleRideShotgunStatusRoute(
-  watchId: string,
-  deps: ComputerUseDeps,
-): Response {
-  const status = deps.getRideShotgunStatus(watchId);
-  if (!status) {
-    return httpError("NOT_FOUND", "Session not found", 404);
-  }
-  return Response.json(status);
-}
-
-/**
  * POST /v1/computer-use/watch — send a watch observation.
  *
  * Body: { watchId, sessionId, ocrText, appName?, windowTitle?,
@@ -611,25 +476,6 @@ export function computerUseRouteDefinitions(deps: {
       method: "POST",
       policyKey: "computer-use/tasks",
       handler: async ({ req }) => handleTaskSubmit(req, getDeps()),
-    },
-    {
-      endpoint: "computer-use/ride-shotgun/start",
-      method: "POST",
-      policyKey: "computer-use/ride-shotgun/start",
-      handler: async ({ req }) => handleRideShotgunStartRoute(req, getDeps()),
-    },
-    {
-      endpoint: "computer-use/ride-shotgun/stop",
-      method: "POST",
-      policyKey: "computer-use/ride-shotgun/stop",
-      handler: async ({ req }) => handleRideShotgunStopRoute(req, getDeps()),
-    },
-    {
-      endpoint: "computer-use/ride-shotgun/status/:watchId",
-      method: "GET",
-      policyKey: "computer-use/ride-shotgun/status",
-      handler: ({ params }) =>
-        handleRideShotgunStatusRoute(params.watchId, getDeps()),
     },
     {
       endpoint: "computer-use/watch",

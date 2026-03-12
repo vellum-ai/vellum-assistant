@@ -154,7 +154,7 @@ function getJson(cmd: Command): boolean {
 
 const SESSION_EXPIRED_MSG =
   "Your DoorDash session has expired. Please sign in to DoorDash in Chrome — " +
-  "the assistant will use Ride Shotgun to capture your session automatically.";
+  "the assistant will capture your session automatically.";
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
@@ -196,11 +196,11 @@ export function registerDoordashCommand(program: Command): void {
     });
 
   // =========================================================================
-  // refresh — start Ride Shotgun learn to capture fresh cookies
+  // refresh — capture fresh cookies via browser recording
   // =========================================================================
   dd.command("refresh")
     .description(
-      "Start a Ride Shotgun learn session to capture fresh DoorDash cookies. " +
+      "Capture fresh DoorDash cookies via browser recording. " +
         "Opens doordash.com in a separate Chrome window — sign in when prompted. " +
         "Your existing Chrome and tabs are not affected.",
     )
@@ -1014,7 +1014,7 @@ export function registerDoordashCommand(program: Command): void {
 }
 
 // ---------------------------------------------------------------------------
-// Ride Shotgun learn session helper
+// Learn session helper
 // ---------------------------------------------------------------------------
 
 interface LearnResult {
@@ -1029,7 +1029,7 @@ async function startLearnSession(
     startUrl: "https://www.doordash.com/consumer/login/",
   });
 
-  // Step 2: Start ride-shotgun learn session via HTTP
+  // Step 2: Start learn session via HTTP
   const port = getHttpPort();
   const baseUrl = buildDaemonUrl(port);
   const token = readHttpToken();
@@ -1058,7 +1058,7 @@ async function startLearnSession(
   if (!startResponse.ok) {
     const errorBody = await startResponse.text();
     throw new Error(
-      `Failed to start ride-shotgun session (HTTP ${startResponse.status}): ${errorBody}`,
+      `Failed to start learn session (HTTP ${startResponse.status}): ${errorBody}`,
     );
   }
 
@@ -1068,7 +1068,7 @@ async function startLearnSession(
   };
 
   if (!startResult.watchId) {
-    throw new Error("Ride-shotgun start response missing watchId");
+    throw new Error("Learn session start response missing watchId");
   }
 
   // Step 3: Poll session status endpoint for completion or failure, then

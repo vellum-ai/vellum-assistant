@@ -37,7 +37,10 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "user.send_notification",
     description: "User-initiated notification via assistant tool",
   },
-  { id: "schedule.notify", description: "Scheduled notification triggered (one-shot or recurring)" },
+  {
+    id: "schedule.notify",
+    description: "Scheduled notification triggered (one-shot or recurring)",
+  },
   { id: "schedule.complete", description: "Scheduled task finished running" },
   {
     id: "guardian.question",
@@ -88,10 +91,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
   {
     id: "voice.response_ready",
     description: "Voice response ready for playback",
-  },
-  {
-    id: "ride_shotgun.invitation",
-    description: "Invitation to ride shotgun on a session",
   },
 ] as const;
 

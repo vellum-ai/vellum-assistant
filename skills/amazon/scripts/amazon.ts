@@ -44,7 +44,7 @@ function outputError(message: string, code = 1): void {
 
 const SESSION_EXPIRED_MSG =
   "Your Amazon session has expired. Please sign in to Amazon in Chrome \u2014 " +
-  "the assistant will use Ride Shotgun to capture your session automatically.";
+  "the assistant will capture your session automatically.";
 
 async function run(fn: () => Promise<unknown>): Promise<void> {
   try {

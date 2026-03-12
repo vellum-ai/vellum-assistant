@@ -351,11 +351,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     title: "Voice Response",
     body: str(payload.preview, "A voice response is ready"),
   }),
-
-  "ride_shotgun.invitation": (payload) => ({
-    title: "Ride Shotgun",
-    body: str(payload.message, "You have been invited to ride shotgun"),
-  }),
 };
 
 /**

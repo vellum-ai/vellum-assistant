@@ -23,7 +23,7 @@ All Amazon interaction goes through the bundled scripts below, not browser autom
 
 When the user asks you to order something from Amazon:
 
-1. **Check session** — run `bun run {baseDir}/scripts/amazon.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the Amazon login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `bun run {baseDir}/scripts/amazon.ts refresh --json`. This starts a Ride Shotgun learn session that records your login and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
+1. **Check session** — run `bun run {baseDir}/scripts/amazon.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the Amazon login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `bun run {baseDir}/scripts/amazon.ts refresh --json`. This captures your session via the browser extension and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
 
 2. **Search** — run `bun run {baseDir}/scripts/amazon.ts search "<query>" --json` to find matching products. Present the top results with ASIN, title, price, and Prime status. If the user named a specific product, pick the best match. If ambiguous, ask.
 

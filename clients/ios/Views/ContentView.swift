@@ -69,46 +69,6 @@ struct ContentView: View {
         .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
             threadStore.rebindDaemonClient(clientProvider.client)
         }
-        // Ride Shotgun invitation sheet
-        .sheet(isPresented: $ambientAgent.showInvitation) {
-            RideShotgunInvitationSheet(
-                onAccept: {
-                    ambientAgent.acceptInvitation(daemonClient: clientProvider.client)
-                },
-                onDecline: {
-                    ambientAgent.declineInvitation()
-                }
-            )
-        }
-        // Progress sheet while the session is running
-        .sheet(item: $ambientAgent.activeSession, onDismiss: {
-            // Sheet dragged away — treat as cancel only if still in an
-            // interruptible state (interactiveDismissDisabled prevents this
-            // for most states but we guard here for safety).
-            ambientAgent.cancelSession()
-        }) { session in
-            RideShotgunProgressSheet(
-                session: session,
-                onStop: { ambientAgent.cancelSession() },
-                onStopEarly: { ambientAgent.stopSessionEarly() }
-            )
-        }
-        // Summary sheet after session completes
-        .sheet(item: $ambientAgent.completedSummary) { summary in
-            RideShotgunSummarySheet(
-                summary: summary,
-                onDismiss: {
-                    ambientAgent.completedSummary = nil
-                },
-                onStartChat: { summaryText in
-                    ambientAgent.completedSummary = nil
-                    selectedTab = .chats
-                    // Buffer the summary text as a pending deep-link message so
-                    // the active ChatViewModel picks it up when the tab appears.
-                    DeepLinkManager.pendingMessage = summaryText
-                }
-            )
-        }
     }
 
     private func navigateToConnectSettings() {

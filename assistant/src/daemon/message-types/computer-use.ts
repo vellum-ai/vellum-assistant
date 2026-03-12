@@ -1,4 +1,4 @@
-// Computer use, task routing, ride shotgun, and watch observation types.
+// Computer use, task routing, and watch observation types.
 
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
@@ -53,22 +53,6 @@ export interface TaskSubmit {
   source?: "voice" | "text";
   /** Structured command intent — bypasses text parsing when present. */
   commandIntent?: CommandIntent;
-}
-
-export interface RideShotgunStart {
-  type: "ride_shotgun_start";
-  durationSeconds: number;
-  intervalSeconds: number;
-  mode?: "observe" | "learn";
-  targetDomain?: string;
-  /** Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com). */
-  navigateDomain?: string;
-  autoNavigate?: boolean;
-}
-
-export interface RideShotgunStop {
-  type: "ride_shotgun_stop";
-  watchId: string;
 }
 
 export interface WatchObservation {
@@ -178,25 +162,6 @@ export interface TaskRouted {
   escalatedFrom?: string;
 }
 
-export interface RideShotgunProgress {
-  type: "ride_shotgun_progress";
-  watchId: string;
-  message: string;
-  networkEntryCount?: number;
-  statusMessage?: string;
-  idleHint?: boolean;
-}
-
-export interface RideShotgunResult {
-  type: "ride_shotgun_result";
-  sessionId: string;
-  watchId: string;
-  summary: string;
-  observationCount: number;
-  recordingId?: string;
-  recordingPath?: string;
-}
-
 export interface WatchStarted {
   type: "watch_started";
   sessionId: string;
@@ -211,14 +176,6 @@ export interface WatchCompleteRequest {
   watchId: string;
 }
 
-/** Server → Client: bootstrap failure during learn-mode recording setup. */
-export interface RideShotgunError {
-  type: "ride_shotgun_error";
-  watchId: string;
-  sessionId: string;
-  message: string;
-}
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ComputerUseClientMessages =
@@ -226,8 +183,6 @@ export type _ComputerUseClientMessages =
   | CuSessionAbort
   | CuObservation
   | TaskSubmit
-  | RideShotgunStart
-  | RideShotgunStop
   | WatchObservation
   | RecordingStatus;
 
@@ -236,9 +191,6 @@ export type _ComputerUseServerMessages =
   | CuComplete
   | CuError
   | TaskRouted
-  | RideShotgunProgress
-  | RideShotgunResult
-  | RideShotgunError
   | WatchStarted
   | WatchCompleteRequest
   | RecordingStart

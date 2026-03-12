@@ -13,7 +13,6 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 | Service | Type | Purpose |
 |---------|------|---------|
 | `daemonClient` | `DaemonClient` | HTTP+SSE to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
-| `ambientAgent` | `AmbientAgent` | Coordinates Ride Shotgun trigger, session, and floating windows |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
 | `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
@@ -282,75 +281,6 @@ sequenceDiagram
     Note over Daemon: uploadFileBackedAttachment<br/>linkAttachmentToMessage
     Daemon->>Client: assistant_text_delta + message_complete { attachments }
 ```
-
----
-
-## Ride Shotgun — Detailed Data Flow
-
-The Ride Shotgun system replaces the legacy ambient suggestion pipeline. Instead of continuously observing and generating suggestions, it uses a timer-based invitation model: after eligibility checks pass, the user is invited to a time-boxed observation session. Captures are sent to the daemon for analysis, and a summary is presented at the end.
-
-```mermaid
-sequenceDiagram
-    participant Trigger as RideShotgunTrigger<br/>(1-min timer)
-    participant Agent as AmbientAgent
-    participant InviteWin as RideShotgunInvitationWindow
-    participant Session as RideShotgunSession
-    participant WS as WatchSession
-    participant AXC as AmbientAXCapture
-    participant OCR as ScreenOCR
-    participant DC as DaemonClient
-    participant Daemon as Daemon
-    participant ProgressWin as RideShotgunProgressWindow
-    participant SummaryWin as RideShotgunSummaryWindow
-
-    Trigger->>Trigger: evaluate() every 60s
-    Note over Trigger: Eligibility checks:<br/>≥15 min since launch<br/><3 auto-offer sessions<br/>24h cooldown after decline/complete
-
-    Trigger->>Agent: shouldShowInvitation = true
-    Agent->>InviteWin: show invitation
-
-    alt User accepts
-        InviteWin->>Agent: accepted
-        Agent->>Session: start(daemonClient)
-        Agent->>ProgressWin: show progress
-
-        Session->>WS: start (timed capture loop)
-
-        loop Until duration expires
-            alt AX Capture (preferred)
-                WS->>AXC: capture()
-                Note over AXC: Shallow tree (depth 4, max 50)<br/>Filter decoration roles<br/>Capture focused element
-                AXC-->>WS: screen content text
-            else Screenshot + OCR (fallback)
-                WS->>OCR: recognizeText(screenshot)
-                Note over OCR: Vision VNRecognizeTextRequest<br/>accurate + language correction
-                OCR-->>WS: recognized text
-            end
-
-            WS-->>Session: observation data
-            Session->>DC: send observation via HTTP
-            DC->>Daemon: process observation
-            Daemon-->>DC: result
-            DC-->>Session: observation processed
-            Session-->>ProgressWin: update (elapsed, captures, app)
-        end
-
-        Session->>Session: summarizing
-        Session->>DC: request summary via HTTP
-        Daemon-->>DC: summary text
-        DC-->>Session: summary
-        Session-->>Agent: state = .complete
-        Agent->>SummaryWin: show summary
-        Agent->>ProgressWin: close
-    else User declines
-        InviteWin->>Agent: declined
-        Agent->>Trigger: recordDecline()
-        Note over Trigger: 24h cooldown starts
-    end
-```
-
----
-
 
 ---
 

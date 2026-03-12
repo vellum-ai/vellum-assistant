@@ -55,7 +55,6 @@ import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migratio
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { migrateKeys } from "../security/credential-key.js";
-import { watchSessions } from "../tools/watch/watch-state.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -95,10 +94,6 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
-import {
-  handleRideShotgunStart,
-  handleRideShotgunStop,
-} from "./ride-shotgun-handler.js";
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { initSlashPairingContext } from "./session-slash.js";
@@ -507,58 +502,6 @@ export async function runDaemon(): Promise<void> {
           cuSessions: ctx.cuSessions,
           sharedRequestTimestamps: ctx.sharedRequestTimestamps,
           cuObservationParseSequence: ctx.cuObservationParseSequence,
-          handleRideShotgunStart: async (params) => {
-            // The handler generates its own watchId/sessionId and
-            // sends them via ctx.send as a watch_started message.
-            // We intercept send to capture the IDs before they broadcast.
-            let capturedWatchId = "";
-            let capturedSessionId = "";
-            const interceptCtx = {
-              ...ctx,
-              send: (msg: ServerMessage) => {
-                if (
-                  "type" in msg &&
-                  msg.type === "watch_started" &&
-                  "watchId" in msg &&
-                  "sessionId" in msg
-                ) {
-                  capturedWatchId = (msg as { watchId: string }).watchId;
-                  capturedSessionId = (msg as { sessionId: string }).sessionId;
-                }
-                ctx.send(msg);
-              },
-            };
-            await handleRideShotgunStart(
-              {
-                type: "ride_shotgun_start",
-                durationSeconds: params.durationSeconds,
-                intervalSeconds: params.intervalSeconds,
-                mode: params.mode,
-                targetDomain: params.targetDomain,
-                navigateDomain: params.navigateDomain,
-                autoNavigate: params.autoNavigate,
-              },
-              interceptCtx,
-            );
-            return { watchId: capturedWatchId, sessionId: capturedSessionId };
-          },
-          handleRideShotgunStop: async (watchId) => {
-            await handleRideShotgunStop(
-              { type: "ride_shotgun_stop", watchId },
-              ctx,
-            );
-          },
-          getRideShotgunStatus: (watchId) => {
-            const session = watchSessions.get(watchId);
-            if (!session) return undefined;
-            return {
-              status: session.status,
-              sessionId: session.sessionId,
-              recordingId: session.recordingId,
-              savedRecordingPath: session.savedRecordingPath,
-              bootstrapFailureReason: session.bootstrapFailureReason,
-            };
-          },
           handleWatchObservation: async (params) => {
             await handleWatchObservation(
               {
