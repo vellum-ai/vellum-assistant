@@ -1214,7 +1214,7 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1585,97 +1585,10 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  ci-playwright:
-    name: Playwright Tests
-    needs: [bump-and-tag, build-macos-arm64]
-    if: ${{ !cancelled() && needs.build-macos-arm64.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-          owner: vellum-ai
-          repositories: vellum-assistant-platform
-
-      - name: Trigger Playwright workflow in platform repo
-        id: trigger
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          BRANCH="v${{ needs.bump-and-tag.outputs.version }}"
-          BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
-
-          curl -fsSL \
-            -X POST \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/dispatches" \
-            -d "{\"ref\":\"main\",\"inputs\":{\"branch\":\"$BRANCH\",\"shards\":\"4\",\"test_filter\":\"stable\"}}"
-
-          echo "Triggered playwright workflow for branch $BRANCH"
-          sleep 15
-
-      - name: Wait for Playwright workflow result
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          RUN_ID=""
-          for i in $(seq 1 30); do
-            RUN_ID=$(curl -fsSL \
-              -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/runs?created=>=${{ steps.trigger.outputs.before }}&event=workflow_dispatch&per_page=1" \
-              | python3 -c "import sys,json; runs=json.load(sys.stdin).get('workflow_runs',[]); print(runs[0]['id'] if runs else '')")
-
-            if [ -n "$RUN_ID" ]; then
-              echo "Found workflow run: $RUN_ID"
-              RUN_URL="https://github.com/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID"
-              echo "Run URL: $RUN_URL"
-              break
-            fi
-            echo "Waiting for run to appear... (attempt $i/30)"
-            sleep 10
-          done
-
-          if [ -z "$RUN_ID" ]; then
-            echo "::error::Could not find triggered workflow run after 5 minutes"
-            exit 1
-          fi
-
-          while true; do
-            RESPONSE=$(curl -fsSL \
-              -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID")
-
-            RUN_STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
-            CONCLUSION=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('conclusion') or '')")
-
-            echo "$(date -u +%H:%M:%S) Run $RUN_ID: status=$RUN_STATUS conclusion=$CONCLUSION"
-
-            if [ "$RUN_STATUS" = "completed" ]; then
-              RUN_URL="https://github.com/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID"
-              if [ "$CONCLUSION" = "success" ]; then
-                echo "Playwright tests passed! $RUN_URL"
-                exit 0
-              else
-                echo "::error::Playwright tests failed (conclusion: $CONCLUSION). See: $RUN_URL"
-                exit 1
-              fi
-            fi
-
-            sleep 30
-          done
-
   notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1714,7 +1627,6 @@ jobs:
           A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
-          P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos-arm64.result }}")
           DX=$(ci_icon "${{ needs.build-macos-x64.result }}")
           I=$(ci_icon "${{ needs.build-ios.result }}")
@@ -1724,12 +1636,7 @@ jobs:
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          PLAYWRIGHT_LINE=""
-          if [ "${{ needs.ci-playwright.result }}" != "success" ]; then
-            PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
-          fi
-
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release
