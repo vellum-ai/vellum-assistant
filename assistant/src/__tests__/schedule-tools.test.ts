@@ -61,6 +61,11 @@ const ctx: ToolContext = {
   trustClass: "guardian",
 };
 
+const trustedCtx: ToolContext = {
+  ...ctx,
+  trustClass: "trusted_contact",
+};
+
 // ── schedule_create ─────────────────────────────────────────────────
 
 describe("schedule_create tool", () => {
@@ -168,6 +173,20 @@ describe("schedule_create tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Invalid cron expression");
+  });
+
+  test("rejects non-guardian actors", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Blocked schedule",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      trustedCtx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("restricted to guardian actors");
   });
 });
 
@@ -679,6 +698,19 @@ describe("schedule_update tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Invalid cron expression");
+  });
+
+  test("rejects non-guardian actors", async () => {
+    const result = await executeScheduleUpdate(
+      {
+        job_id: "nonexistent-id",
+        message: "injected",
+      },
+      trustedCtx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("restricted to guardian actors");
   });
 });
 
