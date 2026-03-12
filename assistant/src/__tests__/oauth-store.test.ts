@@ -34,6 +34,8 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
   setSecureKeyAsync: mockSetSecureKeyAsync,
   getSecureKey: (account: string) => secureKeyValues.get(account),
+  getSecureKeyAsync: (account: string) =>
+    Promise.resolve(secureKeyValues.get(account)),
 }));
 
 import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
@@ -279,12 +281,17 @@ describe("app operations", () => {
 
     test("stores clientSecret in secure storage on new app creation", async () => {
       seedTestProvider("github");
-      const app = await upsertApp("github", "client-abc", "my-secret");
+      const app = await upsertApp("github", "client-abc", {
+        clientSecretValue: "my-secret",
+      });
 
       expect(mockSetSecureKeyAsync).toHaveBeenCalledTimes(1);
       expect(mockSetSecureKeyAsync).toHaveBeenCalledWith(
         `oauth_app/${app.id}/client_secret`,
         "my-secret",
+      );
+      expect(app.clientSecretCredentialPath).toBe(
+        `oauth_app/${app.id}/client_secret`,
       );
     });
 
@@ -293,11 +300,13 @@ describe("app operations", () => {
       const first = await upsertApp("github", "client-abc");
       mockSetSecureKeyAsync.mockClear();
 
-      await upsertApp("github", "client-abc", "updated-secret");
+      await upsertApp("github", "client-abc", {
+        clientSecretValue: "updated-secret",
+      });
 
       expect(mockSetSecureKeyAsync).toHaveBeenCalledTimes(1);
       expect(mockSetSecureKeyAsync).toHaveBeenCalledWith(
-        `oauth_app/${first.id}/client_secret`,
+        first.clientSecretCredentialPath,
         "updated-secret",
       );
     });
@@ -307,8 +316,69 @@ describe("app operations", () => {
       mockSetSecureKeyAsync.mockResolvedValueOnce(false);
 
       await expect(
-        upsertApp("github", "client-abc", "bad-secret"),
+        upsertApp("github", "client-abc", { clientSecretValue: "bad-secret" }),
       ).rejects.toThrow("Failed to store client_secret in secure storage");
+    });
+
+    test("accepts clientSecretCredentialPath and verifies existence", async () => {
+      seedTestProvider("github");
+      secureKeyValues.set("custom/path", "stored-secret");
+
+      const app = await upsertApp("github", "client-abc", {
+        clientSecretCredentialPath: "custom/path",
+      });
+
+      expect(app.clientSecretCredentialPath).toBe("custom/path");
+      // Should not have called setSecureKeyAsync since we only provided a path
+      expect(mockSetSecureKeyAsync).not.toHaveBeenCalled();
+    });
+
+    test("throws when clientSecretCredentialPath points to nonexistent secret", async () => {
+      seedTestProvider("github");
+
+      await expect(
+        upsertApp("github", "client-abc", {
+          clientSecretCredentialPath: "nonexistent/path",
+        }),
+      ).rejects.toThrow("No secret found at credential path: nonexistent/path");
+    });
+
+    test("throws when both clientSecretValue and clientSecretCredentialPath are provided", async () => {
+      seedTestProvider("github");
+
+      await expect(
+        upsertApp("github", "client-abc", {
+          clientSecretValue: "my-secret",
+          clientSecretCredentialPath: "custom/path",
+        }),
+      ).rejects.toThrow(
+        "Cannot provide both clientSecretValue and clientSecretCredentialPath",
+      );
+    });
+
+    test("records default clientSecretCredentialPath when neither value nor path is provided", async () => {
+      seedTestProvider("github");
+      const app = await upsertApp("github", "client-abc");
+
+      expect(app.clientSecretCredentialPath).toBe(
+        `oauth_app/${app.id}/client_secret`,
+      );
+    });
+
+    test("updates clientSecretCredentialPath on existing row when path is provided", async () => {
+      seedTestProvider("github");
+      const first = await upsertApp("github", "client-abc");
+      expect(first.clientSecretCredentialPath).toBe(
+        `oauth_app/${first.id}/client_secret`,
+      );
+
+      secureKeyValues.set("new/custom/path", "stored-secret");
+      const updated = await upsertApp("github", "client-abc", {
+        clientSecretCredentialPath: "new/custom/path",
+      });
+
+      expect(updated.id).toBe(first.id);
+      expect(updated.clientSecretCredentialPath).toBe("new/custom/path");
     });
   });
 
@@ -353,14 +423,29 @@ describe("app operations", () => {
       expect(getApp(app.id)).toBeUndefined();
     });
 
-    test("cleans up client_secret from secure storage", async () => {
+    test("cleans up client_secret from secure storage using stored path", async () => {
       const app = await createTestApp("github", "client-1");
       mockDeleteSecureKeyAsync.mockClear();
 
       await deleteApp(app.id);
 
       expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
-        `oauth_app/${app.id}/client_secret`,
+        app.clientSecretCredentialPath,
+      );
+    });
+
+    test("uses custom clientSecretCredentialPath when deleting", async () => {
+      seedTestProvider("github");
+      secureKeyValues.set("custom/secret/path", "the-secret");
+      const app = await upsertApp("github", "client-1", {
+        clientSecretCredentialPath: "custom/secret/path",
+      });
+      mockDeleteSecureKeyAsync.mockClear();
+
+      await deleteApp(app.id);
+
+      expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+        "custom/secret/path",
       );
     });
 

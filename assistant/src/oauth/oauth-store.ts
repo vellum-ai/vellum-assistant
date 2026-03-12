@@ -17,6 +17,7 @@ import {
 import {
   deleteSecureKeyAsync,
   getSecureKey,
+  getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -178,11 +179,35 @@ export function registerProvider(params: {
 export async function upsertApp(
   providerKey: string,
   clientId: string,
-  clientSecret?: string,
+  clientSecretOpts?: {
+    clientSecretValue?: string;
+    clientSecretCredentialPath?: string;
+  },
 ): Promise<OAuthAppRow> {
+  const { clientSecretValue, clientSecretCredentialPath } =
+    clientSecretOpts ?? {};
+
+  if (clientSecretValue && clientSecretCredentialPath) {
+    throw new Error(
+      "Cannot provide both clientSecretValue and clientSecretCredentialPath",
+    );
+  }
+
+  const defaultCredPath = (appId: string) => `oauth_app/${appId}/client_secret`;
+
+  // Verify the credential path points to an existing secret.
+  if (clientSecretCredentialPath) {
+    const existing = await getSecureKeyAsync(clientSecretCredentialPath);
+    if (existing === undefined) {
+      throw new Error(
+        `No secret found at credential path: ${clientSecretCredentialPath}`,
+      );
+    }
+  }
+
   const db = getDb();
 
-  const existing = db
+  const existingRow = db
     .select()
     .from(oauthApps)
     .where(
@@ -193,40 +218,54 @@ export async function upsertApp(
     )
     .get();
 
-  if (existing) {
-    if (clientSecret) {
+  if (existingRow) {
+    if (clientSecretValue) {
       const stored = await setSecureKeyAsync(
-        `oauth_app/${existing.id}/client_secret`,
-        clientSecret,
+        existingRow.clientSecretCredentialPath,
+        clientSecretValue,
       );
       if (!stored) {
         throw new Error("Failed to store client_secret in secure storage");
       }
     }
-    return existing;
+    if (clientSecretCredentialPath) {
+      db.update(oauthApps)
+        .set({
+          clientSecretCredentialPath,
+          updatedAt: Date.now(),
+        })
+        .where(eq(oauthApps.id, existingRow.id))
+        .run();
+      return db
+        .select()
+        .from(oauthApps)
+        .where(eq(oauthApps.id, existingRow.id))
+        .get()!;
+    }
+    return existingRow;
   }
 
   const now = Date.now();
   const id = uuid();
+  const credPath = clientSecretCredentialPath ?? defaultCredPath(id);
+
+  if (clientSecretValue) {
+    const stored = await setSecureKeyAsync(credPath, clientSecretValue);
+    if (!stored) {
+      throw new Error("Failed to store client_secret in secure storage");
+    }
+  }
+
   const row = {
     id,
     providerKey,
     clientId,
+    clientSecretCredentialPath: credPath,
     createdAt: now,
     updatedAt: now,
   };
 
   db.insert(oauthApps).values(row).run();
-
-  if (clientSecret) {
-    const stored = await setSecureKeyAsync(
-      `oauth_app/${id}/client_secret`,
-      clientSecret,
-    );
-    if (!stored) {
-      throw new Error("Failed to store client_secret in secure storage");
-    }
-  }
 
   return row;
 }
@@ -280,15 +319,16 @@ export function listApps(): OAuthAppRow[] {
 
 /** Delete an app by ID. Cleans up the client_secret from secure storage. Returns true if a row was deleted. */
 export async function deleteApp(id: string): Promise<boolean> {
+  const db = getDb();
+
+  const app = db.select().from(oauthApps).where(eq(oauthApps.id, id)).get();
+  if (!app) return false;
+
   // Delete the DB row first so that if it fails (e.g. FK constraint from
   // existing connections), the secret in secure storage remains intact.
-  const db = getDb();
   db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
-  const deleted = rawChanges() > 0;
 
-  if (!deleted) return false;
-
-  const result = await deleteSecureKeyAsync(`oauth_app/${id}/client_secret`);
+  const result = await deleteSecureKeyAsync(app.clientSecretCredentialPath);
   if (result === "error") {
     throw new Error(
       `Deleted app ${id} but failed to remove client_secret from secure storage`,

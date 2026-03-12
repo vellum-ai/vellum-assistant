@@ -22,6 +22,7 @@ import type { CredentialInjectionTemplate } from "../tools/credentials/policy-ty
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 import {
   createConnection,
+  getApp,
   getConnectionByProvider,
   updateConnection,
   upsertApp,
@@ -101,13 +102,20 @@ export async function storeOAuth2Tokens(
 
   // 1. Upsert the oauth_app row (or use the pre-resolved ID).
   const app = params.oauthAppId
-    ? { id: params.oauthAppId }
-    : await upsertApp(service, clientId, clientSecret);
+    ? (getApp(params.oauthAppId) ?? {
+        id: params.oauthAppId,
+        clientSecretCredentialPath: `oauth_app/${params.oauthAppId}/client_secret`,
+      })
+    : await upsertApp(
+        service,
+        clientId,
+        clientSecret ? { clientSecretValue: clientSecret } : undefined,
+      );
 
   // When oauthAppId is pre-resolved, still persist clientSecret if provided.
   if (params.oauthAppId && clientSecret) {
     const stored = await setSecureKeyAsync(
-      `oauth_app/${params.oauthAppId}/client_secret`,
+      app.clientSecretCredentialPath,
       clientSecret,
     );
     if (!stored) {
