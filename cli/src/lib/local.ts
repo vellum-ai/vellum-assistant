@@ -776,15 +776,14 @@ export async function startGateway(
     // credentials for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
+  // The gateway reads the ingress URL from the workspace config file via
+  // ConfigFileCache — no env var passthrough needed. Log the resolved value
+  // for diagnostic visibility during startup.
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl(
     resources?.instanceDir,
   );
-  const ingressPublicBaseUrl =
-    workspaceIngressPublicBaseUrl ??
-    normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL) ??
-    publicUrl;
+  const ingressPublicBaseUrl = workspaceIngressPublicBaseUrl ?? publicUrl;
   if (ingressPublicBaseUrl) {
-    gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
     console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
   }
 

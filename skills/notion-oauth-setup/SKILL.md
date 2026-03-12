@@ -16,7 +16,7 @@ You are helping your user create a Notion integration (OAuth app) so Vellum can 
 
 ## Prerequisites
 
-Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
+Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
 
 ## Before You Start
 
@@ -71,7 +71,7 @@ Wait for the user to approve.
 
 Once approved:
 1. Find the "Redirect URIs" field
-2. Enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable.
+2. Enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress).
 3. Save the settings
 
 Take a `browser_snapshot` to confirm.

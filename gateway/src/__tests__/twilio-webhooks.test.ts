@@ -606,7 +606,7 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 
     const successLog = findLogCall(
       "Twilio signature validated against raw request URL fallback — " +
-        "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",
+        "ingress.publicBaseUrl may be stale or mismatched with the actual webhook registration",
     );
     expect(successLog.method).toBe("warn");
     expect(successLog.data).toMatchObject({

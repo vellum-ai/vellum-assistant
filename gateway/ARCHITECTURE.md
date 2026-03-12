@@ -229,17 +229,16 @@ Channel bindings follow a three-phase lifecycle:
 
 The public URL where the gateway is reachable is configured via:
 
-| Source                                     | Priority      | Description                                                                  |
-| ------------------------------------------ | ------------- | ---------------------------------------------------------------------------- |
-| `ingress.publicBaseUrl` (workspace config) | 1 (preferred) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
-| `INGRESS_PUBLIC_BASE_URL` (env var)        | 2             | Environment variable fallback for `ingress.publicBaseUrl`                    |
+| Source                                     | Description                                                                  |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `ingress.publicBaseUrl` (workspace config) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
 
 ### Tunnel-Agnostic Setup
 
 To expose the gateway for external callbacks during local development:
 
 1. **Start your tunnel** service (ngrok, Cloudflare Tunnel, or any similar tool), pointing it at the local gateway: `http://127.0.0.1:7830`
-2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) or as the `INGRESS_PUBLIC_BASE_URL` environment variable
+2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section)
 
 The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, Telegram webhooks, OAuth redirect URIs, etc.).
 
@@ -249,7 +248,7 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 
 | Function                       | URL Pattern                                                                                                                                                                     |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or `INGRESS_PUBLIC_BASE_URL` env var (assistant-side; the gateway reads via `ConfigFileCache`) |
+| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or module-level state (assistant-side; the gateway reads via `ConfigFileCache`) |
 | `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                               |
 | `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                                |
 | `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                                        |
@@ -609,7 +608,7 @@ The gateway reads Telegram credentials via its `credential-reader` module (`gate
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` (falling back to the `INGRESS_PUBLIC_BASE_URL` env var) and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
+1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
@@ -973,8 +972,8 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 **Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, Telegram webhooks, etc.) is resolved by `public-ingress-urls.ts`:
 
-1. `ingress.publicBaseUrl` in workspace config (preferred — set via Settings UI > Public Ingress)
-2. `INGRESS_PUBLIC_BASE_URL` environment variable (fallback)
+1. `ingress.publicBaseUrl` in workspace config (set via Settings UI > Public Ingress)
+2. Module-level state in the assistant (set by config handlers when tunnels start/stop)
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 

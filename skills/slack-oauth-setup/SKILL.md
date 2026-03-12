@@ -101,7 +101,7 @@ Read the `redirectUri` field from that response and use it exactly as shown.
 
 In the "Redirect URLs" section:
 1. If `redirectUri` says "automatic", skip adding a redirect URL for this provider.
-2. If `redirectUri` mentions "not currently configured" / `GATEWAY_BASE_URL` / `INGRESS_PUBLIC_BASE_URL`, stop and ask the user to configure public ingress first.
+2. If `redirectUri` mentions "not currently configured" or `ingress.publicBaseUrl`, stop and ask the user to configure public ingress first.
 3. Otherwise, click "Add New Redirect URL" and enter the `redirectUri` value exactly as returned.
 4. Click "Add" then "Save URLs"
 

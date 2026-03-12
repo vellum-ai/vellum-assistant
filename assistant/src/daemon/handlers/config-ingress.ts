@@ -26,10 +26,10 @@ import {
   log,
 } from "./shared.js";
 
-// Lazily capture the env-provided INGRESS_PUBLIC_BASE_URL on first access
-// rather than at module load time. The daemon loads ~/.vellum/.env inside
-// runDaemon() (see lifecycle.ts), which runs AFTER static ES module imports
-// resolve. A module-level snapshot would miss dotenv-provided values.
+// Lazily capture the initial ingress URL on first access rather than at module
+// load time. The daemon loads ~/.vellum/.env inside runDaemon() (see
+// lifecycle.ts), which runs AFTER static ES module imports resolve. A
+// module-level snapshot would miss values set during daemon initialization.
 let _originalIngressEnvCaptured = false;
 let _originalIngressEnv: string | undefined;
 function getOriginalIngressEnv(): string | undefined {
@@ -113,8 +113,8 @@ export async function handleIngressConfig(
       const raw = loadRawConfig();
 
       // Update ingress.publicBaseUrl — this is the single source of truth for
-      // the canonical public ingress URL. The gateway receives this value via
-      // the INGRESS_PUBLIC_BASE_URL env var at spawn time (see hatch.ts).
+      // the canonical public ingress URL. The gateway reads this value from
+      // the workspace config file via ConfigFileCache.
       // The gateway also validates Twilio signatures against forwarded public
       // URL headers, so local tunnel updates generally apply without restarts.
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
@@ -139,13 +139,10 @@ export async function handleIngressConfig(
         CONFIG_RELOAD_DEBOUNCE_MS,
       );
 
-      // Propagate to the gateway's process environment so it picks up the
-      // new URL when it is restarted. For the local-deployment path the
-      // gateway runs as a child process that inherited the assistant's env,
-      // so updating process.env here ensures the value is visible when the
-      // gateway is restarted (e.g. by the self-upgrade skill or a manual
-      // `pkill -f gateway`).
-      // Only export the URL when ingress is enabled; clearing it when
+      // Propagate to module-level state so the assistant's in-process URL
+      // resolution stays in sync. The gateway reads from the workspace config
+      // file directly via ConfigFileCache, so no env var propagation is needed.
+      // Only set the URL when ingress is enabled; clearing it when
       // disabled ensures the gateway stops accepting inbound webhooks.
       const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
       if (value && isEnabled) {

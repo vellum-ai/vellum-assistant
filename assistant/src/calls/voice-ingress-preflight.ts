@@ -61,7 +61,7 @@ export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResu
     const msg = err instanceof Error ? err.message : String(err);
     return fail(
       msg ||
-        "Outbound voice calls require public ingress to be enabled and a public base URL (ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL).",
+        "Outbound voice calls require public ingress to be enabled and a public base URL (ingress.publicBaseUrl).",
     );
   }
 
