@@ -412,7 +412,7 @@ If there is a ping url available, make a request to it.
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id <client-id>)" "<provider-base-url>/<provider-ping-url>"
+    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id <client-id>)" "<provider-ping-url>"
 ```
 
 **On success:**
