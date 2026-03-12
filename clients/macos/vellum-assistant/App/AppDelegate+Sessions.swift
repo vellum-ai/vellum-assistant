@@ -243,6 +243,12 @@ extension AppDelegate {
         hostCuOverlayCleanupTask = nil
         hostCuOverlayCancellables.removeAll()
 
+        // Only affect overlay/ambient/window state if a host CU proxy is active.
+        // The overlayWindow is shared with foreground CU sessions — without this
+        // guard we'd close an unrelated overlay, resume ambient prematurely, and
+        // steal focus by showing the main window.
+        guard activeHostCuProxy != nil else { return }
+
         overlayWindow?.close()
         overlayWindow = nil
         activeHostCuProxy = nil
