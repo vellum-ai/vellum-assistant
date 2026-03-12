@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
 import {
-  deleteConnection,
+  disconnectOAuthProvider,
   getConnectionByProvider,
   listConnections,
   type OAuthConnectionRow,
@@ -78,17 +78,6 @@ function safeListConnections(): OAuthConnectionRow[] {
     return listConnections();
   } catch {
     return [];
-  }
-}
-
-/**
- * Safely delete an OAuth connection by ID. Returns false on error.
- */
-function safeDeleteConnection(id: string): boolean {
-  try {
-    return deleteConnection(id);
-  } catch {
-    return false;
   }
 }
 
@@ -443,20 +432,18 @@ Examples:
 
         const metadataDeleted = deleteCredentialMetadata(service, field);
 
-        if (secretResult !== "deleted" && !metadataDeleted) {
+        // Also clean up the OAuth connection and new-format secure keys.
+        // disconnectOAuthProvider is a no-op when no connection exists.
+        const oauthDisconnected = await disconnectOAuthProvider(service);
+
+        if (
+          secretResult !== "deleted" &&
+          !metadataDeleted &&
+          !oauthDisconnected
+        ) {
           writeOutput(cmd, { ok: false, error: "Credential not found" });
           process.exitCode = 1;
           return;
-        }
-
-        // Only delete the oauth_connection when removing the primary credential
-        // (access_token). Deleting auxiliary fields like client_secret should not
-        // destroy the connection that access_token depends on.
-        if (field === "access_token") {
-          const connection = safeGetConnectionByProvider(service);
-          if (connection) {
-            safeDeleteConnection(connection.id);
-          }
         }
 
         writeOutput(cmd, { ok: true, service, field });
