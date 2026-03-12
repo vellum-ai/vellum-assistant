@@ -63,6 +63,9 @@ export function handleSubscribeAssistantEvents(
   // scope and principal type requirements.
 
   const conversationKey = url.searchParams.get("conversationKey");
+  if (url.searchParams.has("conversationKey") && !conversationKey?.trim()) {
+    return httpError("BAD_REQUEST", "conversationKey must not be empty", 400);
+  }
 
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs =
