@@ -230,6 +230,7 @@ export interface AgentLoopSessionContext {
       | "tool_result_received"
       | "confirmation_requested"
       | "confirmation_resolved"
+      | "context_compacting"
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal",
@@ -443,10 +444,9 @@ export async function runAgentLoopImpl(
     if (compactCheck.needed) {
       ctx.emitActivityState(
         "thinking",
-        "thinking_delta",
+        "context_compacting",
         "assistant_turn",
         reqId,
-        "Compacting context",
       );
     }
     const compacted = await ctx.contextWindowManager.maybeCompact(
@@ -693,10 +693,9 @@ export async function runAgentLoopImpl(
         preflightAttempts++;
         ctx.emitActivityState(
           "thinking",
-          "thinking_delta",
+          "context_compacting",
           "assistant_turn",
           reqId,
-          "Compacting context",
         );
         const step = await reduceContextOverflow(
           ctx.messages,
@@ -1024,10 +1023,9 @@ export async function runAgentLoopImpl(
 
         ctx.emitActivityState(
           "thinking",
-          "thinking_delta",
+          "context_compacting",
           "assistant_turn",
           reqId,
-          "Compacting context",
         );
         const step = await reduceContextOverflow(
           ctx.messages,
@@ -1291,10 +1289,9 @@ export async function runAgentLoopImpl(
           // Non-interactive — auto-compress without asking
           ctx.emitActivityState(
             "thinking",
-            "thinking_delta",
+            "context_compacting",
             "assistant_turn",
             reqId,
-            "Compacting context",
           );
           const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
             ctx.messages,

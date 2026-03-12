@@ -66,6 +66,8 @@ export interface MemoryRecallResult {
   tier2Count?: number;
   /** Milliseconds spent in the hybrid search step. */
   hybridSearchMs?: number;
+  /** Whether sparse vectors were used in the hybrid search. */
+  sparseVectorUsed?: boolean;
 }
 
 /**

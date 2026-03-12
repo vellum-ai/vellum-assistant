@@ -7,6 +7,7 @@ struct ChatView: View {
     @Binding var inputText: String
     let hasAPIKey: Bool
     let isThinking: Bool
+    let isCompacting: Bool
     let isSending: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -175,6 +176,7 @@ struct ChatView: View {
                             messages: messages,
                             isSending: isSending,
                             isThinking: isThinking,
+                            isCompacting: isCompacting,
                             assistantActivityPhase: assistantActivityPhase,
                             assistantActivityAnchor: assistantActivityAnchor,
                             assistantActivityReason: assistantActivityReason,
@@ -704,6 +706,7 @@ private struct ChatViewPreviewWrapper: View {
                 inputText: $text,
                 hasAPIKey: true,
                 isThinking: true,
+                isCompacting: false,
                 isSending: false,
                 suggestion: "That sounds great, thanks!",
                 pendingAttachments: [],

@@ -290,6 +290,10 @@ async function processJob(
     case "backfill_entity_relations":
       // Entity relation backfill has been removed — silently drop legacy jobs
       return;
+    case "refresh_weekly_summary":
+    case "refresh_monthly_summary":
+      // Global summary rollups have been removed — silently drop legacy jobs
+      return;
     case "rebuild_index":
       rebuildIndexJob();
       return;

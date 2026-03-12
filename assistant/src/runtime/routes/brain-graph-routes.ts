@@ -17,15 +17,17 @@ import type { RouteDefinition } from "../http-router.js";
 
 function getMemoryKindColor(kind: string): string {
   switch (kind) {
-    case "profile":
+    case "identity":
       return "#8b5cf6";
     case "preference":
       return "#3b82f6";
+    case "project":
+      return "#10b981";
+    case "decision":
+      return "#f59e0b";
     case "constraint":
       return "#ef4444";
-    case "instruction":
-      return "#f59e0b";
-    case "style":
+    case "event":
       return "#ec4899";
     default:
       return "#94a3b8";

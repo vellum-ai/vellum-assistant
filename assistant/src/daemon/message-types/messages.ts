@@ -290,6 +290,7 @@ export interface AssistantActivityState {
     | "tool_result_received"
     | "confirmation_requested"
     | "confirmation_resolved"
+    | "context_compacting"
     | "message_complete"
     | "generation_cancelled"
     | "error_terminal";

@@ -45,6 +45,7 @@ struct MessageListView: View {
     let messages: [ChatMessage]
     let isSending: Bool
     let isThinking: Bool
+    let isCompacting: Bool
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
@@ -313,6 +314,17 @@ struct MessageListView: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
+    @ViewBuilder
+    private func compactingIndicatorRow() -> some View {
+        RunningIndicator(
+            label: "Compacting context\u{2026}",
+            showIcon: false
+        )
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        .id("compacting-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -454,6 +466,10 @@ struct MessageListView: View {
 
                     if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
                         thinkingIndicatorRow(displayMessages: displayMessages)
+                    }
+
+                    if isCompacting && !shouldShowThinkingIndicator {
+                        compactingIndicatorRow()
                     }
 
                     Color.clear.frame(height: 1)

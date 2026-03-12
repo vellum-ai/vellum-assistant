@@ -18,7 +18,7 @@ import {
 import {
   isQdrantBreakerOpen,
 } from "./qdrant-circuit-breaker.js";
-import { memoryItems, memoryItemSources, messages } from "./schema.js";
+import { conversations, memoryItems, memoryItemSources, messages } from "./schema.js";
 import {
   buildTwoLayerInjection,
   IDENTITY_KINDS,
@@ -28,7 +28,7 @@ import {
 import { recencySearch } from "./search/lexical.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
-import { classifyTiers } from "./search/tier-classifier.js";
+import { classifyTiers, type TieredCandidate } from "./search/tier-classifier.js";
 import type {
   Candidate,
   DegradationReason,
@@ -285,6 +285,7 @@ export async function buildMemoryRecall(
 
   // Generate sparse embedding for the query text (TF-IDF based)
   const sparseVector = generateSparseEmbedding(query);
+  const sparseVectorUsed = sparseVector.indices.length > 0;
 
   // ── Step 3: Hybrid search on Qdrant ─────────────────────────────
   const scopePolicy = config.memory.retrieval.scopePolicy;
@@ -309,7 +310,7 @@ export async function buildMemoryRecall(
         HYBRID_LIMIT,
         excludeMessageIds,
         scopeIds,
-        sparseVector.indices.length > 0 ? sparseVector : undefined,
+        sparseVectorUsed ? sparseVector : undefined,
       );
     } catch (err) {
       semanticSearchFailed = true;
@@ -364,6 +365,9 @@ export async function buildMemoryRecall(
 
   // ── Step 6: Tier classification ─────────────────────────────────
   const tiered = classifyTiers(allCandidates);
+
+  // ── Step 6b: Enrich candidates with source labels ──────────────
+  enrichSourceLabels(tiered);
 
   // ── Step 7: Enrich with item metadata for staleness ─────────────
   const itemIds = tiered.filter((c) => c.type === "item").map((c) => c.id);
@@ -497,6 +501,7 @@ export async function buildMemoryRecall(
     tier1Count,
     tier2Count,
     hybridSearchMs,
+    sparseVectorUsed,
   };
 
   return result;
@@ -571,6 +576,80 @@ function enrichItemMetadata(
   }
 
   return result;
+}
+
+/**
+ * Enrich tiered candidates with source labels (conversation titles).
+ *
+ * For "item" candidates: joins through memoryItemSources → messages → conversations
+ * to find the most recent conversation title associated with the item.
+ * For "segment" / "summary" candidates: looks up the conversation title directly
+ * via the candidate's key (which contains the conversationId for segments).
+ *
+ * Mutates the candidates in-place for efficiency.
+ */
+function enrichSourceLabels(candidates: TieredCandidate[]): void {
+  if (candidates.length === 0) return;
+
+  try {
+    const db = getDb();
+
+    // Collect item IDs for items that need source label lookup
+    const itemCandidates = candidates.filter((c) => c.type === "item");
+    const itemIds = itemCandidates.map((c) => c.id);
+
+    if (itemIds.length > 0) {
+      // For items: find conversation titles via memoryItemSources → messages → conversations.
+      // Pick the most recent conversation title per item.
+      const rows = db
+        .select({
+          memoryItemId: memoryItemSources.memoryItemId,
+          title: conversations.title,
+          conversationUpdatedAt: conversations.updatedAt,
+        })
+        .from(memoryItemSources)
+        .innerJoin(
+          messages,
+          sql`${memoryItemSources.messageId} = ${messages.id}`,
+        )
+        .innerJoin(
+          conversations,
+          sql`${messages.conversationId} = ${conversations.id}`,
+        )
+        .where(inArray(memoryItemSources.memoryItemId, itemIds))
+        .all();
+
+      // Group by item ID and pick the most recently updated conversation title
+      const titleMap = new Map<string, string>();
+      const updatedAtMap = new Map<string, number>();
+      for (const row of rows) {
+        if (!row.title) continue;
+        const existing = updatedAtMap.get(row.memoryItemId);
+        if (existing === undefined || row.conversationUpdatedAt > existing) {
+          titleMap.set(row.memoryItemId, row.title);
+          updatedAtMap.set(row.memoryItemId, row.conversationUpdatedAt);
+        }
+      }
+
+      for (const c of itemCandidates) {
+        const title = titleMap.get(c.id);
+        if (title) {
+          c.sourceLabel = title;
+        }
+      }
+    }
+
+    // For segment candidates: the key format is "seg:<segmentId>" and the id is the segment's id.
+    // We can look up the conversation title via the segment's conversationId in memory_segments.
+    // However, segments already reference a conversationId in the schema — but the Candidate type
+    // doesn't carry it. For now, skip segment source labels as the join path would require
+    // importing memorySegments and an additional query. The primary value is item source labels.
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to enrich candidates with source labels",
+    );
+  }
 }
 
 /**

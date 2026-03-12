@@ -50,6 +50,7 @@ import {
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropConflicts,
+  migrateDropEntityTables,
   migrateDropLegacyMemberGuardianTables,
   migrateDropMemorySegmentFts,
   migrateDropRemindersTable,
@@ -358,11 +359,14 @@ export function initializeDb(): void {
   // 56. Add supersession tracking columns and override confidence to memory_items
   migrateMemoryItemSupersession(database);
 
+  // 56b. Drop unused entity tables (entity search replaced by hybrid search on item statements)
+  migrateDropEntityTables(database);
+
   // 57. Drop memory_segment_fts virtual table and triggers (replaced by Qdrant hybrid search)
   migrateDropMemorySegmentFts(database);
 
   // 58. Drop memory_item_conflicts table (conflict resolution system removed)
-  migrateDropConflicts();
+  migrateDropConflicts(database);
 
   validateMigrationState(database);
 
