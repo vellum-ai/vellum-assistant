@@ -50,18 +50,43 @@ function TextInput({
       let nextValue = currentValue;
       let nextOffset = currentOffset;
 
-      if (key.leftArrow) {
+      if (key.ctrl && input === "a") {
+        // Ctrl+A — move cursor to start
+        nextOffset = 0;
+      } else if (key.ctrl && input === "e") {
+        // Ctrl+E — move cursor to end
+        nextOffset = currentValue.length;
+      } else if (key.ctrl && input === "u") {
+        // Ctrl+U — clear line before cursor
+        nextValue = currentValue.slice(currentOffset);
+        nextOffset = 0;
+      } else if (key.ctrl && input === "k") {
+        // Ctrl+K — kill from cursor to end
+        nextValue = currentValue.slice(0, currentOffset);
+      } else if (key.ctrl && input === "w") {
+        // Ctrl+W — delete word backwards
+        const before = currentValue.slice(0, currentOffset);
+        const trimmed = before.replace(/\s+$/, "");
+        const wordStart = Math.max(0, trimmed.lastIndexOf(" ") + 1);
+        nextValue =
+          currentValue.slice(0, wordStart) + currentValue.slice(currentOffset);
+        nextOffset = wordStart;
+      } else if (key.leftArrow) {
         nextOffset = Math.max(0, currentOffset - 1);
       } else if (key.rightArrow) {
         nextOffset = Math.min(currentValue.length, currentOffset + 1);
       } else if (key.backspace || key.delete) {
         if (currentOffset > 0) {
-          nextValue = currentValue.slice(0, currentOffset - 1) + currentValue.slice(currentOffset);
+          nextValue =
+            currentValue.slice(0, currentOffset - 1) +
+            currentValue.slice(currentOffset);
           nextOffset = currentOffset - 1;
         }
       } else {
         nextValue =
-          currentValue.slice(0, currentOffset) + input + currentValue.slice(currentOffset);
+          currentValue.slice(0, currentOffset) +
+          input +
+          currentValue.slice(currentOffset);
         nextOffset = currentOffset + input.length;
       }
 
@@ -107,7 +132,11 @@ function TextInput({
 
   return (
     <Text>
-      {placeholder ? (value.length > 0 ? renderedValue : renderedPlaceholder) : renderedValue}
+      {placeholder
+        ? value.length > 0
+          ? renderedValue
+          : renderedPlaceholder
+        : renderedValue}
     </Text>
   );
 }
