@@ -39,9 +39,13 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 - **Linear tickets**: When a Linear ticket is provided anywhere in context (user message, TODO, plan), use the issue identifier (e.g. `JARVIS-123`) throughout:
   - **Branch name**: Include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
-  - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
-  - **PR description**: Mention the identifier (e.g. `Closes JARVIS-123`) in the PR body for redundancy — Linear also parses PR descriptions.
-  - **Status sync**: Transition the ticket to In Progress when starting work, In Review when the PR is created, and Done when merged. Use the Linear MCP tools when available.
+  - **Single-PR workflows** (`/do`, `/work`, standalone PRs):
+    - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
+    - **PR description**: Mention `Closes JARVIS-123` in the PR body for redundancy.
+  - **Multi-PR plans** (`/run-plan`, `/blitz`, `/safe-blitz`):
+    - **Intermediate PRs**: Use `Part of JARVIS-123` in commit messages and PR bodies. This links the PR to the issue without triggering Linear's auto-close automation.
+    - **Final PR only**: Use `Closes JARVIS-123` to trigger the auto-close.
+  - **Status sync**: Set In Progress once when starting the first PR. Do not toggle status between PRs in a multi-PR plan — let the final PR's `Closes` keyword handle the Done transition.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
