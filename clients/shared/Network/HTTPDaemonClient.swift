@@ -178,10 +178,6 @@ public final class HTTPTransport {
     var serverToLocalSessionMap: [String: String] = [:]
     private let serverToLocalSessionMapCap = 500
 
-    /// The local session ID for the most recently created session, awaiting
-    /// the server's conversationId from the first POST /v1/messages response.
-    var pendingLocalSessionId: String?
-
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
 
@@ -1434,52 +1430,6 @@ public final class HTTPTransport {
             )
         }
 
-        // Fallback: eagerly learn server-to-local mapping from the first unmapped SSE event.
-        // When SSE events arrive before the POST /v1/messages response (e.g. slash commands),
-        // the serverToLocalSessionMap won't have the mapping yet. If we have a pendingLocalSessionId
-        // and the event contains a sessionId that isn't a known local ID, assume it's the server's
-        // conversationId for the pending thread and establish the mapping immediately.
-        if let pendingId = pendingLocalSessionId {
-            let knownLocalIds = Set(serverToLocalSessionMap.values)
-            // Extract sessionId value using simple pattern matching (handles both compact and spaced JSON)
-            let patterns = ["\"sessionId\":\"", "\"sessionId\": \""]
-            for pattern in patterns {
-                if let startRange = jsonString.range(of: pattern) {
-                    let afterPattern = jsonString[startRange.upperBound...]
-                    if let endQuote = afterPattern.firstIndex(of: "\"") {
-                        let eventSessionId = String(afterPattern[afterPattern.startIndex..<endQuote])
-                        if !eventSessionId.isEmpty,
-                           eventSessionId != pendingId,
-                           !knownLocalIds.contains(eventSessionId),
-                           serverToLocalSessionMap[eventSessionId] == nil {
-                            // This is the server's conversationId for the pending thread
-                            serverToLocalSessionMap[eventSessionId] = pendingId
-                            pendingLocalSessionId = nil
-                            log.info("Eagerly mapped server conversation \(eventSessionId, privacy: .public) → pending local session \(pendingId, privacy: .public)")
-                            // Apply the remapping to the current event
-                            jsonString = jsonString.replacingOccurrences(
-                                of: "\"sessionId\":\"\(eventSessionId)\"",
-                                with: "\"sessionId\":\"\(pendingId)\""
-                            )
-                            jsonString = jsonString.replacingOccurrences(
-                                of: "\"sessionId\": \"\(eventSessionId)\"",
-                                with: "\"sessionId\": \"\(pendingId)\""
-                            )
-                            jsonString = jsonString.replacingOccurrences(
-                                of: "\"parentSessionId\":\"\(eventSessionId)\"",
-                                with: "\"parentSessionId\":\"\(pendingId)\""
-                            )
-                            jsonString = jsonString.replacingOccurrences(
-                                of: "\"parentSessionId\": \"\(eventSessionId)\"",
-                                with: "\"parentSessionId\": \"\(pendingId)\""
-                            )
-                        }
-                        break
-                    }
-                }
-            }
-        }
-
         guard let jsonData = jsonString.data(using: .utf8) else { return }
 
         do {
@@ -1643,9 +1593,8 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != sessionId {
                     self.serverToLocalSessionMap[serverConvId] = sessionId
-                    self.pendingLocalSessionId = nil
                     // Evict arbitrary entries when over cap to prevent unbounded growth.
-                    // Lost mappings are benign — they'll be re-learned from future SSE events.
+                    // Lost mappings are benign — unmapped events are filtered by belongsToSession.
                     while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
                         if let key = self.serverToLocalSessionMap.keys.first {
                             self.serverToLocalSessionMap.removeValue(forKey: key)
