@@ -134,26 +134,11 @@ trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed 
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 VELLUM_ASSISTANT_NAME=${instanceName}
-mkdir -p "\$HOME/.vellum"
-cat > "\$HOME/.vellum/.env" << DOTENV_EOF
+mkdir -p "\$HOME/.config/vellum"
+cat > "\$HOME/.config/vellum/env" << DOTENV_EOF
 ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
 RUNTIME_HTTP_PORT=7821
 DOTENV_EOF
-
-mkdir -p "\$HOME/.vellum/workspace"
-cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
-{
-  "logFile": {
-    "dir": "\$HOME/.vellum/workspace/data/logs"
-  },
-  "gateway": {
-    "runtimeProxyEnabled": true,
-    "runtimeProxyRequireAuth": true,
-    "unmappedPolicy": "default",
-    "defaultAssistantId": "self"
-  }
-}
-CONFIG_EOF
 
 ${ownershipFixup}
 

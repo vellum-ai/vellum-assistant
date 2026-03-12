@@ -289,7 +289,9 @@ export const AssistantConfigSchema = z
       PermissionsConfigSchema.parse({}),
     ),
     auditLog: AuditLogConfigSchema.default(AuditLogConfigSchema.parse({})),
-    logFile: LogFileConfigSchema.default(LogFileConfigSchema.parse({})),
+    logFile: LogFileConfigSchema.default(
+      LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
+    ),
     pricingOverrides: z.array(ModelPricingOverrideSchema).default([]),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     swarm: SwarmConfigSchema.default(SwarmConfigSchema.parse({})),
