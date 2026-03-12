@@ -5,7 +5,6 @@
 import * as deliveryStatus from "../../memory/delivery-status.js";
 import { httpError } from "../http-errors.js";
 export {
-  deliverAttachmentsOnly,
   type DeliverReplyOptions,
   deliverReplyViaCallback,
 } from "../channel-reply-delivery.js";

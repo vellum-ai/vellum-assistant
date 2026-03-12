@@ -3,7 +3,6 @@ import { describe, test, expect, afterAll } from "bun:test";
 const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
-  ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
   GATEWAY_PORT: "7830",
 };
 
@@ -12,9 +11,6 @@ for (const [k, v] of Object.entries(env)) {
   saved[k] = process.env[k];
   process.env[k] = v;
 }
-saved["GATEWAY_RUNTIME_PROXY_ENABLED"] =
-  process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
-delete process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
 
 const { loadConfig } = await import("../config.js");
 const { createTelegramWebhookHandler } =
