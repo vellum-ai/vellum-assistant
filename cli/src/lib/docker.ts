@@ -255,7 +255,7 @@ export async function hatchDocker(
     "ANTHROPIC_API_KEY",
     "GATEWAY_RUNTIME_PROXY_ENABLED",
     "RUNTIME_PROXY_BEARER_TOKEN",
-    "VELLUM_ASSISTANT_PLATFORM_URL",
+    "VELLUM_PLATFORM_URL",
   ]) {
     if (process.env[envVar]) {
       runArgs.push("-e", `${envVar}=${process.env[envVar]}`);

@@ -82,7 +82,7 @@ function getConfigPlatformUrl(): string | undefined {
 
 function getPlatformUrl(): string {
   return (
-    process.env.VELLUM_ASSISTANT_PLATFORM_URL ??
+    process.env.VELLUM_PLATFORM_URL ??
     getConfigPlatformUrl() ??
     "https://platform.vellum.ai"
   );

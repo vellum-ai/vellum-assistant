@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
-    private static let platformURLOverrideEnvironmentKey = "VELLUM_ASSISTANT_PLATFORM_URL"
+    private static let platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
     private static let authServiceBaseURLDefaultsName = "authServiceBaseURL"
 
     private static let defaultBaseURL: String = {

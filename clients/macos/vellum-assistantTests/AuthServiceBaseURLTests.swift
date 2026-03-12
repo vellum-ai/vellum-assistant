@@ -9,7 +9,7 @@ final class AuthServiceBaseURLTests: XCTestCase {
 
             let resolved = AuthService.resolveBaseURL(
                 configuredBaseURL: "https://configured.example.com/",
-                environment: ["VELLUM_ASSISTANT_PLATFORM_URL": "https://env.example.com/"],
+                environment: ["VELLUM_PLATFORM_URL": "https://env.example.com/"],
                 userDefaults: defaults
             )
 
