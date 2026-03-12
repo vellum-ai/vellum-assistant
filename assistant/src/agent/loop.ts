@@ -257,7 +257,11 @@ export class AgentLoop {
         // screenshots from accumulating in the context window. The LLM
         // already saw each image on the turn it was captured; keeping
         // base64 blobs in history rapidly exhausts the context budget.
-        const providerHistory = stripOldImageBlocks(history);
+        // Also strip old AX tree snapshots to keep TTFT from growing
+        // linearly with step count in computer-use sessions.
+        const providerHistory = compactAxTreeHistory(
+          stripOldImageBlocks(history),
+        );
 
         const response = await this.provider.sendMessage(
           providerHistory,
@@ -629,6 +633,78 @@ export class AgentLoop {
 
     return history;
   }
+}
+
+/** Number of most-recent AX tree snapshots to keep in conversation history. */
+const MAX_AX_TREES_IN_HISTORY = 2;
+
+/** Regex that matches the `<ax-tree>...</ax-tree>` markers. */
+const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
+const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
+
+/**
+ * Escapes any literal `</ax-tree>` occurrences inside AX tree content so
+ * that the non-greedy compaction regex (`AX_TREE_PATTERN`) does not stop
+ * prematurely when the user happens to be viewing XML/HTML source that
+ * contains the closing tag.  The escaped content does not need to be
+ * unescaped because compaction replaces the entire block with a placeholder.
+ */
+export function escapeAxTreeContent(content: string): string {
+  return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
+}
+
+/**
+ * Returns a shallow copy of `messages` where all but the most recent
+ * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
+ * short placeholder.  This keeps the conversation context small so that
+ * TTFT does not grow linearly with step count in computer-use sessions.
+ */
+export function compactAxTreeHistory(messages: Message[]): Message[] {
+  // Collect indices of user messages that contain an <ax-tree> block
+  const indicesWithAxTree: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    for (const block of msg.content) {
+      if (
+        block.type === "tool_result" &&
+        typeof block.content === "string" &&
+        block.content.includes("<ax-tree>")
+      ) {
+        indicesWithAxTree.push(i);
+        break;
+      }
+    }
+  }
+
+  if (indicesWithAxTree.length <= MAX_AX_TREES_IN_HISTORY) {
+    return messages;
+  }
+
+  const toStrip = new Set(indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY));
+
+  return messages.map((msg, idx) => {
+    if (!toStrip.has(idx)) return msg;
+    return {
+      ...msg,
+      content: msg.content.map((block) => {
+        if (
+          block.type === "tool_result" &&
+          typeof block.content === "string" &&
+          block.content.includes("<ax-tree>")
+        ) {
+          return {
+            ...block,
+            content: block.content.replace(
+              AX_TREE_PATTERN,
+              AX_TREE_PLACEHOLDER,
+            ),
+          };
+        }
+        return block;
+      }),
+    };
+  });
 }
 
 /**
