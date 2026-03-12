@@ -66,6 +66,7 @@ import {
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
+  migrateOAuthAppsClientSecretPath,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameGuardianVerificationValues,
@@ -343,6 +344,9 @@ export function initializeDb(): void {
 
   // 53. OAuth provider/app/connection tables
   createOAuthTables(database);
+
+  // 54. Add explicit client_secret_credential_path to oauth_apps
+  migrateOAuthAppsClientSecretPath(database);
 
   validateMigrationState(database);
 
