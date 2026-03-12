@@ -1454,6 +1454,7 @@ public final class HTTPTransport {
                            serverToLocalSessionMap[eventSessionId] == nil {
                             // This is the server's conversationId for the pending thread
                             serverToLocalSessionMap[eventSessionId] = pendingId
+                            pendingLocalSessionId = nil
                             log.info("Eagerly mapped server conversation \(eventSessionId, privacy: .public) → pending local session \(pendingId, privacy: .public)")
                             // Apply the remapping to the current event
                             jsonString = jsonString.replacingOccurrences(
@@ -1642,6 +1643,7 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != sessionId {
                     self.serverToLocalSessionMap[serverConvId] = sessionId
+                    self.pendingLocalSessionId = nil
                     // Evict arbitrary entries when over cap to prevent unbounded growth.
                     // Lost mappings are benign — they'll be re-learned from future SSE events.
                     while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
