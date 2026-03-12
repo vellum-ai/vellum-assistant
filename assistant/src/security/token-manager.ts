@@ -14,7 +14,6 @@ import {
   updateConnection,
 } from "../oauth/oauth-store.js";
 import { getLogger } from "../util/logger.js";
-import { credentialKey } from "./credential-key.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
 import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
 
@@ -316,13 +315,6 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  // Also write to legacy credential key path so the deprecated
-  // withValidToken() reads the refreshed token on subsequent calls.
-  await setSecureKeyAsync(
-    credentialKey(service, "access_token"),
-    result.accessToken,
-  );
-
   if (result.refreshToken) {
     if (
       !(await setSecureKeyAsync(
@@ -377,7 +369,10 @@ export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
 ): Promise<T> {
-  let token = getSecureKey(credentialKey(service, "access_token"));
+  const conn = getConnectionByProvider(service);
+  let token = conn
+    ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
+    : undefined;
   if (!token) {
     throw new TokenExpiredError(
       service,

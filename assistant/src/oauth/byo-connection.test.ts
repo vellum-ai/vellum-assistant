@@ -106,7 +106,6 @@ mock.module("./oauth-store.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { credentialKey } from "../security/credential-key.js";
 import { setSecureKey } from "../security/secure-keys.js";
 import {
   _resetInflightRefreshes,
@@ -184,9 +183,10 @@ function setupCredential(
     key: service,
     tokenUrl: "https://oauth2.googleapis.com/token",
     // Only well-known providers (gmail) have a baseUrl; custom services don't
-    baseUrl: service === "integration:gmail"
-      ? "https://gmail.googleapis.com/gmail/v1/users/me"
-      : undefined,
+    baseUrl:
+      service === "integration:gmail"
+        ? "https://gmail.googleapis.com/gmail/v1/users/me"
+        : undefined,
   });
   mockApps.set(appId, {
     id: appId,
@@ -201,8 +201,7 @@ function setupCredential(
     grantedScopes: JSON.stringify(opts?.grantedScopes ?? ["read", "write"]),
     accountInfo: null,
   });
-  // Store tokens in both old-format (for withValidToken) and new-format (for resolveOAuthConnection)
-  setSecureKey(credentialKey(service, "access_token"), "test-access-token");
+  // Store access token in oauth-store key format
   setSecureKey(`oauth_connection/${connId}/access_token`, "test-access-token");
   // Store refresh token and client_secret in secure keys (token-manager reads them)
   setSecureKey(
