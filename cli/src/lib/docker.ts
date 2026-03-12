@@ -41,17 +41,28 @@ async function ensureDockerInstalled(): Promise<void> {
     );
   }
 
-  // Verify docker is now available after installation
+  // Verify docker CLI is now available after installation
   try {
     await execOutput("docker", ["--version"]);
   } catch {
     throw new Error(
       "Docker was installed but is still not available on PATH. " +
-        "You may need to restart your terminal or start Colima with: colima start",
+        "You may need to restart your terminal.",
     );
   }
 
-  console.log("✅ Docker installed successfully.");
+  // Start the Colima VM so the Docker daemon is available
+  console.log("🚀 Starting Colima...");
+  try {
+    await exec("colima", ["start"]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Colima installed but failed to start. Please run 'colima start' manually.\n${message}`,
+    );
+  }
+
+  console.log("✅ Docker installed and running.");
 }
 
 interface DockerRoot {
