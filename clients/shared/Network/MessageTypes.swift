@@ -645,15 +645,6 @@ extension GetSigningIdentityResponse {
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
-/// Session-level error from the server.
-public typealias CuErrorMessage = CuError
-
-extension CuError {
-    public init(sessionId: String, message: String) {
-        self.init(type: "cu_error", sessionId: sessionId, message: message)
-    }
-}
-
 /// Echoes a user message back to the client (e.g. relay_prompt from a surface action).
 /// Backed by generated `UserMessageEcho`.
 public typealias UserMessageEchoMessage = UserMessageEcho
@@ -2086,7 +2077,6 @@ public struct SubagentEventMessage: Decodable, Sendable {
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
     case authResult(AuthResultMessage)
-    case cuError(CuErrorMessage)
     case sessionError(SessionErrorMessage)
     case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
@@ -2238,9 +2228,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "auth_result":
             let message = try AuthResultMessage(from: decoder)
             self = .authResult(message)
-        case "cu_error":
-            let message = try CuErrorMessage(from: decoder)
-            self = .cuError(message)
         case "session_error":
             let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
