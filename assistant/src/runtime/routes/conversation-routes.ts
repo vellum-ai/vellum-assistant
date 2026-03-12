@@ -653,7 +653,12 @@ export async function handleSendMessage(
       });
       session.setHostCuProxy(cuProxy);
     }
-    session.addPreactivatedSkillId("computer-use");
+    // Only preactivate CU when the session is idle — if the session is
+    // processing, this message will be queued and preactivation is deferred
+    // to dequeue time in drainQueueImpl to avoid mutating in-flight turn state.
+    if (!session.isProcessing()) {
+      session.addPreactivatedSkillId("computer-use");
+    }
   } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
     session.setHostFileProxy(undefined);
