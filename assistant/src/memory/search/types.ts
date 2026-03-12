@@ -1,9 +1,5 @@
 export type CandidateType = "segment" | "item" | "summary" | "media";
-export type CandidateSource =
-  | "lexical"
-  | "semantic"
-  | "recency"
-  | "item_direct";
+export type CandidateSource = "semantic" | "recency";
 
 export type StalenessLevel = "fresh" | "aging" | "stale" | "very_stale";
 
@@ -41,7 +37,7 @@ export type DegradationReason =
   | "qdrant_unavailable"
   | "embedding_generation_failed";
 
-export type FallbackSource = "lexical" | "recency" | "direct_item";
+export type FallbackSource = "recency";
 
 export interface DegradationStatus {
   semanticUnavailable: boolean;
@@ -56,24 +52,10 @@ export interface MemoryRecallResult {
   reason?: string;
   provider?: string;
   model?: string;
-  /** Always 0 — lexical-only search removed. Kept for log format compat. */
-  lexicalHits: number;
   semanticHits: number;
   recencyHits: number;
-  /** Always 0 — entity search removed. Kept for log format compat. */
-  entityHits: number;
-  /** Always 0 — entity search removed. Kept for log format compat. */
-  relationSeedEntityCount: number;
-  /** Always 0 — entity search removed. Kept for log format compat. */
-  relationTraversedEdgeCount: number;
-  /** Always 0 — entity search removed. Kept for log format compat. */
-  relationNeighborEntityCount: number;
-  /** Always 0 — entity search removed. Kept for log format compat. */
-  relationExpandedItemCount: number;
-  earlyTerminated: boolean;
   mergedCount: number;
   selectedCount: number;
-  rerankApplied: boolean;
   injectedTokens: number;
   injectedText: string;
   latencyMs: number;

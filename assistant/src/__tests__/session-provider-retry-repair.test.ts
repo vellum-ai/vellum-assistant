@@ -176,7 +176,7 @@ mock.module("../memory/retriever.js", () => ({
     enabled: false,
     degraded: false,
     injectedText: "",
-    lexicalHits: 0,
+
     semanticHits: 0,
     recencyHits: 0,
     injectedTokens: 0,

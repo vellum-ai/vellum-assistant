@@ -183,10 +183,8 @@ Examples:
       if (result.degraded) {
         log.info(`Memory degraded: ${result.reason ?? "unknown reason"}`);
       }
-      log.info(`Lexical hits: ${result.lexicalHits}`);
       log.info(`Semantic hits: ${result.semanticHits}`);
       log.info(`Recency hits: ${result.recencyHits}`);
-      log.info(`Entity hits: ${result.entityHits}`);
       log.info(`Injected tokens: ${result.injectedTokens}`);
       log.info(`Latency: ${result.latencyMs}ms`);
       if (result.injectedText.length > 0) {

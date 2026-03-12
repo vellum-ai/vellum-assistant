@@ -183,8 +183,7 @@ The key distinction: normal compaction is a cost-optimized background process th
 
 1. Run a recall-heavy turn and inspect `memory_recalled` events in the client trace stream.
 2. Validate baseline counters:
-   - `lexicalHits`, `semanticHits`, `recencyHits`, `entityHits`
-   - `relationSeedEntityCount`, `relationTraversedEdgeCount`, `relationNeighborEntityCount`, `relationExpandedItemCount`
+   - `semanticHits`, `recencyHits`
    - `mergedCount`, `selectedCount`, `injectedTokens`, `latencyMs`
 3. Cross-check context pressure with `context_compacted` events:
    - `previousEstimatedInputTokens` vs `estimatedInputTokens`

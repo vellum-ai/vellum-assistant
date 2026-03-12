@@ -2464,17 +2464,8 @@ public struct MemoryRecalled: Codable, Sendable {
     public let injectedTokens: Int
     public let latencyMs: Double
     public let topCandidates: [MemoryRecalledCandidateDebug]
-    // Deprecated fields — optional for backwards compat during rollout
-    public let lexicalHits: Double?
-    public let entityHits: Double?
-    public let relationSeedEntityCount: Int?
-    public let relationTraversedEdgeCount: Int?
-    public let relationNeighborEntityCount: Int?
-    public let relationExpandedItemCount: Int?
-    public let earlyTerminated: Bool?
-    public let rerankApplied: Bool?
 
-    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug], lexicalHits: Double? = nil, entityHits: Double? = nil, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, rerankApplied: Bool? = nil) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
@@ -2490,14 +2481,6 @@ public struct MemoryRecalled: Codable, Sendable {
         self.injectedTokens = injectedTokens
         self.latencyMs = latencyMs
         self.topCandidates = topCandidates
-        self.lexicalHits = lexicalHits
-        self.entityHits = entityHits
-        self.relationSeedEntityCount = relationSeedEntityCount
-        self.relationTraversedEdgeCount = relationTraversedEdgeCount
-        self.relationNeighborEntityCount = relationNeighborEntityCount
-        self.relationExpandedItemCount = relationExpandedItemCount
-        self.earlyTerminated = earlyTerminated
-        self.rerankApplied = rerankApplied
     }
 }
 

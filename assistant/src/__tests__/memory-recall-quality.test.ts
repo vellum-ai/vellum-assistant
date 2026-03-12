@@ -766,9 +766,8 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      // Lexical hits are always zero (FTS removed), recency search finds segments
-      // but tier classification filters them (score below 0.6 threshold).
-      expect(recall.lexicalHits).toBe(0);
+      // Recency search finds segments but tier classification filters them
+      // (score below 0.6 threshold).
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
     });

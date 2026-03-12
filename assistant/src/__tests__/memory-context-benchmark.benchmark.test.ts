@@ -264,7 +264,6 @@ describe("Memory context benchmark", () => {
     // fails and the retriever marks the result as degraded.  The benchmark
     // cares about compaction and recall pipeline completion, not embedding
     // availability, so we do not assert on `recall.degraded`.
-    // lexicalHits is always 0 in the new pipeline (FTS removed).
     // Recency search finds conversation-scoped segments.
     expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.enabled).toBe(true);

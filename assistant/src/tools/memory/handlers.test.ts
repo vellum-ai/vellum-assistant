@@ -339,10 +339,8 @@ describe("handleMemoryRecall", () => {
     const parsed = parseResult(result.content);
     expect(parsed.resultCount).toBe(0);
     expect(parsed.text).toBe("No matching memories found.");
-    expect(parsed.sources.lexical).toBe(0);
     expect(parsed.sources.semantic).toBe(0);
     expect(parsed.sources.recency).toBe(0);
-    expect(parsed.sources.entity).toBe(0);
   });
 
   // ── Degraded mode ─────────────────────────────────────────────────
@@ -535,10 +533,8 @@ describe("handleMemoryRecall", () => {
     expect(typeof parsed.resultCount).toBe("number");
     expect(typeof parsed.degraded).toBe("boolean");
     expect(typeof parsed.sources).toBe("object");
-    expect(typeof parsed.sources.lexical).toBe("number");
     expect(typeof parsed.sources.semantic).toBe("number");
     expect(typeof parsed.sources.recency).toBe("number");
-    expect(typeof parsed.sources.entity).toBe("number");
   });
 
   test("empty result shape matches MemoryRecallToolResult", async () => {
@@ -553,9 +549,7 @@ describe("handleMemoryRecall", () => {
     expect(parsed.text).toBe("No matching memories found.");
     expect(parsed.resultCount).toBe(0);
     expect(typeof parsed.degraded).toBe("boolean");
-    expect(parsed.sources.lexical).toBe(0);
     expect(parsed.sources.semantic).toBe(0);
     expect(parsed.sources.recency).toBe(0);
-    expect(parsed.sources.entity).toBe(0);
   });
 });

@@ -433,11 +433,6 @@ describe("Context + Memory E2E regression", () => {
     );
 
     expect(recall.injectedTokens).toBeLessThanOrEqual(recallBudget);
-    // Entity search has been removed — relation counters are always zero
-    expect(recall.relationSeedEntityCount).toBe(0);
-    expect(recall.relationTraversedEdgeCount).toBe(0);
-    expect(recall.relationNeighborEntityCount).toBe(0);
-    expect(recall.relationExpandedItemCount).toBe(0);
 
     // With Qdrant mocked empty the only retrieval path is recency search,
     // but recency-only candidates score below the tier-2 threshold (0.6)
