@@ -283,12 +283,28 @@ function loadFromDisk(): TrustRule[] {
       // Restore persisted starter bundle flag
       cachedStarterBundleAccepted = data.starterBundleAccepted === true;
 
+      // Defense-in-depth: strip any __internal: prefixed rules that may have
+      // been hand-edited into trust.json.
+      const sanitizedRules = rawRules.filter((r) => {
+        if (typeof r.tool === "string" && r.tool.startsWith("__internal:")) {
+          log.warn(
+            { ruleId: r.id, tool: r.tool },
+            "Stripping __internal: rule from trust file on load",
+          );
+          return false;
+        }
+        return true;
+      });
+
       if (
         data.version === TRUST_FILE_VERSION ||
         data.version === 1 ||
         data.version === 2
       ) {
-        rules = rawRules;
+        rules = sanitizedRules;
+        if (sanitizedRules.length < rawRules.length) {
+          needsSave = true;
+        }
         if (data.version !== TRUST_FILE_VERSION) {
           needsSave = true;
           log.info(

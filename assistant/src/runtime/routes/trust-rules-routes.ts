@@ -131,7 +131,7 @@ export async function handleUpdateTrustRuleManage(
     priority?: number;
   };
 
-  if (body.tool?.startsWith("__internal:")) {
+  if (typeof body.tool === "string" && body.tool.startsWith("__internal:")) {
     return httpError(
       "BAD_REQUEST",
       "tool must not start with __internal:",
