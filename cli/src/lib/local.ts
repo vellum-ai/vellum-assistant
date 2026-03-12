@@ -844,7 +844,7 @@ export async function startGateway(
   writeGatewayConfig(resources?.instanceDir, {
     runtimeProxyEnabled: true,
     unmappedPolicy: "default",
-    defaultAssistantId: assistantId ?? "self",
+    defaultAssistantId: "self",
   });
 
   const gatewayEnv: Record<string, string> = {
