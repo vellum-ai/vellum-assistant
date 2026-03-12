@@ -59,6 +59,7 @@ export function repairHistory(messages: Message[]): RepairResult {
       const newRecovered = new Map<string, ToolResultContent>();
       for (const block of msg.content) {
         if (block.type === "tool_result") {
+          // guard:allow-tool-result-only — only client-side tool_result belongs in recovered; web_search_tool_result stays in the assistant message
           const tr = block as ToolResultContent;
           newRecovered.set(tr.tool_use_id, tr);
           stats.assistantToolResultsMigrated++;
@@ -109,6 +110,7 @@ export function repairHistory(messages: Message[]): RepairResult {
 
         for (const block of msg.content) {
           if (block.type === "tool_result") {
+            // guard:allow-tool-result-only — matches client-side tool_use; web_search_tool_result is handled separately below
             const tr = block as ToolResultContent;
             if (pendingToolUseIds.has(tr.tool_use_id)) {
               matchedIds.add(tr.tool_use_id);
@@ -123,7 +125,11 @@ export function repairHistory(messages: Message[]): RepairResult {
             stats.orphanToolResultsDowngraded++;
             newContent.push(
               downgradeResult(
-                block as { type: "web_search_tool_result"; tool_use_id: string; content: unknown },
+                block as {
+                  type: "web_search_tool_result";
+                  tool_use_id: string;
+                  content: unknown;
+                },
               ),
             );
           } else {
@@ -163,7 +169,11 @@ export function repairHistory(messages: Message[]): RepairResult {
           if (block.type === "web_search_tool_result") {
             stats.orphanToolResultsDowngraded++;
             return downgradeResult(
-              block as { type: "web_search_tool_result"; tool_use_id: string; content: unknown },
+              block as {
+                type: "web_search_tool_result";
+                tool_use_id: string;
+                content: unknown;
+              },
             );
           }
           return block;
@@ -255,9 +265,11 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
   return repairHistory(merged);
 }
 
-function downgradeResult(
-  tr: { type: string; tool_use_id: string; content?: unknown },
-): ContentBlock {
+function downgradeResult(tr: {
+  type: string;
+  tool_use_id: string;
+  content?: unknown;
+}): ContentBlock {
   const content =
     tr.type === "tool_result" ? tr.content : "[web search result]"; // guard:allow-tool-result-only — distinguishes content format between the two types
   return {
