@@ -48,6 +48,13 @@ export async function handleAddTrustRuleManage(
   if (!toolName || typeof toolName !== "string") {
     return httpError("BAD_REQUEST", "toolName is required", 400);
   }
+  if (toolName.startsWith("__internal:")) {
+    return httpError(
+      "BAD_REQUEST",
+      "toolName must not start with __internal:",
+      400,
+    );
+  }
   if (!pattern || typeof pattern !== "string") {
     return httpError("BAD_REQUEST", "pattern is required", 400);
   }
