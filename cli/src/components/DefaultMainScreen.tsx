@@ -838,9 +838,17 @@ function isRuntimeMessage(item: FeedItem): item is RuntimeMessage {
 function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   if (isRuntimeMessage(item)) {
     const cols = Math.max(1, terminalColumns);
+    // Account for "HH:MM AM Label: " prefix on the first line
+    const label = item.role === "user" ? "You:" : "Assistant:";
+    const prefixLen = 10 + label.length + 1; // timestamp + space + label + space
     let lines = 0;
-    for (const line of item.content.split("\n")) {
-      lines += Math.max(1, Math.ceil(line.length / cols));
+    const contentLines = item.content.split("\n");
+    for (let idx = 0; idx < contentLines.length; idx++) {
+      const lineLen =
+        idx === 0
+          ? contentLines[idx].length + prefixLen
+          : contentLines[idx].length;
+      lines += Math.max(1, Math.ceil(lineLen / cols));
     }
     if (item.role === "assistant" && item.toolCalls) {
       for (const tc of item.toolCalls) {
@@ -1197,11 +1205,14 @@ function ChatApp({
     }
 
     if (scrollIndex === null) {
+      // Reserve 1 line for "N more above" indicator when there are hidden messages
       let totalHeight = 0;
       let start = feed.length;
       for (let i = feed.length - 1; i >= 0; i--) {
         const h = estimateItemHeight(feed[i], terminalColumns);
-        if (totalHeight + h > availableRows) {
+        // Reserve space for the "more above" indicator if we'd hide messages
+        const indicatorLine = i > 0 ? 1 : 0;
+        if (totalHeight + h + indicatorLine > availableRows) {
           break;
         }
         totalHeight += h;
@@ -1220,11 +1231,16 @@ function ChatApp({
     }
 
     const start = Math.max(0, Math.min(scrollIndex, feed.length - 1));
+    // Reserve lines for "more above/below" indicators
+    const aboveIndicator = start > 0 ? 1 : 0;
+    const budget = availableRows - aboveIndicator;
     let totalHeight = 0;
     let end = start;
     for (let i = start; i < feed.length; i++) {
       const h = estimateItemHeight(feed[i], terminalColumns);
-      if (totalHeight + h > availableRows) {
+      // Reserve space for "more below" indicator if we'd hide messages
+      const belowIndicator = i + 1 < feed.length ? 1 : 0;
+      if (totalHeight + h + belowIndicator > budget) {
         break;
       }
       totalHeight += h;
@@ -2210,9 +2226,9 @@ function ChatApp({
       ) : null}
 
       {!selection && !secretInput ? (
-        <Box flexDirection="column">
+        <Box flexDirection="column" flexShrink={0}>
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
-          <Box paddingLeft={1}>
+          <Box paddingLeft={1} height={1} flexShrink={0}>
             <Text color="green" bold>
               you{">"}
               {" "}
