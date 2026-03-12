@@ -22,8 +22,15 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  if (context.trustClass !== "guardian") {
+    return {
+      content:
+        "Error: schedule_create is restricted to guardian actors because schedules execute with elevated privileges.",
+      isError: true,
+    };
+  }
   const name = input.name as string;
   const timezone = (input.timezone as string) ?? null;
   const message = input.message as string;
