@@ -53,6 +53,26 @@ function isToolResultOnlyUserTurn(message: Message | undefined): boolean {
 }
 
 /**
+ * Fast gate that determines whether the current turn warrants memory
+ * retrieval. Returns `false` for low-value turns (empty, very short,
+ * tool-result-only) so the full memory pipeline can be skipped.
+ * Runs in microseconds — string length checks only, no external calls.
+ */
+export function needsMemory(messages: Message[], content: string): boolean {
+  // Empty or whitespace-only content
+  if (!content || content.trim().length === 0) return false;
+
+  // Very short messages like "ok", "thanks", "yes"
+  if (content.length < 20) return false;
+
+  // Tool-result-only turns (assistant tool loop)
+  const latestMessage = messages[messages.length - 1];
+  if (isToolResultOnlyUserTurn(latestMessage)) return false;
+
+  return true;
+}
+
+/**
  * Build memory recall, dynamic profile, and conflict gate evaluation
  * for a single agent loop turn. Returns the augmented run messages and
  * metadata for downstream event emission.
@@ -69,65 +89,41 @@ export async function prepareMemoryContext(
   // influencing memory-augmented responses.
   const isTrustedActor = ctx.trustClass === "guardian";
 
+  // Build a no-op result that skips the entire memory pipeline.
+  const noopResult = (): MemoryRecallResult => ({
+    runMessages: ctx.messages,
+    recall: {
+      enabled: false,
+      degraded: false,
+      injectedText: "",
+      lexicalHits: 0,
+      semanticHits: 0,
+      recencyHits: 0,
+      entityHits: 0,
+      relationSeedEntityCount: 0,
+      relationTraversedEdgeCount: 0,
+      relationNeighborEntityCount: 0,
+      relationExpandedItemCount: 0,
+      earlyTerminated: false,
+      mergedCount: 0,
+      selectedCount: 0,
+      rerankApplied: false,
+      injectedTokens: 0,
+      latencyMs: 0,
+      topCandidates: [],
+    } as Awaited<ReturnType<typeof buildMemoryRecall>>,
+    dynamicProfile: { text: "" },
+    recallInjectionStrategy: "prepend_user_block",
+  });
+
   if (!isTrustedActor) {
-    return {
-      runMessages: ctx.messages,
-      recall: {
-        enabled: false,
-        degraded: false,
-        injectedText: "",
-        lexicalHits: 0,
-        semanticHits: 0,
-        recencyHits: 0,
-        entityHits: 0,
-        relationSeedEntityCount: 0,
-        relationTraversedEdgeCount: 0,
-        relationNeighborEntityCount: 0,
-        relationExpandedItemCount: 0,
-        earlyTerminated: false,
-        mergedCount: 0,
-        selectedCount: 0,
-        rerankApplied: false,
-        injectedTokens: 0,
-        latencyMs: 0,
-        topCandidates: [],
-      } as Awaited<ReturnType<typeof buildMemoryRecall>>,
-      dynamicProfile: { text: "" },
-      recallInjectionStrategy: "prepend_user_block",
-    };
+    return noopResult();
   }
 
-  // Internal tool-result turns (assistant tool loop) should not trigger
-  // memory retrieval/profile injection. Injecting memory here repeats the
-  // same long recall block on every tool step and dramatically inflates
-  // per-step prompt size/latency.
-  const latestMessage = ctx.messages[ctx.messages.length - 1];
-  if (isToolResultOnlyUserTurn(latestMessage)) {
-    return {
-      runMessages: ctx.messages,
-      recall: {
-        enabled: false,
-        degraded: false,
-        injectedText: "",
-        lexicalHits: 0,
-        semanticHits: 0,
-        recencyHits: 0,
-        entityHits: 0,
-        relationSeedEntityCount: 0,
-        relationTraversedEdgeCount: 0,
-        relationNeighborEntityCount: 0,
-        relationExpandedItemCount: 0,
-        earlyTerminated: false,
-        mergedCount: 0,
-        selectedCount: 0,
-        rerankApplied: false,
-        injectedTokens: 0,
-        latencyMs: 0,
-        topCandidates: [],
-      } as Awaited<ReturnType<typeof buildMemoryRecall>>,
-      dynamicProfile: { text: "" },
-      recallInjectionStrategy: "prepend_user_block",
-    };
+  // Gate: skip the entire memory pipeline for low-value turns (empty,
+  // very short messages, tool-result-only turns).
+  if (!needsMemory(ctx.messages, content)) {
+    return noopResult();
   }
 
   const runtimeConfig = getConfig();
