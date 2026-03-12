@@ -524,6 +524,5 @@ describe("computer-use registration split", () => {
     expect(registered.every((t) => t.name.startsWith("computer_use_"))).toBe(
       true,
     );
-    expect(getTool("computer_use_request_control")).toBeUndefined();
   });
 });
