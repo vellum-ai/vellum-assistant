@@ -172,8 +172,8 @@ Creates a new app registration or returns the existing one if an app with the
 same provider and client ID already exists. The client secret, if provided, is
 stored in the secure system keychain — not in the database.
 
-When an existing app is matched, the command returns it as-is without updating
-the client secret. To change a secret, delete and re-create the app.
+When an existing app is matched and a --client-secret is provided, the stored
+secret is updated. The app row itself is returned as-is.
 
 Examples:
   $ assistant oauth apps upsert --provider integration:gmail --client-id abc123
