@@ -1408,24 +1408,42 @@ public final class HTTPTransport {
         }
     }
 
+    /// Extract the value of a JSON string field using lightweight string search.
+    /// Handles both `"key":"value"` and `"key": "value"` (with optional space after colon).
+    private func extractJsonStringValue(from jsonString: String, key: String) -> String? {
+        for pattern in ["\"\(key)\":\"", "\"\(key)\": \""] {
+            if let range = jsonString.range(of: pattern) {
+                let valueStart = range.upperBound
+                if let valueEnd = jsonString[valueStart...].firstIndex(of: "\"") {
+                    return String(jsonString[valueStart..<valueEnd])
+                }
+            }
+        }
+        return nil
+    }
+
     private func parseSSEData(_ data: String) {
         var jsonString = data
-        // Remap server conversation IDs to client-local session IDs
-        for (serverId, localId) in serverToLocalSessionMap {
+        // Remap server conversation IDs to client-local session IDs via O(1) dictionary lookup
+        if let sessionId = extractJsonStringValue(from: jsonString, key: "sessionId"),
+           let localId = serverToLocalSessionMap[sessionId] {
             jsonString = jsonString.replacingOccurrences(
-                of: "\"sessionId\":\"\(serverId)\"",
+                of: "\"sessionId\":\"\(sessionId)\"",
                 with: "\"sessionId\":\"\(localId)\""
             )
             jsonString = jsonString.replacingOccurrences(
-                of: "\"sessionId\": \"\(serverId)\"",
+                of: "\"sessionId\": \"\(sessionId)\"",
                 with: "\"sessionId\": \"\(localId)\""
             )
+        }
+        if let parentSessionId = extractJsonStringValue(from: jsonString, key: "parentSessionId"),
+           let localId = serverToLocalSessionMap[parentSessionId] {
             jsonString = jsonString.replacingOccurrences(
-                of: "\"parentSessionId\":\"\(serverId)\"",
+                of: "\"parentSessionId\":\"\(parentSessionId)\"",
                 with: "\"parentSessionId\":\"\(localId)\""
             )
             jsonString = jsonString.replacingOccurrences(
-                of: "\"parentSessionId\": \"\(serverId)\"",
+                of: "\"parentSessionId\": \"\(parentSessionId)\"",
                 with: "\"parentSessionId\": \"\(localId)\""
             )
         }
