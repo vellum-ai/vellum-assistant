@@ -41,9 +41,6 @@ import {
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 
-// Re-export public utilities consumed by tests and other modules
-export { currentWeekWindow } from "./job-utils.js";
-
 const log = getLogger("memory-jobs-worker");
 
 export interface MemoryJobsWorker {

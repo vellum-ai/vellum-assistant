@@ -145,8 +145,6 @@ describe("Memory regressions (experimental)", () => {
         },
         retrieval: {
           ...DEFAULT_CONFIG.memory.retrieval,
-          lexicalTopK: 0,
-          semanticTopK: 10,
           maxInjectTokens: 2000,
         },
       },

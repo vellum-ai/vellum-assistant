@@ -387,8 +387,6 @@ describe("Context + Memory E2E regression", () => {
         },
         retrieval: {
           ...DEFAULT_CONFIG.memory.retrieval,
-          lexicalTopK: 50,
-          semanticTopK: 16,
           maxInjectTokens: 900,
           dynamicBudget: {
             enabled: true,

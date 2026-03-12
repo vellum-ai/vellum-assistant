@@ -221,8 +221,6 @@ describe("Memory context benchmark", () => {
         },
         retrieval: {
           ...DEFAULT_CONFIG.memory.retrieval,
-          lexicalTopK: 50,
-          semanticTopK: 20,
           maxInjectTokens: 750,
           dynamicBudget: {
             enabled: true,

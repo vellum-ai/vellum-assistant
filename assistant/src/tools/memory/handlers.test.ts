@@ -502,7 +502,6 @@ describe("handleMemoryRecall", () => {
         // Force retrieval with impossible settings to trigger an error path
         retrieval: {
           ...TEST_CONFIG.memory.retrieval,
-          lexicalTopK: -1, // may cause issues in search
         },
       },
     };

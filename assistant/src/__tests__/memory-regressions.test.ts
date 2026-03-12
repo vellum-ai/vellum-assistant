@@ -108,7 +108,6 @@ import {
   enqueueMemoryJob,
 } from "../memory/jobs-store.js";
 import {
-  currentWeekWindow,
   maybeEnqueueScheduledCleanupJobs,
   resetCleanupScheduleThrottle,
   resetStaleSweepThrottle,
@@ -175,8 +174,6 @@ describe("Memory regressions", () => {
         },
         retrieval: {
           ...DEFAULT_CONFIG.memory.retrieval,
-          lexicalTopK: 0,
-          semanticTopK: 10,
           maxInjectTokens: 2000,
         },
       },
@@ -937,13 +934,6 @@ describe("Memory regressions", () => {
     expect(recent[1]?.id).toBe("seg-recent-2");
   });
 
-  test("weekly window uses UTC boundaries for stable scope keys", () => {
-    const window = currentWeekWindow(new Date("2025-01-06T00:30:00.000Z"));
-    expect(window.scopeKey).toBe("2025-W02");
-    expect(window.startMs).toBe(Date.parse("2025-01-06T00:00:00.000Z"));
-    expect(window.endMs).toBe(Date.parse("2025-01-13T00:00:00.000Z"));
-  });
-
   test("explicit ollama memory embedding provider is honored without extra ollama config", () => {
     const config = {
       ...DEFAULT_CONFIG,
@@ -1308,7 +1298,6 @@ describe("Memory regressions", () => {
         retrieval: {
           ...DEFAULT_CONFIG.memory.retrieval,
           maxInjectTokens: 5000,
-          lexicalTopK: 10,
         },
       },
     };

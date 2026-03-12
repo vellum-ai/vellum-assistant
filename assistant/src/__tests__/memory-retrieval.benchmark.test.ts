@@ -143,8 +143,6 @@ function makeConfig(overrides?: { maxInjectTokens?: number }): AssistantConfig {
       },
       retrieval: {
         ...DEFAULT_CONFIG.memory.retrieval,
-        lexicalTopK: 50,
-        semanticTopK: 20,
         maxInjectTokens: overrides?.maxInjectTokens ?? 750,
         dynamicBudget: {
           enabled: false,

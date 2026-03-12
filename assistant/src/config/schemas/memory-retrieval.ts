@@ -128,16 +128,6 @@ const MemoryFreshnessConfigSchema = z.object({
 });
 
 export const MemoryRetrievalConfigSchema = z.object({
-  lexicalTopK: z
-    .number({ error: "memory.retrieval.lexicalTopK must be a number" })
-    .int("memory.retrieval.lexicalTopK must be an integer")
-    .positive("memory.retrieval.lexicalTopK must be a positive integer")
-    .default(80),
-  semanticTopK: z
-    .number({ error: "memory.retrieval.semanticTopK must be a number" })
-    .int("memory.retrieval.semanticTopK must be an integer")
-    .positive("memory.retrieval.semanticTopK must be a positive integer")
-    .default(40),
   maxInjectTokens: z
     .number({ error: "memory.retrieval.maxInjectTokens must be a number" })
     .int("memory.retrieval.maxInjectTokens must be an integer")
