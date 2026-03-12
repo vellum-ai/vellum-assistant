@@ -828,11 +828,12 @@ export async function handleSendMessage(
         sourceInterface,
       );
 
-      // Emit fresh model info before the text delta so the client has
-      // up-to-date configuredProviders when rendering /model, /models,
-      // and provider shortcut commands (/gpt4, /opus, etc.).
-      const shouldEmitModelInfo =
-        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent);
+      // Snapshot model info now so the deferred callback cannot observe
+      // a config change from a concurrent request.
+      const modelInfoEvent =
+        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
+          ? buildModelInfoEvent()
+          : null;
 
       const response = Response.json(
         {
@@ -847,23 +848,33 @@ export async function handleSendMessage(
       // client first. This ensures the client's serverToLocalSessionMap is
       // populated before SSE events arrive, preventing dropped events in new
       // desktop threads.
+      //
+      // session.processing and drainQueue are also deferred so the current
+      // slash command's events are emitted before the next queued message
+      // starts processing.
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
-        if (shouldEmitModelInfo) {
-          onEvent(buildModelInfoEvent());
+        if (modelInfoEvent) {
+          onEvent(modelInfoEvent);
         }
         onEvent({ type: "assistant_text_delta", text: message });
         onEvent({
           type: "message_complete",
           sessionId: conversationId,
         });
+        session.processing = false;
+        session.drainQueue().catch(() => {});
       }, 0);
 
       return response;
     } finally {
-      session.processing = false;
-      session.drainQueue().catch(() => {});
+      // No-op for the slash-command early-return path (handled inside
+      // setTimeout above), but still needed for error paths.
+      if (session.processing) {
+        session.processing = false;
+        session.drainQueue().catch(() => {});
+      }
     }
   }
 
