@@ -49,6 +49,19 @@ Each provider is identified by a provider key (e.g. "integration:gmail").`,
   providers
     .command("list")
     .description("List all registered OAuth providers")
+    .addHelpText(
+      "after",
+      `
+Returns all registered OAuth providers, including both built-in providers
+seeded at startup and any dynamically registered via "providers register".
+
+Each provider row includes its key, auth URL, token URL, default scopes,
+and configuration timestamps.
+
+Examples:
+  $ assistant oauth providers list
+  $ assistant oauth providers list --json`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       try {
         const rows = listProviders().map(parseProviderRow);
@@ -76,7 +89,16 @@ Each provider is identified by a provider key (e.g. "integration:gmail").`,
       "after",
       `
 Arguments:
-  provider-key   The full provider key (e.g. "integration:gmail")`,
+  provider-key   The full provider key (e.g. "integration:gmail").
+                 Must match the key used during registration or seeding.
+
+Returns the full provider configuration including auth URL, token URL,
+default scopes, scope policy, and extra parameters. Exits with code 1
+if the provider key is not found.
+
+Examples:
+  $ assistant oauth providers get integration:gmail
+  $ assistant oauth providers get integration:twitter --json`,
     )
     .action((providerKey: string, _opts: unknown, cmd: Command) => {
       try {
@@ -115,6 +137,37 @@ Arguments:
     .option("--token-auth-method <method>", "Token endpoint auth method")
     .option("--callback-transport <transport>", "Callback transport")
     .option("--loopback-port <port>", "Loopback port", parseInt)
+    .addHelpText(
+      "after",
+      `
+Arguments (via options):
+  --provider-key        Unique identifier for this provider (e.g. "integration:custom-service").
+                        Must not collide with an existing provider key.
+  --auth-url            The OAuth authorization endpoint URL.
+  --token-url           The OAuth token endpoint URL.
+  --base-url            Optional API base URL for the service.
+  --userinfo-url        Optional OpenID Connect userinfo endpoint.
+  --scopes              Comma-separated list of default scopes (e.g. "read,write,profile").
+  --token-auth-method   How the client authenticates at the token endpoint
+                        (e.g. "client_secret_post", "client_secret_basic").
+  --callback-transport  Transport method for the OAuth callback.
+  --loopback-port       Port number for the local loopback callback server.
+
+Registers a new OAuth provider configuration in the local store. This is
+used for custom integrations not covered by the built-in provider seeds.
+On success, returns the full provider row including generated timestamps.
+
+Examples:
+  $ assistant oauth providers register \\
+      --provider-key integration:custom-api \\
+      --auth-url https://custom-api.example.com/oauth/authorize \\
+      --token-url https://custom-api.example.com/oauth/token
+  $ assistant oauth providers register \\
+      --provider-key integration:my-service \\
+      --auth-url https://my-service.com/auth \\
+      --token-url https://my-service.com/token \\
+      --scopes read,write --json`,
+    )
     .action(
       (
         opts: {
