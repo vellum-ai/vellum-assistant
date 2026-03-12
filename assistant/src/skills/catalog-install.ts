@@ -320,26 +320,39 @@ export async function installSkillLocally(
 // ─── Auto-install (for skill_load) ──────────────────────────────────────────
 
 /**
+ * Resolve the catalog skill list, checking local (dev mode) first, then remote.
+ * Callers that install multiple skills in a loop should call this once and pass
+ * the result to `autoInstallFromCatalog` to avoid redundant network requests.
+ */
+export async function resolveCatalog(): Promise<CatalogSkill[]> {
+  const repoSkillsDir = getRepoSkillsDir();
+  if (repoSkillsDir) {
+    const local = readLocalCatalog(repoSkillsDir);
+    if (local.length > 0) return local;
+  }
+
+  return fetchCatalog();
+}
+
+/**
  * Attempt to find and install a skill from the first-party catalog.
  * Returns true if the skill was installed, false if not found in catalog.
  * Throws on install failures (network, filesystem, etc).
+ *
+ * When `catalog` is provided it is used directly, avoiding a redundant
+ * network fetch — pass a pre-resolved catalog when calling in a loop.
  */
 export async function autoInstallFromCatalog(
   skillId: string,
+  catalog?: CatalogSkill[],
 ): Promise<boolean> {
-  // Check local catalog first (dev mode), then remote
-  const repoSkillsDir = getRepoSkillsDir();
-  let entry: CatalogSkill | undefined;
+  let skills: CatalogSkill[];
 
-  if (repoSkillsDir) {
-    const localCatalog = readLocalCatalog(repoSkillsDir);
-    entry = localCatalog.find((s) => s.id === skillId);
-  }
-
-  if (!entry) {
+  if (catalog) {
+    skills = catalog;
+  } else {
     try {
-      const remoteCatalog = await fetchCatalog();
-      entry = remoteCatalog.find((s) => s.id === skillId);
+      skills = await resolveCatalog();
     } catch (err) {
       log.warn(
         { err, skillId },
@@ -349,6 +362,7 @@ export async function autoInstallFromCatalog(
     }
   }
 
+  const entry = skills.find((s) => s.id === skillId);
   if (!entry) {
     return false;
   }

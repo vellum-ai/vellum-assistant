@@ -8,7 +8,10 @@ import type { SkillSummary, SkillToolManifest } from "../../config/skills.js";
 import { loadSkillBySelector, loadSkillCatalog } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { autoInstallFromCatalog } from "../../skills/catalog-install.js";
+import {
+  autoInstallFromCatalog,
+  resolveCatalog,
+} from "../../skills/catalog-install.js";
 import {
   collectAllMissing,
   indexCatalogById,
@@ -191,6 +194,14 @@ export class SkillLoadTool implements Tool {
       catalogIndex = indexCatalogById(catalog);
 
       // Auto-install missing includes before validation (max 5 rounds for transitive deps)
+      // Pre-fetch catalog once to avoid redundant network requests per dependency
+      let remoteCatalog: Awaited<ReturnType<typeof resolveCatalog>> | undefined;
+      try {
+        remoteCatalog = await resolveCatalog();
+      } catch (err) {
+        log.warn({ err, skillId: skill.id }, "Failed to resolve catalog for include auto-install");
+      }
+
       const MAX_INSTALL_ROUNDS = 5;
       for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
         const missing = collectAllMissing(skill.id, catalogIndex);
@@ -199,7 +210,7 @@ export class SkillLoadTool implements Tool {
         let installedAny = false;
         for (const missingId of missing) {
           try {
-            const installed = await autoInstallFromCatalog(missingId);
+            const installed = await autoInstallFromCatalog(missingId, remoteCatalog);
             if (installed) {
               log.info(
                 { skillId: missingId, parentSkillId: skill.id },
