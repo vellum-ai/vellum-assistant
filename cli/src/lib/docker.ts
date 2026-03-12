@@ -20,49 +20,54 @@ import {
 const _require = createRequire(import.meta.url);
 
 /**
- * Checks whether the `docker` CLI is available on the system.
- * If not, attempts to install Colima and Docker via Homebrew.
+ * Checks whether the `docker` CLI and daemon are available on the system.
+ * Installs Colima and Docker via Homebrew if the CLI is missing, and starts
+ * Colima if the Docker daemon is not reachable.
  */
 async function ensureDockerInstalled(): Promise<void> {
+  let installed = false;
   try {
     await execOutput("docker", ["--version"]);
-    return;
+    installed = true;
   } catch {
-    // docker not found — try to install
+    // docker CLI not found — install it
   }
 
-  console.log("🐳 Docker not found. Installing via Homebrew...");
-  try {
-    await exec("brew", ["install", "colima", "docker"]);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
-    );
+  if (!installed) {
+    console.log("🐳 Docker not found. Installing via Homebrew...");
+    try {
+      await exec("brew", ["install", "colima", "docker"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
+      );
+    }
+
+    try {
+      await execOutput("docker", ["--version"]);
+    } catch {
+      throw new Error(
+        "Docker was installed but is still not available on PATH. " +
+          "You may need to restart your terminal.",
+      );
+    }
   }
 
-  // Verify docker CLI is now available after installation
+  // Verify the Docker daemon is reachable; start Colima if it isn't
   try {
-    await execOutput("docker", ["--version"]);
+    await exec("docker", ["info"]);
   } catch {
-    throw new Error(
-      "Docker was installed but is still not available on PATH. " +
-        "You may need to restart your terminal.",
-    );
+    console.log("🚀 Docker daemon not running. Starting Colima...");
+    try {
+      await exec("colima", ["start"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to start Colima. Please run 'colima start' manually.\n${message}`,
+      );
+    }
   }
-
-  // Start the Colima VM so the Docker daemon is available
-  console.log("🚀 Starting Colima...");
-  try {
-    await exec("colima", ["start"]);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Colima installed but failed to start. Please run 'colima start' manually.\n${message}`,
-    );
-  }
-
-  console.log("✅ Docker installed and running.");
 }
 
 interface DockerRoot {
