@@ -149,10 +149,9 @@ struct AssistantChannelsDetailView: View {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
-                        store.channelSetupStatus["telegram"] = "not_configured"
                     }
                 }
-            } else if status == "incomplete" || telegramSetupExpanded {
+            } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .secondary, size: .medium) {
@@ -284,10 +283,9 @@ struct AssistantChannelsDetailView: View {
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                         slackChannelSetupExpanded = false
-                        store.channelSetupStatus["slack"] = "not_configured"
                     }
                 }
-            } else if status == "incomplete" || slackChannelSetupExpanded {
+            } else if (status == "incomplete" && store.slackChannelHasBotToken) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .secondary, size: .medium) {
@@ -430,10 +428,9 @@ struct AssistantChannelsDetailView: View {
                     VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
                     VButton(label: "Disconnect", style: .danger, size: .medium, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
-                        store.channelSetupStatus["phone"] = "not_configured"
                     }
                 }
-            } else if status == "incomplete" || voiceSetupExpanded {
+            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .secondary, size: .medium) {
