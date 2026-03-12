@@ -7,12 +7,20 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelId } from "../channels/types.js";
-import { telegramInviteAdapter } from "../runtime/channel-invite-transports/telegram.js";
 
 // Mock credential metadata so tests don't depend on local persisted state.
 mock.module("../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadata: () => undefined,
 }));
+
+// Mock getTelegramBotUsername — the env var fallback was removed so we
+// control the return value directly via a mutable variable.
+let mockBotUsername: string | undefined;
+mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotUsername: () => mockBotUsername,
+}));
+
+import { telegramInviteAdapter } from "../runtime/channel-invite-transports/telegram.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,31 +28,21 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 const CHANNEL: ChannelId = "telegram" as ChannelId;
 
-function setEnv(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = value;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // buildShareLink
 // ---------------------------------------------------------------------------
 
 describe("telegramInviteAdapter.buildShareLink", () => {
-  let originalBotUsername: string | undefined;
-
   beforeEach(() => {
-    originalBotUsername = process.env.TELEGRAM_BOT_USERNAME;
+    mockBotUsername = undefined;
   });
 
   afterEach(() => {
-    setEnv("TELEGRAM_BOT_USERNAME", originalBotUsername);
+    mockBotUsername = undefined;
   });
 
   test("builds a deep link with iv_ prefix", () => {
-    setEnv("TELEGRAM_BOT_USERNAME", "TestBot");
+    mockBotUsername = "TestBot";
 
     const link = telegramInviteAdapter.buildShareLink!({
       rawToken: "abc123",
@@ -56,7 +54,7 @@ describe("telegramInviteAdapter.buildShareLink", () => {
   });
 
   test("throws when bot username is not configured", () => {
-    setEnv("TELEGRAM_BOT_USERNAME", undefined);
+    mockBotUsername = undefined;
 
     expect(() =>
       telegramInviteAdapter.buildShareLink!({
@@ -138,25 +136,23 @@ describe("telegramInviteAdapter.extractInboundToken", () => {
 // ---------------------------------------------------------------------------
 
 describe("telegramInviteAdapter.resolveChannelHandle", () => {
-  let originalBotUsername: string | undefined;
-
   beforeEach(() => {
-    originalBotUsername = process.env.TELEGRAM_BOT_USERNAME;
+    mockBotUsername = undefined;
   });
 
   afterEach(() => {
-    setEnv("TELEGRAM_BOT_USERNAME", originalBotUsername);
+    mockBotUsername = undefined;
   });
 
-  test("returns @-prefixed bot username from env", () => {
-    setEnv("TELEGRAM_BOT_USERNAME", "MyBot");
+  test("returns @-prefixed bot username from config", () => {
+    mockBotUsername = "MyBot";
 
     const handle = telegramInviteAdapter.resolveChannelHandle!();
     expect(handle).toBe("@MyBot");
   });
 
   test("returns undefined when bot username is not configured", () => {
-    setEnv("TELEGRAM_BOT_USERNAME", undefined);
+    mockBotUsername = undefined;
 
     const handle = telegramInviteAdapter.resolveChannelHandle!();
     expect(handle).toBeUndefined();
