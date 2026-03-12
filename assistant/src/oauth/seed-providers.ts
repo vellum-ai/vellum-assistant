@@ -16,7 +16,7 @@ export function seedOAuthProviders(): void {
     userinfoUrl: profile.userinfoUrl,
     baseUrl: PROVIDER_BASE_URLS[profile.service],
     defaultScopes: profile.defaultScopes,
-    scopePolicy: profile.scopePolicy,
+    scopePolicy: profile.scopePolicy as Record<string, unknown>,
     extraParams: profile.extraParams,
     callbackTransport: profile.callbackTransport,
     loopbackPort: profile.loopbackPort,
