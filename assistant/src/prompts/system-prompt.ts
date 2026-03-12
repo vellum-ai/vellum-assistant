@@ -421,7 +421,7 @@ export function buildPhoneCallsRoutingSection(): string {
     "",
     "### Exclusivity rules",
     "- Do NOT improvise Twilio setup instructions from general knowledge — always load the skill first.",
-    "- Do NOT confuse with voice-setup (local PTT/wake word/microphone) or guardian-verify-setup (channel verification).",
+    "- Do NOT confuse with voice-setup (local PTT/microphone) or guardian-verify-setup (channel verification).",
     '- If the user says "voice" in the context of phone calls or Twilio, load phone-calls, not voice-setup.',
     "- For guardian voice verification specifically, load guardian-verify-setup instead.",
   ].join("\n");
