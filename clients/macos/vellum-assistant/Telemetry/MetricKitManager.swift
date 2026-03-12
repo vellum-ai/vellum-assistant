@@ -63,25 +63,40 @@ import os
         let name: String?
     }
 
+    /// Default DSN for the macOS app Sentry project.
+    static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+    /// DSN for the assistant/brain Sentry project.
+    static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+
     nonisolated static func sendManualReport(
         _ event: Event,
         attachments: [Attachment] = [],
         userFeedback: UserFeedbackData? = nil,
+        dsn: String? = nil,
         completion: (@Sendable () -> Void)? = nil
     ) {
         sentrySerialQueue.async {
-            let wasDisabled = !SentrySDK.isEnabled
-            if wasDisabled {
+            let targetDSN = dsn ?? macosDSN
+            let needsDSNSwitch = dsn != nil
+            let wasEnabled = SentrySDK.isEnabled
+
+            // When targeting a different DSN (e.g. brain project), close the
+            // current SDK first so we can restart with the alternate DSN.
+            if needsDSNSwitch && wasEnabled {
+                SentrySDK.flush(timeout: 5)
+                SentrySDK.close()
+            }
+
+            let needsStart = !SentrySDK.isEnabled
+            if needsStart {
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
                 let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
                 SentrySDK.start { options in
-                    options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+                    options.dsn = targetDSN
                     options.releaseName = "vellum-macos@\(version)"
                     options.dist = build
                     options.environment = SentryDeviceInfo.sentryEnvironment
                     options.sendDefaultPii = false
-                    // Disable crash capture and session tracking so the temporary
-                    // restart only sends the explicit event, not incidental crashes.
                     options.enableCrashHandler = false
                     options.enableAutoSessionTracking = false
                 }
@@ -122,14 +137,20 @@ import os
             // delivered before the user quits the app. Use a longer timeout
             // when attachments are present since companion archives (e.g.
             // spindump .tar.gz) can be several MB on slow connections.
-            // When Sentry was temporarily started (user opted out), also
-            // close it afterward.
             let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
-            if wasDisabled {
-                SentrySDK.flush(timeout: flushTimeout)
+            SentrySDK.flush(timeout: flushTimeout)
+
+            // Restore SDK state: if we switched DSN, close and restart with
+            // the original DSN (if it was running). If the SDK was originally
+            // disabled, close it.
+            if needsDSNSwitch {
                 SentrySDK.close()
-            } else if !attachments.isEmpty {
-                SentrySDK.flush(timeout: flushTimeout)
+                if wasEnabled {
+                    startSentry()
+                }
+            } else if needsStart {
+                // SDK was disabled before we started it — close the temp session.
+                SentrySDK.close()
             }
             completion?()
         }
@@ -163,7 +184,7 @@ import os
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
             SentrySDK.start { options in
-                options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+                options.dsn = macosDSN
                 options.releaseName = "vellum-macos@\(version)"
                 options.dist = build
                 options.environment = SentryDeviceInfo.sentryEnvironment

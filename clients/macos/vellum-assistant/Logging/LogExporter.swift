@@ -69,11 +69,18 @@ enum LogExporter {
                 name: formData.name.isEmpty ? formData.email : formData.name
             )
 
+            // Route assistant behavior reports to the brain Sentry project
+            // so they appear alongside daemon issues for triage.
+            let dsn: String? = formData.reason == .assistantBehavior
+                ? MetricKitManager.brainDSN
+                : nil
+
             await withCheckedContinuation { continuation in
                 MetricKitManager.sendManualReport(
                     event,
                     attachments: [attachment],
-                    userFeedback: feedback
+                    userFeedback: feedback,
+                    dsn: dsn
                 ) {
                     try? FileManager.default.removeItem(at: archiveURL)
                     continuation.resume()
