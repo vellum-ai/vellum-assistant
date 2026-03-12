@@ -90,7 +90,6 @@ struct ChatView: View {
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var containerWidth: CGFloat = 0
-    @State private var appearance = AvatarAppearanceManager.shared
 
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
@@ -211,18 +210,6 @@ struct ChatView: View {
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
-
-                        // Assistant avatar pinned above the composer, Claude-style.
-                        if messages.contains(where: { $0.role == .assistant }) || isSending {
-                            HStack {
-                                VAvatarImage(image: appearance.chatAvatarImage, size: 52)
-                                Spacer()
-                            }
-                            .padding(.horizontal, VSpacing.xl)
-                            .padding(.vertical, VSpacing.sm)
-                            .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                            .frame(maxWidth: .infinity)
-                        }
 
                         let composerMessages: [ChatMessage] = {
                             let all = messages.filter { !$0.isSubagentNotification }
