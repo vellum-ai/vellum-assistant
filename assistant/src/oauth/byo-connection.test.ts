@@ -246,10 +246,10 @@ describe("BYOOAuthConnection", () => {
       expect(url).toBe(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
       );
-      expect((init as RequestInit).headers).toMatchObject({
-        Authorization: "Bearer test-access-token",
-        "Content-Type": "application/json",
-      });
+      const headers = init.headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bearer test-access-token");
+      // GET requests have no body, so Content-Type should not be set
+      expect(headers.has("Content-Type")).toBe(false);
       expect((init as RequestInit).method).toBe("GET");
     });
 
@@ -298,6 +298,9 @@ describe("BYOOAuthConnection", () => {
         JSON.stringify({ raw: "base64-encoded-email" }),
       );
       expect((init as RequestInit).method).toBe("POST");
+      // POST requests with a body should include Content-Type
+      const headers = init.headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/json");
     });
 
     test("retries once on 401 response", async () => {
@@ -397,10 +400,9 @@ describe("BYOOAuthConnection", () => {
       });
 
       const [, init] = mockFetch.mock.calls[0];
-      expect((init as RequestInit).headers).toMatchObject({
-        "X-Custom-Header": "custom-value",
-        Authorization: "Bearer test-access-token",
-      });
+      const headers = init.headers as Headers;
+      expect(headers.get("X-Custom-Header")).toBe("custom-value");
+      expect(headers.get("Authorization")).toBe("Bearer test-access-token");
     });
   });
 
@@ -422,9 +424,10 @@ describe("BYOOAuthConnection", () => {
 
       // The request should use the refreshed token
       const [, init] = mockFetch.mock.calls[0];
-      expect((init as RequestInit).headers).toMatchObject({
-        Authorization: "Bearer refreshed-access-token",
-      });
+      const headers = init.headers as Headers;
+      expect(headers.get("Authorization")).toBe(
+        "Bearer refreshed-access-token",
+      );
     });
   });
 
