@@ -104,6 +104,17 @@ export async function storeOAuth2Tokens(
     ? { id: params.oauthAppId }
     : await upsertApp(service, clientId, clientSecret);
 
+  // When oauthAppId is pre-resolved, still persist clientSecret if provided.
+  if (params.oauthAppId && clientSecret) {
+    const stored = await setSecureKeyAsync(
+      `oauth_app/${params.oauthAppId}/client_secret`,
+      clientSecret,
+    );
+    if (!stored) {
+      throw new Error("Failed to store client_secret in secure storage");
+    }
+  }
+
   // 2. Upsert oauth_connection — reuse existing active connection for this
   //    provider, or create a new one.
   const existingConn = getConnectionByProvider(service);
