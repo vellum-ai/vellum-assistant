@@ -60,17 +60,17 @@ enum Emerald {
     static let _100 = Color(hex: 0xECFDF5)
 }
 
-enum Danger {
-    static let _950 = Color(hex: 0x4E281D)
-    static let _900 = Color(hex: 0x803017)
-    static let _800 = Color(hex: 0xAB3F1C)
-    static let _700 = Color(hex: 0xDA491A)
-    static let _600 = Color(hex: 0xE86B40)
-    static let _500 = Color(hex: 0xF39B74)
-    static let _400 = Color(hex: 0xF9C0A2)
-    static let _300 = Color(hex: 0xF7DAC9)
-    static let _200 = Color(hex: 0xFFE4D5)
-    static let _100 = Color(hex: 0xFFF3EE)
+public enum Danger {
+    public static let _950 = Color(hex: 0x4E281D)
+    public static let _900 = Color(hex: 0x803017)
+    public static let _800 = Color(hex: 0xAB3F1C)
+    public static let _700 = Color(hex: 0xDA491A)
+    public static let _600 = Color(hex: 0xE86B40)
+    public static let _500 = Color(hex: 0xF39B74)
+    public static let _400 = Color(hex: 0xF9C0A2)
+    public static let _300 = Color(hex: 0xF7DAC9)
+    public static let _200 = Color(hex: 0xFFE4D5)
+    public static let _100 = Color(hex: 0xFFF3EE)
 }
 
 public enum Amber {
@@ -128,17 +128,17 @@ enum Moss {
     static let _50  = Color(hex: 0xF5F3EB)
 }
 
-enum Forest {
-    static let _950 = Color(hex: 0x1A2316)
-    static let _900 = Color(hex: 0x2A3825)
-    static let _800 = Color(hex: 0x3D4F36)
-    static let _700 = Color(hex: 0x516748)
-    static let _600 = Color(hex: 0x657D5B)
-    static let _500 = Color(hex: 0x7A8B6F)
-    static let _400 = Color(hex: 0x98A88F)
-    static let _300 = Color(hex: 0xB5C3AE)
-    static let _200 = Color(hex: 0xD4DFD0)
-    static let _100 = Color(hex: 0xEDF2EB)
+public enum Forest {
+    public static let _950 = Color(hex: 0x1A2316)
+    public static let _900 = Color(hex: 0x2A3825)
+    public static let _800 = Color(hex: 0x3D4F36)
+    public static let _700 = Color(hex: 0x516748)
+    public static let _600 = Color(hex: 0x657D5B)
+    public static let _500 = Color(hex: 0x7A8B6F)
+    public static let _400 = Color(hex: 0x98A88F)
+    public static let _300 = Color(hex: 0xB5C3AE)
+    public static let _200 = Color(hex: 0xD4DFD0)
+    public static let _100 = Color(hex: 0xEDF2EB)
 }
 
 enum Sage {

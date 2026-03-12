@@ -153,6 +153,10 @@ struct ChatSessionErrorToast: View {
             return .circleStop
         case .processingFailed, .regenerateFailed:
             return .refreshCw
+        case .providerOrdering:
+            return .circleAlert
+        case .providerWebSearch:
+            return .globe
         case .authenticationRequired:
             return .lock
         case .unknown:

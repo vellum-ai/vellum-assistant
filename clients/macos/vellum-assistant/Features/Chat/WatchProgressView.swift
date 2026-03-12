@@ -29,7 +29,7 @@ struct WatchProgressView: View {
             // Pulsing icon + label
             HStack(spacing: VSpacing.sm) {
                 VIconView(.eye, size: 14)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .opacity(isPulsing ? 0.4 : 1.0)
                     .animation(
                         Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
@@ -45,7 +45,7 @@ struct WatchProgressView: View {
 
                 Button(action: onStop) {
                     VIconView(.square, size: 12)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop watching")
@@ -64,7 +64,7 @@ struct WatchProgressView: View {
                     Spacer()
                     Text("\(session.captureCount)/\(session.totalExpected) captures")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                 }
             }

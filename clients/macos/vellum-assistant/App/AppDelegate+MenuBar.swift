@@ -509,7 +509,7 @@ extension AppDelegate {
         )
         window.contentViewController = hostingController
         window.title = "Send Logs to Vellum"
-        window.backgroundColor = NSColor(VColor.backgroundSubtle)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.center()
 
