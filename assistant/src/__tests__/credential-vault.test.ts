@@ -1240,11 +1240,14 @@ describe("withValidToken refresh deduplication", () => {
     opts?: { expired?: boolean; accessToken?: string },
   ) {
     const accessToken = opts?.accessToken ?? "old-access-token";
-    setSecureKey(credentialKey(service, "access_token"), accessToken);
 
     // Seed mock oauth-store maps so token-manager can resolve refresh config
     const appId = `app-${service}`;
     const connId = `conn-${service}`;
+
+    // Store access token under the oauth_connection key path that
+    // withValidToken reads (not the legacy credentialKey path).
+    setSecureKey(`oauth_connection/${connId}/access_token`, accessToken);
     mockProviders.set(service, {
       key: service,
       tokenUrl: "https://oauth.example.com/token",
@@ -1396,22 +1399,23 @@ describe("withValidToken refresh deduplication", () => {
 
     const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
-    // First call triggers a refresh
+    // First call triggers a refresh (old token → 401 → refresh → token-1)
     const r1 = await withValidToken(
       "integration:gmail",
       async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token !== "token-1") throw err401;
         return token;
       },
     );
     expect(r1).toBe("token-1");
     expect(refreshCount).toBe(1);
 
-    // Set up so the next call will also get a 401 (legacy key still has "old-access-token")
+    // Second call also triggers a 401 to verify dedup state was cleaned up
+    // and a new refresh is allowed (not deduplicated with the first).
     const r2 = await withValidToken(
       "integration:gmail",
       async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token !== "token-2") throw err401;
         return token;
       },
     );
