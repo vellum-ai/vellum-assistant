@@ -175,7 +175,9 @@ public final class HTTPTransport {
     /// Maps the daemon's server-side conversationId → client-local sessionId.
     /// Used to remap sessionId in incoming SSE events so ChatViewModel's
     /// belongsToSession() filter passes. Supports multiple concurrent threads.
+    /// Capped at `serverToLocalSessionMapCap` entries to prevent unbounded growth.
     var serverToLocalSessionMap: [String: String] = [:]
+    private let serverToLocalSessionMapCap = 500
 
     /// The local session ID for the most recently created session, awaiting
     /// the server's conversationId from the first POST /v1/messages response.
@@ -1601,6 +1603,11 @@ public final class HTTPTransport {
                    let serverConvId = json["conversationId"] as? String,
                    serverConvId != sessionId {
                     self.serverToLocalSessionMap[serverConvId] = sessionId
+                    // Evict arbitrary entries when over cap to prevent unbounded growth.
+                    // Lost mappings are benign — they'll be re-learned from future SSE events.
+                    while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
+                        self.serverToLocalSessionMap.removeFirst()
+                    }
                     log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(sessionId, privacy: .public)")
                 }
             } else if http.statusCode == 401 && !isRetry {
