@@ -792,6 +792,7 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "unknown") {
     session.processing = true;
+    let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(session.trustContext);
       const channelMeta = {
@@ -867,11 +868,12 @@ export async function handleSendMessage(
         session.drainQueue().catch(() => {});
       }, 0);
 
+      cleanupDeferred = true;
       return response;
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
-      if (session.processing) {
+      if (!cleanupDeferred && session.processing) {
         session.processing = false;
         session.drainQueue().catch(() => {});
       }
