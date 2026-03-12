@@ -190,7 +190,13 @@ export async function runDaemon(): Promise<void> {
       // Persist the CLI edge token in the encrypted credential store so
       // that in-process readers (built-in CLI, etc.) can retrieve it
       // without touching the filesystem.
-      setSecureKey(CLI_EDGE_TOKEN_STORE_KEY, credentials.accessToken);
+      const stored = setSecureKey(
+        CLI_EDGE_TOKEN_STORE_KEY,
+        credentials.accessToken,
+      );
+      if (!stored) {
+        log.warn("Failed to persist CLI edge token in credential store");
+      }
 
       // DEPRECATED: The http-token file is kept for backward compatibility
       // until all consumers are migrated to the credential store.
