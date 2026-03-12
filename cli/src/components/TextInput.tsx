@@ -95,7 +95,14 @@ function TextInput({
 
         // Start completion mode
         const matches = getMatches(currentValue);
-        if (matches.length > 0) {
+        if (matches.length === 1) {
+          // Single match — accept immediately with trailing space
+          const completed = matches[0]! + " ";
+          valueRef.current = completed;
+          cursorOffsetRef.current = completed.length;
+          onChange(completed);
+          setRenderTick((t) => t + 1);
+        } else if (matches.length > 1) {
           setCompletionMatches(matches);
           const idx = key.shift ? matches.length - 1 : 0;
           setCompletionIndex(idx);
@@ -120,8 +127,18 @@ function TextInput({
 
       // Enter accepts completion and submits
       if (key.return) {
-        clearCompletion();
-        onSubmit?.(valueRef.current);
+        if (completionMatches.length > 0) {
+          // Append trailing space so the command is recognized by handleInput
+          const completed = valueRef.current + " ";
+          valueRef.current = completed;
+          cursorOffsetRef.current = completed.length;
+          onChange(completed);
+          clearCompletion();
+          onSubmit?.(completed);
+        } else {
+          clearCompletion();
+          onSubmit?.(valueRef.current);
+        }
         return;
       }
 
