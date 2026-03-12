@@ -46,7 +46,7 @@ import {
   rerankWithLLM,
 } from "./search/ranking.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
-import { computeStaleness, applyStaleDemotion } from "./search/staleness.js";
+import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
 import { classifyTiers } from "./search/tier-classifier.js";
 import type {
   Candidate,
