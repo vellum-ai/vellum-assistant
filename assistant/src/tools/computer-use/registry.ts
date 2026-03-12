@@ -11,7 +11,7 @@ import { registerTool } from "../registry.js";
 import { allComputerUseTools } from "./definitions.js";
 
 /**
- * Register the 12 `computer_use_*` action proxy tools.
+ * Register the 11 `computer_use_*` action proxy tools.
  * After cutover these are provided by the bundled computer-use skill instead.
  */
 export function registerComputerUseActionTools(): void {

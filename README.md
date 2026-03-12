@@ -127,7 +127,7 @@ bun run src/index.ts daemon start
 - Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
 - Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
-- Host/computer-use prompts: `host_*` and `computer_use_*` (including `computer_use_request_control`) default to `ask` unless allowlisted/denylisted in trust rules.
+- Host/computer-use prompts: `host_*` and `computer_use_*` tools default to `ask` unless allowlisted/denylisted in trust rules.
 - Runtime override removal: CLI `--no-sandbox` is removed; the sandbox mode is always active.
 
 ### Sandbox Backend

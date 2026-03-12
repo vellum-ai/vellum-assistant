@@ -940,8 +940,7 @@ graph TB
     end
 
     subgraph "Text Q&A Session"
-        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill)"]
-        ESCALATE["computer_use_request_control<br/>(proxy tool)"]
+        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill,<br/>computer_use_* via bundled computer-use skill)"]
     end
 
     SUBMIT --> SLASH_CHECK
@@ -953,22 +952,21 @@ graph TB
     CLASSIFIER -->|"text_qa"| QA_ROUTE
 
     QA_ROUTE --> TEXT_TOOLS
-    TEXT_TOOLS -.->|"User explicitly requests<br/>computer control"| ESCALATE
-    ESCALATE -.->|"Creates CU session<br/>via surfaceProxyResolver"| CU_ROUTE
+    TEXT_TOOLS -.->|"computer_use_* actions<br/>forwarded via HostCuProxy"| CU_ROUTE
 ```
 
 ### Action Execution Hierarchy
 
 The text_qa system prompt includes an action execution hierarchy that guides tool selection toward the least invasive method:
 
-| Priority        | Method                         | Tool                                  | When to use                                                 |
-| --------------- | ------------------------------ | ------------------------------------- | ----------------------------------------------------------- |
-| **BEST**        | Sandboxed filesystem/shell     | `file_*`, `bash`                      | Work that can stay isolated in sandbox filesystem           |
-| **BETTER**      | Explicit host filesystem/shell | `host_file_*`, `host_bash`            | Host reads/writes/commands that must touch the real machine |
-| **GOOD**        | Headless browser               | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background)         |
-| **LAST RESORT** | Foreground computer use        | `computer_use_request_control`        | Only on explicit user request ("go ahead", "take over")     |
+| Priority        | Method                         | Tool                                            | When to use                                                 |
+| --------------- | ------------------------------ | ----------------------------------------------- | ----------------------------------------------------------- |
+| **BEST**        | Sandboxed filesystem/shell     | `file_*`, `bash`                                | Work that can stay isolated in sandbox filesystem           |
+| **BETTER**      | Explicit host filesystem/shell | `host_file_*`, `host_bash`                      | Host reads/writes/commands that must touch the real machine |
+| **GOOD**        | Headless browser               | `browser_*` (bundled `browser` skill)           | Web automation, form filling, scraping (background)         |
+| **LAST RESORT** | Foreground computer use        | `computer_use_*` (bundled `computer-use` skill) | Only on explicit user request ("go ahead", "take over")     |
 
-The `computer_use_request_control` tool is a core proxy tool available only to text*qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use*\*`action tools from the bundled`computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
+Computer-use tools are proxy tools provided by the bundled `computer-use` skill, preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. These tools are not core-registered at daemon startup; they exist only through skill projection.
 
 ### Sandbox Filesystem and Host Access
 
@@ -988,7 +986,7 @@ graph TB
     SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/workspace"]
     BWRAP --> SB_FS
 
-    EXEC -->|"host_file_* / host_bash / computer_use_request_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
+    EXEC -->|"host_file_* / host_bash"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
     EXEC -->|"computer_use_* (skill-projected<br/>in CU sessions only)"| SKILL_CU_TOOLS["CU skill tools<br/>(bundled computer-use skill)"]
     HOST_TOOLS --> CHECK["Permission checker + trust-store"]
     SKILL_CU_TOOLS --> CHECK
@@ -1005,7 +1003,7 @@ graph TB
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
-- Prompt defaults: host tools, `computer_use_request_control`, and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
+- Prompt defaults: host tools and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
 - Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
 - Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
 
@@ -1187,16 +1185,16 @@ skills/<skill-id>/
 
 The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
 
-| Skill ID        | Tools                                                                                                                                                                                                                                                                                              | Purpose                                                                                                                                                                                                                                                                                                         |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                                                              | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                           |
-| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                                                  | Email management via OAuth2 integration                                                                                                                                                                                                                                                                         |
-| `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                                                   | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                                 |
-| `computer-use`  | `computer_use_click`, `computer_use_double_click`, `computer_use_right_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_wait`, `computer_use_done`, `computer_use_respond` | Computer-use action tools — internally preactivated by `ComputerUseSession` via `preactivatedSkillIds`; not user-invocable or model-discoverable in text sessions. Each wrapper script forwards to `forwardComputerUseProxyTool()` which uses the session's proxy resolver to send actions to the macOS client. |
-| `weather`       | `get-weather`                                                                                                                                                                                                                                                                                      | Fetch current weather data                                                                                                                                                                                                                                                                                      |
-| `app-builder`   | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write`                                                                                                                                                             | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                                                                          |
-| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                                                 | Self-improvement workflow                                                                                                                                                                                                                                                                                       |
-| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                                                 | Morning briefing routine                                                                                                                                                                                                                                                                                        |
+| Skill ID        | Tools                                                                                                                                                                                                                                                             | Purpose                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                             | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                |
+| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                 | Email management via OAuth2 integration                                                                                                                                                                                                                                                              |
+| `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                  | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                      |
+| `computer-use`  | `computer_use_observe`, `computer_use_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_wait`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_done`, `computer_use_respond` | Computer-use proxy tools — preactivated via `preactivatedSkillIds` in desktop sessions. Each tool forwards actions to the connected macOS client via `HostCuProxy`, which handles request/resolve proxying, step counting, loop detection, and observation formatting within the unified agent loop. |
+| `weather`       | `get-weather`                                                                                                                                                                                                                                                     | Fetch current weather data                                                                                                                                                                                                                                                                           |
+| `app-builder`   | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write`                                                                                                                            | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                                                               |
+| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                | Self-improvement workflow                                                                                                                                                                                                                                                                            |
+| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                | Morning briefing routine                                                                                                                                                                                                                                                                             |
 
 ### Activation and Projection Flow
 
@@ -1240,7 +1238,7 @@ graph TB
     RESOLVE --> PROVIDER
 ```
 
-**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, `ComputerUseSession` sets `preactivatedSkillIds: ['computer-use']` in its constructor, causing `projectSkillTools()` to load the 12 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These tools are never exposed in text sessions — they only appear in the CU session's agent loop.
+**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, desktop sessions set `preactivatedSkillIds: ['computer-use']`, causing `projectSkillTools()` to load the 11 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These proxy tools forward actions to the connected macOS client via `HostCuProxy`.
 
 ### Skill Tool Execution
 

@@ -343,8 +343,8 @@ subgraph "Text Q&A Session"
     CLS -->|"computerUse"| PERCEIVE
     CLS -->|"textQA"| TEXT_SESS
 
-    %% Text Q&A → CU escalation
-    TEXT_SESS -.->|"computer_use_request_control<br/>(explicit user request)"| PERCEIVE
+    %% Text Q&A → CU via HostCuProxy
+    TEXT_SESS -.->|"computer_use_* actions<br/>forwarded via HostCuProxy"| PERCEIVE
 
     %% Computer Use loop
     PERCEIVE -->|"CuObservationMessage<br/>(HTTP POST)"| HTTP_RT
