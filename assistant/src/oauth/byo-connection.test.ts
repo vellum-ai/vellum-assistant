@@ -246,7 +246,7 @@ describe("BYOOAuthConnection", () => {
       expect(url).toBe(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
       );
-      const headers = init.headers as Headers;
+      const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("Authorization")).toBe("Bearer test-access-token");
       // GET requests have no body, so Content-Type should not be set
       expect(headers.has("Content-Type")).toBe(false);
@@ -299,7 +299,7 @@ describe("BYOOAuthConnection", () => {
       );
       expect((init as RequestInit).method).toBe("POST");
       // POST requests with a body should include Content-Type
-      const headers = init.headers as Headers;
+      const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("Content-Type")).toBe("application/json");
     });
 
@@ -400,7 +400,7 @@ describe("BYOOAuthConnection", () => {
       });
 
       const [, init] = mockFetch.mock.calls[0];
-      const headers = init.headers as Headers;
+      const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("X-Custom-Header")).toBe("custom-value");
       expect(headers.get("Authorization")).toBe("Bearer test-access-token");
     });
@@ -424,7 +424,7 @@ describe("BYOOAuthConnection", () => {
 
       // The request should use the refreshed token
       const [, init] = mockFetch.mock.calls[0];
-      const headers = init.headers as Headers;
+      const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("Authorization")).toBe(
         "Bearer refreshed-access-token",
       );
