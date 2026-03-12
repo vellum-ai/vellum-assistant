@@ -13,7 +13,7 @@ export interface RemoteProcess {
 export function classifyProcess(command: string): string {
   if (/qdrant/.test(command)) return "qdrant";
   if (/vellum-gateway/.test(command)) return "gateway";
-  if (/openclaw/.test(command)) return "openclaw-adapter";
+  if (/vellum-openclaw-adapter|openclaw-runtime-server|openclaw-http-server/.test(command)) return "openclaw-adapter";
   if (/vellum-daemon/.test(command)) return "assistant";
   if (/daemon\s+(start|restart)/.test(command)) return "assistant";
   if (/vellum-cli/.test(command)) return "vellum";
@@ -88,7 +88,7 @@ export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   try {
     const output = await execOutput("sh", [
       "-c",
-      "ps ax -o pid=,ppid=,args= | grep -E 'vellum-daemon|vellum-gateway|vellum-cli|vellum hatch|vellum sleep|vellum wake|vellum retire|qdrant|openclaw' | grep -v grep",
+      "ps ax -o pid=,ppid=,args= | grep -E 'vellum-daemon|vellum-gateway|vellum-cli|vellum hatch|vellum sleep|vellum wake|vellum retire|qdrant|vellum-openclaw-adapter|openclaw-runtime-server|openclaw-http-server' | grep -v grep",
     ]);
     const procs = parseRemotePs(output);
     const ownPid = String(process.pid);
