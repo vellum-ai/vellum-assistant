@@ -42,7 +42,7 @@ Examples:
   $ assistant oauth connections list --provider integration:gmail
   $ assistant oauth connections get --id <uuid>
   $ assistant oauth connections get --provider integration:gmail
-  $ assistant oauth connections token twitter`,
+  $ assistant oauth connections token integration:twitter`,
   );
 
   // ---------------------------------------------------------------------------
@@ -141,22 +141,21 @@ At least --id or --provider must be specified.`,
     });
 
   // ---------------------------------------------------------------------------
-  // connections token <service>
+  // connections token <provider-key>
   // ---------------------------------------------------------------------------
 
   connections
-    .command("token <service>")
+    .command("token <provider-key>")
     .description(
-      "Print a valid OAuth access token for a service, refreshing if expired",
+      "Print a valid OAuth access token for a provider, refreshing if expired",
     )
     .addHelpText(
       "after",
       `
 Arguments:
-  service   Integration name without the "integration:" prefix
-            (e.g. "twitter", "gmail", "slack")
+  provider-key   Provider key (e.g. integration:gmail, integration:twitter)
 
-Returns a valid OAuth access token for the given service. If the stored token
+Returns a valid OAuth access token for the given provider. If the stored token
 is expired or near-expiry, it is refreshed automatically before being returned.
 
 In human mode, prints the bare token to stdout (suitable for shell substitution).
@@ -165,13 +164,12 @@ In JSON mode (--json), prints {"ok": true, "token": "..."}.
 Exits with code 1 if no access token exists or refresh fails.
 
 Examples:
-  $ assistant oauth connections token twitter
-  $ assistant oauth connections token gmail --json`,
+  $ assistant oauth connections token integration:twitter
+  $ assistant oauth connections token integration:gmail --json`,
     )
-    .action(async (service: string, _opts: unknown, cmd: Command) => {
+    .action(async (providerKey: string, _opts: unknown, cmd: Command) => {
       try {
-        const qualifiedService = `integration:${service}`;
-        const token = await withValidToken(qualifiedService, async (t) => t);
+        const token = await withValidToken(providerKey, async (t) => t);
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, { ok: true, token });
         } else {

@@ -123,7 +123,7 @@ async function runCli(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("assistant oauth connections token", () => {
+describe("assistant oauth connections token <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
   });
@@ -132,7 +132,7 @@ describe("assistant oauth connections token", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "twitter",
+      "integration:twitter",
     ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("mock-access-token-xyz\n");
@@ -142,7 +142,7 @@ describe("assistant oauth connections token", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "twitter",
+      "integration:twitter",
       "--json",
     ]);
     expect(exitCode).toBe(0);
@@ -150,18 +150,18 @@ describe("assistant oauth connections token", () => {
     expect(parsed).toEqual({ ok: true, token: "mock-access-token-xyz" });
   });
 
-  test("qualifies service name with integration: prefix", async () => {
+  test("passes provider key directly to withValidToken", async () => {
     let capturedService: string | undefined;
     mockWithValidToken = async (service, cb) => {
       capturedService = service;
       return cb("tok");
     };
 
-    await runCli(["connections", "token", "twitter"]);
+    await runCli(["connections", "token", "integration:twitter"]);
     expect(capturedService).toBe("integration:twitter");
   });
 
-  test("works with other service names", async () => {
+  test("works with other provider keys", async () => {
     let capturedService: string | undefined;
     mockWithValidToken = async (service, cb) => {
       capturedService = service;
@@ -171,7 +171,7 @@ describe("assistant oauth connections token", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "gmail",
+      "integration:gmail",
     ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("gmail-token\n");
@@ -188,7 +188,7 @@ describe("assistant oauth connections token", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "twitter",
+      "integration:twitter",
       "--json",
     ]);
     expect(exitCode).toBe(1);
@@ -207,7 +207,7 @@ describe("assistant oauth connections token", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "twitter",
+      "integration:twitter",
       "--json",
     ]);
     expect(exitCode).toBe(1);
@@ -223,13 +223,13 @@ describe("assistant oauth connections token", () => {
     const { exitCode, stdout } = await runCli([
       "connections",
       "token",
-      "twitter",
+      "integration:twitter",
     ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("refreshed-new-token\n");
   });
 
-  test("missing service argument exits non-zero", async () => {
+  test("missing provider-key argument exits non-zero", async () => {
     const { exitCode } = await runCli(["connections", "token"]);
     expect(exitCode).not.toBe(0);
   });
