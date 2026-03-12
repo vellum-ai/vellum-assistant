@@ -29,8 +29,9 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 // ---------------------------------------------------------------------------
 
 /**
- * Seed well-known provider profiles into the database. Uses INSERT OR IGNORE
- * so existing rows are never overwritten. Safe to call on every startup.
+ * Seed well-known provider profiles into the database. Uses INSERT … ON
+ * CONFLICT DO UPDATE so that corrections to seed data (e.g. a fixed baseUrl)
+ * propagate to existing installations on the next startup.
  */
 export function seedProviders(
   profiles: Array<{
@@ -50,23 +51,49 @@ export function seedProviders(
   const db = getDb();
   const now = Date.now();
   for (const p of profiles) {
+    const authUrl = p.authUrl;
+    const tokenUrl = p.tokenUrl;
+    const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
+    const userinfoUrl = p.userinfoUrl ?? null;
+    const baseUrl = p.baseUrl ?? null;
+    const defaultScopes = JSON.stringify(p.defaultScopes);
+    const scopePolicy = JSON.stringify(p.scopePolicy);
+    const extraParams = p.extraParams ? JSON.stringify(p.extraParams) : null;
+    const callbackTransport = p.callbackTransport ?? null;
+    const loopbackPort = p.loopbackPort ?? null;
+
     db.insert(oauthProviders)
       .values({
         providerKey: p.providerKey,
-        authUrl: p.authUrl,
-        tokenUrl: p.tokenUrl,
-        tokenEndpointAuthMethod: p.tokenEndpointAuthMethod ?? null,
-        userinfoUrl: p.userinfoUrl ?? null,
-        baseUrl: p.baseUrl ?? null,
-        defaultScopes: JSON.stringify(p.defaultScopes),
-        scopePolicy: JSON.stringify(p.scopePolicy),
-        extraParams: p.extraParams ? JSON.stringify(p.extraParams) : null,
-        callbackTransport: p.callbackTransport ?? null,
-        loopbackPort: p.loopbackPort ?? null,
+        authUrl,
+        tokenUrl,
+        tokenEndpointAuthMethod,
+        userinfoUrl,
+        baseUrl,
+        defaultScopes,
+        scopePolicy,
+        extraParams,
+        callbackTransport,
+        loopbackPort,
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: oauthProviders.providerKey,
+        set: {
+          authUrl,
+          tokenUrl,
+          tokenEndpointAuthMethod,
+          userinfoUrl,
+          baseUrl,
+          defaultScopes,
+          scopePolicy,
+          extraParams,
+          callbackTransport,
+          loopbackPort,
+          updatedAt: now,
+        },
+      })
       .run();
   }
 }
