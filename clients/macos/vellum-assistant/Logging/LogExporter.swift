@@ -47,10 +47,14 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            let title = formData.message.isEmpty
-                ? "\(formData.reason.displayName) log report"
-                : formData.message
-            event.message = SentryMessage(formatted: title)
+            event.message = SentryMessage(formatted: "\(formData.reason.displayName) log report")
+            if !formData.message.isEmpty {
+                event.error = NSError(
+                    domain: "com.vellum.log-report",
+                    code: 0,
+                    userInfo: [NSLocalizedDescriptionKey: formData.message]
+                )
+            }
             event.tags = [
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
