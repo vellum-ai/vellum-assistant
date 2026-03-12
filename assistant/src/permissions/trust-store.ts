@@ -443,6 +443,8 @@ export function updateRule(
   const rules = [...getRules()];
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) throw new Error(`Trust rule not found: ${id}`);
+  if (rules[index]!.tool.startsWith("__internal:"))
+    throw new Error(`Cannot modify internal pseudo-rule: ${id}`);
   const rule = { ...rules[index] };
   if (updates.tool != null) rule.tool = updates.tool;
   if (updates.pattern != null) rule.pattern = updates.pattern;
@@ -469,6 +471,8 @@ export function removeRule(id: string): boolean {
   const rules = [...getRules()];
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) return false;
+  if (rules[index]!.tool.startsWith("__internal:"))
+    throw new Error(`Cannot remove internal pseudo-rule: ${id}`);
   rules.splice(index, 1);
   cachedRules = rules;
   rebuildPatternCache(rules);
@@ -576,14 +580,22 @@ export function findDenyRule(
 }
 
 export function getAllRules(): TrustRule[] {
-  return [...getRules()];
+  // Filter out internal pseudo-rules — they are not user-visible permission
+  // rules and must not be exposed through user-facing APIs or CLI commands.
+  return getRules().filter((r) => !r.tool.startsWith("__internal:"));
 }
 
 export function clearAllRules(): void {
   // Reset the starter bundle flag so the bundle can be re-accepted after clear.
   cachedStarterBundleAccepted = false;
+  // Preserve internal pseudo-rules (e.g. git-hooks-trust state) — they must
+  // not be exposed to users and must survive a clear.
+  cachedRules = null;
+  const pseudoRules = getRules().filter((r) =>
+    r.tool.startsWith("__internal:"),
+  );
   // Re-backfill default rules so protected directory stays guarded.
-  const rules: TrustRule[] = [];
+  const rules: TrustRule[] = [...pseudoRules];
   backfillDefaults(rules);
   rules.sort(ruleOrder);
   cachedRules = rules;
