@@ -36,7 +36,7 @@ function writeEnvFile(vars: Record<string, string>): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   const lines = Object.entries(vars).map(([k, v]) => `${k}=${v}`);
-  writeFileSync(envPath, lines.join("\n") + "\n");
+  writeFileSync(envPath, lines.join("\n") + "\n", { mode: 0o600 });
 }
 
 async function promptMasked(prompt: string): Promise<string> {
@@ -111,7 +111,7 @@ export async function setup(): Promise<void> {
     console.log("");
     console.log("Interactive wizard to configure API keys.");
     console.log(
-      "Keys are validated against their APIs and saved to ~/.vellum/.env.",
+      "Keys are validated against their APIs and saved to <BASE_DATA_DIR>/.vellum/.env.",
     );
     process.exit(0);
   }
