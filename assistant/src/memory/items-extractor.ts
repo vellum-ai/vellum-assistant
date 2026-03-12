@@ -74,7 +74,6 @@ const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
   "project",
   "decision",
   "constraint",
-  "event",
 ]);
 
 // ── Semantic density gating ────────────────────────────────────────────
