@@ -91,6 +91,8 @@ export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
+  /** Cached resolved system prompt, set for the duration of a compaction pass. */
+  private _resolvedSystemPrompt: string | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
@@ -99,9 +101,24 @@ export class ContextWindowManager {
   }
 
   private get systemPrompt(): string {
+    if (this._resolvedSystemPrompt !== undefined) {
+      return this._resolvedSystemPrompt;
+    }
     return typeof this._systemPrompt === "function"
       ? this._systemPrompt()
       : this._systemPrompt;
+  }
+
+  /** Resolve and cache the system prompt for the duration of a compaction pass. */
+  private cacheSystemPrompt(): void {
+    this._resolvedSystemPrompt =
+      typeof this._systemPrompt === "function"
+        ? this._systemPrompt()
+        : this._systemPrompt;
+  }
+
+  private clearSystemPromptCache(): void {
+    this._resolvedSystemPrompt = undefined;
   }
 
   /**
@@ -112,16 +129,34 @@ export class ContextWindowManager {
    */
   shouldCompact(messages: Message[]): ShouldCompactResult {
     if (!this.config.enabled) return { needed: false, estimatedTokens: 0 };
-    const estimated = estimatePromptTokens(messages, this.systemPrompt, {
-      providerName: this.provider.name,
-    });
-    const threshold = Math.floor(
-      this.config.maxInputTokens * this.config.compactThreshold,
-    );
-    return { needed: estimated >= threshold, estimatedTokens: estimated };
+    this.cacheSystemPrompt();
+    try {
+      const estimated = estimatePromptTokens(messages, this.systemPrompt, {
+        providerName: this.provider.name,
+      });
+      const threshold = Math.floor(
+        this.config.maxInputTokens * this.config.compactThreshold,
+      );
+      return { needed: estimated >= threshold, estimatedTokens: estimated };
+    } finally {
+      this.clearSystemPromptCache();
+    }
   }
 
   async maybeCompact(
+    messages: Message[],
+    signal?: AbortSignal,
+    options?: ContextWindowCompactOptions,
+  ): Promise<ContextWindowResult> {
+    this.cacheSystemPrompt();
+    try {
+      return await this._maybeCompact(messages, signal, options);
+    } finally {
+      this.clearSystemPromptCache();
+    }
+  }
+
+  private async _maybeCompact(
     messages: Message[],
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
