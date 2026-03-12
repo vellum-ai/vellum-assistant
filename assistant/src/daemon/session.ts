@@ -678,12 +678,17 @@ export class Session {
       return { allow: true };
     }
 
-    // Persistent allow: cascade if the pattern matches any allowlist candidate
+    // Persistent allow: cascade if the pattern matches any allowlist candidate.
+    // "always_allow" must NOT cascade to high-risk pending confirmations —
+    // only "always_allow_high_risk" has consent for those.
     if (
       (decision === "always_allow" || decision === "always_allow_high_risk") &&
       selectedPattern &&
       details
     ) {
+      if (decision === "always_allow" && details.riskLevel === "high") {
+        return null;
+      }
       for (const option of details.allowlistOptions) {
         if (patternMatchesCandidate(selectedPattern, option.pattern)) {
           return { allow: true };
