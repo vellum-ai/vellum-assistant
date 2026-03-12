@@ -92,6 +92,8 @@ export interface ProcessSessionContext {
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
+  /** Add a skill ID to the preactivated set without replacing existing entries. */
+  addPreactivatedSkillId(id: string): void;
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
   trustContext?: TrustContext;
