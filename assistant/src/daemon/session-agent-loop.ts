@@ -26,6 +26,10 @@ import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import {
+  clearSentrySessionContext,
+  setSentrySessionContext,
+} from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles } from "../memory/app-store.js";
 import {
@@ -344,6 +348,18 @@ export async function runAgentLoopImpl(
 
   ctx.profiler.startRequest();
   let turnStarted = false;
+
+  // Populate Sentry scope with session-specific tags so any exception
+  // captured during this turn (e.g. inside agent/loop.ts) can be
+  // filtered by conversation, assistant, or user in the dashboard.
+  setSentrySessionContext({
+    assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    conversationId: ctx.conversationId,
+    messageCount: ctx.messages.length,
+    userIdentifier:
+      ctx.trustContext?.guardianPrincipalId ??
+      ctx.trustContext?.requesterExternalUserId,
+  });
 
   try {
     // Auto-complete stale interactive surfaces from previous turns.
@@ -1506,6 +1522,10 @@ export async function runAgentLoopImpl(
     }
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+
+    // Clear session tags so they don't leak into unrelated error captures
+    // (e.g. unhandledRejection from a different async chain).
+    clearSentrySessionContext();
   }
 }
 

@@ -77,10 +77,13 @@ enum LogExporter {
                     tags["session_id"] = sessionId
                 }
             }
+            var errorCategoryString: String?
             if let vm = threadManager?.activeViewModel {
                 extra["message_count"] = vm.messages.count
                 if let sessionError = vm.sessionError {
-                    tags["session_error_category"] = "\(sessionError.category)"
+                    let category = "\(sessionError.category)"
+                    tags["session_error_category"] = category
+                    errorCategoryString = category
                     if let debugDetails = sessionError.debugDetails {
                         tags["session_error_debug_details"] = debugDetails
                     }
@@ -98,9 +101,11 @@ enum LogExporter {
             }
 
             event.tags = tags
-            // Group all reports by reason so different user messages don't
-            // fragment into separate Sentry issues.
-            event.fingerprint = ["log_report", formData.reason.rawValue]
+            // Group reports by reason and error category so different root
+            // causes (e.g. providerApi vs contextTooLarge) create separate
+            // Sentry issues instead of being mixed into one.
+            let categoryComponent = errorCategoryString ?? "none"
+            event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
 
             // User-provided context (message, email, category) is sent via
             // Sentry's UserFeedback API, linked to the event. This keeps PII
