@@ -69,7 +69,7 @@ export function stripMediaPayloadsForRetry(messages: Message[]): {
       }
 
       if (
-        block.type === "tool_result" &&
+        block.type === "tool_result" && // guard:allow-tool-result-only — web_search_tool_result has no contentBlocks
         block.contentBlocks &&
         block.contentBlocks.length > 0
       ) {
@@ -161,6 +161,7 @@ export function countMediaBlocks(messages: Message[]): number {
       if (block.type === "image" || block.type === "file") {
         count++;
       } else if (block.type === "tool_result" && block.contentBlocks) {
+        // guard:allow-tool-result-only — web_search_tool_result has no contentBlocks
         for (const cb of block.contentBlocks) {
           if (cb.type === "image" || cb.type === "file") {
             count++;
