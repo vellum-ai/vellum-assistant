@@ -4,6 +4,8 @@ export type Tier = 1 | 2 | null;
 
 export interface TieredCandidate extends Candidate {
   tier: Tier;
+  /** Human-readable label for the source conversation/summary (e.g. conversation title). */
+  sourceLabel?: string;
 }
 
 export function classifyTier(score: number): Tier {
