@@ -6,12 +6,15 @@ import type { Command } from "commander";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import {
+  type McpReloadResult,
+  reloadMcpServers,
+} from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
 import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
-import { httpSend } from "../http-client.js";
 import { log } from "../logger.js";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
@@ -251,9 +254,8 @@ Examples:
     .addHelpText(
       "after",
       `
-Sends a message to the running assistant to disconnect and reconnect all MCP
-servers using the current configuration from disk. Active sessions pick up
-new tools on their next turn automatically. The assistant must be running.
+Disconnects and reconnects all MCP servers using the current configuration
+from disk. Active sessions pick up new tools on their next turn automatically.
 
 Examples:
   $ vellum mcp reload
@@ -261,22 +263,9 @@ Examples:
   $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
     )
     .action(async () => {
-      log.info("Sending reload request to assistant...");
+      log.info("Reloading MCP servers...");
       try {
-        const res = await httpSend("/v1/mcp/reload", { method: "POST" });
-        const response = (await res.json()) as {
-          success: boolean;
-          serverCount?: number;
-          toolCount?: number;
-          servers?: {
-            id: string;
-            connected: boolean;
-            disabled?: boolean;
-            toolCount: number;
-            tools: string[];
-          }[];
-          error?: string;
-        };
+        const response: McpReloadResult = await reloadMcpServers();
         if (response.success) {
           log.info(
             `MCP servers reloaded: ${response.serverCount} server(s), ${response.toolCount} tool(s)\n`,
@@ -302,7 +291,7 @@ Examples:
         }
       } catch (err) {
         log.error(
-          `Failed to send reload request: ${err instanceof Error ? err.message : err}`,
+          `Failed to reload MCP servers: ${err instanceof Error ? err.message : err}`,
         );
         process.exitCode = 1;
       }
