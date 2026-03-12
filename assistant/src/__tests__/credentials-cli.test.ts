@@ -169,10 +169,13 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 let disconnectOAuthProviderCalls: string[] = [];
-let disconnectOAuthProviderResult = false;
+let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
+  "not-found";
 
 mock.module("../oauth/oauth-store.js", () => ({
-  disconnectOAuthProvider: async (providerKey: string): Promise<boolean> => {
+  disconnectOAuthProvider: async (
+    providerKey: string,
+  ): Promise<"disconnected" | "not-found" | "error"> => {
     disconnectOAuthProviderCalls.push(providerKey);
     return disconnectOAuthProviderResult;
   },
@@ -299,7 +302,7 @@ describe("assistant credentials CLI", () => {
     _getMetadataCalls = 0;
     _getMetadataByIdCalls = 0;
     disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = false;
+    disconnectOAuthProviderResult = "not-found";
     process.exitCode = 0;
   });
 
@@ -645,7 +648,7 @@ describe("assistant credentials CLI", () => {
 
     test("succeeds when only OAuth connection exists (no legacy credential)", async () => {
       // No legacy credential seeded — only the OAuth disconnect finds something
-      disconnectOAuthProviderResult = true;
+      disconnectOAuthProviderResult = "disconnected";
 
       const result = await runCli(["delete", "gmail:access_token", "--json"]);
       expect(result.exitCode).toBe(0);

@@ -675,13 +675,13 @@ describe("connection operations", () => {
 // ---------------------------------------------------------------------------
 
 describe("disconnectOAuthProvider", () => {
-  test("returns false when no connection exists for the provider", async () => {
+  test("returns 'not-found' when no connection exists for the provider", async () => {
     const result = await disconnectOAuthProvider("github");
-    expect(result).toBe(false);
+    expect(result).toBe("not-found");
     expect(mockDeleteSecureKeyAsync).not.toHaveBeenCalled();
   });
 
-  test("returns true and deletes connection row and secure keys when connection exists", async () => {
+  test("returns 'disconnected' and deletes connection row and secure keys when connection exists", async () => {
     const app = await createTestApp("github", "client-1");
     const conn = createConnection({
       oauthAppId: app.id,
@@ -691,7 +691,7 @@ describe("disconnectOAuthProvider", () => {
     });
 
     const result = await disconnectOAuthProvider("github");
-    expect(result).toBe(true);
+    expect(result).toBe("disconnected");
 
     // Verify secure keys were deleted
     expect(mockDeleteSecureKeyAsync).toHaveBeenCalledTimes(2);

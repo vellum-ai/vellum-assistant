@@ -93,12 +93,18 @@ const mockProviders = new Map<
 >();
 
 let mockDisconnectOAuthProvider: ReturnType<
-  typeof mock<(providerKey: string) => Promise<boolean>>
+  typeof mock<
+    (providerKey: string) => Promise<"disconnected" | "not-found" | "error">
+  >
 >;
 
 mock.module("../oauth/oauth-store.js", () => {
   mockDisconnectOAuthProvider = mock((providerKey: string) =>
-    Promise.resolve(mockConnections.has(providerKey)),
+    Promise.resolve(
+      mockConnections.has(providerKey)
+        ? ("disconnected" as const)
+        : ("not-found" as const),
+    ),
   );
   return {
     disconnectOAuthProvider: mockDisconnectOAuthProvider,

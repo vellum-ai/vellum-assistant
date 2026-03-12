@@ -25,7 +25,8 @@ let metadataStore: Array<{
   updatedAt: number;
 }> = [];
 let disconnectOAuthProviderCalls: string[] = [];
-let disconnectOAuthProviderResult = false;
+let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
+  "not-found";
 let idCounter = 0;
 
 function nextUUID(): string {
@@ -59,7 +60,9 @@ mock.module("../security/token-manager.js", () => ({
 // ---------------------------------------------------------------------------
 
 mock.module("../oauth/oauth-store.js", () => ({
-  disconnectOAuthProvider: async (providerKey: string): Promise<boolean> => {
+  disconnectOAuthProvider: async (
+    providerKey: string,
+  ): Promise<"disconnected" | "not-found" | "error"> => {
     disconnectOAuthProviderCalls.push(providerKey);
     return disconnectOAuthProviderResult;
   },
@@ -201,7 +204,7 @@ describe("assistant oauth connections token <provider-key>", () => {
     secureKeyStore = new Map();
     metadataStore = [];
     disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = false;
+    disconnectOAuthProviderResult = "not-found";
     idCounter = 0;
   });
 
@@ -322,12 +325,12 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     secureKeyStore = new Map();
     metadataStore = [];
     disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = false;
+    disconnectOAuthProviderResult = "not-found";
     idCounter = 0;
   });
 
   test("succeeds when an OAuth connection exists", async () => {
-    disconnectOAuthProviderResult = true;
+    disconnectOAuthProviderResult = "disconnected";
 
     const result = await runCli([
       "connections",
@@ -408,7 +411,7 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
 
   test("cleans up both OAuth connection and legacy keys when both exist", async () => {
     // Seed OAuth connection
-    disconnectOAuthProviderResult = true;
+    disconnectOAuthProviderResult = "disconnected";
 
     // Seed a legacy credential key
     secureKeyStore.set(

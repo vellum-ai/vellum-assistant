@@ -66,7 +66,7 @@ mock.module("../oauth/oauth-store.js", () => {
     getProvider: mockGetProvider,
     listConnections: mock(() => []),
     seedProviders: mock(() => {}),
-    disconnectOAuthProvider: mock(async () => false),
+    disconnectOAuthProvider: mock(async () => "not-found" as const),
   };
 });
 
