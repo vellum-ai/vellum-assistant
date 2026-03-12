@@ -14,6 +14,9 @@ export type FeatureFlagDefaultsRegistry = Record<string, FeatureFlagDefault>;
 
 let cachedRegistry: FeatureFlagDefaultsRegistry | null = null;
 
+/** Test-only: when set, these paths are prepended to the candidate list. */
+let registryCandidateOverrides: string[] | null = null;
+
 const REGISTRY_FILENAME = "feature-flag-registry.json";
 const REGISTRY_RELATIVE = join("meta", "feature-flags", REGISTRY_FILENAME);
 
@@ -35,6 +38,11 @@ const REGISTRY_RELATIVE = join("meta", "feature-flags", REGISTRY_FILENAME);
  */
 function getRegistryCandidates(): string[] {
   const candidates: string[] = [];
+
+  // Allow tests to inject custom candidate paths ahead of the real ones
+  if (registryCandidateOverrides) {
+    candidates.push(...registryCandidateOverrides);
+  }
 
   const srcDir = import.meta.dirname ?? new URL(".", import.meta.url).pathname;
 
@@ -163,4 +171,11 @@ export function isFlagDeclared(flagKey: string): boolean {
 /** Reset the cached registry (for testing). */
 export function resetFeatureFlagDefaultsCache(): void {
   cachedRegistry = null;
+}
+
+/** Prepend custom candidate paths for registry resolution (for testing). */
+export function _setRegistryCandidateOverrides(
+  overrides: string[] | null,
+): void {
+  registryCandidateOverrides = overrides;
 }
