@@ -227,6 +227,11 @@ export async function drainQueue(
   const next = session.queue.shift();
   if (!next) return;
 
+  // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
+  // from a desktop source that skips runAgentLoop) can't leak CU preactivation
+  // into the next queued message.
+  session.preactivatedSkillIds = undefined;
+
   log.info(
     {
       conversationId: session.conversationId,
