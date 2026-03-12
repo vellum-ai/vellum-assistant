@@ -693,6 +693,7 @@ export async function handleSendMessage(
       return Response.json(
         {
           accepted: true,
+          conversationId: mapping.conversationId,
           ...(inlineReplyResult.messageId
             ? { messageId: inlineReplyResult.messageId }
             : {}),
@@ -757,7 +758,10 @@ export async function handleSendMessage(
       pendingInteractions.removeBySession(session);
     }
 
-    return Response.json({ accepted: true, queued: true }, { status: 202 });
+    return Response.json(
+      { accepted: true, queued: true, conversationId: mapping.conversationId },
+      { status: 202 },
+    );
   }
 
   // Session is idle — persist and fire agent loop immediately
@@ -838,7 +842,11 @@ export async function handleSendMessage(
       });
 
       return Response.json(
-        { accepted: true, messageId: persisted.id },
+        {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        },
         { status: 202 },
       );
     } finally {
@@ -880,7 +888,10 @@ export async function handleSendMessage(
       );
     });
 
-  return Response.json({ accepted: true, messageId }, { status: 202 });
+  return Response.json(
+    { accepted: true, messageId, conversationId: mapping.conversationId },
+    { status: 202 },
+  );
 }
 
 async function generateLlmSuggestion(
