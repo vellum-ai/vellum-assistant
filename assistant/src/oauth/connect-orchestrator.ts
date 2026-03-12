@@ -369,12 +369,11 @@ export async function orchestrateOAuthConnect(
           }
         },
       },
-      callbackTransport !== "gateway"
-        ? {
-            callbackTransport,
-            loopbackPort: loopbackPort ?? undefined,
-          }
-        : undefined,
+      callbackTransport === "loopback"
+        ? { callbackTransport, loopbackPort: loopbackPort ?? undefined }
+        : callbackTransport === "gateway"
+          ? { callbackTransport }
+          : undefined,
     );
 
     // Run identity verifier if available (code-side behavior)
