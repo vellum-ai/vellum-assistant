@@ -9,6 +9,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { escapeAxTreeContent } from "../agent/loop.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -309,7 +310,7 @@ export class HostCuProxy {
     if (obs.axTree) {
       parts.push("<ax-tree>");
       parts.push("CURRENT SCREEN STATE:");
-      parts.push(HostCuProxy.escapeAxTreeContent(obs.axTree));
+      parts.push(escapeAxTreeContent(obs.axTree));
       parts.push("</ax-tree>");
     }
 
@@ -409,13 +410,5 @@ export class HostCuProxy {
       );
     }
     return lines;
-  }
-
-  /**
-   * Escapes literal `</ax-tree>` inside AX tree content so compaction
-   * regex does not stop prematurely.
-   */
-  static escapeAxTreeContent(content: string): string {
-    return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
   }
 }
