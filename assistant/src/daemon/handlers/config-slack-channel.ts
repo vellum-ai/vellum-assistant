@@ -5,7 +5,6 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
-import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -36,14 +35,18 @@ export interface SlackChannelConfigResult {
 // -- Business logic --
 
 export function getSlackChannelConfig(): SlackChannelConfigResult {
-  const conn = getConnectionByProvider("slack_channel");
-  const connected = !!(conn && conn.status === "active");
+  const hasBotToken = !!getSecureKey(
+    credentialKey("slack_channel", "bot_token"),
+  );
+  const hasAppToken = !!getSecureKey(
+    credentialKey("slack_channel", "app_token"),
+  );
   const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
   return {
     success: true,
-    hasBotToken: connected,
-    hasAppToken: connected,
-    connected,
+    hasBotToken,
+    hasAppToken,
+    connected: hasBotToken && hasAppToken,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
     ...(botUserId ? { botUserId } : {}),
