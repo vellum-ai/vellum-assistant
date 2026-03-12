@@ -1645,7 +1645,9 @@ public final class HTTPTransport {
                     // Evict arbitrary entries when over cap to prevent unbounded growth.
                     // Lost mappings are benign — they'll be re-learned from future SSE events.
                     while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
-                        self.serverToLocalSessionMap.removeFirst()
+                        if let key = self.serverToLocalSessionMap.keys.first {
+                            self.serverToLocalSessionMap.removeValue(forKey: key)
+                        }
                     }
                     log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(sessionId, privacy: .public)")
                 }
