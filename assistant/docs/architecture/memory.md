@@ -86,22 +86,28 @@ graph TB
     WORKER --> CLEAN_SUPERSEDED
     WORKER --> BUILD_SUM
 
-    EMBED_SEG --> DENSE
-    EMBED_SEG --> SPARSE
-    EMBED_ITEM --> DENSE
-    EMBED_ITEM --> SPARSE
-    EMBED_SUM --> DENSE
-    EMBED_SUM --> SPARSE
+    EMBED_SEG --> LOCAL_EMB
+    EMBED_ITEM --> LOCAL_EMB
+    EMBED_SUM --> LOCAL_EMB
+    LOCAL_EMB --> DENSE
+    LOCAL_EMB --> SPARSE
+    OAI_EMB --> DENSE
+    OAI_EMB --> SPARSE
+    GEM_EMB --> DENSE
+    GEM_EMB --> SPARSE
+    OLL_EMB --> DENSE
+    OLL_EMB --> SPARSE
 
     NEEDS_MEM --> QUERY
     QUERY --> EMBED_Q
+    EMBED_Q --> LOCAL_EMB
     EMBED_Q --> HYBRID
     HYBRID --> RRF
     QUERY --> RECENCY
-    HYBRID --> MERGE
-    RECENCY --> MERGE
-    MERGE --> SCOPE
-    SCOPE --> TIER
+    HYBRID --> SCOPE
+    RECENCY --> SCOPE
+    SCOPE --> MERGE
+    MERGE --> TIER
     TIER --> STALE
     STALE --> DEMOTE
     BUDGET --> INJECT
@@ -145,7 +151,7 @@ The key distinction: normal compaction is a cost-optimized background process th
 | `memory.retrieval.dynamicBudget.minInjectTokens`      |    `1200` | Lower clamp for computed recall injection budget.                              |
 | `memory.retrieval.dynamicBudget.maxInjectTokens`      |   `10000` | Upper clamp for computed recall injection budget.                              |
 | `memory.retrieval.dynamicBudget.targetHeadroomTokens` |   `10000` | Reserved headroom to keep free for response generation/tool traces.            |
-| `memory.retrieval.maxInjectTokens`                    |    `4096` | Static fallback when dynamic budget is disabled.                               |
+| `memory.retrieval.maxInjectTokens`                    |   `10000` | Static fallback when dynamic budget is disabled.                               |
 | `memory.retrieval.scopePolicy`                        | `'allow_global_fallback'` | Scope filtering strategy: `'strict'` or `'allow_global_fallback'`. |
 
 ### Memory Recall Debugging Playbook
