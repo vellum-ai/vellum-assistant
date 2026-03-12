@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
-import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { getConnectionByProvider } from "../oauth/oauth-store.js";
@@ -654,10 +654,8 @@ function buildIntegrationSection(): string {
   );
   if (oauthCreds.length === 0) return "";
 
-  const raw = loadRawConfig();
   const lines = ["## Connected Services", ""];
   for (const cred of oauthCreds) {
-    // DB-first: try reading accountInfo from the oauth-store (new connections)
     let acctInfo: string | undefined;
     try {
       const conn = getConnectionByProvider(cred.service);
@@ -665,20 +663,9 @@ function buildIntegrationSection(): string {
         acctInfo = conn.accountInfo;
       }
     } catch {
-      // DB not available yet — fall through to config.json
+      // DB not available — accountInfo simply not shown
     }
 
-    // Fallback: read from config.json (pre-migration connections)
-    if (!acctInfo) {
-      acctInfo = (getNestedValue(
-        raw,
-        `integrations.${cred.service}.accountInfo`,
-      ) ??
-        // Fallback: legacy config path used before the namespace migration
-        getNestedValue(raw, `integrations.accountInfo.${cred.service}`)) as
-        | string
-        | undefined;
-    }
     const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
     lines.push(`- **${cred.service}**: ${state}`);
   }

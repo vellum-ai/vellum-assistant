@@ -5,11 +5,11 @@
  * vault tool (interactive and deferred paths) and the future OAuth
  * orchestrator without duplicating storage logic.
  *
- * Dual-writes to both legacy stores (metadata.json, config.json, secure
- * keys under `credential/{service}/...`) AND the new SQLite tables
- * (oauth_app, oauth_connection) + new-format secure keys
- * (`oauth_app/{id}/...`, `oauth_connection/{id}/...`). The SQLite writes
- * are best-effort — failures are logged but do not block the flow.
+ * Dual-writes to both legacy stores (metadata.json, secure keys under
+ * `credential/{service}/...`) AND the new SQLite tables (oauth_app,
+ * oauth_connection) + new-format secure keys (`oauth_app/{id}/...`,
+ * `oauth_connection/{id}/...`). The SQLite writes are best-effort —
+ * failures are logged but do not block the flow.
  */
 
 import { credentialKey, migrateKeys } from "../security/credential-key.js";
@@ -144,34 +144,7 @@ export async function storeOAuth2Tokens(
       : {}),
   });
 
-  // ----- Legacy: accountInfo in config.json -----
-  // Write accountInfo to config using a namespaced key (dynamic import to
-  // avoid circular dependencies — the config loader may transitively depend
-  // on credential modules).
   const resolvedAccountInfo = accountInfo ?? params.identityAccountInfo;
-  if (resolvedAccountInfo) {
-    try {
-      const {
-        invalidateConfigCache,
-        loadRawConfig,
-        saveRawConfig,
-        setNestedValue,
-      } = await import("../config/loader.js");
-      const raw = loadRawConfig();
-
-      // Write to the namespaced path
-      setNestedValue(
-        raw,
-        `integrations.${service}.accountInfo`,
-        resolvedAccountInfo,
-      );
-
-      saveRawConfig(raw);
-      invalidateConfigCache();
-    } catch {
-      // Non-fatal — tokens stored even if config write fails
-    }
-  }
 
   // ----- Legacy: refresh token -----
   let hasRefreshToken = false;
