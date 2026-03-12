@@ -1,0 +1,335 @@
+/**
+ * CRUD store for OAuth providers, apps, and connections.
+ *
+ * Backed by Drizzle + SQLite. All JSON fields (default_scopes, scope_policy,
+ * extra_params, granted_scopes, metadata) are stored as serialized JSON strings.
+ */
+
+import { and, desc, eq } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+
+import { getDb, rawChanges } from "../memory/db.js";
+import {
+  oauthApps,
+  oauthConnections,
+  oauthProviders,
+} from "../memory/schema/oauth.js";
+
+// ---------------------------------------------------------------------------
+// Row types
+// ---------------------------------------------------------------------------
+
+export type OAuthProviderRow = typeof oauthProviders.$inferSelect;
+export type OAuthAppRow = typeof oauthApps.$inferSelect;
+export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Provider operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed well-known provider profiles into the database. Uses INSERT OR IGNORE
+ * so existing rows are never overwritten. Safe to call on every startup.
+ */
+export function seedProviders(
+  profiles: Array<{
+    providerKey: string;
+    authUrl: string;
+    tokenUrl: string;
+    tokenEndpointAuthMethod?: string;
+    userinfoUrl?: string;
+    baseUrl?: string;
+    defaultScopes: string[];
+    scopePolicy: Record<string, unknown>;
+    extraParams?: Record<string, string>;
+    callbackTransport?: string;
+    loopbackPort?: number;
+  }>,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  for (const p of profiles) {
+    db.insert(oauthProviders)
+      .values({
+        providerKey: p.providerKey,
+        authUrl: p.authUrl,
+        tokenUrl: p.tokenUrl,
+        tokenEndpointAuthMethod: p.tokenEndpointAuthMethod ?? null,
+        userinfoUrl: p.userinfoUrl ?? null,
+        baseUrl: p.baseUrl ?? null,
+        defaultScopes: JSON.stringify(p.defaultScopes),
+        scopePolicy: JSON.stringify(p.scopePolicy),
+        extraParams: p.extraParams ? JSON.stringify(p.extraParams) : null,
+        callbackTransport: p.callbackTransport ?? null,
+        loopbackPort: p.loopbackPort ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+}
+
+/** Look up a provider by its primary key. */
+export function getProvider(providerKey: string): OAuthProviderRow | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthProviders)
+    .where(eq(oauthProviders.providerKey, providerKey))
+    .get();
+}
+
+/** Return all registered providers. */
+export function listProviders(): OAuthProviderRow[] {
+  const db = getDb();
+  return db.select().from(oauthProviders).all();
+}
+
+/**
+ * Register a new provider (for dynamic registration). Throws if the
+ * provider_key already exists.
+ */
+export function registerProvider(params: {
+  providerKey: string;
+  authUrl: string;
+  tokenUrl: string;
+  tokenEndpointAuthMethod?: string;
+  userinfoUrl?: string;
+  baseUrl?: string;
+  defaultScopes: string[];
+  scopePolicy: Record<string, unknown>;
+  extraParams?: Record<string, string>;
+  callbackTransport?: string;
+  loopbackPort?: number;
+}): OAuthProviderRow {
+  const db = getDb();
+  const now = Date.now();
+
+  const existing = getProvider(params.providerKey);
+  if (existing) {
+    throw new Error(`OAuth provider already exists: ${params.providerKey}`);
+  }
+
+  const row = {
+    providerKey: params.providerKey,
+    authUrl: params.authUrl,
+    tokenUrl: params.tokenUrl,
+    tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
+    userinfoUrl: params.userinfoUrl ?? null,
+    baseUrl: params.baseUrl ?? null,
+    defaultScopes: JSON.stringify(params.defaultScopes),
+    scopePolicy: JSON.stringify(params.scopePolicy),
+    extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
+    callbackTransport: params.callbackTransport ?? null,
+    loopbackPort: params.loopbackPort ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(oauthProviders).values(row).run();
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
+// App operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Insert or return an existing app by (provider_key, client_id).
+ * Generates a UUID on insert.
+ */
+export function upsertApp(providerKey: string, clientId: string): OAuthAppRow {
+  const db = getDb();
+
+  const existing = db
+    .select()
+    .from(oauthApps)
+    .where(
+      and(
+        eq(oauthApps.providerKey, providerKey),
+        eq(oauthApps.clientId, clientId),
+      ),
+    )
+    .get();
+
+  if (existing) return existing;
+
+  const now = Date.now();
+  const id = uuid();
+  const row = {
+    id,
+    providerKey,
+    clientId,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(oauthApps).values(row).run();
+
+  return row;
+}
+
+/** Look up an app by its primary key. */
+export function getApp(id: string): OAuthAppRow | undefined {
+  const db = getDb();
+  return db.select().from(oauthApps).where(eq(oauthApps.id, id)).get();
+}
+
+/** Look up an app by (provider_key, client_id). */
+export function getAppByProviderAndClientId(
+  providerKey: string,
+  clientId: string,
+): OAuthAppRow | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthApps)
+    .where(
+      and(
+        eq(oauthApps.providerKey, providerKey),
+        eq(oauthApps.clientId, clientId),
+      ),
+    )
+    .get();
+}
+
+/** Delete an app by ID. Returns true if a row was deleted. */
+export function deleteApp(id: string): boolean {
+  const db = getDb();
+  db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
+  return rawChanges() > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Connection operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new OAuth connection. Generates a UUID and sets status='active'.
+ * `metadata` is an optional JSON object for provider-specific token response data.
+ */
+export function createConnection(params: {
+  oauthAppId: string;
+  providerKey: string;
+  accountInfo?: string;
+  grantedScopes: string[];
+  expiresAt?: number;
+  hasRefreshToken: boolean;
+  label?: string;
+  metadata?: Record<string, unknown>;
+}): OAuthConnectionRow {
+  const db = getDb();
+  const now = Date.now();
+  const id = uuid();
+
+  const row = {
+    id,
+    oauthAppId: params.oauthAppId,
+    providerKey: params.providerKey,
+    accountInfo: params.accountInfo ?? null,
+    grantedScopes: JSON.stringify(params.grantedScopes),
+    expiresAt: params.expiresAt ?? null,
+    hasRefreshToken: params.hasRefreshToken ? 1 : 0,
+    status: "active" as const,
+    label: params.label ?? null,
+    metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(oauthConnections).values(row).run();
+
+  return row;
+}
+
+/** Look up a connection by its primary key. */
+export function getConnection(id: string): OAuthConnectionRow | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthConnections)
+    .where(eq(oauthConnections.id, id))
+    .get();
+}
+
+/**
+ * Get the most recent active connection for a provider.
+ * Returns undefined if no active connection exists.
+ */
+export function getConnectionByProvider(
+  providerKey: string,
+): OAuthConnectionRow | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthConnections)
+    .where(
+      and(
+        eq(oauthConnections.providerKey, providerKey),
+        eq(oauthConnections.status, "active"),
+      ),
+    )
+    .orderBy(desc(oauthConnections.createdAt))
+    .limit(1)
+    .get();
+}
+
+/**
+ * Update fields on an existing connection. Returns true if a row was updated.
+ */
+export function updateConnection(
+  id: string,
+  updates: Partial<{
+    accountInfo: string;
+    grantedScopes: string[];
+    expiresAt: number;
+    hasRefreshToken: boolean;
+    status: string;
+    label: string;
+    metadata: Record<string, unknown>;
+  }>,
+): boolean {
+  const db = getDb();
+  const now = Date.now();
+
+  // Build the set clause, serializing JSON fields and converting booleans.
+  const set: Record<string, unknown> = { updatedAt: now };
+  if (updates.accountInfo !== undefined) set.accountInfo = updates.accountInfo;
+  if (updates.grantedScopes !== undefined)
+    set.grantedScopes = JSON.stringify(updates.grantedScopes);
+  if (updates.expiresAt !== undefined) set.expiresAt = updates.expiresAt;
+  if (updates.hasRefreshToken !== undefined)
+    set.hasRefreshToken = updates.hasRefreshToken ? 1 : 0;
+  if (updates.status !== undefined) set.status = updates.status;
+  if (updates.label !== undefined) set.label = updates.label;
+  if (updates.metadata !== undefined)
+    set.metadata = JSON.stringify(updates.metadata);
+
+  db.update(oauthConnections).set(set).where(eq(oauthConnections.id, id)).run();
+
+  return rawChanges() > 0;
+}
+
+/** List connections, optionally filtered by provider key. */
+export function listConnections(providerKey?: string): OAuthConnectionRow[] {
+  const db = getDb();
+
+  if (providerKey) {
+    return db
+      .select()
+      .from(oauthConnections)
+      .where(eq(oauthConnections.providerKey, providerKey))
+      .all();
+  }
+
+  return db.select().from(oauthConnections).all();
+}
+
+/** Delete a connection by ID. Returns true if a row was deleted. */
+export function deleteConnection(id: string): boolean {
+  const db = getDb();
+  db.delete(oauthConnections).where(eq(oauthConnections.id, id)).run();
+  return rawChanges() > 0;
+}
