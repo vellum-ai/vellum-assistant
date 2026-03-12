@@ -485,8 +485,8 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     createCanonicalGuardianRequest({
       id: requestId,
       kind: "tool_approval",
-      sourceType: "desktop",
-      sourceChannel: "vellum",
+      sourceType: "voice",
+      sourceChannel: "slack",
       conversationId,
       toolName: "call_start",
       status: "pending",
@@ -511,8 +511,8 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       body: JSON.stringify({
         conversationKey,
         content: "sure let's do that",
-        sourceChannel: "vellum",
-        interface: "macos",
+        sourceChannel: "slack",
+        interface: "slack",
       }),
     });
     const body = (await res.json()) as {
