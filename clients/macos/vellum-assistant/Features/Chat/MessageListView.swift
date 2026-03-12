@@ -244,14 +244,28 @@ struct MessageListView: View {
     }
 
     private func updateAvatarFollower(anchorY: CGFloat) {
-        avatarTargetY = anchorY
+        // Only update @State when the visibility boundary is crossed or the value
+        // changes by more than 1pt. Preference changes fire on every scroll frame;
+        // unconditionally setting avatarTargetY would trigger a full view re-render
+        // per frame, creating layout passes that race with the scroll and cause
+        // the "tweaking" jitter.
+        let visibilityChanged: Bool = {
+            let wasVisible = avatarTargetY.isFinite
+                && ConversationAvatarFollower.shouldShow(anchorY: avatarTargetY, viewportHeight: scrollViewportHeight)
+            let nowVisible = anchorY.isFinite
+                && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
+            return wasVisible != nowVisible
+        }()
+        if visibilityChanged || abs(avatarTargetY - anchorY) > 1 || !avatarTargetY.isFinite != !anchorY.isFinite {
+            avatarTargetY = anchorY
+        }
 
         guard anchorY.isFinite else {
             avatarSmoothingTask?.cancel()
             avatarSmoothingTask = nil
             pendingAvatarY = nil
             avatarLastAppliedAt = nil
-            avatarDisplayY = .infinity
+            if avatarDisplayY != .infinity { avatarDisplayY = .infinity }
             return
         }
 
