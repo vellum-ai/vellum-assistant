@@ -450,35 +450,6 @@ jobs:
           echo "=== Test video file ==="
           ls -la /tmp/test-ffmpeg.webm 2>/dev/null || echo "No video file created"
           file /tmp/test-ffmpeg.webm 2>/dev/null || true
-      - name: Start SIGTERM dtrace probe
-        run: |
-          # Trace all kill() syscalls that send SIGTERM (signal 15).
-          # Logs the sender PID, sender process name, target PID, and signal.
-          # This will definitively identify which process sends SIGTERM to bun.
-          sudo dtrace -n '
-            syscall::kill:entry
-            /arg1 == 15/
-            {
-              printf("SIGTERM: sender_pid=%d sender=%s target_pid=%d signal=%d",
-                     pid, execname, arg0, arg1);
-            }
-          ' -o /tmp/dtrace-sigterm.log &
-          echo $! > /tmp/dtrace-sigterm.pid
-          echo "dtrace probe started with PID $(cat /tmp/dtrace-sigterm.pid)"
-          # Also trace SIGKILL for completeness
-          sudo dtrace -n '
-            syscall::kill:entry
-            /arg1 == 9/
-            {
-              printf("SIGKILL: sender_pid=%d sender=%s target_pid=%d signal=%d",
-                     pid, execname, arg0, arg1);
-            }
-          ' -o /tmp/dtrace-sigkill.log &
-          echo $! > /tmp/dtrace-sigkill2.pid
-          echo "dtrace SIGKILL probe started"
-          # Give dtrace a moment to attach
-          sleep 1
-
       - name: Run Playwright tests
         id: tests
         working-directory: playwright
@@ -486,12 +457,6 @@ jobs:
         env:
           TEST_FILTER: ${{ inputs.test_filter || 'stable' }}
         run: |
-          echo "[DIAG] bun PID: $$"
-          echo "[DIAG] Parent PID: $PPID"
-          echo "[DIAG] Process tree before test:"
-          ps -ef | head -60
-          echo "[DIAG] ---"
-
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then
             SHARD_ARGS="--shard=${{ matrix.shard }}/$TOTAL_SHARDS"
@@ -508,37 +473,6 @@ jobs:
           else
             bun run test $SHARD_ARGS
           fi
-
-          TEST_EXIT=$?
-          echo "[DIAG] Test exit code: $TEST_EXIT"
-          echo "[DIAG] Process tree after test:"
-          ps -ef | head -60
-          echo "[DIAG] ---"
-          exit $TEST_EXIT
-
-      - name: Dump dtrace SIGTERM logs
-        if: always() && steps.tests.outcome != 'skipped'
-        run: |
-          echo "=== Stopping dtrace probes ==="
-          if [ -f /tmp/dtrace-sigterm.pid ]; then
-            sudo kill "$(cat /tmp/dtrace-sigterm.pid)" 2>/dev/null || true
-          fi
-          if [ -f /tmp/dtrace-sigkill2.pid ]; then
-            sudo kill "$(cat /tmp/dtrace-sigkill2.pid)" 2>/dev/null || true
-          fi
-          sleep 1
-
-          echo "=== dtrace SIGTERM log ==="
-          cat /tmp/dtrace-sigterm.log 2>/dev/null || echo "No dtrace SIGTERM log"
-          echo ""
-          echo "=== dtrace SIGKILL log ==="
-          cat /tmp/dtrace-sigkill.log 2>/dev/null || echo "No dtrace SIGKILL log"
-          echo ""
-          echo "=== PID files in temp dirs ==="
-          find /tmp -name '*.pid' -exec echo -n "{}  →  " \; -exec cat {} \; 2>/dev/null || true
-          echo ""
-          echo "=== All vellum-related processes ==="
-          ps -ef | grep -i vellum | grep -v grep || echo "No vellum processes"
 
       - name: Dump dialog watcher log
         if: always() && steps.tests.outcome != 'skipped'

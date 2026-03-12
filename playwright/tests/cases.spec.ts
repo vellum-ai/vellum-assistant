@@ -12,83 +12,12 @@
 
 import { type ChildProcess, execSync, spawn } from "child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
-import os from "os";
 import path from "path";
 
 import { test, expect } from "@playwright/test";
 
 import { runAgent } from "../agent/agent";
 import { setupFixture, type FixtureContext } from "../agent/fixtures";
-
-// ── SIGTERM Diagnostic Handler ──────────────────────────────────────
-// Captures diagnostic info when SIGTERM is received, to identify the sender.
-// TODO: Remove after root cause of CI SIGTERM is identified (PR #15499).
-
-let _sigtermDiagInstalled = false;
-function installSigtermDiagnostic(): void {
-  if (_sigtermDiagInstalled) return;
-  _sigtermDiagInstalled = true;
-
-  process.on("SIGTERM", () => {
-    const ts = new Date().toISOString();
-    process.stdout.write(`\n[SIGTERM-DIAG] ════════════════════════════════════════\n`);
-    process.stdout.write(`[SIGTERM-DIAG] SIGTERM received at ${ts}\n`);
-    process.stdout.write(`[SIGTERM-DIAG] PID: ${process.pid}, PPID: ${process.ppid}\n`);
-
-    // Dump process tree
-    try {
-      const psOutput = execSync("ps -ef", { encoding: "utf-8", timeout: 3000 });
-      process.stdout.write(`[SIGTERM-DIAG] Process tree:\n${psOutput}\n`);
-    } catch (e) {
-      process.stdout.write(`[SIGTERM-DIAG] ps -ef failed: ${e}\n`);
-    }
-
-    // Check for vellum-related processes
-    try {
-      const vellumPs = execSync("ps -ef | grep -i vellum | grep -v grep", {
-        encoding: "utf-8",
-        timeout: 3000,
-        shell: "/bin/bash",
-      });
-      process.stdout.write(`[SIGTERM-DIAG] Vellum processes:\n${vellumPs}\n`);
-    } catch {
-      process.stdout.write(`[SIGTERM-DIAG] No vellum processes found\n`);
-    }
-
-    // List PID files in common locations
-    try {
-      const homeDir = os.homedir();
-      const pidSearch = execSync(
-        `find /tmp "${homeDir}" -maxdepth 4 -name '*.pid' -exec echo -n '{}  →  ' \\; -exec cat {} \\; 2>/dev/null || true`,
-        { encoding: "utf-8", timeout: 3000, shell: "/bin/bash" },
-      );
-      process.stdout.write(`[SIGTERM-DIAG] PID files:\n${pidSearch}\n`);
-    } catch {
-      process.stdout.write(`[SIGTERM-DIAG] PID file search failed\n`);
-    }
-
-    // Check if our PID appears in any PID file
-    try {
-      const pidFileCheck = execSync(
-        `grep -r "${process.pid}" /tmp/*.pid 2>/dev/null || true`,
-        { encoding: "utf-8", timeout: 3000, shell: "/bin/bash" },
-      );
-      if (pidFileCheck.trim()) {
-        process.stdout.write(`[SIGTERM-DIAG] Our PID (${process.pid}) found in PID files:\n${pidFileCheck}\n`);
-      }
-    } catch {
-      // ignore
-    }
-
-    process.stdout.write(`[SIGTERM-DIAG] ════════════════════════════════════════\n\n`);
-
-    // Re-raise SIGTERM for default behavior (exit)
-    process.removeAllListeners("SIGTERM");
-    process.kill(process.pid, "SIGTERM");
-  });
-}
-
-installSigtermDiagnostic();
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
@@ -297,9 +226,6 @@ for (const file of caseFiles) {
     let recorder: ScreenRecorder | undefined;
 
     try {
-      // Log test start with PID info for SIGTERM diagnosis
-      process.stdout.write(`[DIAG] Test "${testName}" starting. PID=${process.pid} PPID=${process.ppid}\n`);
-
       // Setup fixture if needed
       if (fixture) {
         fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex, testName });
@@ -413,18 +339,8 @@ for (const file of caseFiles) {
       ].join("");
       expect(result.passed, failureDetails).toBe(true);
     } finally {
-      process.stdout.write(`[DIAG] Test "${testName}" entering teardown. PID=${process.pid}\n`);
       await stopScreenRecording(recorder, testName);
-      if (fixtureCtx) {
-        process.stdout.write(`[DIAG] Test "${testName}" calling fixture teardown...\n`);
-        await fixtureCtx.teardown().catch(() => {});
-        process.stdout.write(`[DIAG] Test "${testName}" fixture teardown complete.\n`);
-      }
-      // Snapshot process tree after teardown for SIGTERM diagnosis
-      try {
-        const psAfter = execSync("ps -ef | head -40", { encoding: "utf-8", timeout: 3000, shell: "/bin/bash" });
-        process.stdout.write(`[DIAG] Process tree after teardown of "${testName}":\n${psAfter}\n`);
-      } catch { /* ignore */ }
+      if (fixtureCtx) await fixtureCtx.teardown().catch(() => {});
     }
   });
 }

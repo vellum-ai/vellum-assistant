@@ -77,13 +77,9 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
 
   return {
     teardown: async () => {
-      process.stdout.write(`[DIAG-FIXTURE] desktop-app teardown start. PID=${process.pid}\n`);
       retireAssistant();
-      process.stdout.write(`[DIAG-FIXTURE] retireAssistant() done\n`);
       quitApp(appDisplayName);
-      process.stdout.write(`[DIAG-FIXTURE] quitApp("${appDisplayName}") done\n`);
       cleanupTestDataDir(baseDataDir);
-      process.stdout.write(`[DIAG-FIXTURE] cleanupTestDataDir done. Teardown complete.\n`);
     },
   };
 }
@@ -110,17 +106,11 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 
   return {
     teardown: async () => {
-      process.stdout.write(`[DIAG-FIXTURE] desktop-app-hatched teardown start. PID=${process.pid}\n`);
       collectAppLogs();
-      process.stdout.write(`[DIAG-FIXTURE] collectAppLogs() done\n`);
       retireAssistant();
-      process.stdout.write(`[DIAG-FIXTURE] retireAssistant() done\n`);
       quitApp(appDisplayName);
-      process.stdout.write(`[DIAG-FIXTURE] quitApp("${appDisplayName}") done\n`);
       collectHatchLogs();
-      process.stdout.write(`[DIAG-FIXTURE] collectHatchLogs() done\n`);
       cleanupTestDataDir(baseDataDir);
-      process.stdout.write(`[DIAG-FIXTURE] cleanupTestDataDir done. Teardown complete.\n`);
     },
   };
 }

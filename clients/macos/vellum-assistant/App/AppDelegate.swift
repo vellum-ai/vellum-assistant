@@ -416,9 +416,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         #if !DEBUG
         keychainBroker?.stop()
         #endif
-        // TODO: Commenting out to diagnose SIGTERM killing Playwright tests in CI.
-        // See PR #15499 — re-enable once root cause is confirmed.
-        // assistantCli.stop()
+        assistantCli.stop()
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)

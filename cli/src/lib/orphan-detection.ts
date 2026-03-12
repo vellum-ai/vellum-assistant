@@ -19,7 +19,11 @@ export function classifyProcess(command: string): string {
   // Exclude macOS desktop app processes — their path contains .app/Contents/MacOS/
   // but they are not background service processes.
   if (/\.app\/Contents\/MacOS\//.test(command)) return "unknown";
-  if (/vellum/.test(command)) return "vellum";
+  // Match vellum CLI commands (e.g. "vellum hatch", "vellum sleep") but NOT
+  // unrelated processes whose working directory or repo path happens to contain
+  // "vellum" (e.g. /Users/runner/work/vellum-assistant/vellum-assistant/...).
+  // We require a word boundary before "vellum" to avoid matching repo paths.
+  if (/(?:^|\/)vellum(?:\s|$)/.test(command)) return "vellum";
   return "unknown";
 }
 
@@ -83,7 +87,7 @@ export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   try {
     const output = await execOutput("sh", [
       "-c",
-      "ps ax -o pid=,ppid=,args= | grep -E 'vellum|vellum-gateway|qdrant|openclaw' | grep -v grep",
+      "ps ax -o pid=,ppid=,args= | grep -E 'vellum-daemon|vellum-gateway|vellum-cli|vellum hatch|vellum sleep|vellum wake|vellum retire|qdrant|openclaw' | grep -v grep",
     ]);
     const procs = parseRemotePs(output);
     const ownPid = String(process.pid);
