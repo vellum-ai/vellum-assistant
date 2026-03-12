@@ -228,7 +228,7 @@ struct AssistantRelease: Decodable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case version
         case image
-        case createdAt = "created_at"
+        case createdAt
     }
 }
 
