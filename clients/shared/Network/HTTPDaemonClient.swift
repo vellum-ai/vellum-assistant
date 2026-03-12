@@ -178,6 +178,10 @@ public final class HTTPTransport {
     var serverToLocalSessionMap: [String: String] = [:]
     private let serverToLocalSessionMapCap = 500
 
+    /// Session IDs that originated from this client instance.
+    /// Host tool requests are only executed for these session IDs.
+    private var locallyOwnedSessionIds: Set<String> = []
+
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
 
@@ -200,9 +204,9 @@ public final class HTTPTransport {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
-        // conversationKey is accepted for DaemonConfig API compatibility but no longer stored;
-        // the SSE stream subscribes to all events without a conversationKey filter.
-        _ = conversationKey
+        if !conversationKey.isEmpty {
+            locallyOwnedSessionIds.insert(conversationKey)
+        }
         self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
@@ -1439,16 +1443,39 @@ public final class HTTPTransport {
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
+            if shouldIgnoreHostToolRequest(event.message) { return }
             handleServerMessage(event.message)
         } catch {
             // Try decoding as a bare ServerMessage (some endpoints may send unwrapped)
             do {
                 let message = try decoder.decode(ServerMessage.self, from: jsonData)
+                if shouldIgnoreHostToolRequest(message) { return }
                 handleServerMessage(message)
             } catch {
                 let byteCount = jsonData.count
                 log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
             }
+        }
+    }
+
+    /// Returns `true` if the message is a host tool request whose sessionId
+    /// does not belong to this client, meaning it should be silently dropped.
+    private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
+        switch message {
+        case .hostBashRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_bash_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        case .hostFileRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_file_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        case .hostCuRequest(let msg):
+            if locallyOwnedSessionIds.contains(msg.sessionId) { return false }
+            log.warning("Ignoring host_cu_request for non-local session \(msg.sessionId, privacy: .public)")
+            return true
+        default:
+            return false
         }
     }
 
@@ -1537,6 +1564,8 @@ public final class HTTPTransport {
     }
 
     func sendMessage(content: String?, sessionId: String, attachments: [UserMessageAttachment]? = nil, uploadedAttachmentIds: [String]? = nil, isRetry: Bool = false) async {
+        locallyOwnedSessionIds.insert(sessionId)
+
         // On retry, reuse already-uploaded attachment IDs to avoid duplicates
         var attachmentIds: [String] = uploadedAttachmentIds ?? []
 
