@@ -27,7 +27,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
-    var currentSession: ComputerUseSession?
+    var currentSession: (any SessionOverlayProviding)?
     var currentTextSession: TextSession?
     /// Proxy state tracker for host CU overlay (proxy-based computer use sessions).
     var activeHostCuProxy: HostCuSessionProxy?

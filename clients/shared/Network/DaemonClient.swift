@@ -248,7 +248,7 @@ extension Notification.Name {
 /// Platform-agnostic client for communicating with the Vellum daemon via HTTP + SSE.
 ///
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
-/// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
+/// stream, enabling multiple consumers (HostCuExecutor, AmbientAgent) to each receive all
 /// messages and filter for the ones relevant to them.
 @MainActor
 public final class DaemonClient: ObservableObject, DaemonClientProtocol {
@@ -357,9 +357,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `host_cu_request` message for proxy CU action execution.
     public var onHostCuRequest: ((HostCuRequest) -> Void)?
-
-    /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
-    public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
     /// Called when the daemon sends a `dictation_response` message.
     public var onDictationResponse: ((DictationResponseMessage) -> Void)?
@@ -592,7 +589,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
-    /// independently, enabling multiple consumers (ComputerUseSession, AmbientAgent) to
+    /// independently, enabling multiple consumers (HostCuExecutor, AmbientAgent) to
     /// filter for messages relevant to them without competing for elements.
     public func subscribe() -> AsyncStream<ServerMessage> {
         let id = UUID()
@@ -616,9 +613,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
     var isAuthenticated = false
-
-    /// Monotonic per-session sequence for CU observation sends.
-    var cuObservationSequenceBySession: [String: Int] = [:]
 
     /// HTTP transport for communicating with the assistant.
     public var httpTransport: HTTPTransport?
@@ -651,7 +645,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         keyFingerprint = nil
         latestMemoryStatus = nil
         currentModel = nil
-        cuObservationSequenceBySession.removeAll()
     }
 
     deinit {

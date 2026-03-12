@@ -86,8 +86,6 @@ extension DaemonClient {
             handleHostFileRequest(msg)
         case .hostCuRequest(let msg):
             handleHostCuRequest(msg)
-        case .taskRouted(let msg):
-            onTaskRouted?(msg)
         case .dictationResponse(let msg):
             onDictationResponse?(msg)
         case .notificationIntent(let msg):

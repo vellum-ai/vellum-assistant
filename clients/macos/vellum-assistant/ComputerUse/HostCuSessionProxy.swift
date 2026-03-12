@@ -5,9 +5,21 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostCuSessionProxy")
 
+/// States tracked by the session overlay UI.
+enum SessionState: Equatable {
+    case idle
+    case running(step: Int, maxSteps: Int, lastAction: String, reasoning: String)
+    case thinking(step: Int, maxSteps: Int)
+    case paused(step: Int, maxSteps: Int)
+    case awaitingConfirmation(reason: String)
+    case completed(summary: String, steps: Int)
+    case responded(answer: String, steps: Int)
+    case failed(reason: String)
+    case cancelled
+}
+
 /// Protocol that abstracts the session interface needed by `SessionOverlayWindow`.
-/// Both `ComputerUseSession` (foreground CU) and `HostCuSessionProxy` (proxy CU)
-/// conform to this protocol so the overlay can display either type of session.
+/// `HostCuSessionProxy` conforms to this protocol so the overlay can display proxy CU progress.
 @MainActor
 protocol SessionOverlayProviding: AnyObject {
     var task: String { get }
@@ -29,7 +41,7 @@ protocol SessionOverlayProviding: AnyObject {
 }
 
 /// Lightweight state tracker for proxy-based CU sessions.
-/// Provides the same observable interface as `ComputerUseSession` so
+/// Provides the `SessionOverlayProviding` interface so
 /// `SessionOverlayWindow` can display proxy CU progress.
 @MainActor
 final class HostCuSessionProxy: ObservableObject, SessionOverlayProviding {

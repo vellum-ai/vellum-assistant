@@ -76,27 +76,27 @@ VSplitView            (row 3 — ChatView + optional side panel)
 
 ---
 
-### Session Loop (`Session.swift`)
+### Computer Use (Proxy-Based)
 
-The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`):
+Computer use runs through the daemon's main session loop. The daemon sends `host_cu_request` messages to the client, which executes them locally via `HostCuExecutor`:
 
-1. **PERCEIVE** — enumerate the AX tree of the focused window (`AccessibilityTree.swift`); also captures a screenshot alongside; falls back to screenshot-only if no AX tree. Computes `AXTreeDiff` between steps. Enumerates secondary windows for cross-app awareness.
-2. **INFER** — send AX tree + screenshot + previous AX tree + diff + task + action history to the daemon via HTTP (`DaemonClient`); daemon calls Claude and returns exactly one tool call per turn.
-3. **VERIFY** — safety checks: sensitive data, destructive keys, loop detection (3 identical consecutive actions), step limits, system menu bar exclusion (`ActionVerifier`).
-4. **EXECUTE** — inject mouse/keyboard events via CGEvent (`ActionExecutor`). Text input uses clipboard-paste (Cmd+V) with save/restore.
-5. **WAIT** — adaptive delay: polls AX tree for changes instead of fixed sleep, returns early when UI settles.
+1. **RECEIVE** — daemon sends a `host_cu_request` with tool name, parameters, and step number.
+2. **VERIFY** — safety checks: sensitive data, destructive keys, loop detection (`ActionVerifier`).
+3. **EXECUTE** — inject mouse/keyboard events via CGEvent (`ActionExecutor`). Text input uses clipboard-paste (Cmd+V) with save/restore.
+4. **OBSERVE** — enumerate the AX tree (`AccessibilityTree.swift`), capture screenshot, compute `AXTreeDiff`.
+5. **RESPOND** — post `host_cu_result` back to the daemon with the observation data.
+
+`HostCuSessionProxy` provides the overlay UI state, and `HostCuExecutor` handles the execution loop. `SessionOverlayWindow` displays progress via the `SessionOverlayProviding` protocol.
 
 ### Dependency Injection
 
 <details>
 <summary><strong>Protocol-based dependency injection</strong></summary>
 
-All session dependencies are protocol-based for testability:
+CU execution dependencies are protocol-based for testability:
 - `AccessibilityTreeProviding` — AX enumeration (impl: `AccessibilityTreeEnumerator`)
 - `ScreenCaptureProviding` — screenshots (impl: `ScreenCapture`)
 - `ActionExecuting` — CGEvent injection (impl: `ActionExecutor`)
-
-Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@MainActor func testX() async`.
 
 </details>
 
@@ -104,7 +104,7 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
 - `DaemonClient` — `@MainActor`, HTTP+SSE transport; auto-reconnect, `AsyncStream<ServerMessage>`
-- `MessageTypes.swift` — Codable structs for HTTP request/response types: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
+- `MessageTypes.swift` — Codable structs for HTTP request/response types: `host_cu_request`, `host_cu_result`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
 ### Ambient Agent (`Ambient/`)

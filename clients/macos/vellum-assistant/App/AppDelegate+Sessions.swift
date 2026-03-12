@@ -8,131 +8,16 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension AppDelegate {
 
-    // MARK: - Accessibility Permission
-
-    /// Poll for accessibility permission after prompting, giving the user time to grant it in System Settings.
-    /// `AXIsProcessTrustedWithOptions` returns immediately even with `prompt: true`, so we need to poll.
-    private func waitForAccessibilityPermission() async -> Bool {
-        // Already granted — no need to prompt or poll
-        if ActionExecutor.checkAccessibilityPermission(prompt: false) { return true }
-
-        // Show the OS prompt
-        _ = ActionExecutor.checkAccessibilityPermission(prompt: true)
-
-        // Poll every 500ms for up to 30 seconds
-        for _ in 0..<60 {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            if Task.isCancelled { return false }
-            if ActionExecutor.checkAccessibilityPermission(prompt: false) { return true }
-        }
-        return false
-    }
-
-    // MARK: - Escalation
-
-    /// Handle escalation from an active text_qa session to foreground computer use.
-    func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
-        Task { @MainActor in
-            // Dismiss any active host CU overlay to avoid conflicts
-            self.dismissHostCuOverlay()
-
-            let shouldAutoApproveTools = routed.escalatedFrom
-                .map { self.autoApproveEscalationSessionIds.contains($0) } ?? false
-
-            guard await waitForAccessibilityPermission() else {
-                log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
-                do {
-                    try daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
-                } catch {
-                    log.error("Failed to send CU session abort for escalation \(routed.sessionId): \(error)")
-                }
-                self.mainWindow?.windowState.showToast(
-                    message: "Computer control requires Accessibility permission. Grant it in System Settings → Privacy & Security → Accessibility.",
-                    style: .error
-                )
-                return
-            }
-
-            let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-            let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-            let session = ComputerUseSession(
-                task: routed.task ?? "Escalated task",
-                daemonClient: self.daemonClient,
-                maxSteps: maxSteps,
-                sessionId: routed.sessionId,
-                skipSessionCreate: true,
-                notificationService: self.services.activityNotificationService
-            )
-            session.autoApproveTools = shouldAutoApproveTools
-            if let sourceSessionId = routed.escalatedFrom {
-                self.autoApproveEscalationSessionIds.remove(sourceSessionId)
-            }
-            // Don't bind relatedViewModel for escalated sessions — the active view model
-            // may be unrelated if the user switched threads. Tool calls for escalated
-            // sessions are tracked by the daemon session, not by ChatViewModel.
-            self.currentSession = session
-
-            let overlay = SessionOverlayWindow(session: session)
-            overlay.show()
-            self.overlayWindow = overlay
-            self.ambientAgent.pause()
-
-            // Close the text response window but keep the text session reference
-            // (no de-escalation for MVP — text session is effectively done)
-            self.textResponseWindow?.close()
-            self.textResponseWindow = nil
-
-            // Hide main window so the target app becomes frontmost for CU
-            let mainWindowWasVisible = self.mainWindow?.isVisible ?? false
-            if mainWindowWasVisible {
-                self.mainWindow?.hide()
-            }
-
-            // Announce CU escalation via voice if voice mode is active
-            let voiceManager = self.mainWindow?.voiceModeManager
-            let voiceModeWasActive = voiceManager?.state != .off && voiceManager?.state != nil
-            if voiceModeWasActive {
-                voiceManager?.speakTransient("Let me take over the screen for a moment.")
-                voiceManager?.pauseConversationTimeout()
-            }
-
-            await session.run()
-
-            // Announce CU completion via voice if voice mode is still active
-            if voiceModeWasActive, let voiceManager, voiceManager.state != .off {
-                let summary: String
-                switch session.state {
-                case .completed(let s, _), .responded(let s, _):
-                    summary = s
-                case .failed:
-                    summary = "Something went wrong while controlling the screen."
-                case .cancelled:
-                    summary = "Screen control was cancelled."
-                default:
-                    summary = "All done with the screen."
-                }
-                voiceManager.speakTransient(summary)
-                voiceManager.resumeConversationTimeout()
-            }
-
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            overlay.close()
-            self.overlayWindow = nil
-            self.currentSession = nil
-            self.currentTextSession = nil
-            self.ambientAgent.resume()
-            if mainWindowWasVisible {
-                self.mainWindow?.show()
-            }
-        }
-    }
-
     // MARK: - Session
 
     func startSession(task: String, source: String? = nil) {
         startSession(submission: TaskSubmission(task: task, attachments: [], source: source))
     }
 
+    /// Sends the user's task as a regular message via POST /v1/messages.
+    /// The model decides whether to use computer-use tools; CU execution
+    /// flows through the host_cu_request / host_cu_result pattern handled
+    /// by HostCuExecutor.
     func startSession(submission: TaskSubmission) {
         guard currentSession == nil && currentTextSession == nil && !isStartingSession else { return }
         isStartingSession = true
@@ -140,7 +25,6 @@ extension AppDelegate {
         let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
 
-        // Ensure daemon connection before starting any session
         startSessionTask = Task { @MainActor in
             defer { self.isStartingSession = false; self.startSessionTask = nil }
 
@@ -156,134 +40,17 @@ extension AppDelegate {
                 }
             }
 
-            // Show thinking indicator IMMEDIATELY
-            let thinking = ThinkingIndicatorWindow()
-            thinking.show()
-            self.thinkingWindow = thinking
-
-            // 1. Subscribe to daemon stream before sending task_submit
-            let messageStream = self.daemonClient.subscribe()
-
-            // 2. Send task_submit — daemon classifies and creates the session
-            let screenBounds = CGDisplayBounds(CGMainDisplayID())
-            let messageAttachments: [UserMessageAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
-                UserMessageAttachment(
-                    filename: $0.fileName,
-                    mimeType: $0.mimeType,
-                    data: $0.data.base64EncodedString(),
-                    extractedText: $0.extractedText
-                )
-            }
-            do {
-                try self.daemonClient.send(TaskSubmitMessage(
-                    task: effectiveTask,
-                    screenWidth: Int(screenBounds.width),
-                    screenHeight: Int(screenBounds.height),
-                    attachments: messageAttachments,
-                    source: submission.source
-                ))
-            } catch {
-                log.error("Failed to send task submit message: \(error)")
+            // Route the task as a regular message through the main chat flow.
+            // The daemon will classify it and invoke CU tools via host_cu_request
+            // if computer use is needed.
+            self.ensureMainWindowExists()
+            if let viewModel = self.mainWindow?.threadManager.activeViewModel {
+                _ = viewModel.sendSilently(effectiveTask)
+            } else {
+                log.warning("No active chat view model — cannot send message")
             }
 
-            // 3. Wait for task_routed response (or error)
-            var routedMessage: TaskRoutedMessage?
-            for await message in messageStream {
-                guard !Task.isCancelled else { break }
-                if case .taskRouted(let routed) = message {
-                    routedMessage = routed
-                    break
-                }
-                if case .error(let err) = message {
-                    log.error("Task routing failed: \(err.message, privacy: .private)")
-                    break
-                }
-            }
-
-            // Check if cancelled or failed during classification
-            guard !Task.isCancelled, let routed = routedMessage else {
-                thinking.close()
-                self.thinkingWindow = nil
-                return
-            }
-
-            // Dismiss thinking indicator
-            thinking.close()
-            self.thinkingWindow = nil
-
-            let shouldAutoApproveTools = submission.isVoiceAction
-            switch routed.interactionType {
-            case "computer_use":
-                // Dismiss any active host CU overlay to avoid conflicts
-                self.dismissHostCuOverlay()
-                guard await self.waitForAccessibilityPermission() else {
-                    log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
-                    do {
-                        try self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
-                    } catch {
-                        log.error("Failed to send CU session abort for \(routed.sessionId): \(error)")
-                    }
-                    return
-                }
-                let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-                let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-                let session = ComputerUseSession(
-                    task: effectiveTask,
-                    daemonClient: self.daemonClient,
-                    maxSteps: maxSteps,
-                    attachments: submission.attachments,
-                    sessionId: routed.sessionId,
-                    skipSessionCreate: true,
-                    notificationService: self.services.activityNotificationService
-                )
-                session.autoApproveTools = shouldAutoApproveTools
-                // Don't bind relatedViewModel — sessions started via startSession() don't
-                // originate from a chat thread, so there's no ChatViewModel to extract
-                // tool calls from. Tool calls are tracked by the daemon session itself.
-                self.currentSession = session
-                let overlay = SessionOverlayWindow(session: session)
-                overlay.show()
-                self.overlayWindow = overlay
-                self.ambientAgent.pause()
-                await session.run()
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                overlay.close()
-                self.overlayWindow = nil
-                self.currentSession = nil
-                self.ambientAgent.resume()
-
-            default: // text_qa
-                if shouldAutoApproveTools {
-                    self.autoApproveEscalationSessionIds.insert(routed.sessionId)
-                }
-                let routedSessionId = routed.sessionId
-                let session = TextSession(
-                    task: effectiveTask,
-                    daemonClient: self.daemonClient,
-                    attachments: submission.attachments,
-                    sessionId: routed.sessionId,
-                    skipSessionCreate: true,
-                    existingStream: messageStream
-                )
-                self.currentTextSession = session
-                let inputState = ConversationInputState()
-                let window = TextResponseWindow(session: session, inputState: inputState)
-                window.show()
-                self.textResponseWindow = window
-                self.ambientAgent.pause()
-
-                // Clean up when the user closes the panel
-                window.onClose = { [weak self] in
-                    self?.autoApproveEscalationSessionIds.remove(routedSessionId)
-                    self?.currentTextSession?.cancel()
-                    self?.textResponseWindow = nil
-                    self?.currentTextSession = nil
-                    self?.ambientAgent.resume()
-                }
-
-                await session.run()
-                self.autoApproveEscalationSessionIds.remove(routedSessionId)
-            }
+            self.showMainWindow()
         }
     }
 
@@ -381,15 +148,10 @@ extension AppDelegate {
     }
 
     func showDaemonConnectionError() {
-        // Create a temporary session in failed state to show the error in the overlay
-        let session = ComputerUseSession(
-            task: "",
-            daemonClient: daemonClient,
-            maxSteps: 1
-        )
-        session.state = .failed(reason: "Failed to connect to the assistant.")
-        currentSession = session
-        let overlay = SessionOverlayWindow(session: session)
+        let proxy = HostCuSessionProxy(task: "", sessionId: UUID().uuidString)
+        proxy.state = .failed(reason: "Failed to connect to the assistant.")
+        currentSession = proxy
+        let overlay = SessionOverlayWindow(session: proxy)
         overlay.show()
         overlayWindow = overlay
         Task { @MainActor in

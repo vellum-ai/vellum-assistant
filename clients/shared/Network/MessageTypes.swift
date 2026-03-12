@@ -146,61 +146,6 @@ extension UserMessageAttachment {
     }
 }
 
-/// Sent to create a new computer-use session.
-/// Backed by generated `CuSessionCreate`.
-public typealias CuSessionCreateMessage = CuSessionCreate
-
-extension CuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [Attachment]?, interactionType: String?) {
-        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
-    }
-}
-
-/// Sent after each perceive step with AX tree, screenshot, and execution results.
-/// Backed by generated `CuObservation`.
-public typealias CuObservationMessage = CuObservation
-
-extension CuObservation {
-    public init(
-        sessionId: String,
-        axTree: String?,
-        axDiff: String?,
-        secondaryWindows: String?,
-        screenshot: String?,
-        screenshotWidthPx: Double? = nil,
-        screenshotHeightPx: Double? = nil,
-        screenWidthPt: Double? = nil,
-        screenHeightPt: Double? = nil,
-        coordinateOrigin: String? = nil,
-        captureDisplayId: Double? = nil,
-        executionResult: String?,
-        executionError: String?,
-        axTreeBlob: BlobRef? = nil,
-        screenshotBlob: BlobRef? = nil,
-        userGuidance: String? = nil
-    ) {
-        self.init(
-            type: "cu_observation",
-            sessionId: sessionId,
-            axTree: axTree,
-            axDiff: axDiff,
-            secondaryWindows: secondaryWindows,
-            screenshot: screenshot,
-            screenshotWidthPx: screenshotWidthPx,
-            screenshotHeightPx: screenshotHeightPx,
-            screenWidthPt: screenWidthPt,
-            screenHeightPt: screenHeightPt,
-            coordinateOrigin: coordinateOrigin,
-            captureDisplayId: captureDisplayId,
-            executionResult: executionResult,
-            executionError: executionError,
-            axTreeBlob: axTreeBlob,
-            screenshotBlob: screenshotBlob,
-            userGuidance: userGuidance
-        )
-    }
-}
-
 /// Sent by the watch agent with OCR text from periodic screen captures.
 /// Backed by generated `WatchObservation`.
 public typealias WatchObservationMessage = WatchObservation
@@ -313,16 +258,6 @@ extension UserMessage {
     }
 }
 
-/// Sent to request daemon-side classification and session creation.
-/// Backed by generated `TaskSubmit`.
-public typealias TaskSubmitMessage = TaskSubmit
-
-extension TaskSubmit {
-    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [Attachment]?, source: String?) {
-        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
-    }
-}
-
 /// Sent to cancel the active generation.
 /// Backed by generated `CancelRequest`.
 public typealias CancelMessage = CancelRequest
@@ -332,17 +267,6 @@ extension CancelRequest {
         self.init(type: "cancel", sessionId: sessionId)
     }
 }
-
-/// Sent to abort a running computer-use session.
-/// Backed by generated `CuSessionAbort`.
-public typealias CuSessionAbortMessage = CuSessionAbort
-
-extension CuSessionAbort {
-    public init(sessionId: String) {
-        self.init(type: "cu_session_abort", sessionId: sessionId)
-    }
-}
-
 
 extension AuthMessage {
     public init(token: String) {
@@ -721,24 +645,6 @@ extension GetSigningIdentityResponse {
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
-/// Action to execute from the inference server.
-public typealias CuActionMessage = CuAction
-
-extension CuAction {
-    public init(sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String?, stepNumber: Int) {
-        self.init(type: "cu_action", sessionId: sessionId, toolName: toolName, input: input, reasoning: reasoning, stepNumber: stepNumber)
-    }
-}
-
-/// Session completed successfully.
-public typealias CuCompleteMessage = CuComplete
-
-extension CuComplete {
-    public init(sessionId: String, summary: String, stepCount: Int, isResponse: Bool?) {
-        self.init(type: "cu_complete", sessionId: sessionId, summary: summary, stepCount: stepCount, isResponse: isResponse)
-    }
-}
-
 /// Session-level error from the server.
 public typealias CuErrorMessage = CuError
 
@@ -851,9 +757,6 @@ extension MemoryRecalled {
 /// Memory availability/degradation status event.
 /// Backed by generated `MemoryStatus`.
 public typealias MemoryStatusMessage = MemoryStatus
-
-/// Daemon response after classifying and routing a task_submit.
-public typealias TaskRoutedMessage = TaskRouted
 
 /// Daemon response to a dictation_request with cleaned text and mode classification.
 public typealias DictationResponseMessage = DictationResponse
@@ -2183,8 +2086,6 @@ public struct SubagentEventMessage: Decodable, Sendable {
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
     case authResult(AuthResultMessage)
-    case cuAction(CuActionMessage)
-    case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
     case sessionError(SessionErrorMessage)
     case userMessageEcho(UserMessageEchoMessage)
@@ -2197,7 +2098,6 @@ public enum ServerMessage: Decodable, Sendable {
     case sessionListResponse(SessionListResponseMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
-    case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2338,12 +2238,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "auth_result":
             let message = try AuthResultMessage(from: decoder)
             self = .authResult(message)
-        case "cu_action":
-            let message = try CuActionMessage(from: decoder)
-            self = .cuAction(message)
-        case "cu_complete":
-            let message = try CuCompleteMessage(from: decoder)
-            self = .cuComplete(message)
         case "cu_error":
             let message = try CuErrorMessage(from: decoder)
             self = .cuError(message)
@@ -2380,9 +2274,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "memory_status":
             let message = try MemoryStatusMessage(from: decoder)
             self = .memoryStatus(message)
-        case "task_routed":
-            let message = try TaskRoutedMessage(from: decoder)
-            self = .taskRouted(message)
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)

@@ -197,7 +197,7 @@ enum HostCuActionRunner {
     // MARK: - Tool Name Mapping
 
     /// Map a tool name + input dictionary to an AgentAction.
-    /// Replicates the logic from `ComputerUseSession.mapToAgentAction`.
+    /// Maps a tool name + input dictionary to an `AgentAction` for local execution.
     private static func mapToAgentAction(toolName: String, input: [String: AnyCodable], reasoning: String?) -> AgentAction {
         let type: ActionType = switch toolName {
         case "computer_use_click", "cu_click": .click

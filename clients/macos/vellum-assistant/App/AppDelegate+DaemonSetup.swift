@@ -235,18 +235,6 @@ extension AppDelegate {
             self.handleNotificationThreadCreated(msg)
         }
 
-        // Handle escalation: text_qa -> computer_use via computer_use_request_control
-        daemonClient.onTaskRouted = { [weak self] routed in
-            guard let self else { return }
-            // Only handle escalation messages (those with escalatedFrom set)
-            guard routed.escalatedFrom != nil,
-                  routed.interactionType == "computer_use" else {
-                log.debug("Ignoring non-escalation task_routed: type=\(routed.interactionType), escalatedFrom=\(routed.escalatedFrom ?? "nil")")
-                return
-            }
-            self.handleEscalationToComputerUse(routed: routed)
-        }
-
         // Forward dictation responses from the daemon to VoiceInputManager
         daemonClient.onDictationResponse = { [weak self] msg in
             self?.voiceInput?.onDictationResponse?(msg)

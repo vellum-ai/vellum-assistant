@@ -345,10 +345,6 @@ public final class HTTPTransport {
         case skillsCreate
 
         // Computer Use
-        case cuSessionCreate
-        case cuSessionAbort(sessionId: String)
-        case cuObservation
-        case cuTaskSubmit
         case cuWatch
 
         // Recordings
@@ -718,15 +714,6 @@ public final class HTTPTransport {
         case .skillsCreate:
             return ("/v1/skills", nil)
         // Computer Use
-        case .cuSessionCreate:
-            return ("/v1/computer-use/sessions", nil)
-        case .cuSessionAbort(let sessionId):
-            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
-            return ("/v1/computer-use/sessions/\(encoded)/abort", nil)
-        case .cuObservation:
-            return ("/v1/computer-use/observations", nil)
-        case .cuTaskSubmit:
-            return ("/v1/computer-use/tasks", nil)
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
         // Recordings
@@ -1102,15 +1089,6 @@ public final class HTTPTransport {
         case .skillsCreate:
             return ("\(prefix)/skills/", nil)
         // Computer Use
-        case .cuSessionCreate:
-            return ("\(prefix)/computer-use/sessions/", nil)
-        case .cuSessionAbort(let sessionId):
-            let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionId
-            return ("\(prefix)/computer-use/sessions/\(encoded)/abort/", nil)
-        case .cuObservation:
-            return ("\(prefix)/computer-use/observations/", nil)
-        case .cuTaskSubmit:
-            return ("\(prefix)/computer-use/tasks/", nil)
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
         // Recordings
