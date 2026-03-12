@@ -39,7 +39,7 @@ describe("buildCliReferenceSection", () => {
     );
     expect(result).toContain("assistant credentials");
     expect(result).toContain(
-      "assistant oauth connections token <provider-key>",
+      "Never retrieve raw OAuth tokens unless the user explicitly asks for the token value",
     );
     expect(result).toContain("assistant mcp auth <name>");
     expect(result).toContain("assistant platform status");
