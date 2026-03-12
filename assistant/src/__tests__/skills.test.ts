@@ -725,8 +725,9 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.toolManifest).toBeDefined();
     expect(cuSkill!.toolManifest!.present).toBe(true);
     expect(cuSkill!.toolManifest!.valid).toBe(true);
-    expect(cuSkill!.toolManifest!.toolCount).toBe(10);
+    expect(cuSkill!.toolManifest!.toolCount).toBe(11);
     expect(cuSkill!.toolManifest!.toolNames).toEqual([
+      "computer_use_observe",
       "computer_use_click",
       "computer_use_type_text",
       "computer_use_key",
