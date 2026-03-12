@@ -120,6 +120,14 @@
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
       "defaultEnabled": true
+    },
+    {
+      "id": "logfire",
+      "scope": "assistant",
+      "key": "feature_flags.logfire.enabled",
+      "label": "Logfire LLM Observability",
+      "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
+      "defaultEnabled": false
     }
   ]
 }

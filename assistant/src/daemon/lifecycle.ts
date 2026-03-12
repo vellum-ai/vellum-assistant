@@ -22,7 +22,7 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry } from "../instrument.js";
-import { initLogfire } from "../logfire.js";
+import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -249,6 +249,18 @@ export async function runDaemon(): Promise<void> {
     );
     if (!collectUsageData) {
       await closeSentry();
+    }
+
+    // If Logfire observability is not explicitly enabled, disable it so
+    // wrapWithLogfire() calls during provider setup become no-ops. Logfire
+    // is initialized eagerly (before config loads) for the same reason as
+    // Sentry — but the feature flag gates whether it actually traces.
+    const logfireEnabled = isAssistantFeatureFlagEnabled(
+      "feature_flags.logfire.enabled",
+      config,
+    );
+    if (!logfireEnabled) {
+      disableLogfire();
     }
 
     await initializeProvidersAndTools(config);

@@ -13,7 +13,7 @@ const log = getLogger("logfire");
 
 type LogfireModule = typeof import("@pydantic/logfire-node");
 
-const LOGFIRE_ENABLED: boolean = !!getLogfireToken();
+let logfireEnabled: boolean = !!getLogfireToken();
 
 let logfireInstance: LogfireModule | null = null;
 
@@ -23,7 +23,7 @@ let logfireInstance: LogfireModule | null = null;
  * Non-fatal on failure (logs warning and continues).
  */
 export async function initLogfire(): Promise<void> {
-  if (!LOGFIRE_ENABLED) return;
+  if (!logfireEnabled) return;
 
   try {
     const logfire = await import("@pydantic/logfire-node");
@@ -43,11 +43,22 @@ export async function initLogfire(): Promise<void> {
 }
 
 /**
+ * Disable Logfire after early initialization. Called when the user has opted
+ * out via the feature flag. Nulls out the instance so future wrapWithLogfire
+ * calls become no-ops.
+ */
+export function disableLogfire(): void {
+  logfireEnabled = false;
+  logfireInstance = null;
+  log.info("Logfire disabled by feature flag");
+}
+
+/**
  * Wraps a provider with Logfire tracing spans.
- * When LOGFIRE_ENABLED is false, returns the provider as-is (no wrapper allocated).
+ * When logfireEnabled is false, returns the provider as-is (no wrapper allocated).
  */
 export function wrapWithLogfire(provider: Provider): Provider {
-  if (!LOGFIRE_ENABLED) return provider;
+  if (!logfireEnabled) return provider;
   return new LogfireProvider(provider);
 }
 
