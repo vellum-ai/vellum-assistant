@@ -13,7 +13,11 @@ import { join } from "node:path";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
-import { getApp, getConnectionByProvider } from "../../oauth/oauth-store.js";
+import {
+  getApp,
+  getConnectionByProvider,
+  getMostRecentAppByProvider,
+} from "../../oauth/oauth-store.js";
 import {
   getProviderProfile,
   resolveService,
@@ -27,10 +31,6 @@ import {
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
-import {
-  assertMetadataWritable,
-  getCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import {
   type ManifestOverride,
   resolveExecutionTarget,
@@ -158,45 +158,35 @@ async function handleOAuthConnectStart(body: {
   service?: string;
   requestedScopes?: string[];
 }): Promise<Response> {
-  try {
-    assertMetadataWritable();
-  } catch {
-    return httpError(
-      "UNPROCESSABLE_ENTITY",
-      "Credential metadata file has an unrecognized version. Cannot store OAuth credentials.",
-      422,
-    );
-  }
-
   if (!body.service) {
     return httpError("BAD_REQUEST", "Missing required field: service", 400);
   }
 
   const resolvedService = resolveService(body.service);
 
-  // Prefer oauth-store for client_id, fall back to metadata-store.
+  // Resolve client_id and client_secret from oauth-store.
   let clientId: string | undefined;
-  try {
-    const conn = getConnectionByProvider(resolvedService);
-    if (conn) {
-      const app = getApp(conn.oauthAppId);
-      if (app) clientId = app.clientId;
+  let clientSecret: string | undefined;
+
+  // Try existing connection first (re-auth flow)
+  const conn = getConnectionByProvider(resolvedService);
+  if (conn) {
+    const app = getApp(conn.oauthAppId);
+    if (app) {
+      clientId = app.clientId;
+      clientSecret = getSecureKey(`oauth_app/${app.id}/client_secret`);
     }
-  } catch {
-    // DB not ready — fall through to metadata-store
   }
 
+  // Fall back to most recent app for this provider (first-time connect with stored app)
   if (!clientId) {
-    clientId = getCredentialMetadata(
-      resolvedService,
-      "access_token",
-    )?.oauth2ClientId;
-  }
-  if (!clientId && resolvedService !== body.service) {
-    clientId = getCredentialMetadata(
-      body.service,
-      "access_token",
-    )?.oauth2ClientId;
+    const dbApp = getMostRecentAppByProvider(resolvedService);
+    if (dbApp) {
+      clientId = dbApp.clientId;
+      if (!clientSecret) {
+        clientSecret = getSecureKey(`oauth_app/${dbApp.id}/client_secret`);
+      }
+    }
   }
 
   if (!clientId) {
@@ -207,7 +197,9 @@ async function handleOAuthConnectStart(body: {
     );
   }
 
-  const clientSecret = getClientSecret(resolvedService, body.service);
+  if (!clientSecret) {
+    clientSecret = getClientSecret(resolvedService, body.service);
+  }
 
   const profile = getProviderProfile(resolvedService);
   const requiresSecret =

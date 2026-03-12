@@ -1,11 +1,10 @@
 /**
- * Metadata-driven token manager for OAuth2 credentials.
+ * Token manager for OAuth2 credentials.
  *
- * Reads refresh configuration (tokenUrl, clientId, authMethod) from the
- * new SQLite oauth-store (provider + app + connection rows) when available,
- * falling back to the legacy credential metadata store. After a successful
- * refresh, dual-writes tokens to both old and new key paths and updates
- * the oauth_connection row.
+ * Reads refresh configuration (tokenUrl, clientId, authMethod) exclusively
+ * from the SQLite oauth-store (provider + app + connection rows). After a
+ * successful refresh, writes tokens to new-format secure key paths and
+ * updates the oauth_connection row.
  */
 
 import {
@@ -14,10 +13,6 @@ import {
   getProvider,
   updateConnection,
 } from "../oauth/oauth-store.js";
-import {
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { credentialKey, migrateKeys } from "./credential-key.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
@@ -164,12 +159,17 @@ export class TokenExpiredError extends Error {
 
 /**
  * Check whether the access token for a service is expired or will expire
- * within the buffer window, based on the `expiresAt` field in credential metadata.
+ * within the buffer window, based on the `expiresAt` field in the
+ * oauth_connection row.
  */
 function isTokenExpired(service: string): boolean {
-  const meta = getCredentialMetadata(service, "access_token");
-  if (!meta?.expiresAt) return false;
-  return Date.now() >= meta.expiresAt - EXPIRY_BUFFER_MS;
+  try {
+    const conn = getConnectionByProvider(service);
+    if (!conn?.expiresAt) return false;
+    return Date.now() >= conn.expiresAt - EXPIRY_BUFFER_MS;
+  } catch {
+    return false;
+  }
 }
 
 // ── Refresh config resolution ─────────────────────────────────────────
@@ -182,45 +182,55 @@ interface RefreshConfig {
   secret?: string;
   refreshToken?: string;
   authMethod?: TokenEndpointAuthMethod;
+  connId: string;
 }
 
 /**
- * Resolve refresh configuration from the new SQLite oauth-store.
+ * Resolve refresh configuration from the SQLite oauth-store.
  *
  * Looks up connection -> app -> provider to read tokenUrl, clientId, and
- * authMethod. Returns undefined if the connection is not found in the
- * new store (caller falls back to metadata-store).
+ * authMethod. Throws `TokenExpiredError` if the connection is not found
+ * or incomplete.
  */
-function resolveRefreshConfigFromOAuthStore(
-  service: string,
-): (RefreshConfig & { connId: string }) | undefined {
-  let conn;
-  try {
-    conn = getConnectionByProvider(service);
-  } catch {
-    return undefined;
+function resolveRefreshConfig(service: string): RefreshConfig {
+  const conn = getConnectionByProvider(service);
+  if (!conn) {
+    throw new TokenExpiredError(
+      service,
+      `No OAuth connection found for "${service}". Re-authorization required.${recoveryHint(service)}`,
+    );
   }
-  if (!conn) return undefined;
 
   const app = getApp(conn.oauthAppId);
-  if (!app) return undefined;
+  if (!app) {
+    throw new TokenExpiredError(
+      service,
+      `No OAuth app found for "${service}". Re-authorization required.${recoveryHint(service)}`,
+    );
+  }
 
   const provider = getProvider(conn.providerKey);
-  if (!provider) return undefined;
+  if (!provider) {
+    throw new TokenExpiredError(
+      service,
+      `No OAuth provider found for "${service}". Re-authorization required.${recoveryHint(service)}`,
+    );
+  }
 
   const tokenUrl = provider.tokenUrl;
   const clientId = app.clientId;
-  if (!tokenUrl || !clientId) return undefined;
+  if (!tokenUrl || !clientId) {
+    throw new TokenExpiredError(
+      service,
+      `Missing OAuth2 refresh config for "${service}".${recoveryHint(service)}`,
+    );
+  }
 
-  // Read client secret from new key format, falling back to legacy key.
-  const secret =
-    getSecureKey(`oauth_app/${app.id}/client_secret`) ??
-    getSecureKey(credentialKey(service, "client_secret"));
+  const secret = getSecureKey(`oauth_app/${app.id}/client_secret`);
 
-  // Read refresh_token from new key format, falling back to legacy key.
-  const refreshToken =
-    getSecureKey(`oauth_connection/${conn.id}/refresh_token`) ??
-    getSecureKey(credentialKey(service, "refresh_token"));
+  const refreshToken = getSecureKey(
+    `oauth_connection/${conn.id}/refresh_token`,
+  );
 
   const authMethod = provider.tokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
@@ -237,71 +247,18 @@ function resolveRefreshConfigFromOAuthStore(
 }
 
 /**
- * Resolve refresh configuration from the legacy credential metadata store.
- *
- * Throws `TokenExpiredError` when the metadata is incomplete (missing
- * tokenUrl or clientId), since there is no fallback beyond this.
- */
-function resolveRefreshConfigFromMetadataStore(service: string): RefreshConfig {
-  const refreshToken = getSecureKey(credentialKey(service, "refresh_token"));
-
-  const meta = getCredentialMetadata(service, "access_token");
-  const tokenUrl = meta?.oauth2TokenUrl ?? "";
-  const clientId = meta?.oauth2ClientId ?? "";
-
-  if (!tokenUrl || !clientId) {
-    if (!refreshToken) {
-      throw new TokenExpiredError(
-        service,
-        `No refresh token available for "${service}". Re-authorization required.${recoveryHint(service)}`,
-      );
-    }
-    // Legacy credentials created by the old integration flow don't store
-    // oauth2TokenUrl/oauth2ClientId in metadata. The client ID is user-specific
-    // (from their Google Cloud Console) and cannot be recovered, so the only
-    // path forward is re-authorization via the new oauth2_connect flow.
-    const isLegacy = service === "integration:gmail" && !tokenUrl && !clientId;
-    const hint = isLegacy
-      ? ` This is a one-time migration: your old Gmail connection needs to be re-authorized. Ask me to "reconnect Gmail" to set it up again.`
-      : "";
-    throw new TokenExpiredError(
-      service,
-      `Missing OAuth2 refresh config for "${service}".${hint}${recoveryHint(service)}`,
-    );
-  }
-
-  const secret = getSecureKey(credentialKey(service, "client_secret"));
-
-  return {
-    tokenUrl,
-    clientId,
-    secret,
-    refreshToken,
-    authMethod: meta?.oauth2TokenEndpointAuthMethod as
-      | TokenEndpointAuthMethod
-      | undefined,
-  };
-}
-
-/**
  * Attempt to refresh the OAuth2 access token for a service.
  *
- * Tries the new SQLite oauth-store first for refresh config (provider,
- * app, connection). Falls back to the legacy metadata-store when the
- * connection is not found in the new store.
+ * Reads refresh config exclusively from the SQLite oauth-store (provider,
+ * app, connection).
  *
  * Returns the new access token on success.
  * Throws `TokenExpiredError` if refresh is not possible.
  */
 async function doRefresh(service: string): Promise<string> {
-  // ----- Resolve refresh config: new store first, legacy fallback -----
-  const oauthStoreConfig = resolveRefreshConfigFromOAuthStore(service);
-  const refreshConfig =
-    oauthStoreConfig ?? resolveRefreshConfigFromMetadataStore(service);
-
-  const { tokenUrl, clientId, secret, authMethod } = refreshConfig;
-  const connId = oauthStoreConfig?.connId;
-  const refreshToken = refreshConfig.refreshToken;
+  const refreshConfig = resolveRefreshConfig(service);
+  const { tokenUrl, clientId, secret, authMethod, connId, refreshToken } =
+    refreshConfig;
 
   if (!refreshToken) {
     throw new TokenExpiredError(
@@ -320,10 +277,7 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  log.info(
-    { service, source: connId ? "oauth-store" : "metadata-store" },
-    "Refreshing OAuth2 access token",
-  );
+  log.info({ service }, "Refreshing OAuth2 access token");
 
   let result;
   try {
@@ -349,10 +303,10 @@ async function doRefresh(service: string): Promise<string> {
     throw err;
   }
 
-  // ----- Store refreshed access_token (legacy path) -----
+  // ----- Store refreshed access_token -----
   if (
     !(await setSecureKeyAsync(
-      credentialKey(service, "access_token"),
+      `oauth_connection/${connId}/access_token`,
       result.accessToken,
     ))
   ) {
@@ -362,19 +316,10 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
-  // ----- Dual-write access_token to new key format -----
-  if (connId) {
-    await setSecureKeyAsync(
-      `oauth_connection/${connId}/access_token`,
-      result.accessToken,
-    );
-  }
-
   if (result.refreshToken) {
-    // ----- Store refreshed refresh_token (legacy path) -----
     if (
       !(await setSecureKeyAsync(
-        credentialKey(service, "refresh_token"),
+        `oauth_connection/${connId}/refresh_token`,
         result.refreshToken,
       ))
     ) {
@@ -383,17 +328,9 @@ async function doRefresh(service: string): Promise<string> {
         `Failed to store refreshed refresh token for "${service}".`,
       );
     }
-
-    // ----- Dual-write refresh_token to new key format -----
-    if (connId) {
-      await setSecureKeyAsync(
-        `oauth_connection/${connId}/refresh_token`,
-        result.refreshToken,
-      );
-    }
   }
 
-  // Update metadata with new expiry.
+  // Update oauth_connection row with new expiry.
   // Use null to explicitly clear a stale expiresAt when the provider omits
   // expires_in (or returns 0), so isTokenExpired won't keep forcing refreshes.
   const expiresAt =
@@ -401,21 +338,16 @@ async function doRefresh(service: string): Promise<string> {
       ? Date.now() + result.expiresIn * 1000
       : null;
 
-  upsertCredentialMetadata(service, "access_token", { expiresAt });
-
-  // ----- Update oauth_connection row after successful refresh -----
-  if (connId) {
-    try {
-      updateConnection(connId, {
-        expiresAt: expiresAt ?? undefined,
-        hasRefreshToken: !!result.refreshToken,
-      });
-    } catch (err) {
-      log.warn(
-        { err, service },
-        "Failed to update oauth_connection after refresh",
-      );
-    }
+  try {
+    updateConnection(connId, {
+      expiresAt: expiresAt ?? undefined,
+      hasRefreshToken: !!result.refreshToken,
+    });
+  } catch (err) {
+    log.warn(
+      { err, service },
+      "Failed to update oauth_connection after refresh",
+    );
   }
 
   recordRefreshSuccess(service);
