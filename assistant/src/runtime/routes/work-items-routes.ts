@@ -24,6 +24,7 @@ import {
   getWorkItem,
   listWorkItems,
   updateWorkItem,
+  type WorkItem,
   type WorkItemStatus,
 } from "../../work-items/work-item-store.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -61,6 +62,24 @@ function broadcastWorkItemStatus(id: string): void {
       },
     });
   }
+}
+
+function resolveRequiredTools(
+  workItem: WorkItem,
+  taskRequiredTools: string[],
+): string[] {
+  if (workItem.requiredTools == null) {
+    return taskRequiredTools;
+  }
+
+  const snapshotTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  if (snapshotTools.length > 0) {
+    return snapshotTools;
+  }
+
+  // Empty snapshot falls back to task template — an explicit [] does not
+  // mean "no tools"; it means the snapshot hasn't constrained the tool set.
+  return taskRequiredTools;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,21 +340,18 @@ export async function preflightWorkItem(
     return { success: false, error: "Work item not found" };
   }
 
-  let requiredTools: string[];
-  if (workItem.requiredTools != null) {
-    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-  } else {
-    const task = getTask(workItem.taskId);
-    if (!task) {
-      return {
-        success: false,
-        error: `Associated task not found: ${workItem.taskId}`,
-      };
-    }
-    requiredTools = task.requiredTools
-      ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : getRegisteredToolNames();
+  const task = getTask(workItem.taskId);
+  if (!task) {
+    return {
+      success: false,
+      error: `Associated task not found: ${workItem.taskId}`,
+    };
   }
+
+  const taskRequiredTools = task.requiredTools
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
+    : getRegisteredToolNames();
+  let requiredTools = resolveRequiredTools(workItem, taskRequiredTools);
 
   if (requiredTools.length === 0) {
     return { success: true, permissions: [] };
@@ -648,15 +664,11 @@ export function workItemRouteDefinitions(
           );
         }
 
-        // Compute required tools
-        let requiredTools: string[];
-        if (workItem.requiredTools != null) {
-          requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-        } else {
-          requiredTools = task.requiredTools
-            ? sanitizeToolList(JSON.parse(task.requiredTools))
-            : getRegisteredToolNames();
-        }
+        // Compute required tools — empty snapshot falls back to task template
+        const taskRequiredTools = task.requiredTools
+          ? sanitizeToolList(JSON.parse(task.requiredTools))
+          : getRegisteredToolNames();
+        const requiredTools = resolveRequiredTools(workItem, taskRequiredTools);
 
         // Permission checkpoint
         let approvedTools: string[] | undefined;
