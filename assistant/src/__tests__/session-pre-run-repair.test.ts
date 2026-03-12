@@ -73,15 +73,6 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryCleanupStats: () => ({
-    cleanup: {
-      supersededBacklog: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 // Mock conversation store
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;

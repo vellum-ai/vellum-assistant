@@ -120,15 +120,6 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryCleanupStats: () => ({
-    cleanup: {
-      supersededBacklog: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},

@@ -133,15 +133,6 @@ mock.module("../memory/retriever.js", () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryCleanupStats: () => ({
-    cleanup: {
-      supersededBacklog: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}

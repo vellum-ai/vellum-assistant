@@ -16,7 +16,7 @@ Conversational guardian verification control-plane invocation is guardian-only. 
 
 ## Memory Provenance Invariant
 
-All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
+All memory retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not receive memory recall results. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
 
 ## Guardian Privilege Isolation Invariant
 

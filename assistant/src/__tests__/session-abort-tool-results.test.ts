@@ -75,15 +75,6 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/admin.js", () => ({
-  getMemoryCleanupStats: () => ({
-    cleanup: {
-      supersededBacklog: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
-
 // Track all messages persisted to DB
 let persistedMessages: Array<{ role: string; content: string }> = [];
 

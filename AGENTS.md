@@ -107,10 +107,6 @@ When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/
 
 Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant ports. Setting `QDRANT_URL` triggers QdrantManager's external/remote mode which bypasses the local managed Qdrant lifecycle (download, start, health checks). The CLI deletes `QDRANT_URL` from the environment when spawning instance daemons to ensure local Qdrant management is used.
 
-## Memory Conflict Handling — Internal Only
-
-Memory conflicts must never surface as user-facing clarification prompts. The conflict gate evaluates and resolves conflicts internally without producing any user-visible output — no injected instructions, no clarification questions, no blocking the user's request. The response path always continues answering the user. If you add or modify conflict-related code, verify that `ConflictGate.evaluate()` returns `void` (not a user-facing string), that no conflict text is emitted into the agent loop's message stream, and that `session-runtime-assembly.ts` does not inject conflict instructions. Guard tests: `session-conflict-gate.test.ts`, `session-agent-loop.test.ts`, `memory-lifecycle-e2e.test.ts`.
-
 ## Release Update Hygiene
 
 When shipping a release with user/assistant-facing changes, update `assistant/src/prompts/templates/UPDATES.md`. Leave empty for no-op releases. Don't modify `~/.vellum/workspace/UPDATES.md` directly. Checkpoint keys (`updates:active_releases`, `updates:completed_releases`) in `memory_checkpoints` track bulletin lifecycle — don't manipulate directly.

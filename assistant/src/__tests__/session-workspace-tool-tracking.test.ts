@@ -171,14 +171,6 @@ mock.module("../context/window-manager.js", () => ({
   }),
   getSummaryFromContextMessage: () => null,
 }));
-mock.module("../memory/admin.js", () => ({
-  getMemoryCleanupStats: () => ({
-    cleanup: {
-      supersededBacklog: 0,
-      supersededCompleted24h: 0,
-    },
-  }),
-}));
 mock.module("../memory/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));

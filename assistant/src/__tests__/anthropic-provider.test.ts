@@ -392,8 +392,8 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(user.content[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test("workspace + dynamic profile: cache still lands on trailing block", async () => {
-    // Simulates workspace prepended + dynamic profile appended
+  test("workspace + multi-block user message: cache still lands on trailing block", async () => {
+    // Simulates workspace prepended + extra context block appended
     const injectedUser: Message = {
       role: "user",
       content: [
