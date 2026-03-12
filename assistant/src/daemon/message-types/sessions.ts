@@ -394,6 +394,8 @@ export type SessionErrorCode =
   | "PROVIDER_RATE_LIMIT"
   | "PROVIDER_API"
   | "PROVIDER_BILLING"
+  | "PROVIDER_ORDERING"
+  | "PROVIDER_WEB_SEARCH"
   | "CONTEXT_TOO_LARGE"
   | "SESSION_ABORTED"
   | "SESSION_PROCESSING_FAILED"
@@ -407,6 +409,8 @@ export interface SessionErrorMessage {
   userMessage: string;
   retryable: boolean;
   debugDetails?: string;
+  /** Machine-readable error category for log report metadata and triage. */
+  errorCategory?: string;
 }
 
 /** Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread. */

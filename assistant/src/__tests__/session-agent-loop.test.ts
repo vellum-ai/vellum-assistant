@@ -276,6 +276,7 @@ mock.module("../daemon/session-error.js", () => ({
     code: "SESSION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
+    errorCategory: "processing_failed",
   }),
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
