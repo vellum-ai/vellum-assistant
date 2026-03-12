@@ -70,10 +70,6 @@ const TEST_CONFIG = {
     retrieval: {
       ...DEFAULT_CONFIG.memory.retrieval,
       maxInjectTokens: 900,
-      reranking: {
-        ...DEFAULT_CONFIG.memory.retrieval.reranking,
-        enabled: false,
-      },
     },
   },
 };

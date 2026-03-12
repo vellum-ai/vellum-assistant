@@ -83,7 +83,6 @@ mock.module("../config/loader.js", () => ({
     timeouts: { permissionTimeoutSec: 1 },
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
-    memory: { retrieval: { injectionStrategy: "inline" } },
     permissions: { mode: "workspace" },
   }),
   loadRawConfig: () => ({}),

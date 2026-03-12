@@ -146,10 +146,6 @@ function makeConfig(overrides?: { maxInjectTokens?: number }): AssistantConfig {
         lexicalTopK: 50,
         semanticTopK: 20,
         maxInjectTokens: overrides?.maxInjectTokens ?? 750,
-        reranking: {
-          ...DEFAULT_CONFIG.memory.retrieval.reranking,
-          enabled: false,
-        },
         dynamicBudget: {
           enabled: false,
           minInjectTokens: 160,

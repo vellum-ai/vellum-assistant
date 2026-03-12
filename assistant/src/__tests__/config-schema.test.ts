@@ -161,79 +161,13 @@ describe("AssistantConfigSchema", () => {
     expect(result.secretDetection.action).toBe("block");
   });
 
-  test("applies memory.conflicts defaults", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.memory.conflicts).toEqual({
-      enabled: true,
-      gateMode: "soft",
-      resolverLlmTimeoutMs: 12000,
-      relevanceThreshold: 0.3,
-      conflictableKinds: [
-        "preference",
-        "profile",
-        "constraint",
-        "instruction",
-        "style",
-      ],
-    });
-  });
-
-  test("rejects invalid memory.conflicts.relevanceThreshold", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { relevanceThreshold: 2 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects invalid memory.conflicts.conflictableKinds entry", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { conflictableKinds: ["invalid_kind"] } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects empty memory.conflicts.conflictableKinds", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { conflictableKinds: [] } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("applies memory.profile defaults", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.memory.profile).toEqual({
-      enabled: true,
-      maxInjectTokens: 800,
-    });
-  });
-
-  test("rejects invalid memory.profile.maxInjectTokens", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { profile: { maxInjectTokens: 0 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("applies rollout defaults for dynamic budget and entity relation features", () => {
+  test("applies rollout defaults for dynamic budget", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.retrieval.dynamicBudget).toEqual({
       enabled: true,
       minInjectTokens: 1200,
       maxInjectTokens: 10000,
       targetHeadroomTokens: 10000,
-    });
-    expect(result.memory.entity.extractRelations).toEqual({
-      enabled: true,
-      backfillBatchSize: 200,
-    });
-    expect(result.memory.entity.relationRetrieval).toEqual({
-      enabled: true,
-      maxSeedEntities: 8,
-      maxNeighborEntities: 20,
-      maxEdges: 40,
-      neighborScoreMultiplier: 0.7,
-      maxDepth: 3,
-      depthDecay: true,
     });
   });
 
