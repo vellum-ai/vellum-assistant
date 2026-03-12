@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 extension HTTPTransport {
 
     /// Post the result of a host CU action execution back to the daemon.
-    func postHostCuResult(_ result: HostCuResultPayload, isRetry: Bool = false) async {
+    public func postHostCuResult(_ result: HostCuResultPayload, isRetry: Bool = false) async {
         guard let url = buildURL(for: .hostCuResult) else {
             log.error("Failed to build URL for host_cu_result")
             return
