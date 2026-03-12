@@ -14,6 +14,7 @@ let mockWithValidToken: <T>(
 ) => Promise<T>;
 
 // Disconnect mock state
+let mockListProviders: () => Array<Record<string, unknown>> = () => [];
 let secureKeyStore = new Map<string, string>();
 let metadataStore: Array<{
   credentialId: string;
@@ -78,7 +79,7 @@ mock.module("../oauth/oauth-store.js", () => ({
   listApps: () => [],
   deleteApp: async () => false,
   getProvider: () => undefined,
-  listProviders: () => [],
+  listProviders: () => mockListProviders(),
   registerProvider: () => ({}),
   seedProviders: () => {},
   createConnection: () => ({}),
@@ -443,5 +444,119 @@ describe("assistant oauth connections disconnect <provider-key>", () => {
     expect(
       secureKeyStore.has(credentialKey("integration:gmail", "access_token")),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// providers list
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth providers list", () => {
+  const fakeProviders = [
+    {
+      providerKey: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+    {
+      providerKey: "integration:google-calendar",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+    {
+      providerKey: "integration:slack",
+      authUrl: "https://slack.com/oauth/v2/authorize",
+      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+    {
+      providerKey: "integration:twitter",
+      authUrl: "https://twitter.com/i/oauth2/authorize",
+      tokenUrl: "https://api.twitter.com/2/oauth2/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    },
+  ];
+
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockListProviders = () => fakeProviders;
+    secureKeyStore = new Map();
+    metadataStore = [];
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = "not-found";
+    idCounter = 0;
+  });
+
+  test("returns all providers when no --provider-key is given", async () => {
+    const { exitCode, stdout } = await runCli(["providers", "list", "--json"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(4);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google-calendar");
+    expect(keys).toContain("integration:slack");
+    expect(keys).toContain("integration:twitter");
+  });
+
+  test("filters by single --provider-key value", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--provider-key",
+      "gmail",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].providerKey).toBe("integration:gmail");
+  });
+
+  test("filters by comma-separated OR values", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--provider-key",
+      "gmail,google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(2);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google-calendar");
+  });
+
+  test("returns empty array when comma-separated filter has no matches", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--provider-key",
+      "notion,linear",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(0);
   });
 });

@@ -51,7 +51,7 @@ Each provider is identified by a provider key (e.g. "integration:gmail").`,
     .description("List all registered OAuth providers")
     .option(
       "--provider-key <key>",
-      "Filter by provider key substring (case-insensitive)",
+      'Filter by provider key substring (case-insensitive). Comma-separated values are OR\'d (e.g. "gmail,google")',
     )
     .addHelpText(
       "after",
@@ -60,8 +60,10 @@ Returns registered OAuth providers, including both built-in providers
 seeded at startup and any dynamically registered via "providers register".
 
 When --provider-key is specified, only providers whose key contains the
-given substring (case-insensitive) are returned. Without the flag, all
-providers are listed.
+given substring (case-insensitive) are returned. Multiple substrings can
+be OR'd together using commas (e.g. "gmail,google" matches any provider
+whose key contains "gmail" OR "google"). Without the flag, all providers
+are listed.
 
 Each provider row includes its key, auth URL, token URL, default scopes,
 and configuration timestamps.
@@ -69,6 +71,7 @@ and configuration timestamps.
 Examples:
   $ assistant oauth providers list
   $ assistant oauth providers list --provider-key gmail
+  $ assistant oauth providers list --provider-key "gmail,google"
   $ assistant oauth providers list --provider-key slack --json`,
     )
     .action((opts: { providerKey?: string }, cmd: Command) => {
@@ -76,9 +79,16 @@ Examples:
         let rows = listProviders().map(parseProviderRow);
 
         if (opts.providerKey) {
-          const needle = opts.providerKey.toLowerCase();
+          const needles = opts.providerKey
+            .split(",")
+            .map((n) => n.trim().toLowerCase())
+            .filter(Boolean);
           rows = rows.filter(
-            (r) => r && r.providerKey.toLowerCase().includes(needle),
+            (r) =>
+              r &&
+              needles.some((needle) =>
+                r.providerKey.toLowerCase().includes(needle),
+              ),
           );
         }
 
