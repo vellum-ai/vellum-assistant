@@ -37,12 +37,14 @@ import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
+import { patternMatchesCandidate } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
@@ -589,6 +591,106 @@ export class Session {
       undefined,
       "Resuming after approval",
     );
+
+    // Cascade to other pending confirmations that match this decision
+    this.cascadePendingApprovals(requestId, decision, selectedPattern);
+  }
+
+  /**
+   * After resolving one confirmation, auto-resolve other pending
+   * confirmations in the same conversation that match the decision.
+   *
+   * - allow_10m / allow_thread → approve ALL pending in conversation
+   * - always_allow / always_allow_high_risk → approve pattern-matching pending
+   * - always_deny → deny pattern-matching pending
+   * - allow / deny (one-time) → no cascading
+   */
+  private cascadePendingApprovals(
+    primaryRequestId: string,
+    decision: UserDecision,
+    selectedPattern?: string,
+  ): void {
+    // Single-action decisions don't cascade
+    if (decision === "allow" || decision === "deny") return;
+
+    const pendingRequestIds = this.prompter.getPendingRequestIds();
+    if (pendingRequestIds.length === 0) return;
+
+    for (const candidateId of pendingRequestIds) {
+      if (candidateId === primaryRequestId) continue;
+
+      const interaction = pendingInteractions.get(candidateId);
+      if (!interaction) continue;
+      if (interaction.conversationId !== this.conversationId) continue;
+      if (interaction.kind !== "confirmation") continue;
+
+      const cascadeResult = this.shouldCascade(
+        decision,
+        selectedPattern,
+        interaction.confirmationDetails,
+      );
+      if (!cascadeResult) continue;
+
+      // Consume from pending-interactions tracker
+      pendingInteractions.resolve(candidateId);
+
+      // Resolve via handleConfirmationResponse which emits events.
+      // Use simple "allow"/"deny" so the permission-checker won't save
+      // duplicate rules or re-activate temporary modes. Recursion
+      // terminates because allow/deny exit cascadePendingApprovals early.
+      this.handleConfirmationResponse(
+        candidateId,
+        cascadeResult.allow ? "allow" : "deny",
+        undefined,
+        undefined,
+        undefined,
+        {
+          source: "system",
+          causedByRequestId: primaryRequestId,
+        },
+      );
+    }
+  }
+
+  /**
+   * Determine whether a pending confirmation should be auto-resolved
+   * based on the cascading decision and pattern.
+   */
+  private shouldCascade(
+    decision: UserDecision,
+    selectedPattern: string | undefined,
+    details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
+  ): { allow: boolean } | null {
+    // Temporary overrides apply to the entire conversation
+    if (decision === "allow_10m" || decision === "allow_thread") {
+      return { allow: true };
+    }
+
+    // Persistent allow: cascade if the pattern matches any allowlist candidate
+    if (
+      (decision === "always_allow" || decision === "always_allow_high_risk") &&
+      selectedPattern &&
+      details
+    ) {
+      for (const option of details.allowlistOptions) {
+        if (patternMatchesCandidate(selectedPattern, option.pattern)) {
+          return { allow: true };
+        }
+      }
+      return null;
+    }
+
+    // Persistent deny: cascade denial if the pattern matches
+    if (decision === "always_deny" && selectedPattern && details) {
+      for (const option of details.allowlistOptions) {
+        if (patternMatchesCandidate(selectedPattern, option.pattern)) {
+          return { allow: false };
+        }
+      }
+      return null;
+    }
+
+    return null;
   }
 
   handleSecretResponse(
