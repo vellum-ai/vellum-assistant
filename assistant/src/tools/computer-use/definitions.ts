@@ -34,7 +34,7 @@ const reasonProperty = {
 export const computerUseClickTool: Tool = {
   name: "computer_use_click",
   description:
-    "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback. Supports single click, double-click, and right-click via the click_type parameter.",
+    "Click an element on screen. Prefer element_id (from the accessibility tree) over x/y coordinates.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -86,7 +86,7 @@ export const computerUseClickTool: Tool = {
 export const computerUseTypeTextTool: Tool = {
   name: "computer_use_type_text",
   description:
-    "Type text at the current cursor position. The target field must already be focused (click it first).",
+    "Type text at the current cursor position. First click a text field (by element_id) to focus it, then call this tool. If a field shows 'FOCUSED', skip the click.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -352,13 +352,7 @@ export const computerUseOpenAppTool: Tool = {
 export const computerUseRunAppleScriptTool: Tool = {
   name: "computer_use_run_applescript",
   description:
-    "Execute an AppleScript to control applications via Apple's scripting bridge. " +
-    "Use this for operations that are more reliable through scripting than UI interaction: " +
-    "setting a browser URL directly, navigating Finder to a path, querying app state " +
-    "(tab count, window titles, document status), or clicking deeply nested menu items. " +
-    "The script's return value (if any) will be reported back. " +
-    'NEVER use "do shell script" — it is blocked for security. ' +
-    "Keep scripts short and targeted to a single operation.",
+    "Run an AppleScript command. Prefer this over click/type when possible — it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -395,7 +389,8 @@ export const computerUseRunAppleScriptTool: Tool = {
 
 export const computerUseDoneTool: Tool = {
   name: "computer_use_done",
-  description: "Task is complete",
+  description:
+    "Signal that the computer use task is complete. Provide a summary of what was accomplished. This ends the computer use session.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -428,7 +423,7 @@ export const computerUseDoneTool: Tool = {
 export const computerUseRespondTool: Tool = {
   name: "computer_use_respond",
   description:
-    "Respond directly to the user with a text answer. Use this when the user is asking a question (about their schedule, meetings, calendar, etc.) rather than asking you to control the computer.",
+    "Respond to the user with a text answer instead of performing computer actions. Use this when you can answer directly without interacting with the screen.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -465,7 +460,7 @@ export const computerUseRespondTool: Tool = {
 export const computerUseObserveTool: Tool = {
   name: "computer_use_observe",
   description:
-    "Capture the current screen state. Returns the accessibility tree (with [ID] element references for targeting) and a screenshot. Call this before your first computer use action to see what's on screen, or any time you need to check the current state without performing an action.",
+    "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions — this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
