@@ -741,7 +741,6 @@ export async function startLocalDaemon(
 }
 
 export async function startGateway(
-  assistantId?: string,
   watch: boolean = false,
   resources?: LocalInstanceResources,
 ): Promise<string> {

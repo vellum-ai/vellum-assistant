@@ -87,12 +87,12 @@ export async function wake(): Promise<void> {
           `Gateway running (pid ${pid}) — restarting in watch mode...`,
         );
         await stopProcessByPidFile(gatewayPidFile, "gateway");
-        await startGateway(undefined, watch, resources);
+        await startGateway(watch, resources);
       } else {
         console.log(`Gateway already running (pid ${pid}).`);
       }
     } else {
-      await startGateway(undefined, watch, resources);
+      await startGateway(watch, resources);
     }
   }
 

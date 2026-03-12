@@ -777,7 +777,7 @@ async function hatchLocal(
 
   let runtimeUrl: string;
   try {
-    runtimeUrl = await startGateway(instanceName, watch, resources);
+    runtimeUrl = await startGateway(watch, resources);
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
