@@ -91,7 +91,7 @@ enum LogExporter {
                     tags["session_error_category"] = category
                     errorCategoryString = category
                     if let debugDetails = sessionError.debugDetails {
-                        tags["session_error_debug_details"] = debugDetails
+                        extra["session_error_debug_details"] = debugDetails
                     }
                 }
                 if let sessionId = vm.sessionId {
