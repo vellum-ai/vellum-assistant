@@ -60,6 +60,7 @@ const DEFAULT_TERMINAL_COLUMNS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const LEFT_PANEL_WIDTH = 36;
 
+const COMPACT_THRESHOLD = 60;
 const HEADER_PREFIX_UNICODE = "── Vellum ";
 const HEADER_PREFIX_ASCII = "-- Vellum ";
 
@@ -700,6 +701,37 @@ interface StyledLine {
   style: "heading" | "dim" | "normal";
 }
 
+function CompactHeader({
+  species,
+  healthStatus,
+  totalWidth,
+}: {
+  species: Species;
+  healthStatus?: string;
+  totalWidth: number;
+}): ReactElement {
+  const config = SPECIES_CONFIG[species];
+  const accentColor = species === "openclaw" ? "red" : "magenta";
+  const status = healthStatus ?? "checking...";
+  const label = ` ${config.hatchedEmoji} ${species} ${statusEmoji(status)} `;
+  const prefix = "── Vellum";
+  const suffix = "──";
+  const fillLen = Math.max(
+    0,
+    totalWidth - prefix.length - label.length - suffix.length,
+  );
+  return (
+    <Box flexDirection="column" width={totalWidth}>
+      <Text dimColor>
+        {prefix}
+        <Text color={accentColor}>{label}</Text>
+        {"─".repeat(fillLen)}
+        {suffix}
+      </Text>
+    </Box>
+  );
+}
+
 function DefaultMainScreen({
   runtimeUrl,
   assistantId,
@@ -720,6 +752,18 @@ function DefaultMainScreen({
   const { stdout } = useStdout();
   const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
   const totalWidth = Math.min(MAX_TOTAL_WIDTH, terminalColumns);
+  const isCompact = terminalColumns < COMPACT_THRESHOLD;
+
+  if (isCompact) {
+    return (
+      <CompactHeader
+        species={species}
+        healthStatus={healthStatus}
+        totalWidth={totalWidth}
+      />
+    );
+  }
+
   const rightPanelWidth = Math.max(1, totalWidth - LEFT_PANEL_WIDTH);
 
   const leftLines = [
@@ -893,7 +937,15 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   return 1;
 }
 
-function calculateHeaderHeight(species: Species): number {
+const COMPACT_HEADER_HEIGHT = 1;
+
+function calculateHeaderHeight(
+  species: Species,
+  terminalColumns?: number,
+): number {
+  if ((terminalColumns ?? DEFAULT_TERMINAL_COLUMNS) < COMPACT_THRESHOLD) {
+    return COMPACT_HEADER_HEIGHT;
+  }
   const config = SPECIES_CONFIG[species];
   const artLength = config.art.length;
   const leftLineCount = LEFT_HEADER_LINES + artLength + LEFT_FOOTER_LINES;
@@ -908,6 +960,9 @@ export function render(
   assistantId: string,
   species: Species,
 ): number {
+  const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
+  const isCompact = terminalColumns < COMPACT_THRESHOLD;
+
   const config = SPECIES_CONFIG[species];
   const art = config.art;
 
@@ -923,6 +978,10 @@ export function render(
     { exitOnCtrlC: false },
   );
   unmount();
+
+  if (isCompact) {
+    return COMPACT_HEADER_HEIGHT;
+  }
 
   const statusCanvasLine = RIGHT_PANEL_LINE_COUNT + HEADER_TOP_BORDER_LINES;
   const statusCol = LEFT_PANEL_WIDTH + 1;
@@ -1178,15 +1237,20 @@ function ChatApp({
   const { stdout } = useStdout();
   const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
   const terminalColumns = stdout.columns || DEFAULT_TERMINAL_COLUMNS;
-  const headerHeight = calculateHeaderHeight(species);
+  const headerHeight = calculateHeaderHeight(species, terminalColumns);
 
+  const isCompact = terminalColumns < COMPACT_THRESHOLD;
+  const compactInputAreaHeight = 2; // separator + input row only
+  const inputAreaHeight = isCompact
+    ? compactInputAreaHeight
+    : INPUT_AREA_HEIGHT;
   const bottomHeight = selection
     ? selection.options.length + SELECTION_CHROME_LINES + TOOLTIP_HEIGHT
     : secretInput
       ? SECRET_INPUT_HEIGHT + TOOLTIP_HEIGHT
       : spinnerText
-        ? SPINNER_HEIGHT + INPUT_AREA_HEIGHT
-        : INPUT_AREA_HEIGHT;
+        ? SPINNER_HEIGHT + inputAreaHeight
+        : inputAreaHeight;
   const availableRows = Math.max(
     MIN_FEED_ROWS,
     terminalRows - headerHeight - bottomHeight,
@@ -2295,10 +2359,14 @@ function ChatApp({
               focus={inputFocused}
             />
           </Box>
-          <Text dimColor>
-            {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
-          </Text>
-          <Text dimColor> ? for shortcuts</Text>
+          {terminalColumns >= COMPACT_THRESHOLD ? (
+            <>
+              <Text dimColor>
+                {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
+              </Text>
+              <Text dimColor> ? for shortcuts</Text>
+            </>
+          ) : null}
         </Box>
       ) : null}
     </Box>
