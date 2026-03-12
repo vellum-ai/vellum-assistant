@@ -1,6 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
+  getAppByProviderAndClientId,
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
@@ -744,12 +745,16 @@ class CredentialStoreTool implements Tool {
         // Resolve client_id and client_secret.
         // Priority:
         //   1. Explicit input from the caller
-        //   2. oauth-store DB (most recent app for this provider)
+        //   2. oauth-store DB — when clientId is already known, look up the
+        //      matching app so the secret comes from the same app. Only fall
+        //      back to the most-recent-app heuristic when clientId is unknown.
         let clientId = input.client_id as string | undefined;
         let clientSecret = input.client_secret as string | undefined;
 
         if (!clientId || !clientSecret) {
-          const dbApp = getMostRecentAppByProvider(service);
+          const dbApp = clientId
+            ? getAppByProviderAndClientId(service, clientId)
+            : getMostRecentAppByProvider(service);
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
@@ -847,8 +852,8 @@ class CredentialStoreTool implements Tool {
                 // Custom provider: explicit scopes override (bypasses policy engine)
                 scopes: inputScopes,
               }),
-          extraParams: (input.extra_params as Record<string, string> | undefined),
-          userinfoUrl: (input.userinfo_url as string | undefined),
+          extraParams: input.extra_params as Record<string, string> | undefined,
+          userinfoUrl: input.userinfo_url as string | undefined,
           tokenEndpointAuthMethod,
           onDeferredComplete: (deferredResult) => {
             // Emit oauth_connect_result to all connected SSE clients so the
@@ -933,8 +938,10 @@ class CredentialStoreTool implements Tool {
         // Compute the redirect URI based on callback transport
         let redirectUri: string;
         const transport =
-          (descProviderRow.callbackTransport as "loopback" | "gateway" | null) ??
-          "gateway";
+          (descProviderRow.callbackTransport as
+            | "loopback"
+            | "gateway"
+            | null) ?? "gateway";
         if (transport === "loopback" && descProviderRow.loopbackPort) {
           redirectUri = `http://127.0.0.1:${descProviderRow.loopbackPort}/oauth/callback`;
         } else if (transport === "loopback") {
@@ -957,7 +964,10 @@ class CredentialStoreTool implements Tool {
         // Prefer explicit setup metadata, fall back to heuristic
         const requiresClientSecret =
           descBehavior?.setup?.requiresClientSecret ??
-          !!(descProviderRow.tokenEndpointAuthMethod || descProviderRow.extraParams);
+          !!(
+            descProviderRow.tokenEndpointAuthMethod ||
+            descProviderRow.extraParams
+          );
 
         const descDefaultScopes: string[] = descProviderRow.defaultScopes
           ? JSON.parse(descProviderRow.defaultScopes)
