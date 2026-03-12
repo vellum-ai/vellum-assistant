@@ -4196,24 +4196,6 @@ public struct SurfaceAction: Codable, Sendable {
     }
 }
 
-public struct TaskRouted: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let interactionType: String
-    /// The task text passed to the escalated session.
-    public let task: String?
-    /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
-    public let escalatedFrom: String?
-
-    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.interactionType = interactionType
-        self.task = task
-        self.escalatedFrom = escalatedFrom
-    }
-}
-
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
 public struct TaskRunThreadCreated: Codable, Sendable {
     public let type: String
