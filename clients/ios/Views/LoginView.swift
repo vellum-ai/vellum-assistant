@@ -18,19 +18,19 @@ struct LoginView: View {
 
             Text("Log in with Vellum")
                 .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             Text("Sign in to connect to your cloud assistant")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
             if let error = authManager.errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemDangerStrong)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
             }
@@ -58,7 +58,7 @@ struct LoginView: View {
             Button("Back") {
                 onCancel?()
             }
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .disabled(authManager.isSubmitting)
 
             Spacer()

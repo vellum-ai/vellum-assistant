@@ -77,13 +77,13 @@ struct QuickInputView: View {
                 if attachedImage != nil {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.scan, size: 11)
-                            .foregroundColor(VColor.iconAccent)
+                            .foregroundColor(VColor.primaryBase)
                         Text("Screenshot")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Button(action: { onRemoveAttachment?() }) {
                             VIconView(.x, size: 9)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove image")
@@ -92,7 +92,7 @@ struct QuickInputView: View {
                     .padding(.vertical, VSpacing.xs)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.inputBackground)
+                            .fill(VColor.surfaceActive)
                     )
                 }
 
@@ -104,7 +104,7 @@ struct QuickInputView: View {
                     text: $textModel.text
                 )
                     .font(.system(size: 16))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textFieldStyle(.plain)
                     .focused($isFocused)
                     .onSubmit { submit() }
@@ -135,10 +135,10 @@ struct QuickInputView: View {
                     HStack(spacing: VSpacing.xxs) {
                         Text(textModel.selectedThreadTitle ?? "New Chat")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
                         VIconView(.chevronDown, size: 10)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
                 .menuStyle(.borderlessButton)
@@ -148,7 +148,7 @@ struct QuickInputView: View {
                 // Notification toggle
                 Button(action: { onNotificationToggle?() }) {
                     VIconView(.bell, size: 14)
-                        .foregroundColor(textModel.notifyOnComplete ? VColor.textSecondary : VColor.textMuted)
+                        .foregroundColor(textModel.notifyOnComplete ? VColor.contentSecondary : VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
@@ -158,7 +158,7 @@ struct QuickInputView: View {
                 if attachedImage == nil {
                     Button(action: { onScreenCapture?() }) {
                         VIconView(.scan, size: 14)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(.plain)
@@ -170,7 +170,7 @@ struct QuickInputView: View {
                     Button(action: { onMicrophoneToggle?() }) {
                         ZStack {
                             VIconView(.mic, size: 14)
-                                .foregroundColor(VColor.micIcon)
+                                .foregroundColor(VColor.primaryBase)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -180,14 +180,14 @@ struct QuickInputView: View {
                     Button(action: { onMicrophoneToggle?() }) {
                         ZStack {
                             Circle()
-                                .fill(VColor.error.opacity(0.2))
+                                .fill(VColor.systemNegativeStrong.opacity(0.2))
                                 .frame(width: 30, height: 30)
                                 .scaleEffect(isMicPulsing ? 1.3 : 1.0)
                                 .opacity(isMicPulsing ? 0.0 : 1.0)
                                 .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isMicPulsing)
 
                             VIconView(.mic, size: 14)
-                                .foregroundColor(VColor.error)
+                                .foregroundColor(VColor.systemNegativeStrong)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -199,10 +199,10 @@ struct QuickInputView: View {
                     Button(action: submit) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(isEmpty ? VColor.buttonPrimary.opacity(0.4) : VColor.buttonPrimary)
+                                .fill(isEmpty ? VColor.primaryBase.opacity(0.4) : VColor.primaryBase)
                                 .frame(width: 32, height: 32)
                             VIconView(.arrowUp, size: 14)
-                                .foregroundColor(.white)
+                                .foregroundColor(VColor.auxWhite)
                         }
                     }
                     .buttonStyle(.plain)
@@ -217,23 +217,23 @@ struct QuickInputView: View {
             if showScreenPermissionPrompt {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.scan, size: 14)
-                        .foregroundColor(VColor.iconAccent)
+                        .foregroundColor(VColor.primaryBase)
 
                     Text("Allow screen recording to capture screenshots")
                         .font(.system(size: 13))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     Spacer()
 
                     Button(action: { onAllowScreenRecording?() }) {
                         Text("Allow")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(VColor.buttonSecondaryText)
+                            .foregroundColor(VColor.primaryBase)
                             .padding(.horizontal, VSpacing.md)
                             .padding(.vertical, VSpacing.xs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
+                                    .stroke(VColor.borderActive, lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -246,9 +246,9 @@ struct QuickInputView: View {
         .frame(width: panelWidth)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .fill(VColor.backgroundSubtle)
-                .shadow(color: .black.opacity(0.15), radius: 20, y: 4)
-                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                .fill(VColor.surfaceBase)
+                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 20, y: 4)
+                .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, y: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .onAppear {
@@ -300,7 +300,7 @@ struct VisualEffectBlur: NSViewRepresentable {
 
 #Preview("QuickInputView") {
     ZStack {
-        Color.black.opacity(0.5).ignoresSafeArea()
+        VColor.auxBlack.opacity(0.5).ignoresSafeArea()
         QuickInputView(
             textModel: QuickInputTextModel(),
             onSubmit: { message in

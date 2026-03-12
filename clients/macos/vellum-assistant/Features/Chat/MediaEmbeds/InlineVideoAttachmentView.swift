@@ -96,10 +96,10 @@ struct InlineVideoAttachmentView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 0.5)
+                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
                 )
 
             if let failure {
@@ -120,7 +120,7 @@ struct InlineVideoAttachmentView: View {
                             .controlSize(.small)
                     } else {
                         VIconView(.arrowDownToLine, size: 24)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(VColor.auxWhite)
                             .shadow(radius: 2)
                     }
                 }
@@ -159,12 +159,12 @@ struct InlineVideoAttachmentView: View {
 
             VStack(spacing: VSpacing.sm) {
                 VIconView(.play, size: 44)
-                    .foregroundStyle(thumbnailImage != nil ? .white : VColor.textSecondary)
+                    .foregroundStyle(thumbnailImage != nil ? VColor.auxWhite : VColor.contentSecondary)
                     .shadow(radius: thumbnailImage != nil ? 4 : 0)
 
                 Text(attachment.filename)
                     .font(VFont.caption)
-                    .foregroundStyle(thumbnailImage != nil ? .white : VColor.textSecondary)
+                    .foregroundStyle(thumbnailImage != nil ? VColor.auxWhite : VColor.contentSecondary)
                     .shadow(radius: thumbnailImage != nil ? 2 : 0)
                     .lineLimit(1)
             }
@@ -186,7 +186,7 @@ struct InlineVideoAttachmentView: View {
 
             Text("Loading video...")
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -195,28 +195,28 @@ struct InlineVideoAttachmentView: View {
         VStack(spacing: VSpacing.xs) {
             if case .port_missing = failure {
                 VIconView(.refreshCw, size: 20)
-                    .foregroundStyle(VColor.textSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             } else {
                 VIconView(.triangleAlert, size: 20)
-                    .foregroundStyle(VColor.textSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             Text(failure.userMessage)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             if case .port_missing = failure {
                 Text("Tap to retry")
                     .font(VFont.small)
-                    .foregroundStyle(VColor.textMuted)
+                    .foregroundStyle(VColor.contentTertiary)
             } else if case .invalid_media = failure {
                 Text("Tap to open externally")
                     .font(VFont.small)
-                    .foregroundStyle(VColor.textMuted)
+                    .foregroundStyle(VColor.contentTertiary)
             } else {
                 Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
                     .font(VFont.small)
-                    .foregroundStyle(VColor.textMuted)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

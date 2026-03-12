@@ -318,16 +318,16 @@ final class AvatarAppearanceManager {
         let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()
 
-        // Draw circle with accent color (Forest._600 equivalent)
+        // Draw circle with accent color (VColor.primaryBase equivalent)
         let path = NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size))
-        NSColor(Forest._600).setFill()
+        NSColor(VColor.primaryBase).setFill()
         path.fill()
 
         // Draw initial letter
         let initial = String(name.prefix(1)).uppercased()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: size * 0.45, weight: .semibold),
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor(VColor.auxWhite)
         ]
         let attrStr = NSAttributedString(string: initial, attributes: attrs)
         let textSize = attrStr.size()

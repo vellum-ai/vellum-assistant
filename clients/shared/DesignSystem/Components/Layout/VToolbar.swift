@@ -13,13 +13,13 @@ public struct VToolbar<Content: View>: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 }
 
 #Preview("VToolbar") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VToolbar {
             VIconButton(label: "Home", icon: "house") {}
             VIconButton(label: "Search", icon: "magnifyingglass") {}

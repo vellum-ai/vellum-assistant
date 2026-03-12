@@ -30,7 +30,7 @@ struct ContactCreateView: View {
         }
         .padding(VSpacing.xl)
         .frame(width: 400, height: 340)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 
     // MARK: - Header
@@ -39,10 +39,10 @@ struct ContactCreateView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Add Contact")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Text("Create a new contact with optional notes.")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
     }
 
@@ -54,7 +54,7 @@ struct ContactCreateView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Display Name")
                     .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 VTextField(placeholder: "e.g. Alice Chen", text: $displayName)
             }
 
@@ -62,27 +62,27 @@ struct ContactCreateView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
                     .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 ZStack(alignment: .topLeading) {
                     if notes.isEmpty {
                         Text("e.g. Colleague, prefers casual tone (optional)")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.vertical, VSpacing.sm)
                     }
                     TextEditor(text: $notes)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 60, maxHeight: 120)
                 }
                 .padding(VSpacing.xs)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
             }
         }
@@ -93,15 +93,15 @@ struct ContactCreateView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
             Text(message)
                 .font(VFont.caption)
-                .foregroundColor(VColor.error)
+                .foregroundColor(VColor.systemNegativeStrong)
                 .lineLimit(2)
         }
         .padding(VSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VColor.error.opacity(0.1))
+        .background(VColor.systemNegativeStrong.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
@@ -175,7 +175,7 @@ private struct ContactCreateViewPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             ContactCreateView(
                 daemonClient: nil,
                 isPresented: $isPresented

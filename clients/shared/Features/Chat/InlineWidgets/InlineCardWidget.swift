@@ -29,12 +29,12 @@ public struct InlineCardWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(data.title)
                     .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let subtitle = data.subtitle {
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
 
@@ -42,7 +42,7 @@ public struct InlineCardWidget: View {
             if !data.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(markdownBody)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
 
@@ -63,17 +63,17 @@ public struct InlineCardWidget: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(item.label)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Text(item.value)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
             }
         }
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle.opacity(0.5))
+                .fill(VColor.surfaceBase.opacity(0.5))
         )
     }
 
@@ -89,7 +89,7 @@ public struct InlineCardWidget: View {
 #if DEBUG
 #Preview("InlineCardWidget") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         InlineCardWidget(data: CardSurfaceData(
             title: "Weather in New York",
             subtitle: "Next 7 days",

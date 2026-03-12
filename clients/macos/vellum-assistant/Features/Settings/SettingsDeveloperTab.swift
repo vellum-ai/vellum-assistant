@@ -169,10 +169,10 @@ struct SettingsDeveloperTab: View {
                     .progressViewStyle(.circular)
                 Text("Restarting assistant...")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("The assistant will be briefly unavailable.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(VSpacing.xxl)
             .frame(minWidth: 260)
@@ -185,10 +185,10 @@ struct SettingsDeveloperTab: View {
                     .progressViewStyle(.circular)
                 Text("Retiring assistant...")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Stopping the daemon and removing local data.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(VSpacing.xxl)
             .frame(minWidth: 260)
@@ -211,7 +211,7 @@ struct SettingsDeveloperTab: View {
                 TextField("https://platform.vellum.ai", text: $platformUrlText)
                     .vInputStyle()
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .focused($isPlatformUrlFocused)
 
                 VButton(label: "Save", style: .primary, size: .medium, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
@@ -259,7 +259,7 @@ struct SettingsDeveloperTab: View {
             if let message = devModeMessage {
                 Text(message)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .transition(.opacity)
             }
 
@@ -288,16 +288,16 @@ struct SettingsDeveloperTab: View {
                     HStack(alignment: .center) {
                         Text("Disk")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 100, alignment: .leading)
                         Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                         Spacer()
                     }
                     ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
                         .progressViewStyle(.linear)
-                        .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.error : VColor.accent)
+                        .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.systemNegativeStrong : VColor.primaryBase)
                 }
             }
 
@@ -314,7 +314,7 @@ struct SettingsDeveloperTab: View {
                     .controlSize(.small)
                 Text("Loading health metrics...")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
         }
     }
@@ -353,12 +353,12 @@ struct SettingsDeveloperTab: View {
         HStack(alignment: .top) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
             Text(value)
                 .font(mono ? VFont.mono : VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
 
             Spacer()
@@ -370,22 +370,22 @@ struct SettingsDeveloperTab: View {
         HStack(alignment: .top) {
             Text("Home")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(home.displayLabel)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 ForEach(Array(home.displayDetails.enumerated()), id: \.offset) { _, detail in
                     HStack(spacing: VSpacing.xs) {
                         Text(detail.label + ":")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(detail.value)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -406,12 +406,12 @@ struct SettingsDeveloperTab: View {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             Text(displayLabel(for: assistant))
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                             Text(displayNames[assistant.assistantId] != nil
                                 ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
                                 : assistant.home.displayLabel)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         Spacer()
                         if transitioningStates.contains(assistant.assistantId) {
@@ -434,7 +434,7 @@ struct SettingsDeveloperTab: View {
                 HStack {
                     Text("Active")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     VDropdown(
                         placeholder: "",
@@ -696,15 +696,15 @@ struct SettingsDeveloperTab: View {
             if let error = assistantFlagsError {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                 }
             } else if assistantFlags.isEmpty && !isLoadingAssistantFlags {
                 Text("No assistant feature flags available.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(assistantFlags) { flag in
                     assistantFlagRow(flag: flag)
@@ -759,11 +759,11 @@ struct SettingsDeveloperTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(flag.displayName)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 if let description = flag.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             Spacer()
@@ -781,7 +781,7 @@ struct SettingsDeveloperTab: View {
             if macOSFlagStates.isEmpty {
                 Text("No macOS feature flags available.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
                     macOSFlagRow(index: index, entry: entry)
@@ -807,11 +807,11 @@ struct SettingsDeveloperTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(entry.label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 if !entry.description.isEmpty {
                     Text(entry.description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             Spacer()
@@ -854,20 +854,20 @@ struct SettingsDeveloperTab: View {
             if !isSentryEnabled {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Usage data collection is disabled. Non-fatal events will be silently dropped unless you enable \"Collect usage data\" in the Privacy tab.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                 }
             }
 
             if let status = lastSentryStatus {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text(status)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 }
                 .transition(.opacity)
             }
@@ -879,7 +879,7 @@ struct SettingsDeveloperTab: View {
                     }
                     Text("Calls fatalError() — will terminate the app immediately.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
@@ -890,7 +890,7 @@ struct SettingsDeveloperTab: View {
                     }
                     Text("Captures a Sentry event with level .error")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
@@ -901,7 +901,7 @@ struct SettingsDeveloperTab: View {
                     }
                     Text("Captures a Sentry event with level .warning")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
@@ -912,7 +912,7 @@ struct SettingsDeveloperTab: View {
                     }
                     Text("Captures a Sentry event with level .info")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 SettingsDivider()
@@ -940,7 +940,7 @@ struct SettingsDeveloperTab: View {
                     }
                     Text("Starts and finishes a Sentry transaction. Only ~10% are sampled and sent.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }
@@ -1000,16 +1000,16 @@ private struct DeveloperDaemonStatusRows: View {
         HStack(alignment: .center) {
             Text(label)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
             Circle()
-                .fill(isHealthy ? VColor.success : VColor.error)
+                .fill(isHealthy ? VColor.systemPositiveStrong : VColor.systemNegativeStrong)
                 .frame(width: 8, height: 8)
 
             Text(detail)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Spacer()
         }

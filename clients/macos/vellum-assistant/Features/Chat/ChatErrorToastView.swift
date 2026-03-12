@@ -48,7 +48,7 @@ struct ChatSessionErrorToast: View {
         message: String,
         subtitle: String? = nil,
         icon: VIcon = .triangleAlert,
-        accentColor: Color = VColor.error,
+        accentColor: Color = VColor.systemNegativeStrong,
         actionLabel: String? = nil,
         onAction: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil
@@ -94,7 +94,7 @@ struct ChatSessionErrorToast: View {
                         .font(VFont.captionMedium)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on solid accent background
+                        .background(VColor.auxWhite.opacity(0.2)) // Intentional: translucent contrast on solid accent background
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
                 .buttonStyle(.plain)
@@ -120,7 +120,7 @@ struct ChatSessionErrorToast: View {
                 .accessibilityLabel("Dismiss error")
             }
         }
-        .foregroundColor(.white) // Intentional: always white on solid accent background
+        .foregroundColor(VColor.auxWhite) // Intentional: always white on solid accent background
         .frame(minHeight: 32)
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.lg)
@@ -161,15 +161,15 @@ struct ChatSessionErrorToast: View {
     private static func accentColor(for category: SessionErrorCategory) -> Color {
         switch category {
         case .rateLimit:
-            return VColor.warning
+            return VColor.systemNegativeHover
         case .providerNetwork:
-            return Amber._500
+            return VColor.systemNegativeHover
         case .sessionAborted:
-            return VColor.textSecondary
+            return VColor.contentSecondary
         case .contextTooLarge:
-            return VColor.warning
+            return VColor.systemNegativeHover
         default:
-            return VColor.error
+            return VColor.systemNegativeStrong
         }
     }
 

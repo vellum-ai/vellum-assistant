@@ -81,7 +81,7 @@ struct TrustRulesSection: View {
                     editingRule = rule
                 } label: {
                     VIconView(.pencil, size: 16)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
         }
@@ -92,9 +92,9 @@ struct TrustRulesSection: View {
     private func decisionBadge(_ decision: String) -> some View {
         let (color, label): (Color, String) = {
             switch decision {
-            case "allow": return (VColor.success, "Allow")
-            case "deny": return (VColor.error, "Deny")
-            default: return (VColor.warning, "Ask")
+            case "allow": return (VColor.systemPositiveStrong, "Allow")
+            case "deny": return (VColor.systemDangerStrong, "Deny")
+            default: return (VColor.systemDangerHover, "Ask")
             }
         }()
         Text(label)

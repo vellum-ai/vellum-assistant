@@ -46,7 +46,7 @@ struct DirectoryPanel: View {
                 .padding(.bottom, VSpacing.md)
 
                 Divider()
-                    .background(VColor.surfaceBorder)
+                    .background(VColor.borderBase)
 
                 // Tab content
                 Group {
@@ -107,28 +107,28 @@ struct DirectoryPanel: View {
                             .font(.system(size: 24))
                     } else {
                         VIconView(.appWindow, size: 20)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(app.name)
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         HStack(spacing: VSpacing.sm) {
                             if let appType = app.appType {
                                 Text(appType)
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
+                                    .foregroundColor(VColor.contentSecondary)
                                 Text("•")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                             }
 
                             Text(relativeDateString(app.lastOpenedAt))
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
 
@@ -136,12 +136,12 @@ struct DirectoryPanel: View {
 
                     if app.isPinned {
                         VIconView(.pin, size: 12)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                     }
                 }
             }
             .padding(VSpacing.md)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
         .buttonStyle(.plain)
@@ -183,26 +183,26 @@ struct DirectoryPanel: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(doc.title)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 HStack(spacing: VSpacing.sm) {
                     Text("\(doc.wordCount) words")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     Text("•")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     Text(relativeDateString(doc.updatedAt))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.md)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.md)
         }
         .buttonStyle(.plain)
@@ -224,7 +224,7 @@ struct DirectoryPanel: View {
     let directoryStore = DirectoryStore(daemonClient: daemonClient)
 
     return ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         DirectoryPanel(
             onClose: {},
             documentManager: documentManager,

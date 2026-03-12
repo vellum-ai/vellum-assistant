@@ -13,14 +13,14 @@ struct ImproveExperienceStepView: View {
     var body: some View {
         Text("Improve Experience")
             .font(VFont.onboardingTitle)
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
         Text("Send anonymised performance metrics to help us improve responsiveness. No personal data or message content is included.")
             .font(VFont.onboardingSubtitle)
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, VSpacing.xxl)
             .opacity(showTitle ? 1 : 0)
@@ -30,7 +30,7 @@ struct ImproveExperienceStepView: View {
             HStack {
                 Text("Collect usage data")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Spacer()
                 VToggle(isOn: Binding(
                     get: { collectUsageData },
@@ -49,7 +49,7 @@ struct ImproveExperienceStepView: View {
             HStack {
                 Text("Share performance metrics")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Spacer()
                 VToggle(isOn: Binding(
                     get: { sharePerformanceMetrics },
@@ -79,7 +79,7 @@ struct ImproveExperienceStepView: View {
             Button(action: { goBack() }) {
                 Text("Back")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -125,7 +125,7 @@ struct ImproveExperienceStepView: View {
 
 #Preview("ImproveExperienceStepView") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ImproveExperienceStepView(state: {
             let s = OnboardingState()
             s.currentStep = 1

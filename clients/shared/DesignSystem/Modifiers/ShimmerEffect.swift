@@ -12,7 +12,7 @@ public struct ShimmerEffectModifier: ViewModifier {
     @State private var phase: CGFloat = -1
 
     public init(
-        highlightColor: Color = VColor.surface,
+        highlightColor: Color = VColor.surfaceBase,
         duration: TimeInterval = 1.5
     ) {
         self.highlightColor = highlightColor
@@ -58,7 +58,7 @@ public struct ShimmerEffectModifier: ViewModifier {
 
 public extension View {
     func vShimmer(
-        highlightColor: Color = VColor.surface,
+        highlightColor: Color = VColor.surfaceBase,
         duration: TimeInterval = 1.5
     ) -> some View {
         modifier(ShimmerEffectModifier(
@@ -70,20 +70,20 @@ public extension View {
 
 #Preview("ShimmerEffect") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: VSpacing.lg) {
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.surfaceBorder.opacity(0.5))
+                .fill(VColor.borderBase.opacity(0.5))
                 .frame(width: 200, height: 14)
                 .vShimmer()
 
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceBorder.opacity(0.5))
+                .fill(VColor.borderBase.opacity(0.5))
                 .frame(width: 300, height: 40)
                 .vShimmer()
 
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBorder.opacity(0.5))
+                .fill(VColor.borderBase.opacity(0.5))
                 .frame(height: 80)
                 .vShimmer()
         }

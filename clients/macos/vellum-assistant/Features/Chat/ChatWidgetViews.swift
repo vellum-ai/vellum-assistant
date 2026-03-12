@@ -57,17 +57,17 @@ struct RunningIndicator: View {
             HStack(spacing: VSpacing.xs) {
                 if showIcon {
                     VIconView(.terminal, size: 10)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
 
                 Text(currentLabel)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
-                        .fill(VColor.textSecondary)
+                        .fill(VColor.contentSecondary)
                         .frame(width: 5, height: 5)
                         .opacity(phase == index ? 1.0 : 0.4)
                 }
@@ -75,12 +75,12 @@ struct RunningIndicator: View {
                 if elapsed >= 5 {
                     Text(Self.formatElapsed(elapsed))
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 if onTap != nil {
                     VIconView(.chevronRight, size: 9)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 Spacer()
@@ -89,7 +89,7 @@ struct RunningIndicator: View {
             .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isHovered ? VColor.backgroundSubtle.opacity(0.6) : Color.clear)
+                    .fill(isHovered ? VColor.surfaceBase.opacity(0.6) : Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
@@ -106,16 +106,16 @@ struct CodePreviewView: View {
         ScrollView {
             Text(displayCode)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
         }
         .frame(maxHeight: 120)
-        .background(VColor.background.opacity(0.6))
+        .background(VColor.surfaceOverlay.opacity(0.6))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                .stroke(VColor.borderBase, lineWidth: 0.5)
         )
     }
 

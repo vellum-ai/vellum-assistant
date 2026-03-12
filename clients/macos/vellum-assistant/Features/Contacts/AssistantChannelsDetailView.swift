@@ -101,10 +101,10 @@ struct AssistantChannelsDetailView: View {
             if let email = store.assistantEmail {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                     Text(email)
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                     Spacer()
                     Button {
@@ -117,7 +117,7 @@ struct AssistantChannelsDetailView: View {
                         }
                     } label: {
                         VIconView(emailCopied ? .check : .copy, size: 12)
-                            .foregroundColor(emailCopied ? VColor.success : VColor.textSecondary)
+                            .foregroundColor(emailCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -128,10 +128,10 @@ struct AssistantChannelsDetailView: View {
             } else {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.warning)
+                        .foregroundColor(VColor.systemNegativeHover)
                     Text("Not configured — run the Email Setup skill to assign an address")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
         }
@@ -161,7 +161,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.telegramError {
-                Text(error).font(VFont.caption).foregroundColor(VColor.error)
+                Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
             if status == "ready" || status == "incomplete" {
@@ -185,7 +185,7 @@ struct AssistantChannelsDetailView: View {
                 VInfoTooltip("Users who have been granted access to interact with your assistant via Telegram.")
             }
             .font(VFont.caption)
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
 
             if store.telegramApprovedMembersLoading {
                 HStack(spacing: VSpacing.sm) {
@@ -193,24 +193,24 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Loading...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             } else if store.telegramApprovedMembers.isEmpty {
                 Text("No approved users.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(store.telegramApprovedMembers) { member in
                     HStack(spacing: VSpacing.sm) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
                             if let username = member.username, member.displayName != nil {
                                 Text("@\(username)")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
                         }
@@ -225,7 +225,7 @@ struct AssistantChannelsDetailView: View {
             if let error = store.telegramApprovedMembersError {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }
@@ -236,16 +236,16 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bot Token")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             if store.telegramSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -253,7 +253,7 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
@@ -296,7 +296,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.slackChannelError {
-                Text(error).font(VFont.caption).foregroundColor(VColor.error)
+                Text(error).font(VFont.caption).foregroundColor(VColor.systemNegativeStrong)
             }
 
             if status == "ready" || status == "incomplete" {
@@ -318,7 +318,7 @@ struct AssistantChannelsDetailView: View {
                 VInfoTooltip("Users who have been granted access to interact with your assistant via Slack.")
             }
             .font(VFont.caption)
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
 
             if store.slackApprovedMembersLoading {
                 HStack(spacing: VSpacing.sm) {
@@ -326,24 +326,24 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Loading...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             } else if store.slackApprovedMembers.isEmpty {
                 Text("No approved users.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(store.slackApprovedMembers) { member in
                     HStack(spacing: VSpacing.sm) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(member.displayName ?? member.username ?? member.externalUserId ?? member.id)
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
                             if let username = member.username, member.displayName != nil {
                                 Text("@\(username)")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
                         }
@@ -358,7 +358,7 @@ struct AssistantChannelsDetailView: View {
             if let error = store.slackApprovedMembersError {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
         }
     }
@@ -369,21 +369,21 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Slack Credentials")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             SecureField("App Token (xapp-...)", text: $slackChannelAppTokenInput)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             Text("Create a Slack app with Socket Mode enabled to get these tokens")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             if store.slackChannelSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -391,7 +391,7 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
@@ -447,7 +447,7 @@ struct AssistantChannelsDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
                         .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                     VDropdown(
                         placeholder: "Not Set",
                         selection: Binding(
@@ -466,13 +466,13 @@ struct AssistantChannelsDetailView: View {
             if let warning = store.twilioWarning {
                 Text(warning)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
+                    .foregroundColor(VColor.systemNegativeHover)
             }
 
             if let error = store.twilioError {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if (status == "ready" || status == "incomplete") && store.twilioPhoneNumber != nil {
@@ -488,17 +488,17 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Account SID and Auth Token")
                 .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             SecureField("Auth Token", text: $voiceAuthTokenText)
                 .vInputStyle()
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -506,7 +506,7 @@ struct AssistantChannelsDetailView: View {
                         .controlSize(.small)
                     Text("Saving...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {

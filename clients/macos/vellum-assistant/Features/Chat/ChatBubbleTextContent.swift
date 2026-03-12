@@ -26,8 +26,8 @@ extension ChatBubble {
                 Text(attributed)
                     .font(.system(size: 14 * conversationZoomScale))
                     .lineSpacing(6)
-                    .foregroundColor(VColor.textPrimary)
-                    .tint(VColor.accent)
+                    .foregroundColor(VColor.contentDefault)
+                    .tint(VColor.primaryBase)
                     .textSelection(.enabled)
                     .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                     // lineLimit(nil) wraps text in a single measurement pass,
@@ -115,13 +115,13 @@ extension ChatBubble {
             }
         }
         for range in inlineCodeRanges.reversed() {
-            result[range].foregroundColor = VColor.codeText
-            result[range].backgroundColor = VColor.codeBackground
+            result[range].foregroundColor = VColor.systemNegativeStrong
+            result[range].backgroundColor = VColor.surfaceActive
             var trailing = AttributedString("\u{2009}")
-            trailing.backgroundColor = VColor.codeBackground
+            trailing.backgroundColor = VColor.surfaceActive
             result.insert(trailing, at: range.upperBound)
             var leading = AttributedString("\u{2009}")
-            leading.backgroundColor = VColor.codeBackground
+            leading.backgroundColor = VColor.surfaceActive
             result.insert(leading, at: range.lowerBound)
         }
         // Underline links so they are visually distinct from plain text
@@ -221,8 +221,8 @@ extension ChatBubble {
 
         // Apply background and text color to inline code spans,
         // using user-bubble-appropriate colors when inside a user message.
-        let inlineCodeTextColor = isUser ? VColor.userBubbleText : VColor.codeText
-        let inlineCodeBgColor = isUser ? VColor.userBubbleText.opacity(0.1) : VColor.codeBackground
+        let inlineCodeTextColor = isUser ? VColor.contentDefault : VColor.systemNegativeStrong
+        let inlineCodeBgColor = isUser ? VColor.contentDefault.opacity(0.1) : VColor.surfaceActive
         var markdownCodeRanges: [Range<AttributedString.Index>] = []
         for run in parsed.runs {
             if let intent = run.inlinePresentationIntent, intent.contains(.code) {
@@ -250,7 +250,7 @@ extension ChatBubble {
             let length = trimmed.distance(from: slashMatch.lowerBound, to: slashMatch.upperBound)
             let attrStart = parsed.index(parsed.startIndex, offsetByCharacters: offset)
             let attrEnd = parsed.index(attrStart, offsetByCharacters: length)
-            parsed[attrStart..<attrEnd].foregroundColor = VColor.slashCommand
+            parsed[attrStart..<attrEnd].foregroundColor = VColor.primaryBase
         }
 
         // Skip main cache during streaming — intermediate text wastes cache slots.

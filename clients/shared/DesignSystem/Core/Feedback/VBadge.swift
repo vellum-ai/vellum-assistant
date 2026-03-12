@@ -8,9 +8,9 @@ public struct VBadge: View {
     }
 
     public let style: Style
-    public var color: Color = VColor.accent
+    public var color: Color = VColor.primaryBase
 
-    public init(style: Style, color: Color = VColor.accent) {
+    public init(style: Style, color: Color = VColor.primaryBase) {
         self.style = style
         self.color = color
     }
@@ -20,7 +20,7 @@ public struct VBadge: View {
         case .count(let count):
             Text("\(count)")
                 .font(VFont.caption)
-                .foregroundColor(.white)
+                .foregroundColor(VColor.auxWhite)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs)
                 .background(color)
@@ -35,7 +35,7 @@ public struct VBadge: View {
         case .label(let text):
             Text(text)
                 .font(VFont.caption)
-                .foregroundColor(.white)
+                .foregroundColor(VColor.auxWhite)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.xxs)
                 .background(color)
@@ -47,23 +47,23 @@ public struct VBadge: View {
 
 #Preview("VBadge") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 16) {
             HStack(spacing: 12) {
                 VBadge(style: .count(5))
-                VBadge(style: .count(42), color: VColor.error)
-                VBadge(style: .count(99), color: VColor.success)
+                VBadge(style: .count(42), color: VColor.systemNegativeStrong)
+                VBadge(style: .count(99), color: VColor.systemPositiveStrong)
             }
             HStack(spacing: 12) {
                 VBadge(style: .dot)
-                VBadge(style: .dot, color: VColor.success)
-                VBadge(style: .dot, color: VColor.error)
-                VBadge(style: .dot, color: VColor.warning)
+                VBadge(style: .dot, color: VColor.systemPositiveStrong)
+                VBadge(style: .dot, color: VColor.systemNegativeStrong)
+                VBadge(style: .dot, color: VColor.systemNegativeHover)
             }
             HStack(spacing: 12) {
                 VBadge(style: .label("New"))
-                VBadge(style: .label("Beta"), color: VColor.success)
-                VBadge(style: .label("Error"), color: VColor.error)
+                VBadge(style: .label("Beta"), color: VColor.systemPositiveStrong)
+                VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
             }
         }
         .padding()

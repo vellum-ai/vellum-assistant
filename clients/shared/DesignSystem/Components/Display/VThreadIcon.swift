@@ -106,12 +106,12 @@ public struct VThreadIcon: View {
 
                 Text(letter)
                     .font(.system(size: size.fontSize, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(VColor.auxWhite)
             }
             .frame(width: size.dimension, height: size.dimension)
             .overlay(
                 RoundedRectangle(cornerRadius: size.cornerRadius, style: .continuous)
-                    .stroke(isActive ? VColor.accent : Color.clear, lineWidth: size.borderWidth)
+                    .stroke(isActive ? VColor.primaryBase : Color.clear, lineWidth: size.borderWidth)
             )
 
             // Interaction-state overlay dot
@@ -130,40 +130,40 @@ public struct VThreadIcon: View {
 
 #Preview("VThreadIcon") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: VSpacing.xl) {
             Text("Small (20pt)")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             HStack(spacing: VSpacing.sm) {
                 VThreadIcon(title: "Customer support", size: .small)
                 VThreadIcon(title: "Design review", size: .small, isActive: true)
-                VThreadIcon(title: "Bug triage", size: .small, dotColor: VColor.accent)
-                VThreadIcon(title: "Sprint planning", size: .small, dotColor: VColor.warning)
-                VThreadIcon(title: "Release notes", size: .small, dotColor: VColor.error)
+                VThreadIcon(title: "Bug triage", size: .small, dotColor: VColor.primaryBase)
+                VThreadIcon(title: "Sprint planning", size: .small, dotColor: VColor.systemNegativeHover)
+                VThreadIcon(title: "Release notes", size: .small, dotColor: VColor.systemNegativeStrong)
             }
 
             Text("Medium (28pt)")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             HStack(spacing: VSpacing.md) {
                 VThreadIcon(title: "Customer support", size: .medium)
                 VThreadIcon(title: "Design review", size: .medium, isActive: true)
-                VThreadIcon(title: "Bug triage", size: .medium, dotColor: VColor.accent)
-                VThreadIcon(title: "Sprint planning", size: .medium, dotColor: VColor.warning)
-                VThreadIcon(title: "Release notes", size: .medium, dotColor: VColor.error)
+                VThreadIcon(title: "Bug triage", size: .medium, dotColor: VColor.primaryBase)
+                VThreadIcon(title: "Sprint planning", size: .medium, dotColor: VColor.systemNegativeHover)
+                VThreadIcon(title: "Release notes", size: .medium, dotColor: VColor.systemNegativeStrong)
             }
 
             Text("Deterministic colors")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
             HStack(spacing: VSpacing.md) {
                 ForEach(["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"], id: \.self) { name in
                     VStack(spacing: VSpacing.xs) {
                         VThreadIcon(title: name, size: .medium)
                         Text(name)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
             }

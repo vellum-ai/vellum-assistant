@@ -36,36 +36,36 @@ struct ClaudeCodeProgressView: View {
                     if isRunning {
                         // Pulsing dot for running state
                         Circle()
-                            .fill(VColor.accent)
+                            .fill(VColor.primaryBase)
                             .frame(width: 8, height: 8)
                             .modifier(PulsingModifier())
                     } else {
                         VIconView(.circleCheck, size: 12)
-                            .foregroundColor(VColor.success)
+                            .foregroundColor(VColor.systemPositiveStrong)
                     }
 
                     // Label
                     if isRunning, let current = currentStep {
                         Text(current.friendlyName)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         if !current.inputSummary.isEmpty {
                             Text(abbreviatePath(current.inputSummary))
                                 .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     } else {
                         Text("Completed \(completedCount) step\(completedCount == 1 ? "" : "s")")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
 
                     Spacer()
 
                     // Chevron
                     VIconView(.chevronRight, size: 9)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
             }
@@ -80,18 +80,18 @@ struct ClaudeCodeProgressView: View {
                         HStack(spacing: VSpacing.sm) {
                             // Tool icon + name
                             VIconView(step.toolIcon, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .frame(width: 14)
 
                             Text(step.friendlyName)
                                 .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
 
                             // Input summary
                             if !step.inputSummary.isEmpty {
                                 Text(abbreviatePath(step.inputSummary))
                                     .font(VFont.monoSmall)
-                                    .foregroundColor(VColor.textMuted)
+                                    .foregroundColor(VColor.contentTertiary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                             }
@@ -105,14 +105,14 @@ struct ClaudeCodeProgressView: View {
                     if steps.count > 8 {
                         Text("+ \(steps.count - 8) earlier steps")
                             .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.sm)
                     }
                 }
                 .padding(.bottom, VSpacing.xs)
             }
         }
-        .background(VColor.surface.opacity(0.5))
+        .background(VColor.surfaceBase.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: isRunning) { _, newValue in
             // Auto-collapse when done, unless the user has manually toggled
@@ -155,7 +155,7 @@ private struct PulsingModifier: ViewModifier {
 
 #Preview("Running") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ClaudeCodeProgressView(
             steps: [
                 ClaudeCodeSubStep(toolName: "Read", inputSummary: "/src/main.ts", isComplete: true),
@@ -171,7 +171,7 @@ private struct PulsingModifier: ViewModifier {
 
 #Preview("Completed") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ClaudeCodeProgressView(
             steps: [
                 ClaudeCodeSubStep(toolName: "Read", inputSummary: "/src/main.ts", isComplete: true),

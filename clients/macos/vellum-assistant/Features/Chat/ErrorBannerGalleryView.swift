@@ -153,7 +153,7 @@ struct ErrorBannerGalleryView: View {
                 ChatSessionErrorToast(
                     message: "API key not set. Add one in Settings to start chatting.",
                     icon: .keyRound,
-                    accentColor: VColor.warning,
+                    accentColor: VColor.systemNegativeHover,
                     actionLabel: "Open Settings",
                     onAction: {},
                     onDismiss: {}
@@ -192,23 +192,23 @@ struct ErrorBannerGalleryView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(title)
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             Text(description)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
     }
 
     private func label(_ text: String) -> some View {
         Text(text)
             .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
             .padding(.leading, VSpacing.sm)
     }
 
     private func divider() -> some View {
         Divider()
-            .background(VColor.surfaceBorder)
+            .background(VColor.borderBase)
             .padding(.vertical, VSpacing.md)
     }
 }
@@ -217,7 +217,7 @@ struct ErrorBannerGalleryView: View {
 
 #Preview("Error Banner Gallery") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         ErrorBannerGalleryView()
     }
     .frame(width: 600, height: 900)

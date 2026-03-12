@@ -65,7 +65,7 @@ public struct VStreamingWaveform: View {
         amplitude: Float,
         isActive: Bool,
         style: WaveformStyle = .conversation,
-        foregroundColor: Color = VColor.accent,
+        foregroundColor: Color = VColor.primaryBase,
         barCount: Int = 5,
         lineWidth: CGFloat = 3
     ) {
@@ -230,19 +230,19 @@ private struct WaveformPreviewContainer: View {
         VStack(spacing: VSpacing.xl) {
             Text("Scrolling Style")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             VStreamingWaveform(
                 amplitude: amplitude,
                 isActive: isActive,
                 style: .scrolling,
-                foregroundColor: VColor.accent,
+                foregroundColor: VColor.primaryBase,
                 lineWidth: 2
             )
             .frame(height: 34)
 
             Text("Conversation Style")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             VStreamingWaveform(
                 amplitude: amplitude,
                 isActive: isActive,
@@ -252,12 +252,12 @@ private struct WaveformPreviewContainer: View {
 
             Text("Dictation Style")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
             VStreamingWaveform(
                 amplitude: amplitude,
                 isActive: isActive,
                 style: .dictation,
-                foregroundColor: VColor.textSecondary
+                foregroundColor: VColor.contentSecondary
             )
             .frame(width: 100, height: 30)
 
@@ -265,7 +265,7 @@ private struct WaveformPreviewContainer: View {
 
             HStack {
                 Text("Amplitude: \(String(format: "%.2f", amplitude))")
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                 Slider(value: Binding(
                     get: { Double(amplitude) },
                     set: { amplitude = Float($0) }
@@ -275,7 +275,7 @@ private struct WaveformPreviewContainer: View {
 
             Toggle("Active", isOn: $isActive)
                 .padding(.horizontal)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
         }
         .padding()
     }
@@ -283,7 +283,7 @@ private struct WaveformPreviewContainer: View {
 
 #Preview("VStreamingWaveform") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         WaveformPreviewContainer()
     }
     .frame(width: 400, height: 450)

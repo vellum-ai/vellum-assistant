@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A ViewModifier that applies the design system input styling.
-/// Strips the native macOS text field background and applies VColor.inputBackground.
+/// Strips the native macOS text field background and applies VColor.surfaceActive.
 /// Use on raw TextField / SecureField instances: `.vInputStyle()`
 public struct VInputStyleModifier: ViewModifier {
     public init() {}
@@ -12,11 +12,11 @@ public struct VInputStyleModifier: ViewModifier {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs)
             .frame(height: 28)
-            .background(VColor.inputBackground)
+            .background(VColor.surfaceActive)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
     }
 }
@@ -48,14 +48,14 @@ public struct VTextField: View {
         HStack(spacing: VSpacing.md) {
             if let leadingIcon = leadingIcon {
                 VIconView(.resolve(leadingIcon), size: 13)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .focused($isFocused)
                 .onSubmit {
                     onSubmit?()
@@ -63,18 +63,18 @@ public struct VTextField: View {
 
             if let trailingIcon = trailingIcon {
                 VIconView(.resolve(trailingIcon), size: 13)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .frame(height: 28)
-        .background(VColor.inputBackground)
+        .background(VColor.surfaceActive)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(isFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                .stroke(isFocused ? VColor.borderBase : VColor.borderBase.opacity(0.5), lineWidth: 1)
         )
     }
 }
@@ -93,7 +93,7 @@ private struct VTextFieldPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             VStack(spacing: 16) {
                 VTextField(placeholder: "Plain text field", text: $text)
                 VTextField(placeholder: "With leading icon", text: $text, leadingIcon: VIcon.search.rawValue)

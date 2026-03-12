@@ -98,10 +98,10 @@ public struct ToolConfirmationBubble: View {
     /// Color for the risk level badge.
     private var riskColor: Color {
         switch confirmation.riskLevel.lowercased() {
-        case "low":    return VColor.textMuted
-        case "medium": return VColor.warning
-        case "high":   return VColor.error
-        default:       return VColor.textMuted
+        case "low":    return VColor.contentTertiary
+        case "medium": return VColor.systemNegativeHover
+        case "high":   return VColor.systemNegativeStrong
+        default:       return VColor.contentTertiary
         }
     }
 
@@ -128,16 +128,16 @@ public struct ToolConfirmationBubble: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.shield, size: 16)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
 
                 Text(confirmation.permissionFriendlyName)
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
             }
 
             Text(confirmation.humanDescription)
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Open System Settings", style: .primary) {
@@ -160,11 +160,11 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
 
@@ -191,17 +191,17 @@ public struct ToolConfirmationBubble: View {
     private var commandExplanationBanner: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.info, size: 14)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("What is this?")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Text("Sometimes your assistant needs to run commands on your computer to complete tasks \u{2014} like installing software, checking settings, or organizing files. You\u{2019}ll always be asked for permission first, and nothing runs without your approval.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -209,7 +209,7 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.accent.opacity(0.08))
+                .fill(VColor.primaryBase.opacity(0.08))
         )
     }
 
@@ -219,7 +219,7 @@ public struct ToolConfirmationBubble: View {
             // Bold non-technical question
             Text(confirmation.humanDescription)
                 .font(VFont.bodyBold)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             // First-time educational banner for command confirmations
             if isCommandTool && !hasSeenCommandExplanation {
@@ -240,11 +240,11 @@ public struct ToolConfirmationBubble: View {
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text(showTechnicalDetails ? "Hide" : "More details")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -267,10 +267,10 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
         )
     }
@@ -281,11 +281,11 @@ public struct ToolConfirmationBubble: View {
     private var headerRow: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(confirmation.toolCategoryIcon, size: 12)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             Text(confirmation.toolCategory)
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             VBadge(
                 style: .label(confirmation.riskLevel.capitalized),
@@ -295,12 +295,12 @@ public struct ToolConfirmationBubble: View {
             if let target = confirmation.normalizedExecutionTarget {
                 Text(target)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
                     .background(
                         Capsule()
-                            .fill(VColor.backgroundSubtle)
+                            .fill(VColor.surfaceBase)
                     )
             }
 
@@ -320,7 +320,7 @@ public struct ToolConfirmationBubble: View {
         ScrollView {
             Text(content)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -329,7 +329,7 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.backgroundSubtle)
+                .fill(VColor.surfaceBase)
         )
     }
 
@@ -339,7 +339,7 @@ public struct ToolConfirmationBubble: View {
     private var descriptionText: some View {
         Text(confirmation.humanDescription)
             .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
+            .foregroundColor(VColor.contentTertiary)
     }
 
     // MARK: - Diff Disclosure
@@ -355,9 +355,9 @@ public struct ToolConfirmationBubble: View {
                 HStack(spacing: 3) {
                     Text("View diff")
                         .font(.system(size: 10))
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     VIconView(showDiff ? .chevronUp : .chevronDown, size: 8)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .contentShape(Rectangle())
             }
@@ -370,7 +370,7 @@ public struct ToolConfirmationBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     codePreviewBlock(diffBody, maxHeight: 260)
                 }
@@ -409,7 +409,7 @@ public struct ToolConfirmationBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Approve all actions")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     HStack(spacing: VSpacing.xs) {
                         if hasAllow10m {
                             confirmationButton(
@@ -435,7 +435,7 @@ public struct ToolConfirmationBubble: View {
                 if hasTemporaryOptions {
                     Text("This action only")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 HStack(spacing: VSpacing.xs) {
                     confirmationButton(
@@ -780,19 +780,19 @@ public struct ToolConfirmationBubble: View {
                             )
                         } label: {
                             VIconView(.chevronLeft, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
 
                         Text("Choose scope")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
 
                     Divider()
-                        .background(VColor.divider)
+                        .background(VColor.borderBase)
 
                     ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
                         ScopePickerRow(
@@ -808,7 +808,7 @@ public struct ToolConfirmationBubble: View {
 
                         if index < confirmation.scopeOptions.count - 1 {
                             Divider()
-                                .background(VColor.divider)
+                                .background(VColor.borderBase)
                         }
                     }
                 } else {
@@ -840,7 +840,7 @@ public struct ToolConfirmationBubble: View {
 
                         if index < confirmation.allowlistOptions.count - 1 {
                             Divider()
-                                .background(VColor.divider)
+                                .background(VColor.borderBase)
                         }
                     }
                 }
@@ -857,12 +857,12 @@ public struct ToolConfirmationBubble: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Choose scope")
                 .font(VFont.captionMedium)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
 
             Divider()
-                .background(VColor.divider)
+                .background(VColor.borderBase)
 
             ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
                 ScopePickerRow(
@@ -880,7 +880,7 @@ public struct ToolConfirmationBubble: View {
 
                 if index < confirmation.scopeOptions.count - 1 {
                     Divider()
-                        .background(VColor.divider)
+                        .background(VColor.borderBase)
                 }
             }
         }
@@ -924,11 +924,11 @@ private struct AlwaysAllowRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -936,11 +936,11 @@ private struct AlwaysAllowRow: View {
             .padding(.horizontal, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                    .fill(isHovered || isKeyboardSelected ? VColor.borderBase.opacity(0.5) : .clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
+                    .stroke(isKeyboardSelected ? VColor.primaryBase : .clear, lineWidth: 2)
             )
             .contentShape(Rectangle())
         }
@@ -965,17 +965,17 @@ private struct ScopePickerRow: View {
         Button(action: action) {
             Text(label)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, VSpacing.sm)
                 .padding(.horizontal, VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                        .fill(isHovered || isKeyboardSelected ? VColor.borderBase.opacity(0.5) : .clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
+                        .stroke(isKeyboardSelected ? VColor.primaryBase : .clear, lineWidth: 2)
                 )
                 .contentShape(Rectangle())
         }
@@ -1162,6 +1162,6 @@ private struct ScopePickerRow: View {
         )
     }
     .padding(VSpacing.xl)
-    .background(VColor.background)
+    .background(VColor.surfaceOverlay)
 }
 #endif

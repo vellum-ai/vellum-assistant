@@ -134,10 +134,10 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.xs) {
                 VIconView(.pin, size: 14)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Text("Pinned")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .textCase(.uppercase)
             }
             .padding(.horizontal, VSpacing.md)
@@ -158,7 +158,7 @@ struct AppsGridView: View {
             if !pinnedApps.isEmpty {
                 Text("Other Apps")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .textCase(.uppercase)
                     .padding(.horizontal, VSpacing.md)
             }
@@ -185,29 +185,29 @@ struct AppsGridView: View {
                     Spacer()
                     if isPinned(app.id) {
                         VIconView(.pin, size: 12)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                     }
                 }
 
                 Text(app.name)
                     .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 if let description = app.description {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                 }
 
                 Text(formattedDate(app.createdAt))
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.md)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.lg)
         }
         .accessibilityElement(children: .combine)
@@ -266,7 +266,7 @@ struct AppsGridView: View {
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.accent)
+        .background(VColor.primaryBase)
         .cornerRadius(VRadius.lg)
         .padding(.bottom, VSpacing.lg)
     }
@@ -278,7 +278,7 @@ struct AppsGridView: View {
             ProgressView()
             Text("Loading apps...")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -286,11 +286,11 @@ struct AppsGridView: View {
     private var emptyView: some View {
         VStack(spacing: VSpacing.md) {
             VIconView(.layoutGrid, size: 48)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No apps yet")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)

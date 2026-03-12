@@ -28,31 +28,31 @@ struct AppIconPickerSheet: View {
             // Header
             Text("Change Icon")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             // Live preview
             VStack(spacing: VSpacing.sm) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 96 * 0.22, style: .continuous)
-                        .fill(Moss._100)
+                        .fill(VColor.surfaceBase)
                     VIconView(selectedIcon, size: 42)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .frame(width: 96, height: 96)
 
                 Text(appName)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Icon picker
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("ICON")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .tracking(1.2)
 
                 ScrollView {
@@ -64,23 +64,23 @@ struct AppIconPickerSheet: View {
                                 VIconView(icon, size: 16)
                                     .foregroundColor(
                                         selectedIcon == icon
-                                            ? VColor.accent
-                                            : VColor.textSecondary
+                                            ? VColor.primaryBase
+                                            : VColor.contentSecondary
                                     )
                                     .frame(width: 36, height: 36)
                                     .background(
                                         RoundedRectangle(cornerRadius: VRadius.md)
                                             .fill(
                                                 selectedIcon == icon
-                                                    ? VColor.accent.opacity(0.15)
-                                                    : VColor.surface
+                                                    ? VColor.primaryBase.opacity(0.15)
+                                                    : VColor.surfaceBase
                                             )
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: VRadius.md)
                                             .stroke(
                                                 selectedIcon == icon
-                                                    ? VColor.accent
+                                                    ? VColor.primaryBase
                                                     : Color.clear,
                                                 lineWidth: 2
                                             )
@@ -95,7 +95,7 @@ struct AppIconPickerSheet: View {
             }
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Buttons
             HStack {
@@ -103,7 +103,7 @@ struct AppIconPickerSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .font(VFont.body)
 
                 Spacer()
@@ -113,13 +113,13 @@ struct AppIconPickerSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .font(VFont.bodyBold)
             }
         }
         .padding(VSpacing.xl)
         .frame(width: 320)
-        .background(VColor.background)
+        .background(VColor.surfaceOverlay)
     }
 }
 
@@ -128,7 +128,7 @@ struct AppIconPickerSheet: View {
 struct AppIconPickerSheet_Previews: PreviewProvider {
     static var previews: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             AppIconPickerSheet(
                 appName: "Safari",
                 currentIcon: .globe,

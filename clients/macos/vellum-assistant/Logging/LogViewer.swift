@@ -1,5 +1,6 @@
 import os
 import SwiftUI
+import VellumAssistantShared
 import Foundation
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "LogViewer")
@@ -45,7 +46,7 @@ struct LogViewer: View {
                                 if turn.usedVision {
                                     Text("(vision fallback)")
                                         .font(.caption2)
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(VColor.systemNegativeHover)
                                 }
                             }
                             .padding(.vertical, 4)

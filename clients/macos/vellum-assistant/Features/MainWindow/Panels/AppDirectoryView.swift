@@ -42,35 +42,35 @@ struct AppDirectoryView: View {
                 HStack(spacing: 0) {
                     Text("Directory")
                         .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     Spacer(minLength: VSpacing.lg)
 
                     if !displayItems.isEmpty || !searchText.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.search, size: 11)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
 
                             TextField("Search apps...", text: $searchText)
                                 .textFieldStyle(.plain)
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
 
                             if !searchText.isEmpty {
                                 Button(action: { searchText = "" }) {
                                     VIconView(.circleX, size: 10)
-                                        .foregroundColor(VColor.textMuted)
+                                        .foregroundColor(VColor.contentTertiary)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .frame(height: 26)
-                        .background(VColor.surface)
+                        .background(VColor.surfaceBase)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                .stroke(VColor.borderBase, lineWidth: 1)
                         )
                         .frame(maxWidth: 280)
                     }
@@ -81,7 +81,7 @@ struct AppDirectoryView: View {
                 .padding(.bottom, VSpacing.xl)
                 .padding(.trailing, VSpacing.xxl)
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.bottom, VSpacing.xl)
 
                 // Content
@@ -123,7 +123,7 @@ struct AppDirectoryView: View {
             .padding(.horizontal, VSpacing.xxl)
             .frame(maxWidth: .infinity)
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .onAppear { fetchApps() }
         .onDisappear {
             for task in previewTasks.values { task.cancel() }
@@ -153,7 +153,7 @@ struct AppDirectoryView: View {
                             .clipped()
                     } else {
                         ZStack {
-                            VColor.backgroundSubtle
+                            VColor.surfaceBase
 
                             Text(item.icon ?? "\u{1F4F1}")
                                 .font(.system(size: 40))
@@ -176,16 +176,16 @@ struct AppDirectoryView: View {
                     HStack(spacing: VSpacing.xs) {
                         Text(item.name)
                             .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         if item.appType == "site" {
                             Text("Site")
                                 .font(VFont.small)
-                                .foregroundColor(Emerald._400)
+                                .foregroundColor(VColor.systemPositiveStrong)
                                 .padding(.horizontal, VSpacing.xs)
                                 .padding(.vertical, 1)
-                                .background(Emerald._900.opacity(0.5))
+                                .background(VColor.systemPositiveStrong.opacity(0.5))
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                         }
 
@@ -195,42 +195,42 @@ struct AppDirectoryView: View {
                                 Text("Shared")
                                     .font(VFont.small)
                             }
-                            .foregroundColor(Forest._400)
+                            .foregroundColor(VColor.systemPositiveWeak)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Forest._900.opacity(0.5))
+                            .background(VColor.borderActive.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         }
                     }
 
                     Text(item.dateLabel)
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .padding(VSpacing.md)
             }
-            .background(isHovered ? VColor.ghostHover : VColor.surface)
+            .background(isHovered ? VColor.surfaceBase : VColor.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.06), radius: 4, y: 2)
         .overlay(alignment: .topTrailing) {
             if isHovered, let localId = item.localAppId, onPinApp != nil {
                 Button {
                     onPinApp?(localId, item.name, item.icon, item.appType)
                 } label: {
                     VIconView(.pin, size: 11)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 28, height: 28)
-                        .background(VColor.surface.opacity(0.9))
+                        .background(VColor.surfaceBase.opacity(0.9))
                         .clipShape(Circle())
-                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                        .overlay(Circle().stroke(VColor.borderBase, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)

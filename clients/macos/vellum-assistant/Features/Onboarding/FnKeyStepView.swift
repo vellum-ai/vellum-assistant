@@ -23,7 +23,7 @@ struct FnKeyStepView: View {
         // Title
         Text("Need voice mode?")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -34,7 +34,7 @@ struct FnKeyStepView: View {
              ? "Grant the permissions to continue."
              : "Hold fn + shift anywhere to talk to \(state.assistantName).")
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -53,7 +53,7 @@ struct FnKeyStepView: View {
                         granted: micGranted
                     )
                     Divider()
-                        .background(VColor.surfaceBorder)
+                        .background(VColor.borderBase)
                     permissionRow(
                         icon: "waveform",
                         label: "Speech Recognition",
@@ -62,7 +62,7 @@ struct FnKeyStepView: View {
                 }
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -72,14 +72,14 @@ struct FnKeyStepView: View {
                     keyBadge("fn")
                     Text("+")
                         .font(.system(size: 18, weight: .medium, design: .monospaced))
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     keyBadge("shift")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, VSpacing.lg)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
                 .scaleEffect(pulseScale)
                 .transition(.opacity.combined(with: .move(edge: .leading)))
@@ -93,12 +93,12 @@ struct FnKeyStepView: View {
                 }) {
                     Text("Continue")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, VSpacing.lg)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
-                                .fill(VColor.onboardingStepBackground)
+                                .fill(VColor.primaryBase)
                         )
                 }
                 .buttonStyle(.plain)
@@ -108,12 +108,12 @@ struct FnKeyStepView: View {
                 Button(action: { requestPermissions() }) {
                     Text(permissionsRequested ? "Open System Settings" : "Enable Voice Mode")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(VColor.auxWhite)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, VSpacing.lg)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
-                                .fill(VColor.onboardingStepBackground)
+                                .fill(VColor.primaryBase)
                         )
                 }
                 .buttonStyle(.plain)
@@ -129,7 +129,7 @@ struct FnKeyStepView: View {
                 }) {
                     Text("Skip")
                         .font(.system(size: 13))
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -142,7 +142,7 @@ struct FnKeyStepView: View {
                 }) {
                     Text("Back")
                         .font(.system(size: 13))
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -180,15 +180,15 @@ struct FnKeyStepView: View {
     private func permissionRow(icon: String, label: String, granted: Bool) -> some View {
         HStack {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
-                .foregroundColor(granted ? Emerald._500 : VColor.textMuted)
+                .foregroundColor(granted ? VColor.systemPositiveStrong : VColor.contentTertiary)
                 .frame(width: 24)
             Text(label)
                 .font(.system(size: 15))
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
             Spacer()
             VIconView(granted ? .circleCheck : .circle, size: 16)
-                .foregroundColor(granted ? Emerald._500 : VColor.textMuted)
+                .foregroundColor(granted ? VColor.systemPositiveStrong : VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -197,7 +197,7 @@ struct FnKeyStepView: View {
     private func keyBadge(_ label: String) -> some View {
         Text(label)
             .font(.system(size: 16, weight: .medium, design: .monospaced))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.sm)
@@ -279,7 +279,7 @@ struct FnKeyStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")

@@ -8,8 +8,8 @@ public struct VShortcutTag: View {
 
     @State private var isHovered = false
 
-    private let tagColor = VColor.tagText
-    private let borderColor = VColor.tagBorder
+    private let tagColor = VColor.contentSecondary
+    private let borderColor = VColor.borderBase
 
     public init(_ text: String, icon: String? = nil, action: (() -> Void)? = nil) {
         self.text = text
@@ -55,7 +55,7 @@ public struct VShortcutTag: View {
 
 #Preview("VShortcutTag") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         HStack(spacing: 12) {
             VShortcutTag("\u{2318}K")
             VShortcutTag("fn", icon: VIcon.mic.rawValue)

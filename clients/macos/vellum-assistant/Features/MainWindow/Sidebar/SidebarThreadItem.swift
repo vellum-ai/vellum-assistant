@@ -56,7 +56,7 @@ struct SidebarThreadItem: View {
                         }
                     } label: {
                         VIconView(.pin, size: 13)
-                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                            .foregroundColor(thread.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
@@ -71,22 +71,22 @@ struct SidebarThreadItem: View {
                             .frame(width: 20, height: 20)
                     case .waitingForInput:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.systemNegativeHover)
                             .frame(width: 20, height: 20)
                     case .error:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.error)
+                            .foregroundColor(VColor.systemNegativeStrong)
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
                     case .idle:
                         if thread.hasUnseenLatestAssistantMessage {
-                            VBadge(style: .dot, color: VColor.warning)
+                            VBadge(style: .dot, color: VColor.systemNegativeHover)
                                 .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
                         } else if thread.isPinned {
                             VIconView(.pin, size: 13)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
@@ -98,11 +98,11 @@ struct SidebarThreadItem: View {
                 }
                 if thread.kind == .private {
                     VIconView(.lock, size: 13)
-                        .foregroundColor(VColor.accent.opacity(0.7))
+                        .foregroundColor(VColor.primaryBase.opacity(0.7))
                 }
                 Text(thread.title)
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(thread.title)
@@ -114,13 +114,13 @@ struct SidebarThreadItem: View {
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
                 if isSelected {
-                    VColor.navActive
+                    VColor.surfaceActive
                 } else if isHovered {
-                    VColor.navHover
+                    VColor.surfaceBase
                 } else if thread.kind == .private {
-                    VColor.accent.opacity(0.04)
+                    VColor.primaryBase.opacity(0.04)
                 } else {
-                    VColor.navHover.opacity(0)
+                    VColor.surfaceBase.opacity(0)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -149,7 +149,7 @@ struct SidebarThreadItem: View {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
                     VIconView(.archive, size: 13)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
@@ -202,7 +202,7 @@ struct SidebarThreadItem: View {
             HStack(spacing: VSpacing.xs) {
                 if thread.isPinned {
                     VIconView(.pin, size: 13)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
                 } else {
@@ -210,14 +210,14 @@ struct SidebarThreadItem: View {
                 }
                 Text(thread.title)
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
             }
             .padding(.leading, VSpacing.xs)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .frame(width: 220, alignment: .leading)
-            .background(VColor.surface.opacity(0.9))
+            .background(VColor.surfaceBase.opacity(0.9))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }
@@ -231,7 +231,7 @@ struct SidebarThreadItem: View {
     let sidebar = SidebarInteractionState()
 
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             SidebarThreadItem(
                 thread: ThreadModel(title: "Hello world", isPinned: true),

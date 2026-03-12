@@ -102,10 +102,10 @@ private struct SSHTerminalContentView: View {
             terminalToolbar
             SSHTerminalView(sessionManager: sessionManager)
                 .padding(8)
-                .background(VColor.backgroundSubtle)
+                .background(VColor.surfaceBase)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     private var terminalToolbar: some View {
@@ -113,7 +113,7 @@ private struct SSHTerminalContentView: View {
             statusIndicator
             Text(statusText)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
 
             Spacer()
 
@@ -137,7 +137,7 @@ private struct SSHTerminalContentView: View {
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     @ViewBuilder
@@ -150,13 +150,13 @@ private struct SSHTerminalContentView: View {
     private var statusColor: Color {
         switch sessionManager.status {
         case .idle, .closed:
-            return .gray
+            return VColor.contentTertiary
         case .connecting, .reconnecting:
-            return .orange
+            return VColor.systemNegativeHover
         case .connected:
-            return .green
+            return VColor.systemPositiveStrong
         case .error:
-            return .red
+            return VColor.systemNegativeStrong
         }
     }
 

@@ -58,7 +58,7 @@ extension AppDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(VColor.background)
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 420, height: 580)
 

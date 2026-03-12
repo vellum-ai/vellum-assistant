@@ -92,11 +92,11 @@ public enum VAppIconGenerator {
 
 #Preview("VAppIconGenerator") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text("Generated Icons")
                 .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             let sampleApps = ["Safari", "Notes", "Calendar", "Music", "Photos", "Maps"]
             LazyVGrid(columns: [
@@ -106,13 +106,13 @@ public enum VAppIconGenerator {
                     let icon = VAppIconGenerator.generate(from: app)
                     VStack(spacing: VSpacing.sm) {
                         VIconView(icon, size: 28)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .frame(width: 64, height: 64)
-                            .background(Moss._100)
+                            .background(VColor.surfaceBase)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         Text(app)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                 }
             }

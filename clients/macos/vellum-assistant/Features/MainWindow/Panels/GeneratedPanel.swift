@@ -68,7 +68,7 @@ struct GeneratedPanel: View {
             HStack {
                 Button(action: { withAnimation(VAnimation.fast) { isExpanded.toggle() } }) {
                     VIconView(isExpanded ? .minimize : .maximize, size: 11)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 28, height: 28, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -77,13 +77,13 @@ struct GeneratedPanel: View {
 
                 Text("Dynamic")
                     .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 Spacer()
 
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -94,29 +94,29 @@ struct GeneratedPanel: View {
             .padding(.vertical, VSpacing.lg)
 
             Divider()
-                .background(VColor.surfaceBorder)
+                .background(VColor.borderBase)
 
             // Search bar
             if !displayItems.isEmpty || !searchText.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.search, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
 
                     TextField("Filter pages...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
 
                     if !searchText.isEmpty {
                         Button(action: { searchText = "" }) {
                             VIconView(.circleX, size: 12)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(VSpacing.md)
-                .background(Moss._700)
+                .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -154,11 +154,11 @@ struct GeneratedPanel: View {
                                     HStack {
                                         Text("Documents")
                                             .font(VFont.display)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                         Spacer()
                                         Text("\(documentItems.count)")
                                             .font(VFont.caption)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                     }
                                     .padding(.horizontal, VSpacing.xs)
 
@@ -178,11 +178,11 @@ struct GeneratedPanel: View {
                                         HStack {
                                             Text("Pages")
                                                 .font(VFont.display)
-                                                .foregroundColor(VColor.textMuted)
+                                                .foregroundColor(VColor.contentTertiary)
                                             Spacer()
                                             Text("\(otherItems.count)")
                                                 .font(VFont.caption)
-                                                .foregroundColor(VColor.textMuted)
+                                                .foregroundColor(VColor.contentTertiary)
                                         }
                                         .padding(.horizontal, VSpacing.xs)
                                     }
@@ -201,7 +201,7 @@ struct GeneratedPanel: View {
                 .padding(VSpacing.xl)
             }
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .onAppear {
             fetchApps()
         }
@@ -261,13 +261,13 @@ struct GeneratedPanel: View {
                 HStack(spacing: VSpacing.xs) {
                     Text(item.name)
                         .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     if let version = item.version {
                         Text("v\(version)")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
 
                     if item.isShared {
@@ -281,10 +281,10 @@ struct GeneratedPanel: View {
                     if item.appType == "site" {
                         Text("Site")
                             .font(VFont.small)
-                            .foregroundColor(Emerald._400)
+                            .foregroundColor(VColor.systemPositiveStrong)
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.vertical, 1)
-                            .background(Emerald._900.opacity(0.5))
+                            .background(VColor.systemPositiveStrong.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                     }
 
@@ -296,13 +296,13 @@ struct GeneratedPanel: View {
                 if let description = item.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                 }
 
                 Text(item.dateLabel)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
 
             Spacer()
@@ -334,11 +334,11 @@ struct GeneratedPanel: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(isHovered ? Moss._700 : Moss._900)
+        .background(isHovered ? VColor.surfaceActive : VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(item.isShared ? Forest._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
+                .stroke(item.isShared ? VColor.primaryHover.opacity(0.4) : VColor.systemPositiveStrong.opacity(0.4), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -363,10 +363,10 @@ struct GeneratedPanel: View {
             Text("Shared")
                 .font(VFont.small)
         }
-        .foregroundColor(Forest._400)
+        .foregroundColor(VColor.systemPositiveWeak)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
-        .background(Forest._900.opacity(0.5))
+        .background(VColor.borderActive.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
@@ -376,10 +376,10 @@ struct GeneratedPanel: View {
             Text("Update available")
                 .font(VFont.small)
         }
-        .foregroundColor(VColor.accent)
+        .foregroundColor(VColor.primaryBase)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
-        .background(VColor.accent.opacity(0.15))
+        .background(VColor.primaryBase.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
@@ -387,15 +387,15 @@ struct GeneratedPanel: View {
         let (icon, color): (VIcon, Color) = {
             switch tier {
             case "verified":
-                return (.badgeCheck, VColor.success)
+                return (.badgeCheck, VColor.systemPositiveStrong)
             case "signed":
-                return (.badgeCheck, VColor.textSecondary)
+                return (.badgeCheck, VColor.contentSecondary)
             case "unsigned":
-                return (.triangleAlert, VColor.warning)
+                return (.triangleAlert, VColor.systemNegativeHover)
             case "tampered":
-                return (.badgeX, VColor.error)
+                return (.badgeX, VColor.systemNegativeStrong)
             default:
-                return (.info, VColor.textMuted)
+                return (.info, VColor.contentTertiary)
             }
         }()
 

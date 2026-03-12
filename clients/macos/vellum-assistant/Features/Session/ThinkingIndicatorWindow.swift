@@ -31,7 +31,7 @@ struct ThinkingIndicatorView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(VColor.surface)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
     }
 }

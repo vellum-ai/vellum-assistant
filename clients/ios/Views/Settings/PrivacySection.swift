@@ -52,7 +52,7 @@ struct PrivacySection: View {
         } label: {
             HStack {
                 Text(name)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
                 statusBadge(status)
             }
@@ -68,9 +68,9 @@ struct PrivacySection: View {
     private func statusBadge(_ status: PermissionStatus) -> some View {
         let (color, label): (Color, String) = {
             switch status {
-            case .granted: return (VColor.success, "Granted")
-            case .denied: return (VColor.error, "Denied")
-            case .notDetermined: return (VColor.warning, "Not Set")
+            case .granted: return (VColor.systemPositiveStrong, "Granted")
+            case .denied: return (VColor.systemDangerStrong, "Denied")
+            case .notDetermined: return (VColor.systemDangerHover, "Not Set")
             }
         }()
         Text(label)

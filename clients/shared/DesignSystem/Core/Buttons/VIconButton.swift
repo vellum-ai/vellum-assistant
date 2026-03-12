@@ -66,7 +66,7 @@ public struct VIconButton: View {
     private var iconForegroundForVariant: Color {
         switch variant {
         case .primary, .danger, .success, .neutral:
-            return .white
+            return VColor.auxWhite
         case .ghost, .secondary, .outlined:
             return iconForegroundColor
         }
@@ -74,9 +74,9 @@ public struct VIconButton: View {
 
     private var iconForegroundColor: Color {
         if isActive {
-            return VColor.activeIconForeground
+            return VColor.primaryActive
         }
-        return VColor.buttonSecondaryText
+        return VColor.primaryBase
     }
 }
 
@@ -135,51 +135,51 @@ public struct VIconButtonStyle: ButtonStyle {
     private func backgroundColor(isPressed: Bool) -> Color {
         switch variant {
         case .primary:
-            guard isEnabled else { return VColor.buttonPrimary.opacity(0.5) }
-            if isPressed { return VColor.buttonPrimaryPressed }
-            if isHovered { return VColor.buttonPrimaryHover }
-            return VColor.buttonPrimary
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.primaryActive }
+            if isHovered { return VColor.primaryHover }
+            return VColor.primaryBase
 
         case .danger:
-            guard isEnabled else { return VColor.buttonDanger.opacity(0.5) }
-            if isPressed { return VColor.buttonDangerPressed }
-            if isHovered { return VColor.buttonDangerHover }
-            return VColor.buttonDanger
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.systemNegativeHover }
+            if isHovered { return VColor.systemNegativeHover }
+            return VColor.systemNegativeStrong
 
         case .success:
-            guard isEnabled else { return VColor.buttonSuccessBg.opacity(0.5) }
-            if isPressed { return VColor.buttonSuccessBgPressed }
-            if isHovered { return VColor.buttonSuccessBgHover }
-            return VColor.buttonSuccessBg
+            guard isEnabled else { return VColor.primaryDisabled }
+            if isPressed { return VColor.primaryBase }
+            if isHovered { return VColor.primaryHover }
+            return VColor.systemPositiveWeak
 
         case .neutral:
-            guard isEnabled else { return VColor.buttonNeutral.opacity(0.5) }
-            if isPressed { return VColor.buttonNeutralPressed }
-            if isHovered { return VColor.buttonNeutralHover }
-            return VColor.buttonNeutral
+            guard isEnabled else { return VColor.contentDisabled }
+            if isPressed { return VColor.contentEmphasized }
+            if isHovered { return VColor.contentSecondary }
+            return VColor.contentDefault
 
         case .secondary:
-            guard isEnabled else { return VColor.buttonSecondaryBg.opacity(0.5) }
-            if isPressed { return VColor.buttonSecondaryBgPressed }
-            if isHovered { return VColor.buttonSecondaryBgHover }
-            return VColor.buttonSecondaryBg
+            guard isEnabled else { return VColor.surfaceActive }
+            if isPressed { return VColor.surfaceActive }
+            if isHovered { return VColor.surfaceActive }
+            return VColor.surfaceBase
 
         case .outlined:
-            if isPressed { return VColor.ghostPressed }
-            if isHovered { return VColor.ghostHover }
+            if isPressed { return VColor.surfaceActive }
+            if isHovered { return VColor.surfaceBase }
             return .clear
 
         case .ghost:
             guard isEnabled else {
-                return isActive ? VColor.iconGhostActiveDisabled.opacity(0.5) : .clear
+                return isActive ? VColor.borderDisabled : .clear
             }
             if isActive {
-                if isPressed { return VColor.iconGhostActivePressed }
-                if isHovered { return VColor.iconGhostActivePressed }
-                return VColor.iconGhostActiveBg
+                if isPressed { return VColor.surfaceActive }
+                if isHovered { return VColor.surfaceActive }
+                return VColor.surfaceBase
             } else {
-                if isPressed { return VColor.iconGhostActivePressed }
-                if isHovered { return VColor.iconGhostActiveBg }
+                if isPressed { return VColor.surfaceActive }
+                if isHovered { return VColor.surfaceBase }
                 return .clear
             }
         }
@@ -195,17 +195,17 @@ public struct VIconButtonStyle: ButtonStyle {
         case .primary, .danger, .success, .neutral:
             return .clear
         case .outlined:
-            return VColor.buttonSecondaryBorder
+            return VColor.borderActive
         case .ghost, .secondary:
             guard isEnabled, isFocused else { return .clear }
-            return VColor.accent.opacity(0.72)
+            return VColor.primaryBase.opacity(0.72)
         }
     }
 }
 
 #Preview("VIconButton") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 16) {
             HStack(spacing: 12) {
                 VIconButton(label: "Ghost", icon: VIcon.settings.rawValue) {}

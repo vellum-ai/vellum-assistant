@@ -12,14 +12,14 @@ struct DocumentEditorPanelView: View {
             HStack {
                 Text(documentManager.title)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
                 if documentManager.wordCount > 0 {
                     Text("\(documentManager.wordCount) words")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
@@ -32,9 +32,9 @@ struct DocumentEditorPanelView: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceBase)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             DocumentEditorView(
                 documentManager: documentManager,

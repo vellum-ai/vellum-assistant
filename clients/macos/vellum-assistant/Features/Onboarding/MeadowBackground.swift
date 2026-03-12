@@ -5,7 +5,7 @@ import SwiftUI
 struct MeadowBackground: View {
     var body: some View {
         ZStack {
-            VColor.background
+            VColor.surfaceOverlay
 
             if let url = ResourceBundle.bundle.url(forResource: "meadow", withExtension: "svg"),
                let nsImage = NSImage(contentsOf: url) {

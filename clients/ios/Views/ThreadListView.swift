@@ -56,14 +56,14 @@ struct ChatsDisconnectedView: View {
         NavigationStack {
             VStack(spacing: VSpacing.lg) {
                 VIconView(.messageSquare, size: 48)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
                 Text("Chats Require Connection")
                     .font(VFont.title)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("Connect to your Assistant to start a conversation.")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
                 if onConnectTapped != nil {
@@ -191,7 +191,7 @@ struct ThreadListView: View {
             ProgressView()
             Text("Loading chats\u{2026}")
                 .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
@@ -378,7 +378,7 @@ struct ThreadListView: View {
                         } label: {
                             Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
-                        .tint(VColor.warning)
+                        .tint(VColor.systemDangerHover)
                     }
                     .swipeActions(edge: .leading) {
                         Button {
@@ -508,7 +508,7 @@ struct ThreadListView: View {
                     } label: {
                         Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
-                    .tint(VColor.warning)
+                    .tint(VColor.systemDangerHover)
                 }
                 .swipeActions(edge: .leading) {
                     Button {
@@ -543,7 +543,7 @@ struct ThreadListView: View {
                             } label: {
                                 Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
-                            .tint(VColor.warning)
+                            .tint(VColor.systemDangerHover)
                         }
                         .swipeActions(edge: .leading) {
                             Button {
@@ -565,11 +565,11 @@ struct ThreadListView: View {
                             .lineLimit(1)
                         if scheduleGroupHasPinned(group) {
                             VIconView(.pin, size: 10)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                                 .accessibilityLabel("Pinned")
                         }
                         if scheduleGroupHasUnread(group) {
-                            VBadge(style: .dot, color: VColor.warning)
+                            VBadge(style: .dot, color: VColor.systemDangerHover)
                                 .accessibilityLabel("Unread")
                         }
                         Text("\(group.threads.count)")
@@ -605,11 +605,11 @@ struct ThreadListView: View {
                     .lineLimit(1)
                 if store.isConnectedMode && thread.isPinned {
                     VIconView(.pin, size: 10)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                         .accessibilityLabel("Pinned")
                 }
                 if store.isConnectedMode && thread.hasUnseenLatestAssistantMessage {
-                    VBadge(style: .dot, color: VColor.warning)
+                    VBadge(style: .dot, color: VColor.systemDangerHover)
                         .accessibilityLabel("Unread")
                 }
                 Spacer()
@@ -656,7 +656,7 @@ struct ThreadChatView: View {
                             showDebugPanel = true
                         } label: {
                             VIconView(.bug, size: 20)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -709,7 +709,7 @@ struct ThreadChatView: View {
             }
         } label: {
             VIconView(showCopiedConfirmation ? .check : .share, size: 20)
-                .foregroundColor(showCopiedConfirmation ? VColor.success : VColor.textMuted)
+                .foregroundColor(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
         }
         .disabled(!hasTextMessages)
     }

@@ -25,13 +25,13 @@ public struct GuardianDecisionBubble: View {
     private var headerConfig: (icon: VIcon, title: String, accent: Color) {
         switch decision.kind {
         case "pending_question":
-            return (.circleAlert, "Question Pending", VColor.accent)
+            return (.circleAlert, "Question Pending", VColor.primaryBase)
         case "access_request":
-            return (.circleUser, "Access Request", VColor.warning)
+            return (.circleUser, "Access Request", VColor.systemNegativeHover)
         case "tool_approval":
-            return (.shieldAlert, "Tool Approval Required", VColor.warning)
+            return (.shieldAlert, "Tool Approval Required", VColor.systemNegativeHover)
         default:
-            return (.shieldAlert, "Guardian Approval Required", VColor.warning)
+            return (.shieldAlert, "Guardian Approval Required", VColor.systemNegativeHover)
         }
     }
 
@@ -57,13 +57,13 @@ public struct GuardianDecisionBubble: View {
 
                 Text(config.title)
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
             }
 
             // Question text (primary interaction prompt)
             Text(decision.questionText)
                 .font(VFont.bodyBold)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
 
             // Action buttons (primary interaction)
@@ -82,10 +82,10 @@ public struct GuardianDecisionBubble: View {
                     if let toolName = decision.toolName, !toolName.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.wrench, size: 10)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             Text(toolName)
                                 .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                         }
                     }
 
@@ -93,10 +93,10 @@ public struct GuardianDecisionBubble: View {
                         HStack(spacing: VSpacing.xs) {
                             Text("Ref:")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                             Text(decision.requestCode)
                                 .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
                 }
@@ -105,7 +105,7 @@ public struct GuardianDecisionBubble: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(config.accent.opacity(0.3), lineWidth: 1)
@@ -256,6 +256,6 @@ public struct GuardianDecisionBubble: View {
         )
     }
     .padding(VSpacing.xl)
-    .background(VColor.background)
+    .background(VColor.surfaceOverlay)
 }
 #endif

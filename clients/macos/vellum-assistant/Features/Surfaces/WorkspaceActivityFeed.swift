@@ -16,7 +16,7 @@ struct WorkspaceActivityFeed: View {
                         Spacer(minLength: 0)
                         Text(preview)
                             .font(VFont.body)
-                            .foregroundColor(.white)
+                            .foregroundColor(VColor.auxWhite)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.md)
                             .background(
@@ -42,13 +42,13 @@ struct WorkspaceActivityFeed: View {
 
                         Text(TextResponseView.markdownString(streamingText))
                             .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                             .textSelection(.enabled)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.md)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.md)
-                                    .fill(VColor.surface.opacity(0.5))
+                                    .fill(VColor.surfaceBase.opacity(0.5))
                             )
                             .frame(maxWidth: 320, alignment: .leading)
 
@@ -64,7 +64,7 @@ struct WorkspaceActivityFeed: View {
                             .padding(.vertical, VSpacing.md)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.md)
-                                    .fill(VColor.surface.opacity(0.5))
+                                    .fill(VColor.surfaceBase.opacity(0.5))
                             )
 
                         Spacer(minLength: 0)
@@ -76,8 +76,8 @@ struct WorkspaceActivityFeed: View {
             .frame(maxWidth: 480)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface.opacity(0.95))
-                    .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.surfaceBorder, lineWidth: 1))
+                    .fill(VColor.surfaceBase.opacity(0.95))
+                    .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.borderBase, lineWidth: 1))
             )
             .overlay(alignment: .topTrailing) {
                 Button {
@@ -85,7 +85,7 @@ struct WorkspaceActivityFeed: View {
                     viewModel.refinementStreamingText = nil
                 } label: {
                     VIconView(.x, size: 10)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)

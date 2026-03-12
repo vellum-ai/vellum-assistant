@@ -64,28 +64,28 @@ struct DaemonConnectionSection: View {
                         // Connected state
                         HStack {
                             VIconView(.circleCheck, size: 16)
-                                .foregroundColor(VColor.success)
+                                .foregroundColor(VColor.systemPositiveStrong)
                             Text("Connected")
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                         }
                     } else {
                         // Disconnected state — gateway configured but not connected
                         HStack {
                             VIconView(.circleAlert, size: 16)
-                                .foregroundColor(VColor.error)
+                                .foregroundColor(VColor.systemDangerStrong)
                             Text("Disconnected")
                                 .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
+                                .foregroundColor(VColor.contentDefault)
                         }
                     }
                     HStack {
                         Text("Gateway")
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Spacer()
                         Text(url)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -93,7 +93,7 @@ struct DaemonConnectionSection: View {
                     // Not configured state
                     Text("Scan a QR code from your Assistant to connect.")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             } header: {
                 Text("Connection")
@@ -159,7 +159,7 @@ struct DaemonConnectionSection: View {
                 if let error = authManager.errorMessage {
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemDangerStrong)
                 }
             } header: {
                 Text("Vellum Account")

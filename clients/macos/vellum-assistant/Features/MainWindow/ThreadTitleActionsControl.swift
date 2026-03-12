@@ -23,11 +23,11 @@ struct ThreadTitleActionsControl: View {
             HStack(spacing: VSpacing.xs) {
                 Text(presentation.displayTitle)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                 if presentation.showsActionsMenu {
                     VIconView(.chevronDown, size: 9)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .rotationEffect(.degrees(showDrawer ? -180 : 0))
                         .animation(VAnimation.fast, value: showDrawer)
                 }
@@ -66,13 +66,13 @@ struct ThreadActionsDrawer: View {
             SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive thread", action: onArchive)
         }
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
         .frame(width: 200)
         .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }

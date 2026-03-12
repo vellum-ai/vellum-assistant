@@ -48,7 +48,7 @@ struct APIKeyStepView: View {
     var body: some View {
         Text(userHostedEnabled ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -57,7 +57,7 @@ struct APIKeyStepView: View {
              ? "Choose how to run your assistant."
              : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
@@ -118,20 +118,20 @@ struct APIKeyStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(mode.displayName)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                     Text(mode.detail)
                         .font(.system(size: 12))
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
                 Spacer()
                 Circle()
-                    .fill(isSelected ? Forest._600 : Color.clear)
+                    .fill(isSelected ? VColor.primaryBase : Color.clear)
                     .overlay(
-                        Circle().stroke(isSelected ? Forest._600 : VColor.surfaceBorder, lineWidth: 1.5)
+                        Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: 1.5)
                     )
                     .overlay(
                         isSelected
-                            ? Circle().fill(Color.white).frame(width: 6, height: 6)
+                            ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
                             : nil
                     )
                     .frame(width: 18, height: 18)
@@ -141,10 +141,10 @@ struct APIKeyStepView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? Forest._600.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? Forest._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(isSelected ? VColor.primaryBase.opacity(0.5) : VColor.borderBase, lineWidth: 1)
                     )
             )
         }
@@ -159,13 +159,13 @@ struct APIKeyStepView: View {
             if hasExistingKey && !isEditing {
                 Text(maskedKey)
                     .font(.system(size: 16, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
                     .padding(.vertical, VSpacing.lg)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                     .onTapGesture {
                         isEditing = true
@@ -177,13 +177,13 @@ struct APIKeyStepView: View {
                 SecureField("sk-ant-\u{2026}", text: $apiKey)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16, weight: .medium, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
                     .padding(.vertical, VSpacing.lg)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(VColor.borderBase, lineWidth: 1)
                     )
                     .focused($keyFieldFocused)
                     .onSubmit {
@@ -212,14 +212,14 @@ struct APIKeyStepView: View {
             Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
                 Text("Get an API key")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
             }
             .pointerCursor()
 
             Button(action: { goBack() }) {
                 Text("Back")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -301,7 +301,7 @@ struct APIKeyStepView: View {
 
 #Preview("Default - API Key Only") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")
@@ -322,7 +322,7 @@ struct APIKeyStepView: View {
 
 #Preview("User Hosted Enabled") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             Image("VellyLogo")

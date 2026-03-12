@@ -154,11 +154,11 @@ extension MainWindowView {
                 Spacer()
                 Text("Surface not available")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.background)
+            .background(VColor.surfaceOverlay)
         }
     }
 
@@ -239,7 +239,7 @@ extension MainWindowView {
                 AppWorkspaceDockLayout(
                     dockWidth: clampedChatDockWidth(geometry: geometry),
                     showDock: windowState.isChatDockOpen,
-                    dockBackground: VColor.chatBackground,
+                    dockBackground: VColor.surfaceOverlay,
                     dockCornerRadius: 0,
                     dock: {
                         chatView
@@ -284,7 +284,7 @@ extension MainWindowView {
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(VColor.backgroundSubtle)
+                .background(VColor.surfaceBase)
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -307,7 +307,7 @@ extension MainWindowView {
                 VSplitView(
                     panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
-                    mainBackground: VColor.chatBackground,
+                    mainBackground: VColor.surfaceOverlay,
                     mainCornerRadius: 0,
                     main: {
                         chatView
@@ -340,7 +340,7 @@ extension MainWindowView {
         VSplitView(
             panelWidth: $sidePanelWidth,
             showPanel: showConfigPanel || showSubagentPanel,
-            mainBackground: VColor.chatBackground,
+            mainBackground: VColor.surfaceOverlay,
             mainCornerRadius: 0,
             main: { slotView(for: config.center.content) },
             panel: {
@@ -451,7 +451,7 @@ extension MainWindowView {
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceBase)
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
@@ -483,7 +483,7 @@ extension MainWindowView {
                 daemonClient: daemonClient
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.backgroundSubtle)
+            .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -748,16 +748,16 @@ struct GhostButton: View {
                         .font(VFont.monoSmall)
                 }
             }
-            .foregroundColor(VColor.textSecondary)
+            .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(isHovered ? VColor.backgroundSubtle : Color.clear)
+                    .fill(isHovered ? VColor.surfaceBase : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -818,7 +818,7 @@ struct DynamicWorkspaceWrapper: View {
 
                 Text(surface.title ?? data.preview?.title ?? "App")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.contextualText)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -889,7 +889,7 @@ struct DynamicWorkspaceWrapper: View {
             .padding(.trailing, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(
-                VColor.backgroundSubtle
+                VColor.surfaceBase
             )
 
             if let error = sharing.publishError {
@@ -897,10 +897,10 @@ struct DynamicWorkspaceWrapper: View {
                     Spacer()
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Danger._900.opacity(0.8))
+                        .background(VColor.systemNegativeStrong.opacity(0.8))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .padding(.trailing, VSpacing.xl)
                 }
@@ -1013,13 +1013,13 @@ private struct PublishedButton: View {
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.check, size: 10)
-                .foregroundColor(VColor.success)
+                .foregroundColor(VColor.systemPositiveStrong)
             Text("Published")
                 .font(VFont.caption)
             Divider()
                 .frame(height: 12)
             VIconView(copied ? .check : .copy, size: 10)
-                .foregroundColor(copied ? VColor.success : (isCopyHovered ? VColor.textPrimary : VColor.buttonSecondaryText))
+                .foregroundColor(copied ? VColor.systemPositiveStrong : (isCopyHovered ? VColor.contentDefault : VColor.primaryBase))
                 .animation(VAnimation.fast, value: copied)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -1037,7 +1037,7 @@ private struct PublishedButton: View {
                 .pointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
-        .foregroundColor(VColor.buttonSecondaryText)
+        .foregroundColor(VColor.primaryBase)
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.buttonV)
         .frame(height: 24)
@@ -1047,7 +1047,7 @@ private struct PublishedButton: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
+                .stroke(VColor.borderActive, lineWidth: 1)
         )
         .controlSize(.small)
     }
@@ -1064,19 +1064,19 @@ private struct ShareDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ShareDrawerRow(icon: VIcon.share.rawValue, label: "Share", action: onShare)
-            VColor.surfaceBorder.frame(height: 1)
+            VColor.borderBase.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
             ShareDrawerRow(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel", action: onPublish)
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
-        .background(VColor.surfaceSubtle)
+        .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
     }
 }
 
@@ -1090,16 +1090,16 @@ private struct ShareDrawerRow: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.navHover.opacity(isHovered ? 1 : 0))
+            .background(VColor.surfaceBase.opacity(isHovered ? 1 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1129,13 +1129,13 @@ private struct AppLoadingView: View {
             Spacer()
             if timedOut {
                 VIconView(.triangleAlert, size: 28)
-                    .foregroundColor(VColor.warning)
+                    .foregroundColor(VColor.systemNegativeHover)
                 Text("Failed to load app")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                 Text("The app didn't respond in time. It may be unavailable or still starting up.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
                 HStack(spacing: VSpacing.sm) {
@@ -1157,12 +1157,12 @@ private struct AppLoadingView: View {
                     .controlSize(.regular)
                 Text("Loading app\u{2026}")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(alignment: .topTrailing) {
             VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true) {

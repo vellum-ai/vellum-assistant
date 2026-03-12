@@ -49,12 +49,12 @@ public struct CurrentStepIndicator: View {
                 // Spinner or checkmark
                 if let current = current, current.isComplete {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                 } else {
                     ProgressView()
                         .scaleEffect(0.7)
                         .frame(width: 16, height: 16)
-                        .tint(VColor.accent)
+                        .tint(VColor.primaryBase)
                 }
 
                 // Current step text with loading indicator
@@ -63,20 +63,20 @@ public struct CurrentStepIndicator: View {
                         // Show tool name if available, otherwise show generic "Thinking..."
                         Text(current?.friendlyName ?? "Thinking...")
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
 
                         // Progress counter inline with title
                         if totalCount > 1 {
                             Text("(\(completedCount)/\(totalCount))")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                         }
                     }
 
                     if isLoading {
                         Text("Working...")
                             .font(VFont.small)
-                            .foregroundColor(VColor.accent)
+                            .foregroundColor(VColor.primaryBase)
                             .opacity(pulseOpacity)
                     }
                 }
@@ -85,17 +85,17 @@ public struct CurrentStepIndicator: View {
 
                 // Chevron to indicate it's clickable
                 VIconView(.chevronRight, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : VColor.surface)
+                    .fill(isHovered ? VColor.borderBase.opacity(0.5) : VColor.surfaceBase)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isLoading ? VColor.accent.opacity(0.5) : VColor.surfaceBorder, lineWidth: isLoading ? 1.5 : 1)
+                    .stroke(isLoading ? VColor.primaryBase.opacity(0.5) : VColor.borderBase, lineWidth: isLoading ? 1.5 : 1)
             )
             .onHover { hovering in
                 withAnimation(VAnimation.fast) {
@@ -133,7 +133,7 @@ public struct CurrentStepIndicator: View {
 #if DEBUG
 #Preview("CurrentStepIndicator") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
 
         VStack(spacing: VSpacing.xl) {
             // In progress

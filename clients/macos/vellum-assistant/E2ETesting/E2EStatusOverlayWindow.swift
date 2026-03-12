@@ -121,7 +121,7 @@ struct E2EStatusOverlayView: View {
             if let status = viewModel.currentStatus {
                 HStack(spacing: VSpacing.sm) {
                     Circle()
-                        .fill(VColor.accent)
+                        .fill(VColor.primaryBase)
                         .frame(width: 8, height: 8)
                         .opacity(dotOpacity)
                         .onAppear {
@@ -135,45 +135,45 @@ struct E2EStatusOverlayView: View {
 
                     Text("E2E")
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
 
                     Text(status.testName)
                         .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     Spacer()
 
                     Text("Step \(status.iteration)")
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .monospacedDigit()
 
                     Text(status.elapsed)
                         .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .monospacedDigit()
                 }
 
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.terminal, size: 12)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
 
                     Text(status.summary)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
                     Circle()
-                        .fill(VColor.warning)
+                        .fill(VColor.systemNegativeHover)
                         .frame(width: 8, height: 8)
 
                     Text("E2E — Waiting for agent...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                 }
             }
         }
@@ -181,10 +181,10 @@ struct E2EStatusOverlayView: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(VColor.borderBase, lineWidth: 1)
                 )
         )
         .frame(width: 320)

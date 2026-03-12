@@ -38,12 +38,12 @@ public struct InlineListWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(item.title)
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
 
                 if let subtitle = item.subtitle {
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
                 }
             }
@@ -52,13 +52,13 @@ public struct InlineListWidget: View {
 
             if data.selectionMode != .none {
                 VIconView(isSelected ? .circleCheck : .circle, size: 14)
-                    .foregroundColor(isSelected ? VColor.accent : VColor.textMuted)
+                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentTertiary)
             }
         }
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -80,7 +80,7 @@ public struct InlineListWidget: View {
 #if DEBUG
 #Preview("InlineListWidget") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         InlineListWidget(
             data: ListSurfaceData(
                 items: [

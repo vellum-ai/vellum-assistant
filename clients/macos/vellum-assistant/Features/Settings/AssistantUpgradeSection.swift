@@ -32,17 +32,17 @@ struct AssistantUpgradeSection: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Upgrade")
                 .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if let current = currentVersion, !current.isEmpty {
                     HStack(spacing: VSpacing.sm) {
                         Text("Current version:")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(current)
                             .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
+                            .foregroundColor(VColor.contentDefault)
                     }
                 }
 
@@ -50,17 +50,17 @@ struct AssistantUpgradeSection: View {
                     HStack(spacing: VSpacing.sm) {
                         Text("Latest version:")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text(latest.version)
                             .font(VFont.mono)
-                            .foregroundColor(upgradeAvailable ? VColor.accent : VColor.textPrimary)
+                            .foregroundColor(upgradeAvailable ? VColor.primaryBase : VColor.contentDefault)
                     }
                 }
 
                 if !upgradeAvailable && !isLoadingReleases && !availableReleases.isEmpty {
                     Text("You are on the latest version.")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(VColor.systemPositiveStrong)
                 }
             }
 
@@ -88,25 +88,25 @@ struct AssistantUpgradeSection: View {
                         .controlSize(.small)
                     Text(isUpgrading ? "Upgrading assistant..." : "Checking for updates...")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                    .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let success = successMessage {
                 Text(success)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(VColor.systemPositiveStrong)
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
+        .vCard(background: VColor.surfaceOverlay)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task { await loadReleases() }
         .alert("Upgrade Assistant", isPresented: $showingUpgradeConfirmation) {

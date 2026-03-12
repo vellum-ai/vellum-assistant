@@ -104,14 +104,14 @@ struct InputBarView: View {
             }) {
                 Text("Cancel")
                     .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .padding(.bottom, VSpacing.xs)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.lg)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     private var voiceOrbState: VoiceOrbState {
@@ -164,23 +164,23 @@ struct InputBarView: View {
             TextField("Message...", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .focused(isInputFocused)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: isInputFocused.wrappedValue ? 1.5 : 1)
+                        .stroke(VColor.borderBase, lineWidth: isInputFocused.wrappedValue ? 1.5 : 1)
                 )
                 .animation(VAnimation.fast, value: isInputFocused.wrappedValue)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder.opacity(0.12), lineWidth: 3)
+                        .stroke(VColor.borderBase.opacity(0.12), lineWidth: 3)
                         .opacity(isInputFocused.wrappedValue ? 1 : 0)
                         .animation(VAnimation.fast, value: isInputFocused.wrappedValue)
                 )
-                .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
+                .shadow(color: VColor.contentDefault.opacity(0.06), radius: 8, x: 0, y: 2)
 
             // Stop button (shown while generating but not yet cancelling)
             if isGenerating && !isCancelling {
@@ -215,7 +215,7 @@ struct InputBarView: View {
             }
         }
         .padding(VSpacing.md)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     private var canSend: Bool {
@@ -537,7 +537,7 @@ struct InputBarView_Previews: PreviewProvider {
                     viewModel: ChatViewModel(daemonClient: DaemonClient(config: .default))
                 )
             }
-            .background(VColor.background)
+            .background(VColor.surfaceOverlay)
         }
     }
 

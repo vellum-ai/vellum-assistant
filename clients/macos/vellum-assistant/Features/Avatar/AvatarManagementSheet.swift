@@ -25,7 +25,7 @@ struct AvatarManagementSheet: View {
                             Text("Back")
                                 .font(VFont.bodyMedium)
                         }
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -34,12 +34,12 @@ struct AvatarManagementSheet: View {
                 } else {
                     Text("Update Avatar")
                         .font(VFont.cardTitle)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.contentDefault)
                 }
                 Spacer()
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -56,7 +56,7 @@ struct AvatarManagementSheet: View {
                 actionList
             }
         }
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surfaceBase)
     }
 
     // MARK: - Action List
@@ -71,7 +71,7 @@ struct AvatarManagementSheet: View {
                 .clipShape(Circle())
                 .padding(.bottom, VSpacing.xl)
 
-            Divider().background(VColor.surfaceBorder)
+            Divider().background(VColor.borderBase)
 
             // Action rows
             VStack(spacing: 0) {
@@ -85,7 +85,7 @@ struct AvatarManagementSheet: View {
                     }
                 }
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.horizontal, VSpacing.xl)
 
                 actionRow(
@@ -96,7 +96,7 @@ struct AvatarManagementSheet: View {
                     pickImage()
                 }
 
-                Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.borderBase)
                     .padding(.horizontal, VSpacing.xl)
 
                 actionRow(
@@ -108,7 +108,7 @@ struct AvatarManagementSheet: View {
                 }
 
                 if appearance.customAvatarImage != nil {
-                    Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.borderBase)
                         .padding(.horizontal, VSpacing.xl)
 
                     actionRow(
@@ -146,11 +146,11 @@ struct AvatarManagementSheet: View {
                             .padding(VSpacing.md)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .fill(VColor.surface)
+                                    .fill(VColor.surfaceBase)
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                    .stroke(VColor.borderBase, lineWidth: 1)
                             )
                             .contentShape(Rectangle())
                     }
@@ -177,22 +177,22 @@ struct AvatarManagementSheet: View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
-                    .foregroundColor(destructive ? VColor.error : VColor.textSecondary)
+                    .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentSecondary)
                     .frame(width: 24, alignment: .center)
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(label)
                         .font(VFont.bodyMedium)
-                        .foregroundColor(destructive ? VColor.error : VColor.textPrimary)
+                        .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentDefault)
                     Text(subtitle)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
 
                 Spacer()
 
                 VIconView(.chevronRight, size: 11)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.md)

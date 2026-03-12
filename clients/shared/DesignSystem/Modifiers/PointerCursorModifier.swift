@@ -78,24 +78,24 @@ public extension View {
 
 #Preview("PointerCursorModifier") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: VSpacing.lg) {
             Text("Hover over the button to see the pointer cursor")
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
 
             Button("Clickable item") {}
                 .buttonStyle(.plain)
                 .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .pointerCursor()
 
             Text("Regular text (no pointer)")
                 .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
         }
         .padding()
     }

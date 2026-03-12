@@ -554,7 +554,7 @@ struct MessageListView: View {
                         .padding(.vertical, VSpacing.sm)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                        .shadow(color: VColor.auxBlack.opacity(0.15), radius: 4, y: 2)
                     }
                     .buttonStyle(.plain)
                     .background { ScrollWheelPassthrough() }

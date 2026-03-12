@@ -69,7 +69,7 @@ struct ChatEmptyStateView: View {
 
                 Text(title)
                     .font(.custom("Fraunces", size: 28).weight(.regular))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.leading)
             }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
@@ -159,13 +159,13 @@ struct ChatTemporaryChatEmptyStateView: View {
 
             Text("Temporary Chat")
                 .font(.system(size: 28, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Memory is disabled for this chat, and it won\u{2019}t appear in your history.")
                 .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
+                .foregroundColor(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
                 .padding(.horizontal, VSpacing.xl)
@@ -205,8 +205,8 @@ struct ChatTemporaryChatEmptyStateView: View {
         .background(
             RadialGradient(
                 gradient: Gradient(colors: [
-                    VColor.accent.opacity(0.07),
-                    VColor.accent.opacity(0.02),
+                    VColor.primaryBase.opacity(0.07),
+                    VColor.primaryBase.opacity(0.02),
                     Color.clear,
                 ]),
                 center: .center,

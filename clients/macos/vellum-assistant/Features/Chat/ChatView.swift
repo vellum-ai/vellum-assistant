@@ -276,7 +276,7 @@ struct ChatView: View {
             .background(alignment: .bottom) {
                 chatBackground
             }
-            .background(VColor.chatBackground)
+            .background(VColor.surfaceBase)
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
@@ -291,18 +291,18 @@ struct ChatView: View {
             // Drop target overlay
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.accent.opacity(0.08))
+                            .fill(VColor.primaryBase.opacity(0.08))
                     )
                     .overlay {
                         VStack(spacing: VSpacing.sm) {
                             VIconView(.arrowDownToLine, size: 28)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                             Text("Drop files here")
                                 .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.accent)
+                                .foregroundColor(VColor.primaryBase)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -316,7 +316,7 @@ struct ChatView: View {
                     ChatSessionErrorToast(
                         message: "API key not set. Add one in Settings to start chatting.",
                         icon: .keyRound,
-                        accentColor: VColor.warning,
+                        accentColor: VColor.systemNegativeHover,
                         actionLabel: "Open Settings",
                         onAction: onOpenSettings
                     )
@@ -373,11 +373,11 @@ struct ChatView: View {
                 HStack {
                     Text("/btw")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                     Spacer()
                     Button(action: { onDismissBtw?() }) {
                         VIconView(.x, size: 12)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss btw response")
@@ -385,17 +385,17 @@ struct ChatView: View {
 
                 Text(btwText.isEmpty && btwLoading ? "Thinking..." : btwText)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
                         .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.md)
-            .background(VColor.surface)
+            .background(VColor.surfaceBase)
             .cornerRadius(VRadius.md)
             .vShadow(VShadow.sm)
             .padding(.horizontal, VSpacing.lg)
@@ -686,7 +686,7 @@ private struct ChatViewPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceOverlay.ignoresSafeArea()
             ChatView(
                 messages: sampleMessages,
                 inputText: $text,

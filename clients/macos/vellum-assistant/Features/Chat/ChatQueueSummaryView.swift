@@ -23,10 +23,10 @@ struct ChatQueueSummaryView: View {
                 } label: {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(isExpanded ? .chevronDown : .chevronRight, size: 10)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                         Text("\(queuedMessages.count) Queued")
                             .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                         Spacer()
                     }
                     .padding(.horizontal, VSpacing.md)
@@ -41,19 +41,19 @@ struct ChatQueueSummaryView: View {
                         ForEach(queuedMessages, id: \.id) { message in
                             HStack(spacing: VSpacing.sm) {
                                 Circle()
-                                    .fill(VColor.textMuted)
+                                    .fill(VColor.contentTertiary)
                                     .frame(width: 5, height: 5)
                                 if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     // Attachment-only message — show filenames
                                     let names = message.attachments.map(\.filename).joined(separator: ", ")
                                     Label { Text(names.isEmpty ? "Attachment" : names) } icon: { VIconView(.paperclip, size: 14) }
                                         .font(VFont.body)
-                                        .foregroundColor(VColor.textMuted)
+                                        .foregroundColor(VColor.contentTertiary)
                                         .lineLimit(1)
                                 } else {
                                     Text(message.text)
                                         .font(VFont.body)
-                                        .foregroundColor(VColor.textSecondary)
+                                        .foregroundColor(VColor.contentSecondary)
                                         .lineLimit(1)
                                 }
                                 Spacer()
@@ -62,7 +62,7 @@ struct ChatQueueSummaryView: View {
                                         onSendDirect(message.id)
                                     } label: {
                                         VIconView(.circleArrowUp, size: 13)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("Send this message now")
@@ -72,7 +72,7 @@ struct ChatQueueSummaryView: View {
                                         onDelete(message.id)
                                     } label: {
                                         VIconView(.trash, size: 11)
-                                            .foregroundColor(VColor.textMuted)
+                                            .foregroundColor(VColor.contentTertiary)
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel("Delete queued message")
@@ -87,11 +87,11 @@ struct ChatQueueSummaryView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface)
+                    .fill(VColor.surfaceBase)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(VColor.borderBase, lineWidth: 1)
             )
             .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, VSpacing.xs)

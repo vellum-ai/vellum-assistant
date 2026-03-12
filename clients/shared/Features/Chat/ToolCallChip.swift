@@ -79,12 +79,12 @@ public struct ToolCallChip: View {
                 HStack(spacing: VSpacing.xs) {
                     // Tool-specific icon
                     VIconView(toolCall.toolIcon, size: 12)
-                        .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
+                        .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
 
                     // Plain-language description of what was done
                     Text(toolCall.actionDescription)
                         .font(VFont.captionMedium)
-                        .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
+                        .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
@@ -97,7 +97,7 @@ public struct ToolCallChip: View {
                     } else if hasExpandableContent {
                         // Chevron for expandable result
                         VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.contentTertiary)
                     }
                 }
                 .padding(.horizontal, VSpacing.md)
@@ -117,16 +117,16 @@ public struct ToolCallChip: View {
                         HStack {
                             Text("Technical details")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .textCase(.uppercase)
                             if isTruncated {
                                 Text("truncated")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.warning)
+                                    .foregroundColor(VColor.systemNegativeHover)
                                     .padding(.horizontal, VSpacing.xs)
                                     .background(
                                         RoundedRectangle(cornerRadius: VRadius.xs)
-                                            .fill(VColor.warning.opacity(0.12))
+                                            .fill(VColor.systemNegativeHover.opacity(0.12))
                                     )
                             }
                         }
@@ -134,11 +134,11 @@ public struct ToolCallChip: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textSecondary)
+                                .foregroundColor(VColor.contentSecondary)
                             if !resolvedInputFull.isEmpty {
                                 Text(resolvedInputFull)
                                     .font(VFont.monoSmall)
-                                    .foregroundColor(VColor.textSecondary)
+                                    .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
                             }
                         }
@@ -184,7 +184,7 @@ public struct ToolCallChip: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Output")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.contentTertiary)
                                 .textCase(.uppercase)
 
                             if let exitCode = Self.parseExitCode(from: result) {
@@ -192,15 +192,15 @@ public struct ToolCallChip: View {
                                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                                     HStack(spacing: VSpacing.xs) {
                                         VIconView(.triangleAlert, size: 11)
-                                            .foregroundColor(VColor.error)
+                                            .foregroundColor(VColor.systemNegativeStrong)
                                         Text("Exit code \(exitCode)")
                                             .font(VFont.captionMedium)
-                                            .foregroundColor(VColor.error)
+                                            .foregroundColor(VColor.systemNegativeStrong)
                                     }
                                     if let explanation = Self.exitCodeExplanation(exitCode) {
                                         Text(explanation)
                                             .font(VFont.caption)
-                                            .foregroundColor(VColor.textSecondary)
+                                            .foregroundColor(VColor.contentSecondary)
                                     }
                                     // Show any additional output beyond the tag itself
                                     let extraOutput = result
@@ -209,23 +209,23 @@ public struct ToolCallChip: View {
                                     if !extraOutput.isEmpty {
                                         Text(extraOutput)
                                             .font(VFont.monoSmall)
-                                            .foregroundColor(VColor.textSecondary)
+                                            .foregroundColor(VColor.contentSecondary)
                                             .textSelection(.enabled)
                                     }
                                 }
                             } else if result == "<command_completed />" {
                                 HStack(spacing: VSpacing.xs) {
                                     VIconView(.circleCheck, size: 11)
-                                        .foregroundColor(VColor.accent)
+                                        .foregroundColor(VColor.primaryBase)
                                     Text("Command completed successfully (no output).")
                                         .font(VFont.caption)
-                                        .foregroundColor(VColor.textSecondary)
+                                        .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
                                 ScrollView {
                                     Text(result)
                                         .font(VFont.monoSmall)
-                                        .foregroundColor(VColor.textSecondary)
+                                        .foregroundColor(VColor.contentSecondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .textSelection(.enabled)
                                 }
@@ -256,14 +256,14 @@ public struct ToolCallChip: View {
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(toolCall.isError
-                    ? VColor.error.opacity(0.08)
-                    : VColor.surfaceBorder.opacity(0.3))
+                    ? VColor.systemNegativeStrong.opacity(0.08)
+                    : VColor.borderBase.opacity(0.3))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(toolCall.isError
-                    ? VColor.error.opacity(0.3)
-                    : VColor.surfaceBorder.opacity(0.5), lineWidth: 0.5)
+                    ? VColor.systemNegativeStrong.opacity(0.3)
+                    : VColor.borderBase.opacity(0.5), lineWidth: 0.5)
         )
         .onChange(of: isExpanded) { _, newValue in
             // Populate the cache *before* the expanded body evaluates so that
@@ -317,7 +317,7 @@ public struct ToolCallChip: View {
         ))
     }
     .padding(VSpacing.xl)
-    .background(VColor.background)
+    .background(VColor.surfaceOverlay)
     .frame(width: 500)
 }
 #endif

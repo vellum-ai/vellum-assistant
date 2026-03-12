@@ -97,14 +97,14 @@ struct InterviewChatView: View {
         } label: {
             Text(chip)
                 .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
-                .background(VColor.surface)
+                .background(VColor.surfaceBase)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -125,7 +125,7 @@ private struct MessageBubble: View {
 
             Text(message.text)
                 .font(VFont.body)
-                .foregroundColor(isAssistant ? VColor.textPrimary : .white)
+                .foregroundColor(isAssistant ? VColor.contentDefault : VColor.auxWhite)
                 .textSelection(.enabled)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
@@ -144,7 +144,7 @@ private struct MessageBubble: View {
 
     private var bubbleFill: some ShapeStyle {
         if isAssistant {
-            return AnyShapeStyle(VColor.surface.opacity(0.5))
+            return AnyShapeStyle(VColor.surfaceBase.opacity(0.5))
         } else {
             return AnyShapeStyle(
                 LinearGradient(
@@ -172,7 +172,7 @@ private struct TypingIndicator: View {
             HStack(spacing: VSpacing.xs) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
-                        .fill(VColor.textSecondary)
+                        .fill(VColor.contentSecondary)
                         .frame(width: 6, height: 6)
                         .opacity(dotOpacity(for: index))
                 }
@@ -181,7 +181,7 @@ private struct TypingIndicator: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surface.opacity(0.5))
+                    .fill(VColor.surfaceBase.opacity(0.5))
             )
 
             Spacer()

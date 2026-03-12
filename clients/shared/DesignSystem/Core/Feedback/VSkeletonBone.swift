@@ -15,7 +15,7 @@ public struct VSkeletonBone: View {
 
     public var body: some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(VColor.surfaceBorder.opacity(0.5))
+            .fill(VColor.borderBase.opacity(0.5))
             .frame(width: width, height: height)
             .vShimmer()
     }
@@ -23,7 +23,7 @@ public struct VSkeletonBone: View {
 
 #Preview("VSkeletonBone") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VSkeletonBone(width: 200, height: 14)
             VSkeletonBone(width: 140, height: 14)

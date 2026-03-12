@@ -37,7 +37,7 @@ struct WatchProgressView: View {
             // Pulsing icon + label
             HStack(spacing: VSpacing.sm) {
                 VIconView(isLearnMode ? .wifi : .eye, size: 14)
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(VColor.primaryBase)
                     .opacity(isPulsing ? 0.4 : 1.0)
                     .animation(
                         Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
@@ -46,7 +46,7 @@ struct WatchProgressView: View {
 
                 Text(isLearnMode ? "Recording network traffic..." : "Watching your workflow...")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
                 Spacer()
@@ -54,7 +54,7 @@ struct WatchProgressView: View {
                 // Stop button — highlighted when idle hint is active
                 Button(action: onStop) {
                     VIconView(.square, size: 12)
-                        .foregroundColor(idleHint ? VColor.accent : VColor.error)
+                        .foregroundColor(idleHint ? VColor.primaryBase : VColor.systemNegativeStrong)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop watching")
@@ -63,23 +63,23 @@ struct WatchProgressView: View {
             // Progress bar with elapsed/total
             VStack(spacing: VSpacing.xs) {
                 ProgressView(value: progress)
-                    .tint(VColor.accent)
+                    .tint(VColor.primaryBase)
 
                 HStack {
                     Text("\(elapsedFormatted) / \(totalFormatted)")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                     Spacer()
                     if isLearnMode {
                         Text("\(networkEntryCount) network entries")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     } else {
                         Text("\(session.captureCount)/\(session.totalExpected) captures")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -89,10 +89,10 @@ struct WatchProgressView: View {
             if idleHint {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                     Text("No new activity detected. Ready to stop?")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.primaryBase)
                         .textSelection(.enabled)
                     Spacer()
                 }
@@ -104,13 +104,13 @@ struct WatchProgressView: View {
                 HStack {
                     Text(session.currentApp)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.xs)
-                                .fill(VColor.backgroundSubtle)
+                                .fill(VColor.surfaceBase)
                         )
                     Spacer()
                 }
@@ -119,7 +119,7 @@ struct WatchProgressView: View {
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
+                .fill(VColor.surfaceBase)
         )
         .onAppear {
             isPulsing = true

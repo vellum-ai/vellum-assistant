@@ -15,13 +15,13 @@ struct ChatBubbleToggle: View {
             tooltip: tooltip,
             action: onToggle
         )
-        .foregroundColor(isActive ? VColor.accent : nil)
+        .foregroundColor(isActive ? VColor.primaryBase : nil)
     }
 }
 
 #Preview("ChatBubbleToggle") {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         HStack(spacing: 16) {
             ChatBubbleToggle(isActive: false, onToggle: {})
             ChatBubbleToggle(isActive: true, onToggle: {})

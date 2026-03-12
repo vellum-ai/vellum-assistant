@@ -64,7 +64,7 @@ struct ChatContentView: View {
             )
         }
         .background(alignment: .bottom) { chatBackground }
-        .background(VColor.chatBackground)
+        .background(VColor.surfaceOverlay)
         .animation(VAnimation.standard, value: viewModel.sessionError != nil)
         .animation(VAnimation.standard, value: viewModel.errorText)
         .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
@@ -267,7 +267,7 @@ struct ChatContentView: View {
                     if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
                         Text(statusText)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     Spacer()
                 }
@@ -301,7 +301,7 @@ struct ChatContentView: View {
                     if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
                         Text(statusText)
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
+                            .foregroundColor(VColor.contentSecondary)
                     }
                     Spacer()
                 }
@@ -324,11 +324,11 @@ struct ChatContentView: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(error.message)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
                 Text(error.recoverySuggestion)
                     .font(VFont.small)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
             }
 
@@ -348,7 +348,7 @@ struct ChatContentView: View {
 
             Button(action: { viewModel.dismissSessionError() }) {
                 VIconView(.x, size: 10)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.contentTertiary)
             }
             .accessibilityLabel("Dismiss")
         }
@@ -389,7 +389,7 @@ struct ChatContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.error banner
+                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemDangerStrong banner
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             } else if viewModel.isRetryableError {
@@ -399,7 +399,7 @@ struct ChatContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.error banner
+                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemDangerStrong banner
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             }
@@ -411,7 +411,7 @@ struct ChatContentView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.error)
+        .background(VColor.systemDangerStrong)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -431,11 +431,11 @@ struct ChatContentView: View {
 
     private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
         switch category {
-        case .rateLimit: return VColor.warning
+        case .rateLimit: return VColor.systemDangerHover
         case .providerNetwork: return .orange
-        case .sessionAborted: return VColor.textSecondary
-        case .contextTooLarge: return VColor.warning
-        default: return VColor.error
+        case .sessionAborted: return VColor.contentSecondary
+        case .contextTooLarge: return VColor.systemDangerHover
+        default: return VColor.systemDangerStrong
         }
     }
 
@@ -446,12 +446,12 @@ struct ChatContentView: View {
             Spacer()
             Spacer()
             VIconView(.sparkles, size: 48)
-                .foregroundColor(VColor.accent)
+                .foregroundColor(VColor.primaryBase)
                 .opacity(emptyStateVisible ? 1 : 0)
                 .scaleEffect(emptyStateVisible ? 1 : 0.8)
             Text(greeting)
                 .font(.system(size: 22, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
+                .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .opacity(emptyStateVisible ? 1 : 0)
                 .offset(y: emptyStateVisible ? 0 : 8)
@@ -464,8 +464,8 @@ struct ChatContentView: View {
         .background(
             RadialGradient(
                 gradient: Gradient(colors: [
-                    VColor.accent.opacity(0.07),
-                    VColor.accent.opacity(0.02),
+                    VColor.primaryBase.opacity(0.07),
+                    VColor.primaryBase.opacity(0.02),
                     Color.clear,
                 ]),
                 center: .center,

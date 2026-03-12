@@ -32,7 +32,7 @@ struct WelcomeStepView: View {
         // Title
         Text("Create your vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.textPrimary)
+            .foregroundColor(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
@@ -41,12 +41,12 @@ struct WelcomeStepView: View {
         Button(action: { onGetStarted() }) {
             Text("Get started")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.white)
+                .foregroundColor(VColor.auxWhite)
                 .frame(maxWidth: 240)
                 .padding(.vertical, VSpacing.lg)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.onboardingStepBackground)
+                        .fill(VColor.primaryBase)
                 )
         }
         .buttonStyle(.plain)
@@ -78,7 +78,7 @@ struct WelcomeStepView: View {
 
 #Preview {
     ZStack {
-        VColor.background.ignoresSafeArea()
+        VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
             Spacer()
             WelcomeStepView(onGetStarted: {})
