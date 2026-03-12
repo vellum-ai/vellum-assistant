@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -12,6 +12,7 @@ import {
 import { getDb } from "./db.js";
 import {
   embedWithBackend,
+  generateSparseEmbedding,
   getMemoryBackendStatus,
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
@@ -25,9 +26,14 @@ import {
   getMemoryVersion,
   setCachedRecall,
 } from "./recall-cache.js";
-import { memoryItemSources } from "./schema.js";
+import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { entitySearch } from "./search/entity.js";
-import { MEMORY_CONTEXT_ACK } from "./search/formatting.js";
+import {
+  buildTwoLayerInjection,
+  IDENTITY_KINDS,
+  MEMORY_CONTEXT_ACK,
+  PREFERENCE_KINDS,
+} from "./search/formatting.js";
 import {
   directItemSearch,
   lexicalSearch,
@@ -40,6 +46,8 @@ import {
   rerankWithLLM,
 } from "./search/ranking.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
+import { computeStaleness, applyStaleDemotion } from "./search/staleness.js";
+import { classifyTiers } from "./search/tier-classifier.js";
 import type {
   Candidate,
   CollectedCandidates,
@@ -896,6 +904,380 @@ export async function buildMemoryRecall(
       configFingerprint,
     );
   }
+  return result;
+}
+
+/**
+ * V2 memory recall pipeline: simplified hybrid search → tier classification →
+ * staleness annotation → two-layer XML injection.
+ *
+ * Pipeline steps:
+ *   1. Build query text (caller provides via buildMemoryQuery)
+ *   2. Generate dense + sparse embeddings
+ *   3. Hybrid search on Qdrant (dense + sparse RRF fusion)
+ *   4. Supplement with recency search (conversation-scoped, DB only)
+ *   5. Merge + deduplicate results
+ *   6. Classify tiers (score > 0.8 → tier 1, > 0.6 → tier 2)
+ *   7. Enrich item candidates with metadata for staleness
+ *   8. Compute staleness per item
+ *   9. Demote very_stale tier 1 → tier 2
+ *  10. Build two-layer XML injection with budget allocation
+ */
+export async function buildMemoryRecallV2(
+  query: string,
+  conversationId: string,
+  config: AssistantConfig,
+  options?: MemoryRecallOptions,
+): Promise<MemoryRecallResult> {
+  const start = Date.now();
+  const versionSnapshot = getMemoryVersion();
+  const excludeMessageIds =
+    options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
+  const signal = options?.signal;
+
+  if (!config.memory.enabled) {
+    return emptyResult({
+      enabled: false,
+      degraded: false,
+      reason: "memory.disabled",
+      latencyMs: Date.now() - start,
+    });
+  }
+  if (signal?.aborted) {
+    return emptyResult({
+      enabled: true,
+      degraded: false,
+      reason: "memory.aborted",
+      latencyMs: Date.now() - start,
+    });
+  }
+
+  // Check recall cache
+  const configFingerprint = buildConfigFingerprint(config);
+  const cached = getCachedRecall(
+    query,
+    conversationId,
+    options,
+    configFingerprint,
+  );
+  if (cached) {
+    log.debug(
+      { query: truncate(query, 120), latencyMs: Date.now() - start },
+      "Memory recall V2 served from cache",
+    );
+    return { ...cached, latencyMs: Date.now() - start };
+  }
+
+  // ── Step 1+2: Generate dense and sparse embeddings ──────────────
+  const embeddingResult = await generateQueryEmbedding(
+    query,
+    config,
+    signal,
+    start,
+  );
+  if ("earlyExit" in embeddingResult) return embeddingResult.earlyExit;
+
+  const { queryVector, provider, model } = embeddingResult;
+
+  // Generate sparse embedding for the query text (TF-IDF based)
+  const sparseVector = generateSparseEmbedding(query);
+
+  // ── Step 3: Hybrid search on Qdrant ─────────────────────────────
+  const scopePolicy = config.memory.retrieval.scopePolicy;
+  const scopeIds = buildScopeFilter(
+    options?.scopeId,
+    scopePolicy,
+    options?.scopePolicyOverride,
+  );
+
+  const HYBRID_LIMIT = 20;
+
+  let hybridCandidates: Candidate[] = [];
+  let semanticSearchFailed = false;
+
+  if (queryVector && !isQdrantBreakerOpen()) {
+    try {
+      hybridCandidates = await semanticSearch(
+        queryVector,
+        provider ?? "unknown",
+        model ?? "unknown",
+        HYBRID_LIMIT,
+        excludeMessageIds,
+        scopeIds,
+        sparseVector.indices.length > 0 ? sparseVector : undefined,
+      );
+    } catch (err) {
+      semanticSearchFailed = true;
+      if (isQdrantConnectionError(err)) {
+        log.warn(
+          { err },
+          "Qdrant unavailable — hybrid search disabled for V2 pipeline",
+        );
+      } else {
+        log.warn(
+          { err },
+          "Hybrid search failed in V2 pipeline, continuing with recency only",
+        );
+      }
+    }
+  }
+
+  // ── Step 4: Recency supplement (DB only, conversation-scoped) ───
+  const recencyLimit = 5;
+  const recencyCandidates = conversationId
+    ? recencySearch(conversationId, recencyLimit, excludeMessageIds, scopeIds)
+    : [];
+
+  // ── Step 5: Merge and deduplicate ──────────────────────────────
+  const candidateMap = new Map<string, Candidate>();
+  for (const c of [...hybridCandidates, ...recencyCandidates]) {
+    const existing = candidateMap.get(c.key);
+    if (!existing) {
+      candidateMap.set(c.key, { ...c });
+      continue;
+    }
+    // Keep highest scores from each source
+    existing.lexical = Math.max(existing.lexical, c.lexical);
+    existing.semantic = Math.max(existing.semantic, c.semantic);
+    existing.recency = Math.max(existing.recency, c.recency);
+    existing.confidence = Math.max(existing.confidence, c.confidence);
+    existing.importance = Math.max(existing.importance, c.importance);
+    if (c.text.length > existing.text.length) {
+      existing.text = c.text;
+    }
+  }
+
+  // Compute RRF-style final scores for the merged candidates
+  const allCandidates = [...candidateMap.values()];
+  for (const c of allCandidates) {
+    // Simple weighted combination — hybrid search already applies RRF fusion
+    // at the Qdrant level; here we combine the fused semantic score with recency.
+    c.finalScore =
+      c.semantic * 0.7 +
+      c.recency * 0.2 +
+      c.confidence * 0.1;
+  }
+  allCandidates.sort((a, b) => b.finalScore - a.finalScore);
+
+  // ── Step 6: Tier classification ─────────────────────────────────
+  const tiered = classifyTiers(allCandidates);
+
+  // ── Step 7: Enrich with item metadata for staleness ─────────────
+  const itemIds = tiered
+    .filter((c) => c.type === "item")
+    .map((c) => c.id);
+  const itemMetadataMap = enrichItemMetadata(itemIds);
+
+  // ── Step 8: Compute staleness per item ──────────────────────────
+  const now = Date.now();
+  for (const c of tiered) {
+    if (c.type !== "item") continue;
+    const meta = itemMetadataMap.get(c.id);
+    if (!meta) continue;
+    const { level } = computeStaleness(
+      {
+        kind: c.kind,
+        firstSeenAt: meta.firstSeenAt,
+        sourceConversationCount: meta.sourceConversationCount,
+      },
+      now,
+    );
+    c.staleness = level;
+  }
+
+  // ── Step 9: Demote very_stale tier 1 → tier 2 ──────────────────
+  const afterDemotion = applyStaleDemotion(tiered);
+
+  // ── Step 10: Budget allocation and two-layer injection ──────────
+  const maxInjectTokens = Math.max(
+    1,
+    Math.floor(
+      options?.maxInjectTokensOverride ??
+        config.memory.retrieval.maxInjectTokens,
+    ),
+  );
+
+  // Split into sections for two-layer injection
+  const identityItems = afterDemotion.filter(
+    (c) => c.tier === 1 && IDENTITY_KINDS.has(c.kind),
+  );
+  const preferences = afterDemotion.filter(
+    (c) => c.tier === 1 && PREFERENCE_KINDS.has(c.kind),
+  );
+  const tier1Candidates = afterDemotion.filter(
+    (c) =>
+      c.tier === 1 &&
+      !IDENTITY_KINDS.has(c.kind) &&
+      !PREFERENCE_KINDS.has(c.kind),
+  );
+  const tier2Candidates = afterDemotion.filter((c) => c.tier === 2);
+
+  const injectedText = buildTwoLayerInjection({
+    identityItems,
+    tier1Candidates,
+    tier2Candidates,
+    preferences,
+    totalBudgetTokens: maxInjectTokens,
+  });
+
+  // ── Assemble result ─────────────────────────────────────────────
+  const selectedCount =
+    identityItems.length +
+    tier1Candidates.length +
+    tier2Candidates.length +
+    preferences.length;
+
+  const tier1Count = afterDemotion.filter((c) => c.tier === 1).length;
+  const tier2Count = afterDemotion.filter((c) => c.tier === 2).length;
+  const stalenessStats = {
+    fresh: afterDemotion.filter((c) => c.staleness === "fresh").length,
+    aging: afterDemotion.filter((c) => c.staleness === "aging").length,
+    stale: afterDemotion.filter((c) => c.staleness === "stale").length,
+    very_stale: afterDemotion.filter((c) => c.staleness === "very_stale")
+      .length,
+  };
+
+  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion
+    .slice(0, 10)
+    .map((c) => ({
+      key: c.key,
+      type: c.type,
+      kind: c.kind,
+      finalScore: c.finalScore,
+      lexical: c.lexical,
+      semantic: c.semantic,
+      recency: c.recency,
+    }));
+
+  const latencyMs = Date.now() - start;
+
+  // Propagate degradation from semantic search failure
+  if (semanticSearchFailed || (!queryVector && config.memory.embeddings.required)) {
+    embeddingResult.degraded = true;
+    embeddingResult.reason =
+      embeddingResult.reason ?? "memory.hybrid_search_failure";
+  }
+
+  log.debug(
+    {
+      query: truncate(query, 120),
+      hybridHits: hybridCandidates.length,
+      recencyHits: recencyCandidates.length,
+      mergedCount: allCandidates.length,
+      tier1Count,
+      tier2Count,
+      stalenessStats,
+      selectedCount,
+      maxInjectTokens,
+      injectedTokens: estimateTextTokens(injectedText),
+      latencyMs,
+    },
+    "Memory recall V2 completed",
+  );
+
+  const result: MemoryRecallResult = {
+    enabled: true,
+    degraded: embeddingResult.degraded,
+    degradation: embeddingResult.degradation,
+    reason: embeddingResult.reason,
+    provider: embeddingResult.provider,
+    model: embeddingResult.model,
+    // Backwards-compatible fields for event emission in session-memory.ts
+    lexicalHits: 0,
+    semanticHits: hybridCandidates.length,
+    recencyHits: recencyCandidates.length,
+    entityHits: 0,
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
+    earlyTerminated: false,
+    mergedCount: allCandidates.length,
+    selectedCount,
+    rerankApplied: false,
+    injectedTokens: estimateTextTokens(injectedText),
+    injectedText,
+    latencyMs,
+    topCandidates,
+  };
+
+  // Only cache non-degraded results
+  if (!result.degraded) {
+    setCachedRecall(
+      query,
+      conversationId,
+      options,
+      result,
+      versionSnapshot,
+      configFingerprint,
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Enrich item candidates with metadata needed for staleness computation:
+ * - firstSeenAt: when the item was first extracted
+ * - sourceConversationCount: number of distinct conversations that sourced this item
+ */
+function enrichItemMetadata(
+  itemIds: string[],
+): Map<string, { firstSeenAt: number; sourceConversationCount: number; kind: string }> {
+  const result = new Map<
+    string,
+    { firstSeenAt: number; sourceConversationCount: number; kind: string }
+  >();
+  if (itemIds.length === 0) return result;
+
+  try {
+    const db = getDb();
+
+    // Fetch firstSeenAt and kind from memory_items
+    const items = db
+      .select({
+        id: memoryItems.id,
+        firstSeenAt: memoryItems.firstSeenAt,
+        kind: memoryItems.kind,
+      })
+      .from(memoryItems)
+      .where(inArray(memoryItems.id, itemIds))
+      .all();
+
+    for (const item of items) {
+      result.set(item.id, {
+        firstSeenAt: item.firstSeenAt,
+        kind: item.kind,
+        sourceConversationCount: 1, // default, updated below
+      });
+    }
+
+    // Compute sourceConversationCount: count distinct conversation IDs
+    // across the memory_item_sources → messages join.
+    const sourceCountRows = db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        conversationCount:
+          sql<number>`COUNT(DISTINCT ${messages.conversationId})`.as(
+            "conversation_count",
+          ),
+      })
+      .from(memoryItemSources)
+      .innerJoin(messages, sql`${memoryItemSources.messageId} = ${messages.id}`)
+      .where(inArray(memoryItemSources.memoryItemId, itemIds))
+      .groupBy(memoryItemSources.memoryItemId)
+      .all();
+
+    for (const row of sourceCountRows) {
+      const existing = result.get(row.memoryItemId);
+      if (existing) {
+        existing.sourceConversationCount = row.conversationCount;
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, "Failed to enrich item metadata for staleness computation");
+  }
+
   return result;
 }
 

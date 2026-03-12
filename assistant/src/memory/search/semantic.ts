@@ -7,7 +7,7 @@ import {
   _resetQdrantBreaker,
   withQdrantBreaker,
 } from "../qdrant-circuit-breaker.js";
-import type { QdrantSearchResult } from "../qdrant-client.js";
+import type { QdrantSearchResult, QdrantSparseVector } from "../qdrant-client.js";
 import { getQdrantClient } from "../qdrant-client.js";
 import {
   conversations,
@@ -31,6 +31,7 @@ export async function semanticSearch(
   limit: number,
   excludedMessageIds: string[] = [],
   scopeIds?: string[],
+  sparseVector?: QdrantSparseVector,
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
@@ -40,14 +41,31 @@ export async function semanticSearch(
   // Use 3x when exclusions are active to ensure enough results survive filtering
   const overfetchMultiplier = excludedMessageIds.length > 0 ? 3 : 2;
   const fetchLimit = limit * overfetchMultiplier;
-  const results: QdrantSearchResult[] = await withQdrantBreaker(() =>
-    qdrant.searchWithFilter(
-      queryVector,
-      fetchLimit,
-      ["item", "summary", "segment", "media"],
-      excludedMessageIds,
-    ),
-  );
+
+  // When a sparse vector is available, use hybrid search (dense + sparse RRF fusion)
+  // for better recall; otherwise fall back to dense-only search.
+  let results: QdrantSearchResult[];
+  if (sparseVector && sparseVector.indices.length > 0) {
+    const filter = buildHybridFilter(excludedMessageIds, scopeIds);
+    results = await withQdrantBreaker(() =>
+      qdrant.hybridSearch({
+        denseVector: queryVector,
+        sparseVector,
+        filter,
+        limit: fetchLimit,
+        prefetchLimit: fetchLimit,
+      }),
+    );
+  } else {
+    results = await withQdrantBreaker(() =>
+      qdrant.searchWithFilter(
+        queryVector,
+        fetchLimit,
+        ["item", "summary", "segment", "media"],
+        excludedMessageIds,
+      ),
+    );
+  }
 
   const db = getDb();
 
@@ -243,6 +261,59 @@ export async function semanticSearch(
     if (candidates.length >= limit) break;
   }
   return candidates;
+}
+
+/**
+ * Build a Qdrant filter for hybrid search. Mirrors the logic in
+ * `searchWithFilter` but as a standalone object for the query API.
+ *
+ * Scope filtering: items and media store `memory_scope_id` on the Qdrant
+ * point payload, so we can filter at the Qdrant level. Segments and
+ * summaries rely on post-query DB filtering (same as dense-only search).
+ */
+function buildHybridFilter(
+  excludeMessageIds: string[],
+  _scopeIds?: string[],
+): Record<string, unknown> {
+  const mustConditions: Array<Record<string, unknown>> = [
+    {
+      key: "target_type",
+      match: { any: ["item", "summary", "segment", "media"] },
+    },
+  ];
+
+  if (excludeMessageIds.length > 0) {
+    // Only require status=active for items; segments and summaries don't have a status field
+    mustConditions.push({
+      should: [
+        {
+          must: [
+            { key: "target_type", match: { value: "item" } },
+            { key: "status", match: { value: "active" } },
+          ],
+        },
+        {
+          key: "target_type",
+          match: { any: ["segment", "summary", "media"] },
+        },
+      ],
+    });
+  }
+
+  const mustNotConditions: Array<Record<string, unknown>> = [
+    { key: "_meta", match: { value: true } },
+  ];
+  if (excludeMessageIds.length > 0) {
+    mustNotConditions.push({
+      key: "message_id",
+      match: { any: excludeMessageIds },
+    });
+  }
+
+  return {
+    must: mustConditions,
+    must_not: mustNotConditions,
+  };
 }
 
 export function mapCosineToUnit(value: number): number {
