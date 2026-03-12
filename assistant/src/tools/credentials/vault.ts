@@ -1,6 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
+  disconnectOAuthProvider,
   getAppByProviderAndClientId,
   getMostRecentAppByProvider,
   getProvider,
@@ -450,6 +451,8 @@ class CredentialStoreTool implements Tool {
             "metadata delete failed after removing credential",
           );
         }
+        // Also clean up any OAuth connection for this service
+        await disconnectOAuthProvider(service);
         return {
           content: `Deleted credential for ${service}/${field}.`,
           isError: false,
