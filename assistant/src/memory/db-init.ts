@@ -49,6 +49,7 @@ import {
   migrateConversationsThreadTypeIndex,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
+  migrateDropConflicts,
   migrateDropLegacyMemberGuardianTables,
   migrateDropMemorySegmentFts,
   migrateDropRemindersTable,
@@ -359,6 +360,9 @@ export function initializeDb(): void {
 
   // 57. Drop memory_segment_fts virtual table and triggers (replaced by Qdrant hybrid search)
   migrateDropMemorySegmentFts(database);
+
+  // 58. Drop memory_item_conflicts table (conflict resolution system removed)
+  migrateDropConflicts();
 
   validateMigrationState(database);
 

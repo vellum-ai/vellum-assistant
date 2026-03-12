@@ -11,7 +11,6 @@ import {
   test,
 } from "bun:test";
 
-import { eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
@@ -42,50 +41,6 @@ mock.module("../memory/qdrant-client.js", () => ({
     deletePoints: async () => {},
   }),
   initQdrantClient: () => {},
-}));
-
-// Mock clarification resolver to prevent real Anthropic API calls when
-// ANTHROPIC_API_KEY is set. Without this, resolveConflictClarification can
-// resolve conflicts via LLM before the test asserts on pending state.
-mock.module("../memory/clarification-resolver.js", () => ({
-  resolveConflictClarification: async (input: { userMessage: string }) => {
-    const msg = input.userMessage.toLowerCase();
-    // "Use the new renderer going forward" → keep candidate
-    if (
-      msg.includes("new") ||
-      msg.includes("replace") ||
-      msg.includes("instead")
-    ) {
-      return {
-        resolution: "keep_candidate" as const,
-        strategy: "heuristic" as const,
-        resolvedStatement: null,
-        explanation:
-          "User response explicitly points to candidate/new statement.",
-      };
-    }
-    // "Keep the old runtime one" → keep existing
-    if (
-      msg.includes("old") ||
-      msg.includes("existing") ||
-      msg.includes("still")
-    ) {
-      return {
-        resolution: "keep_existing" as const,
-        strategy: "heuristic" as const,
-        resolvedStatement: null,
-        explanation:
-          "User response explicitly points to existing/old statement.",
-      };
-    }
-    // Default: still_unclear (e.g. "Need react roadmap update today")
-    return {
-      resolution: "still_unclear" as const,
-      strategy: "heuristic" as const,
-      resolvedStatement: null,
-      explanation: "No clear directional cue found in user message.",
-    };
-  },
 }));
 
 const TEST_CONFIG = {
@@ -152,24 +107,16 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { ConflictGate } from "../daemon/session-conflict-gate.js";
-import {
-  createOrUpdatePendingConflict,
-  getConflictById,
-} from "../memory/conflict-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { enqueueResolvePendingConflictsForMessageJob } from "../memory/jobs-store.js";
 import {
   resetCleanupScheduleThrottle,
   resetStaleSweepThrottle,
-  runMemoryJobsOnce,
 } from "../memory/jobs-worker.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
   memoryEntities,
   memoryEntityRelations,
-  memoryItemConflicts,
   memoryItemEntities,
   memoryItems,
   memoryItemSources,
@@ -183,7 +130,6 @@ describe("Memory lifecycle E2E regression", () => {
 
   beforeEach(() => {
     const db = getDb();
-    db.run("DELETE FROM memory_item_conflicts");
     db.run("DELETE FROM memory_item_entities");
     db.run("DELETE FROM memory_entity_relations");
     db.run("DELETE FROM memory_entities");
@@ -191,7 +137,6 @@ describe("Memory lifecycle E2E regression", () => {
     db.run("DELETE FROM memory_embeddings");
     db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM memory_items");
-
     db.run("DELETE FROM memory_segments");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
@@ -210,7 +155,7 @@ describe("Memory lifecycle E2E regression", () => {
     }
   });
 
-  test("relation expansion, soft gate, background resolution, and profile hygiene remain consistent", async () => {
+  test("relation expansion and profile hygiene remain consistent", async () => {
     const db = getDb();
     const now = 1_701_100_000_000;
     const conversationId = "conv-memory-lifecycle";
@@ -371,162 +316,5 @@ describe("Memory lifecycle E2E regression", () => {
     expect(recall.relationTraversedEdgeCount).toBeGreaterThan(0);
     expect(recall.relationNeighborEntityCount).toBeGreaterThan(0);
     expect(recall.relationExpandedItemCount).toBeGreaterThan(0);
-
-    db.insert(memoryItems)
-      .values([
-        {
-          id: "item-ui-existing",
-          kind: "preference",
-          subject: "ui renderer",
-          statement: "React renderer is the default for Atlas dashboard.",
-          status: "active",
-          confidence: 0.88,
-          importance: 0.8,
-          fingerprint: "fp-item-ui-existing",
-          verificationState: "user_reported",
-          scopeId: "default",
-          firstSeenAt: now + 30,
-          lastSeenAt: now + 30,
-          validFrom: now + 30,
-          invalidAt: null,
-        },
-        {
-          id: "item-ui-candidate",
-          kind: "preference",
-          subject: "ui renderer",
-          statement: "Svelte renderer is the default for Atlas dashboard.",
-          status: "pending_clarification",
-          confidence: 0.84,
-          importance: 0.8,
-          fingerprint: "fp-item-ui-candidate",
-          verificationState: "user_reported",
-          scopeId: "default",
-          firstSeenAt: now + 31,
-          lastSeenAt: now + 31,
-          validFrom: now + 31,
-          invalidAt: null,
-        },
-      ])
-      .run();
-
-    const gatedConflict = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "item-ui-existing",
-      candidateItemId: "item-ui-candidate",
-      relationship: "ambiguous_contradiction",
-      clarificationQuestion: "Should we keep React or move to Svelte?",
-    });
-
-    const conflictGate = new ConflictGate();
-
-    // First evaluation: conflict remains pending; evaluate returns void (no
-    // user-facing output — conflict handling is fully internal)
-    const firstResult = await conflictGate.evaluate(
-      "Need react roadmap update today",
-      TEST_CONFIG.memory.conflicts,
-    );
-    expect(firstResult).toBeUndefined();
-
-    const pendingAfterFirstGate = getConflictById(gatedConflict.id);
-    expect(pendingAfterFirstGate?.status).toBe("pending_clarification");
-
-    // Second evaluation: clarification-like reply resolves the conflict
-    // internally; still no user-facing prompt is produced
-    const secondResult = await conflictGate.evaluate(
-      "Use the new renderer going forward.",
-      TEST_CONFIG.memory.conflicts,
-    );
-    expect(secondResult).toBeUndefined();
-
-    const resolvedAfterSecondGate = getConflictById(gatedConflict.id);
-    expect(resolvedAfterSecondGate?.status).toBe("resolved_keep_candidate");
-
-    const uiExisting = db
-      .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-ui-existing"))
-      .get();
-    const uiCandidate = db
-      .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-ui-candidate"))
-      .get();
-    expect(uiExisting?.status).toBe("superseded");
-    expect(uiCandidate?.status).toBe("active");
-
-    db.insert(memoryItems)
-      .values([
-        {
-          id: "item-runtime-existing",
-          kind: "preference",
-          subject: "runtime",
-          statement: "Node.js 20 remains the default runtime.",
-          status: "active",
-          confidence: 0.83,
-          importance: 0.7,
-          fingerprint: "fp-item-runtime-existing",
-          verificationState: "user_reported",
-          scopeId: "default",
-          firstSeenAt: now + 200,
-          lastSeenAt: now + 200,
-          validFrom: now + 200,
-          invalidAt: null,
-        },
-        {
-          id: "item-runtime-candidate",
-          kind: "preference",
-          subject: "runtime",
-          statement: "Bun becomes the default runtime.",
-          status: "pending_clarification",
-          confidence: 0.81,
-          importance: 0.7,
-          fingerprint: "fp-item-runtime-candidate",
-          verificationState: "user_reported",
-          scopeId: "default",
-          firstSeenAt: now + 201,
-          lastSeenAt: now + 201,
-          validFrom: now + 201,
-          invalidAt: null,
-        },
-      ])
-      .run();
-
-    const backgroundConflict = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "item-runtime-existing",
-      candidateItemId: "item-runtime-candidate",
-      relationship: "ambiguous_contradiction",
-    });
-
-    db.update(memoryItemConflicts)
-      .set({ createdAt: now + 300, updatedAt: now + 300 })
-      .where(eq(memoryItemConflicts.id, backgroundConflict.id))
-      .run();
-
-    enqueueResolvePendingConflictsForMessageJob(
-      "msg-lifecycle-background",
-      "default",
-    );
-    const processedJobs = await runMemoryJobsOnce();
-    expect(processedJobs).toBe(1);
-
-    const backgroundResolvedConflict = getConflictById(backgroundConflict.id);
-    expect(backgroundResolvedConflict?.status).toBe("resolved_keep_existing");
-    expect(backgroundResolvedConflict?.resolutionNote).toContain(
-      "Background message resolver",
-    );
-
-    const runtimeExisting = db
-      .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-runtime-existing"))
-      .get();
-    const runtimeCandidate = db
-      .select()
-      .from(memoryItems)
-      .where(eq(memoryItems.id, "item-runtime-candidate"))
-      .get();
-    expect(runtimeExisting?.status).toBe("active");
-    expect(runtimeCandidate?.status).toBe("superseded");
   });
 });

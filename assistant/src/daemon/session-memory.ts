@@ -104,7 +104,8 @@ export async function prepareMemoryContext(
       topCandidates: [],
       tier1Count: 0,
       tier2Count: 0,
-      hybridSearchMs: 0,
+      hybridSearchLatencyMs: 0,
+      sparseVectorUsed: false,
     } as Awaited<ReturnType<typeof buildMemoryRecallV2>>,
   });
 
@@ -197,8 +198,7 @@ export async function prepareMemoryContext(
         tier1Count: recall.tier1Count ?? 0,
         tier2Count: recall.tier2Count ?? 0,
         hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
-        sparseVectorUsed:
-          (recall as { sparseVectorUsed?: boolean }).sparseVectorUsed ?? false,
+        sparseVectorUsed: false,
         mergedCount: recall.mergedCount,
         selectedCount: recall.selectedCount,
         injectedTokens: recall.injectedTokens,

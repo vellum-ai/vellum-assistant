@@ -122,12 +122,9 @@ mock.module("../security/secret-allowlist.js", () => ({
 }));
 
 mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+  getMemoryCleanupStats: () => ({
     cleanup: {
-      resolvedBacklog: 0,
       supersededBacklog: 0,
-      resolvedCompleted24h: 0,
       supersededCompleted24h: 0,
     },
   }),

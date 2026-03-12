@@ -95,6 +95,7 @@ export { migrateOAuthAppsClientSecretPath } from "./150-oauth-apps-client-secret
 export { migrateOAuthProvidersPingUrl } from "./151-oauth-providers-ping-url.js";
 export { migrateMemoryItemSupersession } from "./152-memory-item-supersession.js";
 export { migrateDropMemorySegmentFts } from "./154-drop-fts.js";
+export { migrateDropConflicts } from "./155-drop-conflicts.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

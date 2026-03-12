@@ -88,11 +88,6 @@ import {
 } from "../memory/admin.js";
 import { getMemoryCheckpoint } from "../memory/checkpoints.js";
 import {
-  createOrUpdatePendingConflict,
-  getConflictById,
-  resolveConflict,
-} from "../memory/conflict-store.js";
-import {
   addMessage,
   createConversation,
   getConversationMemoryScopeId,
@@ -118,10 +113,7 @@ import { buildConversationSummaryJob } from "../memory/job-handlers/summarizatio
 import {
   claimMemoryJobs,
   enqueueBackfillEntityRelationsJob,
-  enqueueCleanupResolvedConflictsJob,
-  enqueueCleanupStaleSupersededItemsJob,
   enqueueMemoryJob,
-  enqueueResolvePendingConflictsForMessageJob,
 } from "../memory/jobs-store.js";
 import {
   currentWeekWindow,
@@ -145,7 +137,6 @@ import {
   memoryEmbeddings,
   memoryEntities,
   memoryEntityRelations,
-  memoryItemConflicts,
   memoryItemEntities,
   memoryItems,
   memoryItemSources,
@@ -162,7 +153,6 @@ describe("Memory regressions", () => {
 
   beforeEach(() => {
     const db = getDb();
-    db.run("DELETE FROM memory_item_conflicts");
     db.run("DELETE FROM memory_item_entities");
     db.run("DELETE FROM memory_entity_relations");
     db.run("DELETE FROM memory_entities");
@@ -1120,551 +1110,11 @@ describe("Memory regressions", () => {
     expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ force: true });
   });
 
-  test("pending conflict resolver enqueue is deduped by message and scope", () => {
-    const db = getDb();
-
-    const firstId = enqueueResolvePendingConflictsForMessageJob(
-      "msg-conflict-1",
-      "scope-a",
-    );
-    const secondId = enqueueResolvePendingConflictsForMessageJob(
-      "msg-conflict-1",
-      "scope-a",
-    );
-    const thirdId = enqueueResolvePendingConflictsForMessageJob(
-      "msg-conflict-1",
-      "scope-b",
-    );
-
-    expect(secondId).toBe(firstId);
-    expect(thirdId).not.toBe(firstId);
-
-    const queued = db
-      .select()
-      .from(memoryJobs)
-      .where(
-        and(
-          eq(memoryJobs.type, "resolve_pending_conflicts_for_message"),
-          eq(memoryJobs.status, "pending"),
-        ),
-      )
-      .all();
-    expect(queued).toHaveLength(2);
-  });
-
-  test("background conflict resolver job applies user clarification to pending conflicts", async () => {
-    const db = getDb();
-    const now = 1_700_001_200_000;
-    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
-    TEST_CONFIG.memory.conflicts.enabled = true;
-
-    try {
-      db.insert(conversations)
-        .values({
-          id: "conv-conflicts-bg",
-          title: null,
-          createdAt: now,
-          updatedAt: now,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalEstimatedCost: 0,
-          contextSummary: null,
-          contextCompactedMessageCount: 0,
-          contextCompactedAt: null,
-        })
-        .run();
-
-      db.insert(messages)
-        .values({
-          id: "msg-conflicts-bg",
-          conversationId: "conv-conflicts-bg",
-          role: "user",
-          content: JSON.stringify([
-            { type: "text", text: "Keep the new MySQL default instead." },
-          ]),
-          createdAt: now + 1,
-        })
-        .run();
-
-      db.insert(memoryItems)
-        .values([
-          {
-            id: "item-conflict-existing",
-            kind: "preference",
-            subject: "database",
-            statement: "Use Postgres by default.",
-            status: "active",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-existing",
-            verificationState: "user_reported",
-            scopeId: "scope-conflicts",
-            firstSeenAt: now - 10_000,
-            lastSeenAt: now - 5_000,
-            validFrom: now - 10_000,
-            invalidAt: null,
-          },
-          {
-            id: "item-conflict-candidate",
-            kind: "preference",
-            subject: "database",
-            statement: "Use MySQL by default.",
-            status: "pending_clarification",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-candidate",
-            verificationState: "user_reported",
-            scopeId: "scope-conflicts",
-            firstSeenAt: now - 9_000,
-            lastSeenAt: now - 4_000,
-            validFrom: now - 9_000,
-            invalidAt: null,
-          },
-        ])
-        .run();
-
-      const conflict = createOrUpdatePendingConflict({
-        scopeId: "scope-conflicts",
-        existingItemId: "item-conflict-existing",
-        candidateItemId: "item-conflict-candidate",
-        relationship: "ambiguous_contradiction",
-      });
-      db.update(memoryItemConflicts)
-        .set({ createdAt: now, updatedAt: now })
-        .where(eq(memoryItemConflicts.id, conflict.id))
-        .run();
-
-      enqueueResolvePendingConflictsForMessageJob(
-        "msg-conflicts-bg",
-        "scope-conflicts",
-      );
-      const processed = await runMemoryJobsOnce();
-      expect(processed).toBe(1);
-
-      const existing = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-existing"))
-        .get();
-      const candidate = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-candidate"))
-        .get();
-      const updatedConflict = getConflictById(conflict.id);
-
-      expect(existing?.invalidAt).not.toBeNull();
-      expect(existing?.status).toBe("superseded");
-      expect(candidate?.status).toBe("active");
-      expect(updatedConflict?.status).toBe("resolved_keep_candidate");
-      expect(updatedConflict?.resolutionNote).toContain(
-        "Background message resolver",
-      );
-    } finally {
-      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
-    }
-  });
-
-  test("background conflict resolver ignores conflicts created after triggering message", async () => {
-    const db = getDb();
-    const now = 1_700_001_300_000;
-    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
-    TEST_CONFIG.memory.conflicts.enabled = true;
-
-    try {
-      db.insert(conversations)
-        .values({
-          id: "conv-conflicts-age",
-          title: null,
-          createdAt: now,
-          updatedAt: now,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalEstimatedCost: 0,
-          contextSummary: null,
-          contextCompactedMessageCount: 0,
-          contextCompactedAt: null,
-        })
-        .run();
-
-      db.insert(messages)
-        .values({
-          id: "msg-conflicts-age",
-          conversationId: "conv-conflicts-age",
-          role: "user",
-          content: JSON.stringify([
-            { type: "text", text: "Keep the new Bun runtime instead." },
-          ]),
-          createdAt: now + 1,
-        })
-        .run();
-
-      db.insert(memoryItems)
-        .values([
-          {
-            id: "item-conflict-existing-age",
-            kind: "preference",
-            subject: "runtime",
-            statement: "Use Node.js 20 by default.",
-            status: "active",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-existing-age",
-            verificationState: "user_reported",
-            scopeId: "scope-conflicts-age",
-            firstSeenAt: now - 10_000,
-            lastSeenAt: now - 5_000,
-            validFrom: now - 10_000,
-            invalidAt: null,
-          },
-          {
-            id: "item-conflict-candidate-age",
-            kind: "preference",
-            subject: "runtime",
-            statement: "Use Bun by default.",
-            status: "pending_clarification",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-candidate-age",
-            verificationState: "user_reported",
-            scopeId: "scope-conflicts-age",
-            firstSeenAt: now - 9_000,
-            lastSeenAt: now - 4_000,
-            validFrom: now - 9_000,
-            invalidAt: null,
-          },
-        ])
-        .run();
-
-      const conflict = createOrUpdatePendingConflict({
-        scopeId: "scope-conflicts-age",
-        existingItemId: "item-conflict-existing-age",
-        candidateItemId: "item-conflict-candidate-age",
-        relationship: "ambiguous_contradiction",
-      });
-      expect(conflict.createdAt).toBeGreaterThan(now + 1);
-
-      enqueueResolvePendingConflictsForMessageJob(
-        "msg-conflicts-age",
-        "scope-conflicts-age",
-      );
-      const processed = await runMemoryJobsOnce();
-      expect(processed).toBe(1);
-
-      const existing = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-existing-age"))
-        .get();
-      const candidate = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-candidate-age"))
-        .get();
-      const updatedConflict = getConflictById(conflict.id);
-
-      expect(existing?.status).toBe("active");
-      expect(existing?.invalidAt).toBeNull();
-      expect(candidate?.status).toBe("pending_clarification");
-      expect(updatedConflict?.status).toBe("pending_clarification");
-      expect(updatedConflict?.resolutionNote).toBeNull();
-    } finally {
-      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
-    }
-  });
-
-  test("background conflict resolver ignores clarification-like replies with no topical overlap when conflict was never asked", async () => {
-    const db = getDb();
-    const now = 1_700_001_400_000;
-    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
-    TEST_CONFIG.memory.conflicts.enabled = true;
-
-    try {
-      db.insert(conversations)
-        .values({
-          id: "conv-conflicts-unrelated",
-          title: null,
-          createdAt: now,
-          updatedAt: now,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalEstimatedCost: 0,
-          contextSummary: null,
-          contextCompactedMessageCount: 0,
-          contextCompactedAt: null,
-        })
-        .run();
-
-      db.insert(messages)
-        .values({
-          id: "msg-conflicts-unrelated",
-          conversationId: "conv-conflicts-unrelated",
-          role: "user",
-          content: JSON.stringify([
-            { type: "text", text: "Keep the new one instead." },
-          ]),
-          createdAt: now + 1,
-        })
-        .run();
-
-      db.insert(memoryItems)
-        .values([
-          {
-            id: "item-conflict-existing-unrelated",
-            kind: "preference",
-            subject: "database",
-            statement: "Use Postgres by default.",
-            status: "active",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-existing-unrelated",
-            verificationState: "user_reported",
-            scopeId: "scope-conflicts-unrelated",
-            firstSeenAt: now - 10_000,
-            lastSeenAt: now - 5_000,
-            validFrom: now - 10_000,
-            invalidAt: null,
-          },
-          {
-            id: "item-conflict-candidate-unrelated",
-            kind: "preference",
-            subject: "database",
-            statement: "Use MySQL by default.",
-            status: "pending_clarification",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-candidate-unrelated",
-            verificationState: "user_reported",
-            scopeId: "scope-conflicts-unrelated",
-            firstSeenAt: now - 9_000,
-            lastSeenAt: now - 4_000,
-            validFrom: now - 9_000,
-            invalidAt: null,
-          },
-        ])
-        .run();
-
-      const conflict = createOrUpdatePendingConflict({
-        scopeId: "scope-conflicts-unrelated",
-        existingItemId: "item-conflict-existing-unrelated",
-        candidateItemId: "item-conflict-candidate-unrelated",
-        relationship: "ambiguous_contradiction",
-      });
-      db.update(memoryItemConflicts)
-        .set({ createdAt: now, updatedAt: now, lastAskedAt: null })
-        .where(eq(memoryItemConflicts.id, conflict.id))
-        .run();
-
-      enqueueResolvePendingConflictsForMessageJob(
-        "msg-conflicts-unrelated",
-        "scope-conflicts-unrelated",
-      );
-      const processed = await runMemoryJobsOnce();
-      expect(processed).toBe(1);
-
-      const existing = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-existing-unrelated"))
-        .get();
-      const candidate = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-candidate-unrelated"))
-        .get();
-      const updatedConflict = getConflictById(conflict.id);
-
-      expect(existing?.status).toBe("active");
-      expect(existing?.invalidAt).toBeNull();
-      expect(candidate?.status).toBe("pending_clarification");
-      expect(updatedConflict?.status).toBe("pending_clarification");
-      expect(updatedConflict?.resolutionNote).toBeNull();
-    } finally {
-      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
-    }
-  });
-
-  test("background conflict resolver dismisses transient/non-durable conflicts without LLM call", async () => {
-    const db = getDb();
-    const now = 1_700_001_500_000;
-    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
-    TEST_CONFIG.memory.conflicts.enabled = true;
-
-    try {
-      db.insert(conversations)
-        .values({
-          id: "conv-conflicts-transient",
-          title: null,
-          createdAt: now,
-          updatedAt: now,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalEstimatedCost: 0,
-          contextSummary: null,
-          contextCompactedMessageCount: 0,
-          contextCompactedAt: null,
-        })
-        .run();
-
-      db.insert(messages)
-        .values({
-          id: "msg-conflicts-transient",
-          conversationId: "conv-conflicts-transient",
-          role: "user",
-          content: JSON.stringify([
-            { type: "text", text: "Keep the new one instead." },
-          ]),
-          createdAt: now + 1,
-        })
-        .run();
-
-      // Create a transient conflict: PR tracking statements should be dismissed
-      db.insert(memoryItems)
-        .values([
-          {
-            id: "item-conflict-existing-transient",
-            kind: "preference",
-            subject: "pr-tracking",
-            statement: "Currently tracking PR #42 for review.",
-            status: "active",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-existing-transient",
-            verificationState: "assistant_inferred",
-            scopeId: "scope-conflicts-transient",
-            firstSeenAt: now - 10_000,
-            lastSeenAt: now - 5_000,
-            validFrom: now - 10_000,
-            invalidAt: null,
-          },
-          {
-            id: "item-conflict-candidate-transient",
-            kind: "preference",
-            subject: "pr-tracking",
-            statement: "Currently tracking PR #99 for review.",
-            status: "pending_clarification",
-            confidence: 0.8,
-            fingerprint: "fp-conflict-candidate-transient",
-            verificationState: "assistant_inferred",
-            scopeId: "scope-conflicts-transient",
-            firstSeenAt: now - 9_000,
-            lastSeenAt: now - 4_000,
-            validFrom: now - 9_000,
-            invalidAt: null,
-          },
-        ])
-        .run();
-
-      const conflict = createOrUpdatePendingConflict({
-        scopeId: "scope-conflicts-transient",
-        existingItemId: "item-conflict-existing-transient",
-        candidateItemId: "item-conflict-candidate-transient",
-        relationship: "ambiguous_contradiction",
-      });
-      db.update(memoryItemConflicts)
-        .set({ createdAt: now, updatedAt: now })
-        .where(eq(memoryItemConflicts.id, conflict.id))
-        .run();
-
-      enqueueResolvePendingConflictsForMessageJob(
-        "msg-conflicts-transient",
-        "scope-conflicts-transient",
-      );
-      const processed = await runMemoryJobsOnce();
-      expect(processed).toBe(1);
-
-      const updatedConflict = getConflictById(conflict.id);
-      expect(updatedConflict?.status).toBe("dismissed");
-      expect(updatedConflict?.resolutionNote).toContain("conflict policy");
-
-      // Memory items should remain untouched (no LLM resolution was attempted)
-      const existing = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-existing-transient"))
-        .get();
-      const candidate = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "item-conflict-candidate-transient"))
-        .get();
-      expect(existing?.status).toBe("active");
-      expect(candidate?.status).toBe("pending_clarification");
-    } finally {
-      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
-    }
-  });
-
-  test("cleanup job enqueue is deduped and retention overrides upgrade payload", () => {
-    const db = getDb();
-
-    const resolvedFirst = enqueueCleanupResolvedConflictsJob();
-    const resolvedSecond = enqueueCleanupResolvedConflictsJob();
-    expect(resolvedSecond).toBe(resolvedFirst);
-    const resolvedUpgraded = enqueueCleanupResolvedConflictsJob(12_345);
-    expect(resolvedUpgraded).toBe(resolvedFirst);
-
-    const supersededFirst = enqueueCleanupStaleSupersededItemsJob();
-    const supersededSecond = enqueueCleanupStaleSupersededItemsJob();
-    expect(supersededSecond).toBe(supersededFirst);
-    const supersededUpgraded = enqueueCleanupStaleSupersededItemsJob(67_890);
-    expect(supersededUpgraded).toBe(supersededFirst);
-
-    const resolvedRow = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, resolvedFirst))
-      .get();
-    const supersededRow = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, supersededFirst))
-      .get();
-    expect(JSON.parse(resolvedRow?.payload ?? "{}")).toMatchObject({
-      retentionMs: 12_345,
-    });
-    expect(JSON.parse(supersededRow?.payload ?? "{}")).toMatchObject({
-      retentionMs: 67_890,
-    });
-  });
-
-  test("cleanup job enqueue dedupes against running jobs without mutating payload", () => {
-    const db = getDb();
-
-    const resolvedId = enqueueCleanupResolvedConflictsJob(10_000);
-    const supersededId = enqueueCleanupStaleSupersededItemsJob(20_000);
-
-    db.update(memoryJobs)
-      .set({ status: "running" })
-      .where(eq(memoryJobs.id, resolvedId))
-      .run();
-    db.update(memoryJobs)
-      .set({ status: "running" })
-      .where(eq(memoryJobs.id, supersededId))
-      .run();
-
-    const resolvedDedupedId = enqueueCleanupResolvedConflictsJob(11_111);
-    const supersededDedupedId = enqueueCleanupStaleSupersededItemsJob(22_222);
-    expect(resolvedDedupedId).toBe(resolvedId);
-    expect(supersededDedupedId).toBe(supersededId);
-
-    const resolvedRow = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, resolvedId))
-      .get();
-    const supersededRow = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, supersededId))
-      .get();
-    expect(JSON.parse(resolvedRow?.payload ?? "{}")).toMatchObject({
-      retentionMs: 10_000,
-    });
-    expect(JSON.parse(supersededRow?.payload ?? "{}")).toMatchObject({
-      retentionMs: 20_000,
-    });
-  });
-
   test("scheduled cleanup enqueue respects throttle and config retention values", () => {
     const db = getDb();
     const originalCleanup = { ...TEST_CONFIG.memory.cleanup };
     TEST_CONFIG.memory.cleanup.enabled = true;
     TEST_CONFIG.memory.cleanup.enqueueIntervalMs = 1_000;
-    TEST_CONFIG.memory.cleanup.resolvedConflictRetentionMs = 12_345;
     TEST_CONFIG.memory.cleanup.supersededItemRetentionMs = 67_890;
 
     try {
@@ -1675,17 +1125,10 @@ describe("Memory regressions", () => {
       expect(tooSoon).toBe(false);
 
       const jobsAfterFirst = db.select().from(memoryJobs).all();
-      const resolvedJob = jobsAfterFirst.find(
-        (row) => row.type === "cleanup_resolved_conflicts",
-      );
       const supersededJob = jobsAfterFirst.find(
         (row) => row.type === "cleanup_stale_superseded_items",
       );
-      expect(resolvedJob).toBeDefined();
       expect(supersededJob).toBeDefined();
-      expect(JSON.parse(resolvedJob?.payload ?? "{}")).toMatchObject({
-        retentionMs: 12_345,
-      });
       expect(JSON.parse(supersededJob?.payload ?? "{}")).toMatchObject({
         retentionMs: 67_890,
       });
@@ -1695,250 +1138,12 @@ describe("Memory regressions", () => {
       const jobsAfterSecond = db.select().from(memoryJobs).all();
       expect(
         jobsAfterSecond.filter(
-          (row) => row.type === "cleanup_resolved_conflicts",
-        ).length,
-      ).toBe(1);
-      expect(
-        jobsAfterSecond.filter(
           (row) => row.type === "cleanup_stale_superseded_items",
         ).length,
       ).toBe(1);
     } finally {
       TEST_CONFIG.memory.cleanup = originalCleanup;
     }
-  });
-
-  test("cleanup jobs use config retention defaults when payload retention is missing", async () => {
-    const db = getDb();
-    const now = Date.now();
-    const originalCleanup = { ...TEST_CONFIG.memory.cleanup };
-    TEST_CONFIG.memory.cleanup.resolvedConflictRetentionMs = 10_000;
-    TEST_CONFIG.memory.cleanup.supersededItemRetentionMs = 10_000;
-
-    try {
-      db.insert(memoryItems)
-        .values([
-          {
-            id: "cleanup-config-existing",
-            kind: "fact",
-            subject: "stack",
-            statement: "Use Bun",
-            status: "active",
-            confidence: 0.8,
-            fingerprint: "fp-cleanup-config-existing",
-            verificationState: "assistant_inferred",
-            scopeId: "default",
-            firstSeenAt: now - 20_000,
-            lastSeenAt: now - 20_000,
-          },
-          {
-            id: "cleanup-config-candidate",
-            kind: "fact",
-            subject: "stack",
-            statement: "Use Node",
-            status: "pending_clarification",
-            confidence: 0.8,
-            fingerprint: "fp-cleanup-config-candidate",
-            verificationState: "assistant_inferred",
-            scopeId: "default",
-            firstSeenAt: now - 20_000,
-            lastSeenAt: now - 20_000,
-          },
-          {
-            id: "cleanup-config-stale-item",
-            kind: "decision",
-            subject: "deploy strategy",
-            statement: "Manual deploy Fridays.",
-            status: "superseded",
-            confidence: 0.7,
-            fingerprint: "fp-cleanup-config-stale-item",
-            verificationState: "assistant_inferred",
-            scopeId: "default",
-            firstSeenAt: now - 200_000,
-            lastSeenAt: now - 200_000,
-            invalidAt: now - 200_000,
-          },
-        ])
-        .run();
-
-      const conflict = createOrUpdatePendingConflict({
-        scopeId: "default",
-        existingItemId: "cleanup-config-existing",
-        candidateItemId: "cleanup-config-candidate",
-        relationship: "ambiguous_contradiction",
-      });
-      resolveConflict(conflict.id, { status: "resolved_keep_existing" });
-      db.run(`
-        UPDATE memory_item_conflicts
-        SET resolved_at = ${now - 100_000}, updated_at = ${now - 100_000}
-        WHERE id = '${conflict.id}'
-      `);
-
-      enqueueMemoryJob("cleanup_resolved_conflicts", {});
-      enqueueMemoryJob("cleanup_stale_superseded_items", {});
-      const processed = await runMemoryJobsOnce();
-      expect(processed).toBe(2);
-
-      const conflictRow = db
-        .select()
-        .from(memoryItemConflicts)
-        .where(eq(memoryItemConflicts.id, conflict.id))
-        .get();
-      const staleItem = db
-        .select()
-        .from(memoryItems)
-        .where(eq(memoryItems.id, "cleanup-config-stale-item"))
-        .get();
-      expect(conflictRow).toBeUndefined();
-      expect(staleItem).toBeUndefined();
-    } finally {
-      TEST_CONFIG.memory.cleanup = originalCleanup;
-    }
-  });
-
-  test("cleanup_resolved_conflicts removes stale resolved rows but keeps recent/pending", async () => {
-    const db = getDb();
-    const now = Date.now();
-
-    db.insert(memoryItems)
-      .values([
-        {
-          id: "cleanup-conflict-existing-a",
-          kind: "fact",
-          subject: "db",
-          statement: "Use Postgres.",
-          status: "active",
-          confidence: 0.8,
-          fingerprint: "fp-cleanup-conflict-existing-a",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 20_000,
-          lastSeenAt: now - 20_000,
-        },
-        {
-          id: "cleanup-conflict-candidate-a",
-          kind: "fact",
-          subject: "db",
-          statement: "Use MySQL.",
-          status: "pending_clarification",
-          confidence: 0.8,
-          fingerprint: "fp-cleanup-conflict-candidate-a",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 20_000,
-          lastSeenAt: now - 20_000,
-        },
-        {
-          id: "cleanup-conflict-existing-b",
-          kind: "fact",
-          subject: "frontend",
-          statement: "Use React.",
-          status: "active",
-          confidence: 0.8,
-          fingerprint: "fp-cleanup-conflict-existing-b",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 20_000,
-          lastSeenAt: now - 20_000,
-        },
-        {
-          id: "cleanup-conflict-candidate-b",
-          kind: "fact",
-          subject: "frontend",
-          statement: "Use Vue.",
-          status: "pending_clarification",
-          confidence: 0.8,
-          fingerprint: "fp-cleanup-conflict-candidate-b",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 20_000,
-          lastSeenAt: now - 20_000,
-        },
-        {
-          id: "cleanup-conflict-existing-c",
-          kind: "fact",
-          subject: "orm",
-          statement: "Use Drizzle.",
-          status: "active",
-          confidence: 0.8,
-          fingerprint: "fp-cleanup-conflict-existing-c",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 20_000,
-          lastSeenAt: now - 20_000,
-        },
-        {
-          id: "cleanup-conflict-candidate-c",
-          kind: "fact",
-          subject: "orm",
-          statement: "Use Prisma.",
-          status: "pending_clarification",
-          confidence: 0.8,
-          fingerprint: "fp-cleanup-conflict-candidate-c",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 20_000,
-          lastSeenAt: now - 20_000,
-        },
-      ])
-      .run();
-
-    const staleResolved = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "cleanup-conflict-existing-a",
-      candidateItemId: "cleanup-conflict-candidate-a",
-      relationship: "ambiguous_contradiction",
-    });
-    const pendingConflict = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "cleanup-conflict-existing-b",
-      candidateItemId: "cleanup-conflict-candidate-b",
-      relationship: "ambiguous_contradiction",
-    });
-    const recentResolved = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "cleanup-conflict-existing-c",
-      candidateItemId: "cleanup-conflict-candidate-c",
-      relationship: "ambiguous_contradiction",
-      clarificationQuestion: "Recent resolution row",
-    });
-
-    resolveConflict(staleResolved.id, { status: "resolved_keep_existing" });
-    resolveConflict(recentResolved.id, { status: "resolved_keep_candidate" });
-
-    db.run(`
-      UPDATE memory_item_conflicts
-      SET resolved_at = ${now - 100_000}, updated_at = ${now - 100_000}
-      WHERE id = '${staleResolved.id}'
-    `);
-    db.run(`
-      UPDATE memory_item_conflicts
-      SET resolved_at = ${now - 100}, updated_at = ${now - 100}
-      WHERE id = '${recentResolved.id}'
-    `);
-
-    enqueueMemoryJob("cleanup_resolved_conflicts", { retentionMs: 10_000 });
-    const processed = await runMemoryJobsOnce();
-    expect(processed).toBe(1);
-
-    const staleRow = db
-      .select()
-      .from(memoryItemConflicts)
-      .where(eq(memoryItemConflicts.id, staleResolved.id))
-      .get();
-    const pendingRow = db
-      .select()
-      .from(memoryItemConflicts)
-      .where(eq(memoryItemConflicts.id, pendingConflict.id))
-      .get();
-    const recentRow = db
-      .select()
-      .from(memoryItemConflicts)
-      .where(eq(memoryItemConflicts.id, recentResolved.id))
-      .get();
-    expect(staleRow).toBeUndefined();
-    expect(pendingRow?.status).toBe("pending_clarification");
-    expect(recentRow?.status).toBe("resolved_keep_candidate");
   });
 
   test("cleanup_stale_superseded_items removes stale superseded rows, embeddings, and entity links", async () => {
@@ -2070,99 +1275,6 @@ describe("Memory regressions", () => {
     expect(recentEntityLinks).toHaveLength(1);
   });
 
-  test("memory admin status reports pending/resolved conflicts and oldest pending age", () => {
-    const db = getDb();
-    const now = Date.now();
-
-    db.insert(memoryItems)
-      .values([
-        {
-          id: "status-conflict-existing",
-          kind: "fact",
-          subject: "editor",
-          statement: "Use Neovim.",
-          status: "active",
-          confidence: 0.8,
-          fingerprint: "fp-status-existing",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 10_000,
-          lastSeenAt: now - 10_000,
-        },
-        {
-          id: "status-conflict-candidate",
-          kind: "fact",
-          subject: "editor",
-          statement: "Use VS Code.",
-          status: "pending_clarification",
-          confidence: 0.8,
-          fingerprint: "fp-status-candidate",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 10_000,
-          lastSeenAt: now - 10_000,
-        },
-        {
-          id: "status-conflict-existing-2",
-          kind: "fact",
-          subject: "shell",
-          statement: "Use zsh.",
-          status: "active",
-          confidence: 0.8,
-          fingerprint: "fp-status-existing-2",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 10_000,
-          lastSeenAt: now - 10_000,
-        },
-        {
-          id: "status-conflict-candidate-2",
-          kind: "fact",
-          subject: "shell",
-          statement: "Use fish.",
-          status: "pending_clarification",
-          confidence: 0.8,
-          fingerprint: "fp-status-candidate-2",
-          verificationState: "assistant_inferred",
-          scopeId: "default",
-          firstSeenAt: now - 10_000,
-          lastSeenAt: now - 10_000,
-        },
-      ])
-      .run();
-
-    const pending = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "status-conflict-existing",
-      candidateItemId: "status-conflict-candidate",
-      relationship: "ambiguous_contradiction",
-    });
-    const resolved = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: "status-conflict-existing-2",
-      candidateItemId: "status-conflict-candidate-2",
-      relationship: "ambiguous_contradiction",
-      clarificationQuestion: "resolved-row",
-    });
-    resolveConflict(resolved.id, { status: "resolved_merge" });
-
-    db.run(
-      `UPDATE memory_item_conflicts SET created_at = ${
-        now - 5_000
-      } WHERE id = '${pending.id}'`,
-    );
-
-    const status = getMemorySystemStatus();
-    expect(status.conflicts.pending).toBe(1);
-    expect(status.conflicts.resolved).toBe(1);
-    expect(status.conflicts.oldestPendingAgeMs).not.toBeNull();
-    expect((status.conflicts.oldestPendingAgeMs ?? 0) >= 4_000).toBe(true);
-    expect(status.cleanup.resolvedBacklog).toBe(0);
-    expect(status.cleanup.supersededBacklog).toBe(0);
-    expect(status.cleanup.resolvedCompleted24h).toBe(0);
-    expect(status.cleanup.supersededCompleted24h).toBe(0);
-  });
-
   test("memory admin status reports cleanup backlog and 24h throughput metrics", () => {
     const db = getDb();
     const now = Date.now();
@@ -2171,18 +1283,6 @@ describe("Memory regressions", () => {
 
     db.insert(memoryJobs)
       .values([
-        {
-          id: "cleanup-status-pending-resolved",
-          type: "cleanup_resolved_conflicts",
-          payload: "{}",
-          status: "pending",
-          attempts: 0,
-          deferrals: 0,
-          runAfter: now,
-          lastError: null,
-          createdAt: now,
-          updatedAt: now,
-        },
         {
           id: "cleanup-status-running-superseded",
           type: "cleanup_stale_superseded_items",
@@ -2194,18 +1294,6 @@ describe("Memory regressions", () => {
           lastError: null,
           createdAt: now,
           updatedAt: now,
-        },
-        {
-          id: "cleanup-status-completed-resolved-recent",
-          type: "cleanup_resolved_conflicts",
-          payload: "{}",
-          status: "completed",
-          attempts: 1,
-          deferrals: 0,
-          runAfter: yesterday,
-          lastError: null,
-          createdAt: yesterday,
-          updatedAt: yesterday,
         },
         {
           id: "cleanup-status-completed-superseded-recent",
@@ -2220,8 +1308,8 @@ describe("Memory regressions", () => {
           updatedAt: yesterday,
         },
         {
-          id: "cleanup-status-completed-resolved-old",
-          type: "cleanup_resolved_conflicts",
+          id: "cleanup-status-completed-superseded-old",
+          type: "cleanup_stale_superseded_items",
           payload: "{}",
           status: "completed",
           attempts: 1,
@@ -2235,29 +1323,20 @@ describe("Memory regressions", () => {
       .run();
 
     const status = getMemorySystemStatus();
-    expect(status.cleanup.resolvedBacklog).toBe(1);
     expect(status.cleanup.supersededBacklog).toBe(1);
-    expect(status.cleanup.resolvedCompleted24h).toBe(1);
     expect(status.cleanup.supersededCompleted24h).toBe(1);
   });
 
-  test("requestMemoryCleanup queues both cleanup job types", () => {
+  test("requestMemoryCleanup queues cleanup job", () => {
     const db = getDb();
     const queued = requestMemoryCleanup(9_999);
-    expect(queued.resolvedConflictsJobId).toBeTruthy();
     expect(queued.staleSupersededItemsJobId).toBeTruthy();
 
-    const resolvedRow = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, queued.resolvedConflictsJobId))
-      .get();
     const supersededRow = db
       .select()
       .from(memoryJobs)
       .where(eq(memoryJobs.id, queued.staleSupersededItemsJobId))
       .get();
-    expect(resolvedRow?.type).toBe("cleanup_resolved_conflicts");
     expect(supersededRow?.type).toBe("cleanup_stale_superseded_items");
   });
 
@@ -5385,7 +4464,7 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // No extract_items or resolve_conflicts jobs should be enqueued
+    // No extract_items jobs should be enqueued
     const extractJobs = db
       .select()
       .from(memoryJobs)
@@ -5394,7 +4473,7 @@ describe("Memory regressions", () => {
       .filter((j) => JSON.parse(j.payload).messageId === "msg-untrusted-gate");
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0), no conflict (0)
+    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
     const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
     expect(result.enqueuedJobs).toBe(expectedJobs);
   });
@@ -5453,8 +4532,8 @@ describe("Memory regressions", () => {
       .filter((j) => JSON.parse(j.payload).messageId === "msg-trusted-gate");
     expect(extractJobs.length).toBe(1);
 
-    // enqueuedJobs: embed per segment + extract_items (counts as 2: extract + summary) + conflict
-    // For user role: shouldExtract=true, shouldResolveConflicts=true (if enabled)
+    // enqueuedJobs: embed per segment + extract_items (counts as 2: extract + summary)
+    // For user role: shouldExtract=true
     expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
@@ -5576,7 +4655,7 @@ describe("Memory regressions", () => {
       .filter((j) => JSON.parse(j.payload).messageId === "msg-unverified-gate");
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0), no conflict (0)
+    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
     const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
     expect(result.enqueuedJobs).toBe(expectedJobs);
   });

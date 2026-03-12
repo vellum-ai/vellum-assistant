@@ -18,7 +18,6 @@ import { extractTextFromStoredMessageContent } from "./message-content.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
 import {
-  memoryItemConflicts,
   memoryItems,
   memoryItemSources,
   messages,
@@ -515,12 +514,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
         verificationState === "user_reported"
           ? "user_reported"
           : existing.verificationState;
-      // Preserve pending_clarification if this item has an unresolved conflict
-      effectiveStatus =
-        existing.status === "pending_clarification" &&
-        hasPendingConflict(existing.id)
-          ? "pending_clarification"
-          : "active";
+      effectiveStatus = "active";
       db.update(memoryItems)
         .set({
           status: effectiveStatus,
@@ -668,11 +662,6 @@ export async function extractAndUpsertMemoryItemsForMessage(
       .run();
 
     enqueueMemoryJob("embed_item", { itemId: memoryItemId });
-
-    // Queue contradiction check for newly inserted items
-    if (!existing) {
-      enqueueMemoryJob("check_contradictions", { itemId: memoryItemId });
-    }
   }
 
   log.debug(
@@ -815,19 +804,3 @@ function parseScore(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** Returns true if the given memory item is the candidate in an unresolved conflict. */
-function hasPendingConflict(itemId: string): boolean {
-  const db = getDb();
-  const row = db
-    .select({ id: memoryItemConflicts.id })
-    .from(memoryItemConflicts)
-    .where(
-      and(
-        eq(memoryItemConflicts.candidateItemId, itemId),
-        eq(memoryItemConflicts.status, "pending_clarification"),
-      ),
-    )
-    .limit(1)
-    .get();
-  return row != null;
-}

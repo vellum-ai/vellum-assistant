@@ -5,12 +5,10 @@ import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
-import {
-  enqueueMemoryJob,
-  enqueueResolvePendingConflictsForMessageJob,
-} from "./jobs-store.js";
+import { enqueueMemoryJob } from "./jobs-store.js";
 import {
   extractMediaBlocks,
   extractTextFromStoredMessageContent,
@@ -19,6 +17,8 @@ import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
+const SUMMARY_JOB_CHECKPOINT_KEY = "memory:summary_jobs:last_scheduled_at";
+const SUMMARY_SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export interface IndexMessageInput {
   messageId: string;
@@ -71,9 +71,6 @@ export function indexMessageNow(
   const shouldExtract =
     input.role === "user" ||
     (input.role === "assistant" && config.extraction.extractFromAssistant);
-  const shouldResolveConflicts =
-    input.role === "user" && config.conflicts.enabled;
-
   // Check if the resolved embedding backend supports multimodal input.
   // Only enqueue embed_attachment jobs when it does (currently Gemini only).
   const supportsMultimodal = selectedBackendSupportsMultimodal(getConfig());
@@ -148,13 +145,6 @@ export function indexMessageNow(
         tx,
       );
     }
-    if (shouldResolveConflicts && isTrustedActor) {
-      enqueueResolvePendingConflictsForMessageJob(
-        input.messageId,
-        input.scopeId ?? "default",
-        tx,
-      );
-    }
     enqueueMemoryJob(
       "build_conversation_summary",
       { conversationId: input.conversationId },
@@ -169,19 +159,20 @@ export function indexMessageNow(
     );
   }
 
-  if (!isTrustedActor && (shouldExtract || shouldResolveConflicts)) {
+  if (!isTrustedActor && shouldExtract) {
     log.info(
-      `Skipping extraction/conflict jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
+      `Skipping extraction jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
     );
   }
+
+  enqueueSummaryRollupJobsIfDue();
 
   const extractionGated = !isTrustedActor;
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +
     mediaBlocks.length +
-    (shouldExtract && !extractionGated ? 2 : 1) +
-    (shouldResolveConflicts && !extractionGated ? 1 : 0);
+    (shouldExtract && !extractionGated ? 2 : 1);
   return {
     indexedSegments: segments.length,
     enqueuedJobs,
@@ -208,6 +199,19 @@ export function getRecentSegmentsForConversation(
     .orderBy(desc(memorySegments.createdAt))
     .limit(limit)
     .all();
+}
+
+function enqueueSummaryRollupJobsIfDue(): void {
+  const now = Date.now();
+  const raw = getMemoryCheckpoint(SUMMARY_JOB_CHECKPOINT_KEY);
+  const last = raw ? Number.parseInt(raw, 10) : 0;
+  if (Number.isFinite(last) && now - last < SUMMARY_SCHEDULE_INTERVAL_MS)
+    return;
+
+  enqueueMemoryJob("refresh_weekly_summary", {});
+  enqueueMemoryJob("refresh_monthly_summary", {});
+  setMemoryCheckpoint(SUMMARY_JOB_CHECKPOINT_KEY, String(now));
+  log.debug("Scheduled periodic global summary jobs");
 }
 
 function buildSegmentId(messageId: string, segmentIndex: number): string {

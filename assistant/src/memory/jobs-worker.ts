@@ -7,14 +7,9 @@ import {
   backfillJob,
 } from "./job-handlers/backfill.js";
 import {
-  checkContradictionsJob,
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
 } from "./job-handlers/cleanup.js";
-import {
-  cleanupResolvedConflictsJob,
-  resolvePendingConflictsForMessageJob,
-} from "./job-handlers/conflict.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
@@ -43,7 +38,6 @@ import {
   claimMemoryJobs,
   completeMemoryJob,
   deferMemoryJob,
-  enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
   enqueuePruneOldConversationsJob,
   failMemoryJob,
@@ -287,20 +281,11 @@ async function processJob(
     case "extract_entities":
       await extractEntitiesJob(job, config);
       return;
-    case "resolve_pending_conflicts_for_message":
-      await resolvePendingConflictsForMessageJob(job, config);
-      return;
-    case "cleanup_resolved_conflicts":
-      cleanupResolvedConflictsJob(job, config);
-      return;
     case "cleanup_stale_superseded_items":
       cleanupStaleSupersededItemsJob(job, config);
       return;
     case "prune_old_conversations":
       pruneOldConversationsJob(job, config);
-      return;
-    case "check_contradictions":
-      await checkContradictionsJob(job);
       return;
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
@@ -355,9 +340,6 @@ export function maybeEnqueueScheduledCleanupJobs(
   if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs)
     return false;
 
-  const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(
-    cleanup.resolvedConflictRetentionMs,
-  );
   const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(
     cleanup.supersededItemRetentionMs,
   );
@@ -368,11 +350,9 @@ export function maybeEnqueueScheduledCleanupJobs(
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
-      resolvedConflictsJobId,
       staleSupersededItemsJobId,
       pruneConversationsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
-      resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
       supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
     },

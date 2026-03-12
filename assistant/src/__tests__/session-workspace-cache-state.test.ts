@@ -143,27 +143,10 @@ mock.module("../context/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module("../memory/conflict-store.js", () => ({
-  listPendingConflictDetails: () => [],
-  applyConflictResolution: () => true,
-}));
-
-mock.module("../memory/clarification-resolver.js", () => ({
-  resolveConflictClarification: async () => ({
-    resolution: "still_unclear",
-    strategy: "heuristic",
-    resolvedStatement: null,
-    explanation: "Need user clarification.",
-  }),
-}));
-
 mock.module("../memory/admin.js", () => ({
-  getMemoryConflictAndCleanupStats: () => ({
-    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+  getMemoryCleanupStats: () => ({
     cleanup: {
-      resolvedBacklog: 0,
       supersededBacklog: 0,
-      resolvedCompleted24h: 0,
       supersededCompleted24h: 0,
     },
   }),
