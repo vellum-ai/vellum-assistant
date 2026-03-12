@@ -8,6 +8,7 @@ interface TextInputProps {
   onSubmit?: (value: string) => void;
   onHistoryUp?: () => void;
   onHistoryDown?: () => void;
+  completionCommands?: string[];
   focus?: boolean;
   placeholder?: string;
 }
@@ -18,11 +19,16 @@ function TextInput({
   onSubmit,
   onHistoryUp,
   onHistoryDown,
+  completionCommands,
   focus = true,
   placeholder = "",
 }: TextInputProps): ReactElement {
   const cursorOffsetRef = useRef(value.length);
   const valueRef = useRef(value);
+
+  // Tab completion state
+  const [completionIndex, setCompletionIndex] = useState(-1);
+  const [completionMatches, setCompletionMatches] = useState<string[]>([]);
 
   valueRef.current = value;
 
@@ -32,27 +38,117 @@ function TextInput({
 
   const [, setRenderTick] = useState(0);
 
+  const clearCompletion = () => {
+    setCompletionIndex(-1);
+    setCompletionMatches([]);
+  };
+
+  const getMatches = (text: string): string[] => {
+    if (!completionCommands || !text.startsWith("/") || text.includes(" ")) {
+      return [];
+    }
+    const prefix = text.toLowerCase();
+    return completionCommands.filter((cmd) =>
+      cmd.toLowerCase().startsWith(prefix),
+    );
+  };
+
   useInput(
     (input, key) => {
       if (key.upArrow && !key.shift && !key.meta) {
+        clearCompletion();
         onHistoryUp?.();
         cursorOffsetRef.current = Infinity;
         setRenderTick((t) => t + 1);
         return;
       }
       if (key.downArrow && !key.shift && !key.meta) {
+        clearCompletion();
         onHistoryDown?.();
         cursorOffsetRef.current = Infinity;
         setRenderTick((t) => t + 1);
         return;
       }
-      if ((key.ctrl && input === "c") || key.tab || (key.shift && key.tab)) {
+      if (key.ctrl && input === "c") {
         return;
       }
 
-      if (key.return) {
-        onSubmit?.(valueRef.current);
+      // Tab completion handling
+      if (key.tab) {
+        const currentValue = valueRef.current;
+
+        if (completionMatches.length > 0) {
+          // Already in completion mode — cycle through matches
+          const direction = key.shift ? -1 : 1;
+          const nextIndex =
+            (completionIndex + direction + completionMatches.length) %
+            completionMatches.length;
+          setCompletionIndex(nextIndex);
+
+          const completed = completionMatches[nextIndex]!;
+          valueRef.current = completed;
+          cursorOffsetRef.current = completed.length;
+          onChange(completed);
+          setRenderTick((t) => t + 1);
+          return;
+        }
+
+        // Start completion mode
+        const matches = getMatches(currentValue);
+        if (matches.length === 1) {
+          // Single match — accept immediately with trailing space
+          const completed = matches[0]! + " ";
+          valueRef.current = completed;
+          cursorOffsetRef.current = completed.length;
+          onChange(completed);
+          setRenderTick((t) => t + 1);
+        } else if (matches.length > 1) {
+          setCompletionMatches(matches);
+          const idx = key.shift ? matches.length - 1 : 0;
+          setCompletionIndex(idx);
+
+          const completed = matches[idx]!;
+          valueRef.current = completed;
+          cursorOffsetRef.current = completed.length;
+          onChange(completed);
+          setRenderTick((t) => t + 1);
+        }
         return;
+      }
+
+      // Escape cancels completion mode
+      if (key.escape) {
+        if (completionMatches.length > 0) {
+          clearCompletion();
+          setRenderTick((t) => t + 1);
+          return;
+        }
+      }
+
+      // Enter accepts completion and submits
+      if (key.return) {
+        if (completionMatches.length > 0) {
+          // Append trailing space so the command is recognized by handleInput
+          const completed = valueRef.current + " ";
+          valueRef.current = completed;
+          cursorOffsetRef.current = completed.length;
+          onChange(completed);
+          clearCompletion();
+          onSubmit?.(completed);
+        } else {
+          clearCompletion();
+          onSubmit?.(valueRef.current);
+        }
+        return;
+      }
+
+      // Space accepts completion, then continues editing
+      if (input === " " && completionMatches.length > 0) {
+        clearCompletion();
+        // Let the space be inserted normally below
+      } else if (completionMatches.length > 0) {
+        // Any other key exits completion mode
+        clearCompletion();
       }
 
       const currentValue = valueRef.current;
@@ -114,6 +210,14 @@ function TextInput({
   );
 
   const cursorOffset = cursorOffsetRef.current;
+  const isCompleting = completionMatches.length > 0;
+
+  // Build completion hint text
+  let completionHint = "";
+  if (isCompleting && completionMatches.length > 1) {
+    completionHint = ` [${completionIndex + 1}/${completionMatches.length}]`;
+  }
+
   let renderedValue: string;
   let renderedPlaceholder: string | undefined;
 
@@ -132,6 +236,9 @@ function TextInput({
       }
       if (cursorOffset === value.length) {
         renderedValue += chalk.inverse(" ");
+      }
+      if (completionHint) {
+        renderedValue += chalk.grey(completionHint);
       }
     } else {
       renderedValue = chalk.inverse(" ");

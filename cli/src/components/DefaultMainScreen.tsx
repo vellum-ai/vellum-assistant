@@ -2276,6 +2276,7 @@ function ChatApp({
               onSubmit={handleSubmit}
               onHistoryUp={handleHistoryUp}
               onHistoryDown={handleHistoryDown}
+              completionCommands={SLASH_COMMANDS}
               focus={inputFocused}
             />
           </Box>
