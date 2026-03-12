@@ -115,6 +115,22 @@ When shipping a release with user/assistant-facing changes, update `assistant/sr
 
 - **[`vellum-assistant-platform`](../vellum-assistant-platform)** — Django backend that manages platform-hosted ("managed") assistants. Handles authentication (WorkOS OIDC), organization management, assistant lifecycle, and runtime proxying. The desktop app authenticates against it and proxies all runtime traffic through it. Stack: Python 3.14, Django, DRF, PostgreSQL, Redis/Valkey. See `../vellum-assistant-platform/AGENTS.md` for development instructions.
 
+## Sentry & Linear Integration
+
+The Sentry organization is `vellum` (region: `us.sentry.io`, URL: `vellum.sentry.io`). Two projects exist: `vellum-assistant-brain` (daemon/runtime) and `vellum-assistant-macos` (desktop app).
+
+**Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`. The [sentry-cli skill](https://github.com/vellum-ai/claude-skills/tree/main/skills/sentry-cli) documents all available commands. Use `sentry api` for raw API calls.
+
+**Linking Sentry ↔ Linear**: Linear is installed as a Sentry App (third-party), not a first-party integration. It lives under `/sentry-app-installations/` (UUID: `d72b980e-5340-4284-a381-095feeb37905`), not `/integrations/`. To link a Sentry issue to a Linear issue:
+
+```bash
+sentry api '/sentry-app-installations/d72b980e-5340-4284-a381-095feeb37905/external-issues/' \
+  --method POST \
+  -d '{"issueId": "<sentry_issue_id>", "webUrl": "<linear_issue_url>", "displayName": "<linear_identifier>", "identifier": "<linear_identifier>", "project": "<sentry_project_slug>"}'
+```
+
+For the reverse direction (Linear → Sentry), use `mcp__linear-server__save_issue` with a `links` attachment containing the Sentry issue URL.
+
 ## See Also
 
 - **HTTP API patterns & new endpoints**: `assistant/src/runtime/AGENTS.md`
