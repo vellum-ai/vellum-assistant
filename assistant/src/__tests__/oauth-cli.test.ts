@@ -676,6 +676,31 @@ describe("assistant oauth connections connect <provider-key>", () => {
     expect(stdout).toContain("Connected");
   });
 
+  test("completes interactive flow and returns JSON with --json flag", async () => {
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: false,
+      grantedScopes: ["read"],
+      accountInfo: "user@example.com",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:gmail",
+      "--client-id",
+      "test-id",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({
+      ok: true,
+      grantedScopes: ["read"],
+      accountInfo: "user@example.com",
+    });
+  });
+
   test("returns auth URL in url-only mode (JSON)", async () => {
     mockOrchestrateOAuthConnect = async () => ({
       success: true,
