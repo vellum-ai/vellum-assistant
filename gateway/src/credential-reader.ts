@@ -156,14 +156,13 @@ function getBrokerTokenPath(): string {
 /**
  * Try to read a credential from the keychain broker over its Unix domain socket.
  * Uses a native UDS connection (no external process spawn).
- * Returns `undefined` if the broker is unavailable, the socket env var is unset,
+ * Returns `undefined` if the broker is unavailable, the socket file doesn't exist,
  * the token file is missing, or the broker doesn't have the requested key.
  */
 async function readBrokerCredential(
   account: string,
 ): Promise<string | undefined> {
-  const socketPath = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
-  if (!socketPath) return undefined;
+  const socketPath = join(getRootDir(), "keychain-broker.sock");
 
   // Check socket file exists before attempting connection — createConnection
   // can throw synchronously in some runtimes (e.g. Bun) for ENOENT.
