@@ -26,16 +26,20 @@ extension HTTPTransport {
                 Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
             } else if let msg = message as? SessionCreateMessage {
-                // For HTTP transport, session creation is implicit — the conversationKey
-                // acts as the session. Emit a synthetic session_info so ChatViewModel
-                // records the session ID.
-                let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
-                self.activeLocalSessionId = sessionId
-                self.remoteSessionId = nil  // Reset — will be learned from the first SSE event
-                let info = ServerMessage.sessionInfo(
-                    SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
-                )
-                self.onMessage?(info)
+                // Create a real conversation on the daemon and use its conversationId
+                // as the session ID. This ensures the client and daemon agree on the
+                // session ID from the start — no remapping needed.
+                Task {
+                    let conversationKey = "vellum:\(UUID().uuidString)"
+                    let realSessionId = await self.createConversation(conversationKey: conversationKey)
+                    let sessionId = realSessionId ?? UUID().uuidString
+                    // Track the conversationKey for this session so sendMessage can route correctly
+                    self.conversationKeysBySessionId[sessionId] = conversationKey
+                    let info = ServerMessage.sessionInfo(
+                        SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
+                    )
+                    self.onMessage?(info)
+                }
                 return true
             } else if let msg = message as? SessionListRequestMessage {
                 Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }

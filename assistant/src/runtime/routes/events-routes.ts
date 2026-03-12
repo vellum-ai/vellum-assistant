@@ -26,10 +26,14 @@ import type { RouteDefinition } from "../http-router.js";
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
- * Stream assistant events as Server-Sent Events for a specific conversation.
+ * Stream assistant events as Server-Sent Events.
  *
  * Query params:
- *   conversationKey -- required; scopes the stream to one conversation.
+ *   conversationKey -- optional; when present, scopes the stream to one
+ *                      conversation.  When absent, subscribes to ALL events
+ *                      for the daemon's internal assistant (used by desktop
+ *                      clients that multiplex threads over a single SSE
+ *                      connection).
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
@@ -56,15 +60,22 @@ export function handleSubscribeAssistantEvents(
   // scope and principal type requirements.
 
   const conversationKey = url.searchParams.get("conversationKey");
-  if (!conversationKey) {
-    return httpError("BAD_REQUEST", "conversationKey is required", 400);
-  }
 
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
-  const mapping = getOrCreateConversation(conversationKey);
+  // When conversationKey is provided, scope events to that conversation
+  // (backwards-compatible for non-desktop channels). When absent, subscribe
+  // to ALL events for the assistant (desktop multiplexed SSE).
+  const subscriptionFilter: { assistantId: string; sessionId?: string } = {
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+  };
+  if (conversationKey) {
+    const mapping = getOrCreateConversation(conversationKey);
+    subscriptionFilter.sessionId = mapping.conversationId;
+  }
+
   const encoder = new TextEncoder();
 
   // -- Eager subscribe --------------------------------------------------------
@@ -90,10 +101,7 @@ export function handleSubscribeAssistantEvents(
 
   try {
     sub = hub.subscribe(
-      {
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-        sessionId: mapping.conversationId,
-      },
+      subscriptionFilter,
       (event) => {
         const controller = controllerRef;
         if (!controller) return;

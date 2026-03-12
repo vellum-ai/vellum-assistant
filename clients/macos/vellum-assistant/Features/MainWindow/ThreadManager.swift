@@ -51,6 +51,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     } catch {
                         log.error("Failed to send session switch request: \(error)")
                     }
+                    // Update the conversation key for the active thread so that
+                    // fallback operations route to the correct conversation.
+                    daemonClient.switchConversationKey(sessionId)
                 }
             } else {
                 // Only clear the persisted thread ID outside of restoration.

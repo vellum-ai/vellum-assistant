@@ -70,11 +70,9 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        // The abort endpoint requires a sessionId in the body
-        var body: [String: Any] = [:]
-        if let sessionId = activeLocalSessionId {
-            body["sessionId"] = sessionId
-        }
+        // The abort endpoint requires a sessionId in the body.
+        // conversationKey holds the active thread's sessionId after switchConversationKey().
+        let body: [String: Any] = ["sessionId": conversationKey]
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -106,10 +104,7 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        var body: [String: Any] = ["content": content]
-        if let sessionId = activeLocalSessionId {
-            body["sessionId"] = sessionId
-        }
+        let body: [String: Any] = ["content": content, "sessionId": conversationKey]
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

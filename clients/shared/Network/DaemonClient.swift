@@ -98,6 +98,7 @@ public protocol DaemonClientProtocol {
     func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
     func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
+    func switchConversationKey(_ newKey: String)
 }
 
 extension DaemonClientProtocol {
@@ -115,6 +116,9 @@ extension DaemonClientProtocol {
     public func sendBtwMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { $0.finish() }
     }
+
+    /// Default no-op implementation for switching conversation keys.
+    public func switchConversationKey(_ newKey: String) {}
 }
 
 // MARK: - Usage Response Models

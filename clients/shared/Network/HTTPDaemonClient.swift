@@ -104,7 +104,7 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let conversationKey: String
+    private(set) var conversationKey: String
     private let sourceChannel: String
     let transportMetadata: TransportMetadata
 
@@ -172,14 +172,10 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
-    /// The local session ID used by the client (set from the synthetic session_info).
-    /// Used to remap the daemon's internal conversation ID to the client's session ID
-    /// so that ChatViewModel's belongsToSession() filter passes.
-    var activeLocalSessionId: String?
-
-    /// The daemon's internal conversation ID, learned from the first SSE event.
-    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
-    var remoteSessionId: String?
+    /// Maps sessionId (daemon conversationId) → conversationKey for per-thread routing.
+    /// Populated when a new conversation is created; used by sendMessage to route
+    /// messages to the correct daemon conversation.
+    var conversationKeysBySessionId: [String: String] = [:]
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
@@ -246,9 +242,10 @@ public final class HTTPTransport {
     /// identity are modelled as associated values.
     enum Endpoint {
         case healthz
-        case events(conversationKey: String)
+        case events
         case sendMessage
         case getMessages(conversationId: String?)
+        case conversationsCreate
         case conversations(limit: Int, offset: Int)
         case confirm
         case secret
@@ -457,9 +454,8 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("/healthz", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("/v1/events", "conversationKey=\(encoded)")
+        case .events:
+            return ("/v1/events", nil)
         case .sendMessage:
             return ("/v1/messages", nil)
         case .getMessages(let conversationId):
@@ -468,6 +464,8 @@ public final class HTTPTransport {
                 return ("/v1/messages", "conversationId=\(encoded)")
             }
             return ("/v1/messages", nil)
+        case .conversationsCreate:
+            return ("/v1/conversations/create", nil)
         case .conversations(let limit, let offset):
             return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
         case .confirm:
@@ -843,9 +841,8 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("\(prefix)/healthz/", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("\(prefix)/events/", "conversationKey=\(encoded)")
+        case .events:
+            return ("\(prefix)/events/", nil)
         case .sendMessage:
             return ("\(prefix)/messages/", nil)
         case .getMessages(let conversationId):
@@ -854,6 +851,8 @@ public final class HTTPTransport {
                 return ("\(prefix)/messages/", "conversationId=\(encoded)")
             }
             return ("\(prefix)/messages/", nil)
+        case .conversationsCreate:
+            return ("\(prefix)/conversations/create/", nil)
         case .conversations(let limit, let offset):
             return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
         case .confirm:
@@ -1302,6 +1301,42 @@ public final class HTTPTransport {
         }
     }
 
+    // MARK: - Per-Thread Conversation Management
+
+    /// Set the active conversation key (used as fallback for thread switching).
+    func switchConversationKey(_ newKey: String) {
+        self.conversationKey = newKey
+    }
+
+    /// Create a conversation on the daemon for the given conversationKey, returning
+    /// the daemon's internal conversationId. Used during session creation to get the
+    /// real session ID before emitting session_info.
+    func createConversation(conversationKey: String) async -> String? {
+        guard let url = buildURL(for: .conversationsCreate) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["conversationKey": conversationKey]
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                log.error("createConversation failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return nil
+            }
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let conversationId = json["conversationId"] as? String {
+                return conversationId
+            }
+        } catch {
+            log.error("createConversation error: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
     // MARK: - SSE Stream (on demand)
 
     /// Start the SSE event stream. Call when a chat window opens.
@@ -1346,8 +1381,8 @@ public final class HTTPTransport {
     private func startSSEStream() {
         sseTask?.cancel()
 
-        guard let url = buildURL(for: .events(conversationKey: self.conversationKey)) else {
-            log.error("Invalid SSE URL for conversationKey: \(self.conversationKey)")
+        guard let url = buildURL(for: .events) else {
+            log.error("Invalid SSE URL")
             return
         }
 
@@ -1422,46 +1457,7 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
-        // Remap the daemon's internal session/conversation ID to the client's
-        // local session ID so that ChatViewModel.belongsToSession() passes.
-        // The daemon assigns its own UUID via getOrCreateConversation(), which
-        // differs from the correlationId the client uses as sessionId.
-        var jsonString = data
-        if let localId = activeLocalSessionId {
-            if remoteSessionId == nil {
-                // Learn the daemon's session ID from the first event envelope.
-                if let eventData = data.data(using: .utf8),
-                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
-                   let eventSessionId = envelope.sessionId,
-                   eventSessionId != localId {
-                    remoteSessionId = eventSessionId
-                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
-                }
-            }
-            if let remoteId = remoteSessionId {
-                // Replace only the sessionId JSON value — not arbitrary occurrences
-                // of the UUID elsewhere in the payload. Handle both compact
-                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\":\"\(remoteId)\"",
-                    with: "\"sessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\": \"\(remoteId)\"",
-                    with: "\"sessionId\": \"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\":\"\(remoteId)\"",
-                    with: "\"parentSessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\": \"\(remoteId)\"",
-                    with: "\"parentSessionId\": \"\(localId)\""
-                )
-            }
-        }
-
-        guard let jsonData = jsonString.data(using: .utf8) else { return }
+        guard let jsonData = data.data(using: .utf8) else { return }
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
@@ -1596,11 +1592,19 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
+        // Look up the per-thread conversationKey. For restored threads (no mapping),
+        // send conversationId directly so the daemon uses the existing conversation.
+        let threadKey = conversationKeysBySessionId[sessionId]
         var body: [String: Any] = [
-            "conversationKey": conversationKey,
             "sourceChannel": sourceChannel,
             "interface": Self.defaultInterface
         ]
+        if let threadKey {
+            body["conversationKey"] = threadKey
+        } else {
+            // Restored thread: use conversationId (sessionId IS the daemon's conversationId)
+            body["conversationId"] = sessionId
+        }
         if let content, !content.isEmpty {
             body["content"] = content
         }

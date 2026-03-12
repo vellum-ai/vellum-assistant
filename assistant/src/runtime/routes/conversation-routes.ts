@@ -487,6 +487,7 @@ export async function handleSendMessage(
 ): Promise<Response> {
   const body = (await req.json()) as {
     conversationKey?: string;
+    conversationId?: string;
     content?: string;
     attachmentIds?: string[];
     sourceChannel?: string;
@@ -523,8 +524,12 @@ export async function handleSendMessage(
     );
   }
 
-  if (!conversationKey) {
-    return httpError("BAD_REQUEST", "conversationKey is required", 400);
+  if (!conversationKey && !body.conversationId) {
+    return httpError(
+      "BAD_REQUEST",
+      "conversationKey or conversationId is required",
+      400,
+    );
   }
 
   // Reject non-string content values (numbers, objects, etc.)
@@ -589,7 +594,11 @@ export async function handleSendMessage(
     );
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
+  // Resolve the conversation: prefer conversationId (direct lookup for restored
+  // threads) over conversationKey (key-based lookup/create for new threads).
+  const mapping = body.conversationId
+    ? { conversationId: body.conversationId, created: false }
+    : getOrCreateConversation(conversationKey!);
   const smDeps = deps.sendMessageDeps;
   const session = await smDeps.getOrCreateSession(mapping.conversationId);
 
@@ -687,6 +696,7 @@ export async function handleSendMessage(
       return Response.json(
         {
           accepted: true,
+          conversationId: mapping.conversationId,
           ...(inlineReplyResult.messageId
             ? { messageId: inlineReplyResult.messageId }
             : {}),
@@ -751,7 +761,10 @@ export async function handleSendMessage(
       pendingInteractions.removeBySession(session);
     }
 
-    return Response.json({ accepted: true, queued: true }, { status: 202 });
+    return Response.json(
+      { accepted: true, queued: true, conversationId: mapping.conversationId },
+      { status: 202 },
+    );
   }
 
   // Session is idle — persist and fire agent loop immediately
@@ -832,7 +845,11 @@ export async function handleSendMessage(
       });
 
       return Response.json(
-        { accepted: true, messageId: persisted.id },
+        {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        },
         { status: 202 },
       );
     } finally {
@@ -874,7 +891,10 @@ export async function handleSendMessage(
       );
     });
 
-  return Response.json({ accepted: true, messageId }, { status: 202 });
+  return Response.json(
+    { accepted: true, messageId, conversationId: mapping.conversationId },
+    { status: 202 },
+  );
 }
 
 async function generateLlmSuggestion(
@@ -1077,6 +1097,30 @@ export function handleSearchConversations(url: URL): Response {
   return Response.json({ query, results });
 }
 
+/**
+ * POST /v1/conversations/create
+ *
+ * Create (or look up) a conversation by conversationKey upfront, without
+ * sending a message. Returns the daemon's internal conversationId so clients
+ * can use it as a real session ID from the start.
+ */
+export async function handleCreateConversation(
+  req: Request,
+): Promise<Response> {
+  const body = (await req.json()) as { conversationKey?: string };
+  const { conversationKey } = body;
+
+  if (!conversationKey || typeof conversationKey !== "string") {
+    return httpError("BAD_REQUEST", "conversationKey is required", 400);
+  }
+
+  const mapping = getOrCreateConversation(conversationKey);
+  return Response.json({
+    conversationId: mapping.conversationId,
+    created: mapping.created,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -1106,6 +1150,11 @@ export function conversationRouteDefinitions(deps: {
           },
           authContext,
         ),
+    },
+    {
+      endpoint: "conversations/create",
+      method: "POST",
+      handler: async ({ req }) => handleCreateConversation(req),
     },
     {
       endpoint: "search",

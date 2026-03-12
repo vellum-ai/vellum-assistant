@@ -21,8 +21,11 @@ extension ChatViewModel {
     func belongsToSession(_ messageSessionId: String?) -> Bool {
         guard let messageSessionId else { return true }
         guard let sessionId else {
-            // No session established yet — accept all messages
-            return true
+            // No session established yet — reject until bootstrapped.
+            // With per-thread conversation keys, session_info (with real ID)
+            // arrives before any events are sent, so this prevents cross-thread
+            // event leakage during bootstrap.
+            return false
         }
         return messageSessionId == sessionId
     }
