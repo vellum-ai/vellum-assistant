@@ -718,7 +718,7 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.disableModelInvocation).toBe(true);
   });
 
-  test("computer-use skill has a valid tool manifest with 12 tools", () => {
+  test("computer-use skill has a valid tool manifest with 11 tools", () => {
     const catalog = loadSkillCatalog();
     const cuSkill = catalog.find((s) => s.id === "computer-use");
     expect(cuSkill).toBeDefined();
