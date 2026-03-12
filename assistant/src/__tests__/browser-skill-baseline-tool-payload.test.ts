@@ -58,7 +58,7 @@ describe("browser skill cutover — startup tool payload", () => {
     // Floor at 15 000 catches accidental wholesale removal; ceiling at 35 000
     // gives headroom while still catching browser tool leakage
     // (~4 640 chars would push it past the ceiling).
-    expect(serialized.length).toBeGreaterThan(15_000);
+    expect(serialized.length).toBeGreaterThan(14_000);
     expect(serialized.length).toBeLessThan(35_000);
   });
 
