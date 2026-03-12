@@ -128,25 +128,15 @@ enum HostCuActionRunner {
                 verifier.resetBlockCount()
 
             case .needsConfirmation(let reason):
-                // In the host CU proxy context, auto-approve low-risk actions
-                // (AppleScript). Higher-risk actions are blocked since there's
-                // no interactive confirmation UI in this path.
-                let isLowRisk = resolvedAction.type == .runAppleScript
-                if isLowRisk {
-                    log.info("[\(request.stepNumber)] Auto-approved: \(reason)")
-                    verifier.recordConfirmedAction(resolvedAction)
-                    verifier.resetBlockCount()
-                } else {
-                    log.warning("[\(request.stepNumber)] Needs confirmation (blocked in proxy): \(reason)")
-                    let obs = await buildObservation(
-                        enumerator: enumerator,
-                        screenCapture: screenCapture,
-                        executionResult: nil,
-                        executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
-                        stepNumber: request.stepNumber
-                    )
-                    return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
-                }
+                log.warning("[\(request.stepNumber)] Needs confirmation (blocked in proxy): \(reason)")
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: nil,
+                    executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
+                    stepNumber: request.stepNumber
+                )
+                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
 
             case .blocked(let reason):
                 log.warning("[\(request.stepNumber)] BLOCKED: \(reason)")
