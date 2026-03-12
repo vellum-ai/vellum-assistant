@@ -45,7 +45,7 @@ Arguments:
 Returns a valid OAuth access token for the given service. If the stored token
 is expired or near-expiry, it is refreshed automatically before being returned.
 The refresh uses the stored refresh token and OAuth2 configuration from
-credential metadata — no additional input is required.
+the OAuth connection store — no additional input is required.
 
 In human mode, prints the bare token to stdout (suitable for shell substitution).
 In JSON mode (--json), prints {"ok": true, "token": "..."}.
