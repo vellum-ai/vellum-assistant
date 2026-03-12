@@ -287,8 +287,6 @@ public final class ChatViewModel: ObservableObject {
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize
-    /// Maximum number of attachments per message.
-    public static let maxAttachments = ChatAttachmentManager.maxAttachments
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol

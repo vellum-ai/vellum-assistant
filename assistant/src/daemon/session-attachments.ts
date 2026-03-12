@@ -175,8 +175,7 @@ export async function resolveAssistantAttachments(
       accumulatedToolContentBlocks,
       toolContentBlockToolNames,
     );
-    // Most recent tool outputs (e.g., final browser screenshot) should win
-    // the MAX_ASSISTANT_ATTACHMENTS cap over older intermediate screenshots.
+    // Most recent tool outputs first so deduplication keeps the latest version.
     toolDrafts.reverse();
     const merged = deduplicateDrafts([
       ...directiveDrafts.drafts,

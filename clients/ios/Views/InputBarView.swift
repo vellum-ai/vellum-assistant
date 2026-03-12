@@ -147,7 +147,6 @@ struct InputBarView: View {
             .photosPicker(
                 isPresented: $showPhotosPicker,
                 selection: $selectedPhotoItems,
-                maxSelectionCount: ChatViewModel.maxAttachments,
                 matching: .images
             )
             .fileImporter(
