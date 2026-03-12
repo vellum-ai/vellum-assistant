@@ -50,6 +50,8 @@ import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import type { CuObservationResult } from "./host-cu-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type {
   ServerMessage,
@@ -164,6 +166,7 @@ export class Session {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -391,6 +394,7 @@ export class Session {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
     }
   }
@@ -403,6 +407,7 @@ export class Session {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
+    this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
@@ -410,6 +415,7 @@ export class Session {
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
+      this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
   }
@@ -450,6 +456,7 @@ export class Session {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     this.hostBashProxy?.dispose();
+    this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
     disposeSession(this);
   }
@@ -749,6 +756,17 @@ export class Session {
       this.hostFileProxy.dispose();
     }
     this.hostFileProxy = proxy;
+  }
+
+  resolveHostCu(requestId: string, observation: CuObservationResult): void {
+    this.hostCuProxy?.resolve(requestId, observation);
+  }
+
+  setHostCuProxy(proxy: HostCuProxy | undefined): void {
+    if (this.hostCuProxy && this.hostCuProxy !== proxy) {
+      this.hostCuProxy.dispose();
+    }
+    this.hostCuProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
