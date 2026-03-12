@@ -352,8 +352,31 @@ describe("app operations", () => {
       expect(getApp(app.id)).toBeUndefined();
     });
 
+    test("cleans up client_secret from secure storage", async () => {
+      const app = await createTestApp("github", "client-1");
+      mockDeleteSecureKeyAsync.mockClear();
+
+      await deleteApp(app.id);
+
+      expect(mockDeleteSecureKeyAsync).toHaveBeenCalledWith(
+        `oauth_app/${app.id}/client_secret`,
+      );
+    });
+
     test("returns false for nonexistent id", async () => {
       expect(await deleteApp("nonexistent-id")).toBe(false);
+    });
+
+    test("throws when deleteSecureKeyAsync returns error", async () => {
+      const app = await createTestApp("github", "client-1");
+      mockDeleteSecureKeyAsync.mockResolvedValueOnce("error");
+
+      await expect(deleteApp(app.id)).rejects.toThrow(
+        /failed to remove client_secret from secure storage/i,
+      );
+
+      // DB row should already be deleted (delete happens before secure key cleanup)
+      expect(getApp(app.id)).toBeUndefined();
     });
   });
 });

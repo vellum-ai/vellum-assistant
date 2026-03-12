@@ -280,18 +280,22 @@ export function listApps(): OAuthAppRow[] {
 
 /** Delete an app by ID. Cleans up the client_secret from secure storage. Returns true if a row was deleted. */
 export async function deleteApp(id: string): Promise<boolean> {
-  const result = await deleteSecureKeyAsync(`oauth_app/${id}/client_secret`);
-  if (result === "error") {
-    log.warn(
-      { appId: id },
-      "Failed to delete client_secret from secure storage — skipping app deletion to avoid orphaning secrets",
-    );
-    return false;
-  }
-
+  // Delete the DB row first so that if it fails (e.g. FK constraint from
+  // existing connections), the secret in secure storage remains intact.
   const db = getDb();
   db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
-  return rawChanges() > 0;
+  const deleted = rawChanges() > 0;
+
+  if (!deleted) return false;
+
+  const result = await deleteSecureKeyAsync(`oauth_app/${id}/client_secret`);
+  if (result === "error") {
+    throw new Error(
+      `Deleted app ${id} but failed to remove client_secret from secure storage`,
+    );
+  }
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------
