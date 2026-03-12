@@ -429,7 +429,8 @@ describe("repairHistory", () => {
     expect(stats.consecutiveSameRoleMerged).toBe(0);
   });
 
-  test("preserves server_tool_use and web_search_tool_result pairing", () => {
+  test("keeps server_tool_use + web_search_tool_result paired in assistant message", () => {
+    // Both blocks should stay in the assistant message (self-paired)
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Search for cats" }] },
       {
@@ -441,21 +442,13 @@ describe("repairHistory", () => {
             name: "web_search",
             input: { query: "cats" },
           },
-        ],
-      },
-      {
-        role: "user",
-        content: [
           {
             type: "web_search_tool_result",
             tool_use_id: "stu_1",
             content: [{ type: "web_search_result", url: "https://cats.com" }],
           },
+          { type: "text", text: "Here are some results about cats." },
         ],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "Here are the results." }],
       },
     ];
 
@@ -466,7 +459,9 @@ describe("repairHistory", () => {
     expect(stats.orphanToolResultsDowngraded).toBe(0);
   });
 
-  test("inserts synthetic web_search_tool_result when missing", () => {
+  test("synthesizes web_search_tool_result in assistant message when missing (interrupted stream)", () => {
+    // If server_tool_use has no paired result (e.g. stream was interrupted),
+    // the synthetic result goes in the SAME assistant message, not a user message
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Search" }] },
       {
@@ -490,21 +485,23 @@ describe("repairHistory", () => {
 
     expect(stats.missingToolResultsInserted).toBe(1);
 
-    const userMsg = repaired[2];
-    const wsBlocks = userMsg.content.filter(
-      (b) => b.type === "web_search_tool_result",
-    );
-    expect(wsBlocks).toHaveLength(1);
-    expect(wsBlocks[0]).toMatchObject({
+    // Synthetic result is in the assistant message, not the user message
+    const assistantMsg = repaired[1];
+    expect(assistantMsg.content).toHaveLength(2);
+    expect(assistantMsg.content[1]).toMatchObject({
       type: "web_search_tool_result",
       tool_use_id: "stu_1",
       content: { type: "web_search_tool_result_error", error_code: "unavailable" },
     });
+
+    // User message has no web_search_tool_result
+    const userMsg = repaired[2];
+    expect(userMsg.content.every((b) => b.type !== "web_search_tool_result")).toBe(true);
   });
 
-  test("does not orphan web_search_tool_result paired with server_tool_use", () => {
-    // This is the exact scenario from the bug: server_tool_use followed by
-    // web_search_tool_result should NOT be treated as orphaned
+  test("migrates legacy web_search_tool_result from user message to assistant message", () => {
+    // Old history format: server_tool_use in assistant, web_search_tool_result in user.
+    // Repair: synthesize result in assistant, orphan-downgrade the user-side result.
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Search" }] },
       {
@@ -543,12 +540,25 @@ describe("repairHistory", () => {
 
     const { messages: repaired, stats } = repairHistory(messages);
 
-    expect(stats.orphanToolResultsDowngraded).toBe(0);
-    expect(stats.missingToolResultsInserted).toBe(0);
-    expect(repaired).toEqual(messages);
+    // Synthetic web_search_tool_result added to assistant message
+    expect(stats.missingToolResultsInserted).toBe(1);
+
+    // The assistant message now has the server pair + client tool_use
+    const assistantMsg = repaired[1];
+    const serverToolUse = assistantMsg.content.find((b) => b.type === "server_tool_use");
+    const webSearchResult = assistantMsg.content.find((b) => b.type === "web_search_tool_result");
+    expect(serverToolUse).toBeDefined();
+    expect(webSearchResult).toBeDefined();
+
+    // The user message has tool_result for tu_1, and the old web_search_tool_result is downgraded
+    const userMsg = repaired[2];
+    expect(stats.orphanToolResultsDowngraded).toBe(1);
+    expect(userMsg.content.some((b) => b.type === "tool_result")).toBe(true);
+    expect(userMsg.content.every((b) => b.type !== "web_search_tool_result")).toBe(true);
   });
 
-  test("injects synthetic user message for trailing server_tool_use", () => {
+  test("trailing server_tool_use gets synthetic result in same assistant message", () => {
+    // No trailing user message needed — result goes in the assistant message
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Go" }] },
       {
@@ -567,9 +577,11 @@ describe("repairHistory", () => {
     const { messages: repaired, stats } = repairHistory(messages);
 
     expect(stats.missingToolResultsInserted).toBe(1);
-    expect(repaired).toHaveLength(3);
-    expect(repaired[2].role).toBe("user");
-    expect(repaired[2].content[0]).toMatchObject({
+    // Result is in the assistant message
+    expect(repaired).toHaveLength(2);
+    expect(repaired[1].role).toBe("assistant");
+    expect(repaired[1].content).toHaveLength(2);
+    expect(repaired[1].content[1]).toMatchObject({
       type: "web_search_tool_result",
       tool_use_id: "stu_1",
       content: { type: "web_search_tool_result_error", error_code: "unavailable" },
@@ -577,8 +589,8 @@ describe("repairHistory", () => {
   });
 
   test("downgrades type-mismatched tool_result for server_tool_use", () => {
-    // A tool_result paired with a server_tool_use ID is a type mismatch —
-    // the provider requires web_search_tool_result for server_tool_use
+    // A tool_result in the user message for a server_tool_use ID is orphaned —
+    // server-side results belong in the assistant message
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Search" }] },
       {
@@ -606,20 +618,19 @@ describe("repairHistory", () => {
 
     const { messages: repaired, stats } = repairHistory(messages);
 
-    // The mismatched tool_result should be downgraded and a synthetic web_search_tool_result inserted
-    expect(stats.orphanToolResultsDowngraded).toBe(1);
+    // Synthetic web_search_tool_result added to assistant message
     expect(stats.missingToolResultsInserted).toBe(1);
+    // The mismatched tool_result in user message is orphaned (no pending client tool_use)
+    expect(stats.orphanToolResultsDowngraded).toBe(1);
 
+    // Assistant message has the server pair
+    const assistantMsg = repaired[1];
+    expect(assistantMsg.content.some((b) => b.type === "web_search_tool_result")).toBe(true);
+
+    // User message has no web_search_tool_result — the tool_result was downgraded to text
     const userMsg = repaired[2];
-    const wsBlocks = userMsg.content.filter(
-      (b) => b.type === "web_search_tool_result",
-    );
-    expect(wsBlocks).toHaveLength(1);
-    expect(wsBlocks[0]).toMatchObject({
-      type: "web_search_tool_result",
-      tool_use_id: "stu_1",
-      content: { type: "web_search_tool_result_error", error_code: "unavailable" },
-    });
+    expect(userMsg.content.every((b) => b.type !== "web_search_tool_result")).toBe(true);
+    expect(userMsg.content.every((b) => b.type !== "tool_result")).toBe(true);
   });
 
   test("downgrades type-mismatched web_search_tool_result for tool_use", () => {
