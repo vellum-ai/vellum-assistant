@@ -1,4 +1,4 @@
-import type { Command } from "commander";
+import { type Command, InvalidArgumentError } from "commander";
 
 import {
   getProvider,
@@ -136,7 +136,15 @@ Examples:
     .option("--scopes <scopes>", "Comma-separated default scopes")
     .option("--token-auth-method <method>", "Token endpoint auth method")
     .option("--callback-transport <transport>", "Callback transport")
-    .option("--loopback-port <port>", "Loopback port", parseInt)
+    .option("--loopback-port <port>", "Loopback port", (value: string) => {
+      const port = parseInt(value, 10);
+      if (isNaN(port) || port <= 0 || port > 65535) {
+        throw new InvalidArgumentError(
+          "Port must be a number between 1 and 65535",
+        );
+      }
+      return port;
+    })
     .addHelpText(
       "after",
       `
@@ -151,7 +159,7 @@ Arguments (via options):
   --token-auth-method   How the client authenticates at the token endpoint
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
-  --loopback-port       Port number for the local loopback callback server.
+  --loopback-port       Port number for the local loopback callback server (1-65535).
 
 Registers a new OAuth provider configuration in the local store. This is
 used for custom integrations not covered by the built-in provider seeds.
