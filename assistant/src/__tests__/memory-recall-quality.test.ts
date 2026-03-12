@@ -659,13 +659,26 @@ describe("Memory Recall Quality", () => {
       });
       insertItemSource(db, "item-framework-active", "msg-invalid-status", now);
 
-      // Verify recall completes without error
+      // Invalidated item (should not appear in recall)
+      insertItem(db, {
+        id: "item-framework-invalidated",
+        kind: "preference",
+        subject: "framework preference",
+        statement: "Framework preference is Angular for this codebase",
+        status: "invalidated",
+        importance: 0.9,
+        firstSeenAt: now - 50_000,
+      });
+
       const recall = await buildMemoryRecall(
         "framework preference",
         "conv-invalid-status",
         TEST_CONFIG,
       );
       expect(recall.recencyHits).toBeGreaterThan(0);
+      // Active segment content should be injected; invalidated item should not leak
+      expect(recall.injectedText).toContain("React");
+      expect(recall.injectedText).not.toContain("Angular");
     });
   });
 
@@ -1009,11 +1022,16 @@ describe("Memory Recall Quality", () => {
         TEST_CONFIG,
       );
 
-      // Recency search finds all 3 segments but tier classification filters
-      // them out (score < 0.6 threshold without semantic boost). Verify
-      // the pipeline ran correctly and recency search found candidates.
+      // Recency-only candidates are promoted to tier 2 and injected.
+      // Verify the pipeline recalled the preference content.
       expect(recall.recencyHits).toBeGreaterThan(0);
       expect(recall.enabled).toBe(true);
+      assertPrecisionAtK(
+        recall.injectedText,
+        ["dark mode", "TypeScript", "tabs"],
+        2,
+        "preference recall precision",
+      );
     });
   });
 });

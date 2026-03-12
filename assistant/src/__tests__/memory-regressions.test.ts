@@ -1868,6 +1868,8 @@ describe("Memory regressions", () => {
     // not the default scope segment (privacy boundary check).
     expect(result.topCandidates.length).toBe(1);
     expect(result.topCandidates[0].key).toBe("segment:seg-strict-custom");
+    expect(result.injectedText).toContain("Project-specific memory");
+    expect(result.injectedText).not.toContain("Global memory");
   });
 
   test("scope columns: summaries default to scope_id=default", () => {
@@ -2112,6 +2114,9 @@ describe("Memory regressions", () => {
 
     // Only scope-b segment should be found (override takes precedence)
     expect(result.recencyHits).toBe(1);
+    // Verify identity of the returned candidate (scope-b, not scope-a)
+    expect(result.injectedText).toContain("Scope B memory");
+    expect(result.injectedText).not.toContain("Scope A memory");
   });
 
   test("scopePolicyOverride with default as primary scope and fallback=true returns only default", async () => {
@@ -2179,6 +2184,9 @@ describe("Memory regressions", () => {
 
     // Only default scope segment should be found (other-scope excluded)
     expect(result.recencyHits).toBe(1);
+    // Verify identity: default-scope segment returned, other-scope excluded
+    expect(result.injectedText).toContain("Default scope memory");
+    expect(result.injectedText).not.toContain("Other scope memory");
   });
 
   // PR-17: addMessage() passes conversation scope to the indexer
