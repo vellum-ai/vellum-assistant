@@ -150,7 +150,9 @@ struct TimezonePicker: View {
                             .padding(.vertical, VSpacing.md)
                     }
                 }
+                .background { OverlayScrollerStyle() }
             }
+            .scrollContentBackground(.hidden)
             .frame(maxHeight: 300)
         }
         .frame(width: 320)
