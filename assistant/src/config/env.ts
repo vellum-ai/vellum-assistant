@@ -162,6 +162,11 @@ export function getPlatformInternalApiKey(): string {
  * deprecated vars.
  */
 export function validateEnv(): void {
+  const gatewayPort = getGatewayPort();
+  if (gatewayPort < 1 || gatewayPort > 65535) {
+    throw new Error(`Invalid GATEWAY_PORT: ${gatewayPort} (must be 1-65535)`);
+  }
+
   const httpPort = getRuntimeHttpPort();
   if (httpPort < 1 || httpPort > 65535) {
     throw new Error(`Invalid RUNTIME_HTTP_PORT: ${httpPort} (must be 1-65535)`);
