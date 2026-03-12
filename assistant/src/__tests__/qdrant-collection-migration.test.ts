@@ -215,6 +215,29 @@ describe("Qdrant collection migration", () => {
     expect(callLog.upsert).toBe(1);
   });
 
+  test("deletes and recreates collection when migrating from unnamed to named vectors", async () => {
+    mockCollectionExists = true;
+    mockUseNamedVectors = false; // Legacy unnamed vectors
+    mockCollectionSize = 768;
+
+    const client = new VellumQdrantClient({
+      url: "http://localhost:6333",
+      collection: "memory",
+      vectorSize: 768, // Same dimension
+      onDisk: false,
+      quantization: "none",
+      embeddingModel: "gemini:gemini-embedding-2-preview",
+    });
+
+    await client.ensureCollection();
+
+    // Unnamed vectors should trigger delete + recreate with named vectors
+    expect(callLog.deleteCollection).toBe(1);
+    expect(callLog.createCollection).toBe(1);
+    // Sentinel should be written for the new collection
+    expect(callLog.upsert).toBe(1);
+  });
+
   test("does not write sentinel when embeddingModel is not provided", async () => {
     mockCollectionExists = false;
 

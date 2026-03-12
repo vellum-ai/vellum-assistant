@@ -46,6 +46,7 @@ mock.module("../util/logger.js", () => ({
 mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
+    hybridSearch: async () => [],
     upsertPoints: async () => {},
     deletePoints: async () => {},
   }),
@@ -99,7 +100,6 @@ function resetTables() {
   const db = getDb();
   db.run("DELETE FROM memory_item_sources");
   db.run("DELETE FROM memory_embeddings");
-  db.run("DELETE FROM memory_summaries");
   db.run("DELETE FROM memory_items");
   db.run("DELETE FROM memory_segments");
   db.run("DELETE FROM memory_jobs");
