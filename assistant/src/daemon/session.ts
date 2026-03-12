@@ -35,6 +35,7 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
@@ -649,6 +650,17 @@ export class Session {
           causedByRequestId: primaryRequestId,
         },
       );
+
+      // Sync the canonical guardian request status for the cascaded request.
+      // Best-effort: canonical request tracking should not break the cascade flow.
+      try {
+        const targetStatus = cascadeResult.allow ? "approved" : "denied";
+        resolveCanonicalGuardianRequest(candidateId, "pending", {
+          status: targetStatus,
+        });
+      } catch {
+        // Ignore — canonical request tracking is best-effort
+      }
     }
   }
 
