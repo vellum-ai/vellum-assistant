@@ -30,39 +30,9 @@ export interface MemorySystemStatus {
   jobs: Record<string, number>;
 }
 
-export interface MemoryCleanupStats {
-  cleanup: MemorySystemStatus["cleanup"];
-}
-
 interface CleanupStatsRow {
   superseded_backlog: number | null;
   superseded_completed_24h: number | null;
-}
-
-/** Lightweight query for cleanup metrics only — no table counts or job totals. */
-export function getMemoryCleanupStats(): MemoryCleanupStats {
-  const throughputWindowStartMs = Date.now() - 24 * 60 * 60 * 1000;
-  const cleanupStats = rawGet<CleanupStatsRow>(
-    `
-    SELECT
-      SUM(CASE
-        WHEN type = 'cleanup_stale_superseded_items' AND status IN ('pending', 'running')
-        THEN 1 ELSE 0 END
-      ) AS superseded_backlog,
-      SUM(CASE
-        WHEN type = 'cleanup_stale_superseded_items' AND status = 'completed' AND updated_at >= ?
-        THEN 1 ELSE 0 END
-      ) AS superseded_completed_24h
-    FROM memory_jobs
-  `,
-    throughputWindowStartMs,
-  );
-  return {
-    cleanup: {
-      supersededBacklog: cleanupStats?.superseded_backlog ?? 0,
-      supersededCompleted24h: cleanupStats?.superseded_completed_24h ?? 0,
-    },
-  };
 }
 
 export function getMemorySystemStatus(): MemorySystemStatus {

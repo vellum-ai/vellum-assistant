@@ -14,7 +14,6 @@ export interface Candidate {
   confidence: number;
   importance: number;
   createdAt: number;
-  lexical: number;
   semantic: number;
   recency: number;
   finalScore: number;
@@ -27,7 +26,6 @@ export interface MemoryRecallCandiateDebug {
   type: CandidateType;
   kind: string;
   finalScore: number;
-  lexical: number;
   semantic: number;
   recency: number;
 }

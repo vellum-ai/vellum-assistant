@@ -3,7 +3,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_manage.",
+    "Hybrid search across memory (semantic and recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_manage.",
   input_schema: {
     type: "object",
     properties: {

@@ -2489,16 +2489,14 @@ public struct MemoryRecalledCandidateDebug: Codable, Sendable {
     public let type: String
     public let kind: String
     public let finalScore: Double
-    public let lexical: Double
     public let semantic: Double
     public let recency: Double
 
-    public init(key: String, type: String, kind: String, finalScore: Double, lexical: Double, semantic: Double, recency: Double) {
+    public init(key: String, type: String, kind: String, finalScore: Double, semantic: Double, recency: Double) {
         self.key = key
         self.type = type
         self.kind = kind
         self.finalScore = finalScore
-        self.lexical = lexical
         self.semantic = semantic
         self.recency = recency
     }

@@ -11,7 +11,6 @@ export interface MemoryRecalledCandidateDebug {
   type: string;
   kind: string;
   finalScore: number;
-  lexical: number;
   semantic: number;
   recency: number;
 }

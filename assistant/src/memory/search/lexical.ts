@@ -39,7 +39,6 @@ export function recencySearch(
     confidence: 0.55,
     importance: 0.5,
     createdAt: row.createdAt,
-    lexical: 0,
     semantic: 0,
     recency: computeRecencyScore(row.createdAt),
     finalScore: 0,

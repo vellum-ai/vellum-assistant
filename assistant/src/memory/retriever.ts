@@ -344,7 +344,6 @@ export async function buildMemoryRecall(
       continue;
     }
     // Keep highest scores from each source
-    existing.lexical = Math.max(existing.lexical, c.lexical);
     existing.semantic = Math.max(existing.semantic, c.semantic);
     existing.recency = Math.max(existing.recency, c.recency);
     existing.confidence = Math.max(existing.confidence, c.confidence);
@@ -449,7 +448,6 @@ export async function buildMemoryRecall(
       type: c.type,
       kind: c.kind,
       finalScore: c.finalScore,
-      lexical: c.lexical,
       semantic: c.semantic,
       recency: c.recency,
     }));

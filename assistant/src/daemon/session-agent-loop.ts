@@ -576,8 +576,6 @@ export async function runAgentLoopImpl(
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         trustClass: resolveTrustClass(ctx.trustContext),
-        isInteractive:
-          options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,
       userMessageId,

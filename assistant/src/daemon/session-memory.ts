@@ -24,8 +24,6 @@ export interface MemoryPrepareContext {
   scopeId: string;
   includeDefaultFallback: boolean;
   trustClass: "guardian" | "trusted_contact" | "unknown";
-  /** When false (e.g. scheduled tasks), skip memory retrieval. */
-  isInteractive?: boolean;
 }
 
 /**
