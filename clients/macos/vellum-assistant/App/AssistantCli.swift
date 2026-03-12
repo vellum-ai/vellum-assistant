@@ -260,11 +260,17 @@ final class AssistantCli {
         proc.standardError = FileHandle.nullDevice
 
         let fullEnv = ProcessInfo.processInfo.environment
-        proc.environment = [
+        var env: [String: String] = [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "TMPDIR": fullEnv["TMPDIR"] ?? NSTemporaryDirectory(),
         ]
+        // Forward data-dir vars so the CLI reads the correct lockfile and
+        // PID files instead of falling back to the default home directory.
+        for key in ["BASE_DATA_DIR", "VELLUM_LOCKFILE_DIR"] {
+            if let val = fullEnv[key] { env[key] = val }
+        }
+        proc.environment = env
 
         do {
             try proc.run()
@@ -564,6 +570,33 @@ final class AssistantCli {
 
     // MARK: - Private Helpers
 
+    /// Check whether a given PID belongs to a vellum-related process by
+    /// inspecting its command line via `ps`. Returns false for unrelated
+    /// processes to prevent killing them when a PID file is stale.
+    private func isVellumProcess(_ pid: pid_t) -> Bool {
+        let pipe = Pipe()
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+        proc.arguments = ["-p", "\(pid)", "-o", "command="]
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            return false
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return false
+        }
+        // Match compiled binary names, @vellumai scoped packages, the /vellum/
+        // path component (bunx installs), and source-tree daemon entry points.
+        let pattern = "vellum-daemon|vellum-cli|vellum-gateway|@vellumai|/vellum/|/daemon/main"
+        return command.range(of: pattern, options: .regularExpression) != nil
+    }
+
     /// Kill the gateway directly via PID file — fallback when CLI binary is unavailable.
     private func killGatewayViaPIDFile() {
         guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else { return }
@@ -576,6 +609,12 @@ final class AssistantCli {
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = pid_t(pidString),
               kill(pid, 0) == 0 else {
+            return
+        }
+
+        guard isVellumProcess(pid) else {
+            log.warning("PID \(pid) is not a vellum process — skipping gateway kill and cleaning up stale PID file")
+            try? FileManager.default.removeItem(at: gatewayPidFileURL)
             return
         }
 
@@ -610,6 +649,12 @@ final class AssistantCli {
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = pid_t(pidString),
               kill(pid, 0) == 0 else {
+            return
+        }
+
+        guard isVellumProcess(pid) else {
+            log.warning("PID \(pid) is not a vellum process — skipping daemon kill and cleaning up stale PID file")
+            try? FileManager.default.removeItem(at: pidFileURL)
             return
         }
 

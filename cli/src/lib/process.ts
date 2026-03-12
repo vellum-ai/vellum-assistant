@@ -13,17 +13,8 @@ function isVellumProcess(pid: number): boolean {
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    const pattern =
-      /vellum-daemon|vellum-cli|vellum-gateway|@vellumai|\/vellum\/|\/daemon\/main/;
-    const match = pattern.test(output);
-    console.log(
-      `[isVellumProcess] pid=${pid} match=${match} command=${JSON.stringify(output)}`,
-    );
-    return match;
-  } catch (err) {
-    console.log(
-      `[isVellumProcess] pid=${pid} ps failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    return /vellum-daemon|vellum-cli|vellum-gateway|@vellumai|\/vellum\/|\/daemon\/main/.test(output);
+  } catch {
     return false;
   }
 }
@@ -103,9 +94,6 @@ export async function stopProcessByPidFile(
   timeoutMs?: number,
 ): Promise<boolean> {
   const { alive, pid } = isProcessAlive(pidFile);
-  console.log(
-    `[stopProcessByPidFile] label=${label} pidFile=${pidFile} alive=${alive} pid=${pid}`,
-  );
 
   if (!alive || pid === null) {
     if (existsSync(pidFile)) {
