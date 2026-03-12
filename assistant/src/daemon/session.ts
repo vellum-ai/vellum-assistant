@@ -346,7 +346,7 @@ export class Session {
     );
     this.contextWindowManager = new ContextWindowManager({
       provider,
-      systemPrompt,
+      systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
     });
 

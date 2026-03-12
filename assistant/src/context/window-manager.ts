@@ -83,19 +83,25 @@ export interface ContextWindowCompactOptions {
 
 export interface ContextWindowManagerOptions {
   provider: Provider;
-  systemPrompt: string;
+  systemPrompt: string | (() => string);
   config: ContextWindowConfig;
 }
 
 export class ContextWindowManager {
   private readonly provider: Provider;
-  private readonly systemPrompt: string;
+  private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
-    this.systemPrompt = options.systemPrompt;
+    this._systemPrompt = options.systemPrompt;
     this.config = options.config;
+  }
+
+  private get systemPrompt(): string {
+    return typeof this._systemPrompt === "function"
+      ? this._systemPrompt()
+      : this._systemPrompt;
   }
 
   /**
