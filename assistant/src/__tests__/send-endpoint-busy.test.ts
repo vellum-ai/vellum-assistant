@@ -260,6 +260,7 @@ function makePendingApprovalSession(
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
       pending.has(candidateRequestId),

@@ -172,6 +172,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -248,6 +249,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -320,6 +322,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -396,6 +399,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -468,6 +472,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -534,6 +539,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -602,6 +608,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
@@ -671,6 +678,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       setHostBashProxy: () => {},
       setHostFileProxy: () => {},
       setHostCuProxy: () => {},
+      addPreactivatedSkillId: () => {},
     } as unknown as import("../daemon/session.js").Session;
 
     const req = new Request("http://localhost/v1/messages", {
