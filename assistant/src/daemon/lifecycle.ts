@@ -26,6 +26,7 @@ import { closeSentry, initSentry } from "../instrument.js";
 import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
+import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import {
   deleteMessageById,
   getConversationThreadType,
@@ -164,6 +165,18 @@ export async function runDaemon(): Promise<void> {
     // oauth_connection migration. Safe to call on every startup.
     await backfillManualTokenConnections();
     log.info("Daemon startup: DB initialized");
+
+    // Expire any pending canonical guardian requests left over from before
+    // this process started.  Their in-memory pending-interaction session
+    // references are gone, so they can never be completed.  The agent loop
+    // will re-request tool approvals on the next turn.
+    const expiredCount = expireAllPendingCanonicalRequests();
+    if (expiredCount > 0) {
+      log.info(
+        { event: "startup_expired_stale_requests", expiredCount },
+        `Expired ${expiredCount} stale pending canonical request(s) from previous process`,
+      );
+    }
 
     // Ensure a vellum guardian binding exists and mint the CLI edge token
     // as an actor token bound to the guardian principal.

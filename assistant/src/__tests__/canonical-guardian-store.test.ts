@@ -26,6 +26,7 @@ mock.module("../util/logger.js", () => ({
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
+  expireAllPendingCanonicalRequests,
   getCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
@@ -756,5 +757,59 @@ describe("canonical-guardian-store", () => {
     const results = listPendingRequestsByConversationScope("conv-scope-2");
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe(noExpiry.id);
+  });
+
+  // ── expireAllPendingCanonicalRequests ───────────────────────────────
+
+  test("expireAllPendingCanonicalRequests transitions all pending to expired", () => {
+    const req1 = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-bulk-1",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const req2 = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-bulk-2",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const count = expireAllPendingCanonicalRequests();
+    expect(count).toBe(2);
+
+    expect(getCanonicalGuardianRequest(req1.id)!.status).toBe("expired");
+    expect(getCanonicalGuardianRequest(req2.id)!.status).toBe("expired");
+  });
+
+  test("expireAllPendingCanonicalRequests does not affect already-resolved requests", () => {
+    const approved = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-bulk-3",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+    updateCanonicalGuardianRequest(approved.id, { status: "approved" });
+
+    const denied = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-bulk-3",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+    updateCanonicalGuardianRequest(denied.id, { status: "denied" });
+
+    const count = expireAllPendingCanonicalRequests();
+    expect(count).toBe(0);
+
+    expect(getCanonicalGuardianRequest(approved.id)!.status).toBe("approved");
+    expect(getCanonicalGuardianRequest(denied.id)!.status).toBe("denied");
+  });
+
+  test("expireAllPendingCanonicalRequests returns 0 when no pending requests exist", () => {
+    const count = expireAllPendingCanonicalRequests();
+    expect(count).toBe(0);
   });
 });

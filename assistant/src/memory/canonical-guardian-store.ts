@@ -459,6 +459,27 @@ export function resolveCanonicalGuardianRequest(
   return getCanonicalGuardianRequest(id);
 }
 
+/**
+ * Expire all pending canonical guardian requests in a single bulk update.
+ *
+ * Called at daemon startup to clean up requests that can never be completed
+ * because the in-memory pending-interactions Map (which holds session
+ * references needed by resolvers) was wiped on restart.
+ *
+ * Returns the number of requests transitioned from pending → expired.
+ */
+export function expireAllPendingCanonicalRequests(): number {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  db.update(canonicalGuardianRequests)
+    .set({ status: "expired", updatedAt: now })
+    .where(eq(canonicalGuardianRequests.status, "pending"))
+    .run();
+
+  return rawChanges();
+}
+
 // ---------------------------------------------------------------------------
 // Canonical Guardian Deliveries
 // ---------------------------------------------------------------------------
