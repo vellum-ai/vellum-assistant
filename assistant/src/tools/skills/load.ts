@@ -8,6 +8,7 @@ import type { SkillSummary, SkillToolManifest } from "../../config/skills.js";
 import { loadSkillBySelector, loadSkillCatalog } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { autoInstallFromCatalog } from "../../skills/catalog-install.js";
 import {
   indexCatalogById,
   validateIncludes,
@@ -137,7 +138,24 @@ export class SkillLoadTool implements Tool {
       };
     }
 
-    const loaded = loadSkillBySelector(selector);
+    let loaded = loadSkillBySelector(selector);
+
+    // Auto-install from catalog if the skill isn't found locally
+    if (!loaded.skill && loaded.error?.includes("No skill matched")) {
+      try {
+        const installed = await autoInstallFromCatalog(selector);
+        if (installed) {
+          log.info({ skillId: selector }, "Auto-installed skill from catalog");
+          loaded = loadSkillBySelector(selector);
+        }
+      } catch (err) {
+        log.warn(
+          { err, skillId: selector },
+          "Auto-install from catalog failed",
+        );
+      }
+    }
+
     if (!loaded.skill) {
       return {
         content: `Error: ${loaded.error ?? "Failed to load skill"}`,
