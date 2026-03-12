@@ -551,7 +551,17 @@ struct ScrollWheelDetector: NSViewRepresentable {
                 // Momentum events are excluded so a flick doesn't accidentally untether.
                 // Called synchronously so isNearBottom is cleared before any competing
                 // layout pass can trigger an auto-scroll-to-bottom.
-                coordinator.onScrollUp?()
+                // Guard: only untether if content is actually scrollable (prevents false
+                // untethers on short threads that can't scroll).
+                if let scrollView = coordinator.findEnclosingScrollView() {
+                    let clipHeight = scrollView.contentView.bounds.height
+                    let docHeight = scrollView.documentView?.frame.height ?? 0
+                    if docHeight > clipHeight {
+                        coordinator.onScrollUp?()
+                    }
+                } else {
+                    coordinator.onScrollUp?()
+                }
             } else if event.scrollingDeltaY < -1 {
                 // Scrolling down (direct or momentum) — re-tether if at bottom.
                 // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
