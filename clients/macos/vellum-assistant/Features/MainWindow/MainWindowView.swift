@@ -586,9 +586,19 @@ struct MainWindowView: View {
         .overlay(alignment: .top) {
             if let viewModel = threadManager.activeViewModel {
                 ErrorToastOverlay(
-                    viewModel: viewModel,
+                    errorManager: viewModel.errorManager,
                     hasAPIKey: windowState.hasAPIKey,
-                    onOpenSettings: { windowState.selection = .panel(.settings) }
+                    isConnectionError: viewModel.isConnectionError,
+                    isSecretBlockError: viewModel.isSecretBlockError,
+                    isRetryableError: viewModel.isRetryableError,
+                    hasRetryPayload: viewModel.hasRetryPayload,
+                    onOpenSettings: { windowState.selection = .panel(.settings) },
+                    onRetrySessionError: { viewModel.retryAfterSessionError() },
+                    onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                    onDismissSessionError: { viewModel.dismissSessionError() },
+                    onSendAnyway: { viewModel.sendAnyway() },
+                    onRetryLastMessage: { viewModel.retryLastMessage() },
+                    onDismissError: { viewModel.dismissError() }
                 )
             } else if !windowState.hasAPIKey {
                 VStack(spacing: VSpacing.xs) {
@@ -847,9 +857,19 @@ struct MainWindowView: View {
 /// the correct thread's ViewModel — even if the user switches threads while a
 /// toast is visible.
 private struct ErrorToastOverlay: View {
-    @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
+    let isConnectionError: Bool
+    let isSecretBlockError: Bool
+    let isRetryableError: Bool
+    let hasRetryPayload: Bool
     let onOpenSettings: () -> Void
+    let onRetrySessionError: () -> Void
+    let onCopyDebugInfo: () -> Void
+    let onDismissSessionError: () -> Void
+    let onSendAnyway: () -> Void
+    let onRetryLastMessage: () -> Void
+    let onDismissError: () -> Void
 
     var body: some View {
         VStack(spacing: VSpacing.xs) {
@@ -863,29 +883,29 @@ private struct ErrorToastOverlay: View {
                 )
             }
 
-            if let sessionError = viewModel.sessionError {
+            if let sessionError = errorManager.sessionError {
                 ChatSessionErrorToast(
                     error: sessionError,
-                    onRetry: { viewModel.retryAfterSessionError() },
-                    onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
-                    onDismiss: { viewModel.dismissSessionError() }
+                    onRetry: onRetrySessionError,
+                    onCopyDebugInfo: onCopyDebugInfo,
+                    onDismiss: onDismissSessionError
                 )
             }
 
-            if let errorText = viewModel.errorText, viewModel.sessionError == nil {
+            if let errorText = errorManager.errorText, errorManager.sessionError == nil {
                 ChatSessionErrorToast(
                     message: errorText,
-                    subtitle: viewModel.isConnectionError ? viewModel.connectionDiagnosticHint : nil,
-                    actionLabel: viewModel.isSecretBlockError ? "Send Anyway" : (viewModel.isRetryableError || (viewModel.isConnectionError && viewModel.hasRetryPayload)) ? "Retry" : nil,
-                    onAction: viewModel.isSecretBlockError ? { viewModel.sendAnyway() } : (viewModel.isRetryableError || (viewModel.isConnectionError && viewModel.hasRetryPayload)) ? { viewModel.retryLastMessage() } : nil,
-                    onDismiss: { viewModel.dismissError() }
+                    subtitle: isConnectionError ? errorManager.connectionDiagnosticHint : nil,
+                    actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
+                    onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryLastMessage : nil,
+                    onDismiss: onDismissError
                 )
             }
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.top, VSpacing.sm)
         .animation(VAnimation.fast, value: hasAPIKey)
-        .animation(VAnimation.fast, value: viewModel.sessionError != nil)
-        .animation(VAnimation.fast, value: viewModel.errorText != nil)
+        .animation(VAnimation.fast, value: errorManager.sessionError != nil)
+        .animation(VAnimation.fast, value: errorManager.errorText != nil)
     }
 }
