@@ -181,7 +181,7 @@ final class AssistantCli {
                 "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
                 "VELLUM_DESKTOP_APP": "1",
             ]
-            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
+            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
                         "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
                         "GOOGLE_APPLICATION_CREDENTIALS", "GCP_ACCOUNT_EMAIL",
@@ -661,7 +661,7 @@ final class AssistantCli {
                 "VELLUM_DESKTOP_APP": "1",
             ]
             // Forward optional config vars the CLI or daemon may need
-            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
+            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR",
                         "VELLUM_PLATFORM_URL",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
                 if let val = fullEnv[key] {
