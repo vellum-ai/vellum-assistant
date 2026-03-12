@@ -584,8 +584,14 @@ struct MainWindowView: View {
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .overlay(alignment: .top) {
-            VStack(spacing: VSpacing.xs) {
-                if !windowState.hasAPIKey {
+            if let viewModel = threadManager.activeViewModel {
+                ErrorToastOverlay(
+                    viewModel: viewModel,
+                    hasAPIKey: windowState.hasAPIKey,
+                    onOpenSettings: { windowState.selection = .panel(.settings) }
+                )
+            } else if !windowState.hasAPIKey {
+                VStack(spacing: VSpacing.xs) {
                     ChatSessionErrorToast(
                         message: "API key not set. Add one in Settings to start chatting.",
                         icon: .keyRound,
@@ -594,33 +600,10 @@ struct MainWindowView: View {
                         onAction: { windowState.selection = .panel(.settings) }
                     )
                 }
-
-                if let sessionError = threadManager.activeViewModel?.sessionError {
-                    ChatSessionErrorToast(
-                        error: sessionError,
-                        onRetry: { threadManager.activeViewModel?.retryAfterSessionError() },
-                        onCopyDebugInfo: { threadManager.activeViewModel?.copySessionErrorDebugDetails() },
-                        onDismiss: { threadManager.activeViewModel?.dismissSessionError() }
-                    )
-                }
-
-                if let errorText = threadManager.activeViewModel?.errorText,
-                   threadManager.activeViewModel?.sessionError == nil {
-                    let vm = threadManager.activeViewModel!
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        subtitle: vm.isConnectionError ? vm.connectionDiagnosticHint : nil,
-                        actionLabel: vm.isSecretBlockError ? "Send Anyway" : (vm.isRetryableError || (vm.isConnectionError && vm.hasRetryPayload)) ? "Retry" : nil,
-                        onAction: vm.isSecretBlockError ? { vm.sendAnyway() } : (vm.isRetryableError || (vm.isConnectionError && vm.hasRetryPayload)) ? { vm.retryLastMessage() } : nil,
-                        onDismiss: { vm.dismissError() }
-                    )
-                }
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.top, VSpacing.sm)
+                .animation(VAnimation.fast, value: windowState.hasAPIKey)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.sm)
-            .animation(VAnimation.fast, value: windowState.hasAPIKey)
-            .animation(VAnimation.fast, value: threadManager.activeViewModel?.sessionError != nil)
-            .animation(VAnimation.fast, value: threadManager.activeViewModel?.errorText != nil)
         }
         .overlay(alignment: .bottom) {
             if let toast = windowState.toastInfo {
@@ -852,4 +835,57 @@ struct MainWindowView: View {
         // SidebarInteractionState.setThreadHover(threadId:hovering:)
     }
 
+}
+
+// MARK: - Error Toast Overlay
+
+/// Wrapper view that directly observes a `ChatViewModel` via `@ObservedObject`,
+/// ensuring error state changes (sessionError, errorText) trigger UI updates
+/// even though MainWindowView only observes ThreadManager.
+///
+/// By capturing the viewModel reference at render-time, closures always act on
+/// the correct thread's ViewModel — even if the user switches threads while a
+/// toast is visible.
+private struct ErrorToastOverlay: View {
+    @ObservedObject var viewModel: ChatViewModel
+    let hasAPIKey: Bool
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: VSpacing.xs) {
+            if !hasAPIKey {
+                ChatSessionErrorToast(
+                    message: "API key not set. Add one in Settings to start chatting.",
+                    icon: .keyRound,
+                    accentColor: VColor.warning,
+                    actionLabel: "Open Settings",
+                    onAction: onOpenSettings
+                )
+            }
+
+            if let sessionError = viewModel.sessionError {
+                ChatSessionErrorToast(
+                    error: sessionError,
+                    onRetry: { viewModel.retryAfterSessionError() },
+                    onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                    onDismiss: { viewModel.dismissSessionError() }
+                )
+            }
+
+            if let errorText = viewModel.errorText, viewModel.sessionError == nil {
+                ChatSessionErrorToast(
+                    message: errorText,
+                    subtitle: viewModel.isConnectionError ? viewModel.connectionDiagnosticHint : nil,
+                    actionLabel: viewModel.isSecretBlockError ? "Send Anyway" : (viewModel.isRetryableError || (viewModel.isConnectionError && viewModel.hasRetryPayload)) ? "Retry" : nil,
+                    onAction: viewModel.isSecretBlockError ? { viewModel.sendAnyway() } : (viewModel.isRetryableError || (viewModel.isConnectionError && viewModel.hasRetryPayload)) ? { viewModel.retryLastMessage() } : nil,
+                    onDismiss: { viewModel.dismissError() }
+                )
+            }
+        }
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.top, VSpacing.sm)
+        .animation(VAnimation.fast, value: hasAPIKey)
+        .animation(VAnimation.fast, value: viewModel.sessionError != nil)
+        .animation(VAnimation.fast, value: viewModel.errorText != nil)
+    }
 }
