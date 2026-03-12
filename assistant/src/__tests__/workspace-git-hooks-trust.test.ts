@@ -59,6 +59,11 @@ const trustPath = join(testDir, "protected", "trust.json");
 function makeGitService(hooksPath?: string): GitServiceLike {
   return {
     async runReadOnlyGit(args: string[]) {
+      if (args[0] === "rev-parse" && args[1] === "--git-path") {
+        // Simulate git not being in a worktree context — triggers the fallback
+        // to workspaceDir/.git/hooks in detectConfiguredHooks.
+        throw new Error("not a git repository");
+      }
       if (
         args.length >= 3 &&
         args[0] === "config" &&
