@@ -148,6 +148,7 @@ cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
   },
   "gateway": {
     "runtimeProxyEnabled": true,
+    "runtimeProxyRequireAuth": true,
     "unmappedPolicy": "default",
     "defaultAssistantId": "self"
   }

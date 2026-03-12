@@ -903,6 +903,7 @@ export async function startGateway(
   // the gateway process. The gateway reads these at startup from config.json.
   writeGatewayConfig(resources?.instanceDir, {
     runtimeProxyEnabled: true,
+    runtimeProxyRequireAuth: true,
     unmappedPolicy: "default",
     defaultAssistantId: "self",
   });
