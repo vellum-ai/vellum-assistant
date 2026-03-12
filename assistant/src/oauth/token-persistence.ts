@@ -102,20 +102,9 @@ export async function storeOAuth2Tokens(
   // 1. Upsert the oauth_app row (or use the pre-resolved ID).
   const app = params.oauthAppId
     ? { id: params.oauthAppId }
-    : upsertApp(service, clientId);
+    : await upsertApp(service, clientId, clientSecret);
 
-  // 2. Write client_secret to new key format: oauth_app/{app.id}/client_secret
-  if (clientSecret) {
-    const clientSecretStored = await setSecureKeyAsync(
-      `oauth_app/${app.id}/client_secret`,
-      clientSecret,
-    );
-    if (!clientSecretStored) {
-      throw new Error("Failed to store client_secret in secure storage");
-    }
-  }
-
-  // 3. Upsert oauth_connection — reuse existing active connection for this
+  // 2. Upsert oauth_connection — reuse existing active connection for this
   //    provider, or create a new one.
   const existingConn = getConnectionByProvider(service);
   let connId: string;
@@ -145,7 +134,7 @@ export async function storeOAuth2Tokens(
     connId = conn.id;
   }
 
-  // 4. Write access_token: oauth_connection/{conn.id}/access_token
+  // 3. Write access_token: oauth_connection/{conn.id}/access_token
   const tokenStored = await setSecureKeyAsync(
     `oauth_connection/${connId}/access_token`,
     tokens.accessToken,
@@ -154,7 +143,7 @@ export async function storeOAuth2Tokens(
     throw new Error("Failed to store access token in secure storage");
   }
 
-  // 5. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
+  // 4. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
   if (tokens.refreshToken) {
     await setSecureKeyAsync(
       `oauth_connection/${connId}/refresh_token`,

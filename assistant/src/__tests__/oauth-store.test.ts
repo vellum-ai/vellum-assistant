@@ -26,8 +26,10 @@ mock.module("../util/logger.js", () => ({
 const mockDeleteSecureKeyAsync = mock(() =>
   Promise.resolve("deleted" as const),
 );
+const mockSetSecureKeyAsync = mock(() => Promise.resolve(true));
 mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
+  setSecureKeyAsync: mockSetSecureKeyAsync,
 }));
 
 import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
@@ -64,9 +66,9 @@ function seedTestProvider(providerKey = "github"): void {
 }
 
 /** Create an app linked to the given provider. Returns the app row. */
-function createTestApp(providerKey = "github", clientId = "client-1") {
+async function createTestApp(providerKey = "github", clientId = "client-1") {
   seedTestProvider(providerKey);
-  return upsertApp(providerKey, clientId);
+  return await upsertApp(providerKey, clientId);
 }
 
 beforeEach(() => {
@@ -76,6 +78,7 @@ beforeEach(() => {
   // Delete in FK-dependency order: connections → apps → providers.
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
   mockDeleteSecureKeyAsync.mockClear();
+  mockSetSecureKeyAsync.mockClear();
 });
 
 afterAll(() => {
@@ -244,9 +247,9 @@ describe("provider operations", () => {
 
 describe("app operations", () => {
   describe("upsertApp", () => {
-    test("creates a new app and returns it with a UUID", () => {
+    test("creates a new app and returns it with a UUID", async () => {
       seedTestProvider("github");
-      const app = upsertApp("github", "client-abc");
+      const app = await upsertApp("github", "client-abc");
 
       expect(app.id).toBeTruthy();
       // UUID v4 format check
@@ -259,10 +262,10 @@ describe("app operations", () => {
       expect(app.updatedAt).toBeGreaterThan(0);
     });
 
-    test("returns the existing app when called again with same (providerKey, clientId)", () => {
+    test("returns the existing app when called again with same (providerKey, clientId)", async () => {
       seedTestProvider("github");
-      const first = upsertApp("github", "client-abc");
-      const second = upsertApp("github", "client-abc");
+      const first = await upsertApp("github", "client-abc");
+      const second = await upsertApp("github", "client-abc");
 
       expect(second.id).toBe(first.id);
       expect(second.createdAt).toBe(first.createdAt);
@@ -270,8 +273,8 @@ describe("app operations", () => {
   });
 
   describe("getApp", () => {
-    test("returns the correct row by id", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the correct row by id", async () => {
+      const app = await createTestApp("github", "client-1");
       const fetched = getApp(app.id);
 
       expect(fetched).toBeDefined();
@@ -286,8 +289,8 @@ describe("app operations", () => {
   });
 
   describe("getAppByProviderAndClientId", () => {
-    test("returns the correct row", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the correct row", async () => {
+      const app = await createTestApp("github", "client-1");
       const fetched = getAppByProviderAndClientId("github", "client-1");
 
       expect(fetched).toBeDefined();
@@ -302,8 +305,8 @@ describe("app operations", () => {
   });
 
   describe("deleteApp", () => {
-    test("removes the row and returns true", () => {
-      const app = createTestApp("github", "client-1");
+    test("removes the row and returns true", async () => {
+      const app = await createTestApp("github", "client-1");
       const deleted = deleteApp(app.id);
 
       expect(deleted).toBe(true);
@@ -322,8 +325,8 @@ describe("app operations", () => {
 
 describe("connection operations", () => {
   describe("createConnection", () => {
-    test("creates a row with status='active'", () => {
-      const app = createTestApp("github", "client-1");
+    test("creates a row with status='active'", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -348,8 +351,8 @@ describe("connection operations", () => {
   });
 
   describe("getConnection", () => {
-    test("returns the correct row", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the correct row", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -369,8 +372,8 @@ describe("connection operations", () => {
   });
 
   describe("getConnectionByProvider", () => {
-    test("returns the most recent active connection", () => {
-      const app = createTestApp("github", "client-1");
+    test("returns the most recent active connection", async () => {
+      const app = await createTestApp("github", "client-1");
 
       // Create two connections with explicit timestamps so ordering is deterministic
       createConnection({
@@ -394,8 +397,8 @@ describe("connection operations", () => {
       expect(result!.id).toBe(conn2.id);
     });
 
-    test("skips connections with status='revoked'", () => {
-      const app = createTestApp("github", "client-1");
+    test("skips connections with status='revoked'", async () => {
+      const app = await createTestApp("github", "client-1");
 
       const conn1 = createConnection({
         oauthAppId: app.id,
@@ -419,8 +422,8 @@ describe("connection operations", () => {
       expect(result!.id).toBe(conn1.id);
     });
 
-    test("skips connections with status='expired'", () => {
-      const app = createTestApp("github", "client-1");
+    test("skips connections with status='expired'", async () => {
+      const app = await createTestApp("github", "client-1");
 
       const conn = createConnection({
         oauthAppId: app.id,
@@ -441,8 +444,8 @@ describe("connection operations", () => {
   });
 
   describe("updateConnection", () => {
-    test("modifies specific fields", () => {
-      const app = createTestApp("github", "client-1");
+    test("modifies specific fields", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -476,9 +479,9 @@ describe("connection operations", () => {
       expect(fetched!.updatedAt).toBeGreaterThanOrEqual(conn.createdAt);
     });
 
-    test("updates oauthAppId to a different app", () => {
-      const app1 = createTestApp("github", "client-1");
-      const app2 = upsertApp("github", "client-2");
+    test("updates oauthAppId to a different app", async () => {
+      const app1 = await createTestApp("github", "client-1");
+      const app2 = await upsertApp("github", "client-2");
 
       const conn = createConnection({
         oauthAppId: app1.id,
@@ -505,10 +508,10 @@ describe("connection operations", () => {
   });
 
   describe("listConnections", () => {
-    test("returns all connections when no filter is given", () => {
-      const ghApp = createTestApp("github", "client-1");
+    test("returns all connections when no filter is given", async () => {
+      const ghApp = await createTestApp("github", "client-1");
       seedTestProvider("google");
-      const googApp = upsertApp("google", "client-2");
+      const googApp = await upsertApp("google", "client-2");
 
       createConnection({
         oauthAppId: ghApp.id,
@@ -527,10 +530,10 @@ describe("connection operations", () => {
       expect(all).toHaveLength(2);
     });
 
-    test("filters by provider key", () => {
-      const ghApp = createTestApp("github", "client-1");
+    test("filters by provider key", async () => {
+      const ghApp = await createTestApp("github", "client-1");
       seedTestProvider("google");
-      const googApp = upsertApp("google", "client-2");
+      const googApp = await upsertApp("google", "client-2");
 
       createConnection({
         oauthAppId: ghApp.id,
@@ -560,8 +563,8 @@ describe("connection operations", () => {
   });
 
   describe("deleteConnection", () => {
-    test("removes the row and returns true", () => {
-      const app = createTestApp("github", "client-1");
+    test("removes the row and returns true", async () => {
+      const app = await createTestApp("github", "client-1");
       const conn = createConnection({
         oauthAppId: app.id,
         providerKey: "github",
@@ -592,7 +595,7 @@ describe("disconnectOAuthProvider", () => {
   });
 
   test("returns true and deletes connection row and secure keys when connection exists", async () => {
-    const app = createTestApp("github", "client-1");
+    const app = await createTestApp("github", "client-1");
     const conn = createConnection({
       oauthAppId: app.id,
       providerKey: "github",
@@ -622,8 +625,10 @@ describe("disconnectOAuthProvider", () => {
 // ---------------------------------------------------------------------------
 
 describe("FK constraints", () => {
-  test("creating an app with a nonexistent provider_key fails", () => {
-    expect(() => upsertApp("nonexistent-provider", "client-1")).toThrow();
+  test("creating an app with a nonexistent provider_key fails", async () => {
+    await expect(
+      upsertApp("nonexistent-provider", "client-1"),
+    ).rejects.toThrow();
   });
 
   test("creating a connection with a nonexistent oauth_app_id fails", () => {
