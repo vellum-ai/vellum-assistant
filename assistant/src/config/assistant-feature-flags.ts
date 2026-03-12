@@ -42,10 +42,7 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
   if (cachedDefaults) return cachedDefaults;
 
   const thisDir = import.meta.dirname ?? __dirname;
-  const envPath = process.env.FEATURE_FLAG_DEFAULTS_PATH?.trim();
   const candidates = [
-    // Explicit override (primarily for tests / controlled environments)
-    ...(envPath ? [envPath] : []),
     // Bundled: co-located copy in the same directory as this source file.
     // Works in Docker / packaged builds where the repo-root `meta/` dir
     // is not available.

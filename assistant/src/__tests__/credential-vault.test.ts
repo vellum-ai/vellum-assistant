@@ -66,6 +66,58 @@ mock.module("../security/oauth2.js", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Mock oauth-store — token-manager reads refresh config from SQLite
+// ---------------------------------------------------------------------------
+
+/** Mutable per-test map of provider connections for getConnectionByProvider */
+const mockConnections = new Map<
+  string,
+  {
+    id: string;
+    providerKey: string;
+    oauthAppId: string;
+    expiresAt: number | null;
+  }
+>();
+const mockApps = new Map<
+  string,
+  { id: string; providerKey: string; clientId: string }
+>();
+const mockProviders = new Map<
+  string,
+  {
+    key: string;
+    tokenUrl: string;
+    tokenEndpointAuthMethod?: string;
+  }
+>();
+
+let mockDisconnectOAuthProvider: ReturnType<
+  typeof mock<
+    (providerKey: string) => Promise<"disconnected" | "not-found" | "error">
+  >
+>;
+
+mock.module("../oauth/oauth-store.js", () => {
+  mockDisconnectOAuthProvider = mock((providerKey: string) =>
+    Promise.resolve(
+      mockConnections.has(providerKey)
+        ? ("disconnected" as const)
+        : ("not-found" as const),
+    ),
+  );
+  return {
+    disconnectOAuthProvider: mockDisconnectOAuthProvider,
+    getConnectionByProvider: (service: string) => mockConnections.get(service),
+    getApp: (id: string) => mockApps.get(id),
+    getProvider: (key: string) => mockProviders.get(key),
+    updateConnection: () => {},
+    getMostRecentAppByProvider: () => undefined,
+    listConnections: () => [],
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Import the module under test
 // ---------------------------------------------------------------------------
 
@@ -85,7 +137,6 @@ import {
 import {
   _setMetadataPath,
   getCredentialMetadata,
-  upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
@@ -214,12 +265,15 @@ describe("credential_store tool", () => {
     }
     _setStorePath(STORE_PATH);
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
+    mockDisconnectOAuthProvider.mockClear();
+    mockConnections.clear();
   });
 
   afterEach(() => {
     _setMetadataPath(null);
     _setStorePath(null);
     _resetBackend();
+    mockConnections.clear();
   });
 
   afterAll(() => {
@@ -663,6 +717,44 @@ describe("credential_store tool", () => {
       });
       expect(result.isError).toBe(true);
       expect(result.content).toContain("field is required");
+    });
+
+    test("delete also disconnects OAuth connection for the service", async () => {
+      // Store a credential via the real tool so metadata exists
+      await credentialStoreTool.execute(
+        {
+          action: "store",
+          service: "integration:gmail",
+          field: "api_key",
+          value: "test-value",
+        },
+        _ctx,
+      );
+
+      // Simulate an active OAuth connection for this service
+      mockConnections.set("integration:gmail", {
+        id: "conn-gmail",
+        providerKey: "integration:gmail",
+        oauthAppId: "app-gmail",
+        expiresAt: Date.now() + 3600_000,
+      });
+
+      const result = await credentialStoreTool.execute(
+        {
+          action: "delete",
+          service: "integration:gmail",
+          field: "api_key",
+        },
+        _ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Deleted credential");
+      // Verify disconnectOAuthProvider was called with the service name
+      expect(mockDisconnectOAuthProvider).toHaveBeenCalledTimes(1);
+      expect(mockDisconnectOAuthProvider).toHaveBeenCalledWith(
+        "integration:gmail",
+      );
     });
   });
 
@@ -1172,6 +1264,10 @@ describe("withValidToken refresh deduplication", () => {
     _resetRefreshBreakers();
     _resetInflightRefreshes();
     mockRefreshOAuth2Token.mockClear();
+    // Clear mock oauth-store maps
+    mockConnections.clear();
+    mockApps.clear();
+    mockProviders.clear();
   });
 
   afterEach(() => {
@@ -1180,6 +1276,9 @@ describe("withValidToken refresh deduplication", () => {
     _resetBackend();
     _resetRefreshBreakers();
     _resetInflightRefreshes();
+    mockConnections.clear();
+    mockApps.clear();
+    mockProviders.clear();
   });
 
   afterAll(() => {
@@ -1187,26 +1286,48 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   /**
-   * Helper: set up a service with an access token, refresh token, and OAuth2
-   * metadata so that token refresh can proceed through doRefresh().
+   * Helper: set up a service with an access token, refresh token, and
+   * mock DB data so that token refresh can proceed through doRefresh().
+   *
+   * OAuth-specific fields (tokenUrl, clientId, expiresAt) are now stored
+   * in the SQLite oauth-store. The mock maps simulate the DB layer.
    */
   function setupService(
     service: string,
     opts?: { expired?: boolean; accessToken?: string },
   ) {
     const accessToken = opts?.accessToken ?? "old-access-token";
-    setSecureKey(credentialKey(service, "access_token"), accessToken);
+
+    // Seed mock oauth-store maps so token-manager can resolve refresh config
+    const appId = `app-${service}`;
+    const connId = `conn-${service}`;
+
+    // Store access token under the oauth_connection key path that
+    // withValidToken reads (not the legacy credentialKey path).
+    setSecureKey(`oauth_connection/${connId}/access_token`, accessToken);
+    mockProviders.set(service, {
+      key: service,
+      tokenUrl: "https://oauth.example.com/token",
+    });
+    mockApps.set(appId, {
+      id: appId,
+      providerKey: service,
+      clientId: "test-client-id",
+    });
+    mockConnections.set(service, {
+      id: connId,
+      providerKey: service,
+      oauthAppId: appId,
+      expiresAt: opts?.expired
+        ? Date.now() - 60_000 // expired 1 minute ago
+        : Date.now() + 3600_000, // expires in 1 hour
+    });
+    // Store refresh token and client_secret in secure keys (token-manager reads them)
     setSecureKey(
-      credentialKey(service, "refresh_token"),
+      `oauth_connection/${connId}/refresh_token`,
       "valid-refresh-token",
     );
-    upsertCredentialMetadata(service, "access_token", {
-      oauth2TokenUrl: "https://oauth.example.com/token",
-      oauth2ClientId: "test-client-id",
-      ...(opts?.expired
-        ? { expiresAt: Date.now() - 60_000 } // expired 1 minute ago
-        : { expiresAt: Date.now() + 3600_000 }), // expires in 1 hour
-    });
+    setSecureKey(`oauth_app/${appId}/client_secret`, "test-client-secret");
   }
 
   test("3 concurrent 401 refreshes for the same service call doRefresh exactly once", async () => {
@@ -1335,22 +1456,23 @@ describe("withValidToken refresh deduplication", () => {
 
     const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
-    // First call triggers a refresh
+    // First call triggers a refresh (old token → 401 → refresh → token-1)
     const r1 = await withValidToken(
       "integration:gmail",
       async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token !== "token-1") throw err401;
         return token;
       },
     );
     expect(r1).toBe("token-1");
     expect(refreshCount).toBe(1);
 
-    // Set up so the next call will also get a 401 (token-1 stored from first refresh)
+    // Second call also triggers a 401 to verify dedup state was cleaned up
+    // and a new refresh is allowed (not deduplicated with the first).
     const r2 = await withValidToken(
       "integration:gmail",
       async (token: string) => {
-        if (token === "token-1") throw err401;
+        if (token !== "token-2") throw err401;
         return token;
       },
     );

@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
-import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
-import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
+import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -109,7 +109,11 @@ export function isOnboardingComplete(): boolean {
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
-export function buildSystemPrompt(): string {
+export interface BuildSystemPromptOptions {
+  hasNoClient?: boolean;
+}
+
+export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   const userPath = getWorkspacePromptPath("USER.md");
@@ -156,13 +160,14 @@ export function buildSystemPrompt(): string {
     );
   }
   if (getIsContainerized()) parts.push(buildContainerizedSection());
-  parts.push(buildConfigSection());
+  const hasNoClient = options?.hasNoClient ?? false;
+  parts.push(buildConfigSection(hasNoClient));
   parts.push(buildCliReferenceSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
   const config = getConfig();
-  parts.push(buildToolPermissionSection());
+  if (!hasNoClient) parts.push(buildToolPermissionSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
   if (
     isAssistantFeatureFlagEnabled(
@@ -181,9 +186,9 @@ export function buildSystemPrompt(): string {
   if (!isOnboardingComplete()) {
     parts.push(buildStarterTaskPlaybookSection());
   }
-  parts.push(buildSystemPermissionSection());
+  if (!hasNoClient) parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
-  parts.push(buildAccessPreferenceSection());
+  parts.push(buildAccessPreferenceSection(hasNoClient));
   parts.push(buildIntegrationSection());
   parts.push(buildMemoryPersistenceSection());
   parts.push(buildMemoryRecallSection());
@@ -363,13 +368,11 @@ export function buildVoiceSetupRoutingSection(): string {
   return [
     "## Routing: Voice Setup & Troubleshooting",
     "",
-    "Voice features include push-to-talk (PTT), wake word detection, and text-to-speech.",
+    "Voice features include push-to-talk (PTT) and text-to-speech.",
     "",
     "### Quick changes — use `voice_config_update` directly",
     '- "Change my PTT key to ctrl" — call `voice_config_update` with `setting: "activation_key"`',
-    '- "Enable wake word" — call `voice_config_update` with `setting: "wake_word_enabled"`, `value: true`',
-    '- "Set my wake word to jarvis" — call `voice_config_update` with `setting: "wake_word_keyword"`',
-    '- "Set wake word timeout to 30 seconds" — call `voice_config_update` with `setting: "wake_word_timeout"`',
+    '- "Set conversation timeout to 30 seconds" — call `voice_config_update` with `setting: "conversation_timeout"`',
     "",
     "For simple setting changes, use the tool directly without loading the voice-setup skill.",
     "",
@@ -379,15 +382,14 @@ export function buildVoiceSetupRoutingSection(): string {
     "**Trigger phrases:**",
     '- "Help me set up voice"',
     '- "Set up push-to-talk"',
-    '- "Configure voice / PTT / wake word"',
+    '- "Configure voice / PTT"',
     '- "PTT isn\'t working" / "push-to-talk not working"',
     '- "Recording but no text"',
-    '- "Wake word not detecting"',
     '- "Microphone not working"',
     '- "Set up ElevenLabs" / "configure TTS"',
     "",
     "### Disambiguation",
-    "- Voice setup (this skill) = **local PTT, wake word, microphone permissions** on the Mac desktop app.",
+    "- Voice setup (this skill) = **local PTT, microphone permissions** on the Mac desktop app.",
     "- Phone calls skill = **Twilio-powered voice calls** over the phone network. Completely separate.",
     '- If the user says "voice" in the context of phone calls or Twilio, load `phone-calls` instead.',
   ].join("\n");
@@ -418,7 +420,7 @@ export function buildPhoneCallsRoutingSection(): string {
     "",
     "### Exclusivity rules",
     "- Do NOT improvise Twilio setup instructions from general knowledge — always load the skill first.",
-    "- Do NOT confuse with voice-setup (local PTT/wake word/microphone) or guardian-verify-setup (channel verification).",
+    "- Do NOT confuse with voice-setup (local PTT/microphone) or guardian-verify-setup (channel verification).",
     '- If the user says "voice" in the context of phone calls or Twilio, load phone-calls, not voice-setup.',
     "- For guardian voice verification specifically, load guardian-verify-setup instead.",
   ].join("\n");
@@ -572,7 +574,23 @@ export function buildSwarmGuidanceSection(): string {
   ].join("\n");
 }
 
-function buildAccessPreferenceSection(): string {
+function buildAccessPreferenceSection(hasNoClient: boolean): string {
+  if (hasNoClient) {
+    return [
+      "## External Service Access Preference",
+      "",
+      "When interacting with external services (GitHub, Slack, Linear, Jira, cloud providers, etc.),",
+      "follow this priority order:",
+      "",
+      "1. **Sandbox first (`bash`)** — Always try to do things in your own sandbox environment first.",
+      "   If a tool (git, curl, jq, etc.) is not installed, install it yourself using `bash`",
+      "   (e.g. `apt-get install -y git`). The sandbox is your own machine — you have full control.",
+      "2. **web_fetch** — For public endpoints or simple API calls that don't need auth.",
+      "3. **Browser automation as last resort** — Only when the task genuinely requires a browser",
+      "   (e.g., no API exists, visual interaction needed, or OAuth consent screen).",
+    ].join("\n");
+  }
+
   return [
     "## External Service Access Preference",
     "",
@@ -625,26 +643,22 @@ function buildAccessPreferenceSection(): string {
 }
 
 function buildIntegrationSection(): string {
-  const allCreds = listCredentialMetadata();
-  // Show OAuth2-connected services (those with oauth2TokenUrl in metadata)
-  const oauthCreds = allCreds.filter(
-    (c) => c.oauth2TokenUrl && c.field === "access_token",
-  );
-  if (oauthCreds.length === 0) return "";
+  let connections: { providerKey: string; accountInfo?: string | null }[];
+  try {
+    connections = listConnections().filter((c) => c.status === "active");
+  } catch {
+    // DB not available — no connected services to show
+    return "";
+  }
 
-  const raw = loadRawConfig();
+  if (connections.length === 0) return "";
+
   const lines = ["## Connected Services", ""];
-  for (const cred of oauthCreds) {
-    const acctInfo = (getNestedValue(
-      raw,
-      `integrations.${cred.service}.accountInfo`,
-    ) ??
-      // Fallback: legacy config path used before the namespace migration
-      getNestedValue(raw, `integrations.accountInfo.${cred.service}`)) as
-      | string
-      | undefined;
-    const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
-    lines.push(`- **${cred.service}**: ${state}`);
+  for (const conn of connections) {
+    const state = conn.accountInfo
+      ? `Connected (${conn.accountInfo})`
+      : "Connected";
+    lines.push(`- **${conn.providerKey}**: ${state}`);
   }
 
   return lines.join("\n");
@@ -760,7 +774,7 @@ function buildPostToolResponseSection(): string {
   ].join("\n");
 }
 
-function buildConfigSection(): string {
+function buildConfigSection(hasNoClient: boolean): string {
   // Always use `file_edit` (not `host_file_edit`) for workspace files — file_edit
   // handles sandbox path mapping internally, and host_file_edit is permission-gated
   // which would trigger approval prompts for routine workspace updates.
@@ -769,10 +783,14 @@ function buildConfigSection(): string {
   const config = getConfig();
   const configPreamble = `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
 
+  const fileToolGuidance = hasNoClient
+    ? `${configPreamble} **Always use \`file_read\` and \`file_edit\` for these files** — they are inside your sandbox working directory:`
+    : `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`;
+
   return [
     "## Configuration",
     `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
-    `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`,
+    fileToolGuidance,
     "",
     "- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.",
     "- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.",
@@ -807,7 +825,13 @@ function buildConfigSection(): string {
     "- They rename you or change your role",
     "- Your avatar appearance changes (update the `## Avatar` section with a description of the new look)",
     "",
-    "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
+    ...(hasNoClient
+      ? [
+          "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`).",
+        ]
+      : [
+          "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
+        ]),
     "",
     "When updating, read the file first, then make a targeted edit. Include all useful information, but don't bloat the files over time",
   ].join("\n");
@@ -824,7 +848,7 @@ export function buildCliReferenceSection(): string {
     "The `assistant` CLI is installed on the user's machine and available via `bash`.",
     "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
     "- Use `assistant credentials ...` for stored secrets and credential metadata.",
-    "- Use `assistant oauth token <service>` for connected integration tokens.",
+    "- Use `assistant oauth connections token <provider-key>` for connected integration tokens.",
     "- Use `assistant mcp auth <name>` when an MCP server needs OAuth login.",
     "- Use `assistant platform status` for platform-linked deployment and auth context.",
     "- If a bundled skill documents a service-specific `assistant <service>` auth or session flow, follow that CLI exactly.",
@@ -998,10 +1022,5 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
     "",
     lines.join("\n"),
     "",
-    "### Installing additional skills",
-    "If `skill_load` fails because a skill is not found, additional first-party skills may be available in the Vellum catalog.",
-    "Use `bash` to discover and install them:",
-    "- `assistant skills list` — list all available catalog skills",
-    "- `assistant skills install <skill-id>` — install a skill, then retry `skill_load`",
   ].join("\n");
 }

@@ -17,9 +17,6 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum number of attachments the assistant may emit per turn. */
-export const MAX_ASSISTANT_ATTACHMENTS = 5;
-
 /** Maximum size in bytes for a single assistant attachment (20 MB). */
 export const MAX_ASSISTANT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
@@ -122,10 +119,9 @@ export interface ValidatedDrafts {
 }
 
 /**
- * Enforce per-turn attachment caps.
+ * Enforce per-attachment size cap.
  *
  * - Rejects individual drafts that exceed `MAX_ASSISTANT_ATTACHMENT_BYTES`.
- * - Truncates the list at `MAX_ASSISTANT_ATTACHMENTS`.
  */
 export function validateDrafts(
   drafts: AssistantAttachmentDraft[],
@@ -140,14 +136,6 @@ export function validateDrafts(
           `size ${formatBytes(draft.sizeBytes)} exceeds ${formatBytes(
             MAX_ASSISTANT_ATTACHMENT_BYTES,
           )} limit.`,
-      );
-      continue;
-    }
-
-    if (accepted.length >= MAX_ASSISTANT_ATTACHMENTS) {
-      warnings.push(
-        `Skipped attachment "${draft.filename}": ` +
-          `exceeded maximum of ${MAX_ASSISTANT_ATTACHMENTS} attachments per turn.`,
       );
       continue;
     }

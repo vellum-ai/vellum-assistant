@@ -7,34 +7,19 @@ struct HatchingStepView: View {
 
     @State private var cliLauncher = AssistantCli()
     @State private var showContent = false
-    @State private var eggWobble = false
-    @State private var eggCracked = false
-    @State private var eggHatched = false
-    @State private var crackScale: CGFloat = 0.0
-    @State private var wobbleAngle: Double = 0
-    @State private var wobbleTimer: Timer?
+    @State private var characterAwake = false
+    @State private var pulseScale: CGFloat = 0.9
+    @State private var showCharacter = true
     @State private var hatchStarted = false
-    @State private var crackTime: Date?
-    @State private var hatchStartTime: Date?
-    @State private var elapsedTime: TimeInterval = 0
-    @State private var elapsedTimer: Timer?
-    @State private var cliFinished = false
     @State private var failureReason: String?
-
-    private var isLocalFlow: Bool {
-        state.cloudProvider == "local" || state.cloudProvider.isEmpty
-    }
-
-    /// Expected duration in seconds: local flows are fast, cloud flows take longer.
-    private var expectedDuration: TimeInterval {
-        isLocalFlow ? 45.0 : 180.0
-    }
+    @State private var selectedPreset = PresetAvatar.random()
+    @State private var completionTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
 
-            eggAnimation
+            characterAnimation
                 .padding(.bottom, VSpacing.xl)
 
             statusText
@@ -51,63 +36,53 @@ struct HatchingStepView: View {
             withAnimation(.easeOut(duration: 0.5)) {
                 showContent = true
             }
-            startWobble()
-            hatchStartTime = Date()
-            startElapsedTimer()
+            startPulse()
             if !hatchStarted {
                 hatchStarted = true
                 startHatching()
             }
         }
         .onDisappear {
-            wobbleTimer?.invalidate()
-            elapsedTimer?.invalidate()
+            completionTask?.cancel()
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
-                wobbleTimer?.invalidate()
-                elapsedTimer?.invalidate()
-                withAnimation(.spring(duration: 0.6, bounce: 0.3)) {
-                    eggHatched = true
-                }
+                characterAwake = true
             }
         }
         .onChange(of: state.hatchFailed) { _, failed in
             if failed {
-                wobbleTimer?.invalidate()
-                elapsedTimer?.invalidate()
+                // Stop the pulse animation and fade out the character
+                // so it doesn't keep pulsing behind the error text.
+                withAnimation(.easeOut(duration: 0.3)) {
+                    showCharacter = false
+                }
             }
         }
     }
 
-    // MARK: - Egg Animation
+    // MARK: - Character Animation
 
-    private var eggAnimation: some View {
+    private var characterAnimation: some View {
         ZStack {
-            if eggHatched && !state.hatchFailed {
-                hatchedChick
-                    .transition(.scale.combined(with: .opacity))
-            } else {
-                wobbleEgg
-                    .transition(.opacity)
+            if let image = selectedPreset.image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 100, height: 100)
+                    .scaleEffect(characterAwake ? 1.1 : pulseScale)
+                    .opacity(showCharacter ? (characterAwake ? 1.0 : 0.6) : 0)
+                    .animation(.spring(duration: 0.6, bounce: 0.3), value: characterAwake)
+                    .accessibilityHidden(true)
             }
         }
         .frame(width: 120, height: 120)
-        .animation(.spring(duration: 0.5), value: eggHatched)
     }
 
-    private var wobbleEgg: some View {
-        Text(state.hatchFailed ? "\u{1FAE0}" : eggCracked ? "\u{1F423}" : "\u{1F95A}")
-            .font(.system(size: 72))
-            .rotationEffect(.degrees(wobbleAngle))
-            .scaleEffect(eggCracked ? 1.1 : 1.0)
-            .animation(.spring(duration: 0.3), value: eggCracked)
-    }
-
-    private var hatchedChick: some View {
-        Text("\u{1F425}")
-            .font(.system(size: 72))
-            .scaleEffect(1.2)
+    private func startPulse() {
+        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+            pulseScale = 1.0
+        }
     }
 
     // MARK: - Status Text
@@ -128,7 +103,7 @@ struct HatchingStepView: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if state.hatchCompleted {
-                Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant has hatched!")
+                Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
             } else if isCustomHardware {
@@ -136,7 +111,7 @@ struct HatchingStepView: View {
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
             } else {
-                Text("Hatching...")
+                Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
                 Text("Getting your assistant ready\u{2026}")
@@ -179,75 +154,24 @@ struct HatchingStepView: View {
         state.resetForRetry()
     }
 
-    // MARK: - Timers
-
-    private func startElapsedTimer() {
-        elapsedTimer?.invalidate()
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                guard let start = hatchStartTime else { return }
-                elapsedTime = Date().timeIntervalSince(start)
-                // Time-based egg crack: crack at 50% of expected duration
-                if !eggCracked && elapsedTime >= expectedDuration * 0.5 {
-                    triggerCrack()
-                }
-            }
-        }
-    }
-
-    // MARK: - Crack Logic
-
-    private func triggerCrack() {
-        guard !eggCracked else { return }
-        withAnimation(.spring(duration: 0.4)) {
-            eggCracked = true
-        }
-        crackTime = Date()
-    }
-
-    /// Called when the CLI process finishes successfully. Applies the post-crack
-    /// minimum delay before signaling completion to OnboardingFlowView.
+    /// Called when the CLI process finishes successfully. Saves the preset avatar
+    /// (for non-pairing flows) then signals completion after a brief delay.
     private func handleHatchSuccess() {
-        cliFinished = true
-
-        if !eggCracked {
-            // Fast-path: CLI finished before time-based crack fired.
-            // Force crack immediately, then wait 2s before completing.
-            triggerCrack()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                state.hatchCompleted = true
-            }
-        } else if let crack = crackTime {
-            let elapsed = Date().timeIntervalSince(crack)
-            if elapsed < 2.0 {
-                // Crack happened less than 2s ago; wait the remaining time.
-                let remaining = 2.0 - elapsed
-                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
-                    state.hatchCompleted = true
-                }
-            } else {
-                // Crack happened 2s+ ago; complete immediately.
-                state.hatchCompleted = true
-            }
-        } else {
-            state.hatchCompleted = true
+        // Save the randomly-assigned preset as the user's avatar, but only for
+        // non-pairing flows and only if one hasn't already been uploaded/generated
+        // (preserves existing avatars when replaying onboarding during development).
+        if !isCustomHardware,
+           AvatarAppearanceManager.shared.customAvatarImage == nil,
+           let image = selectedPreset.image {
+            AvatarAppearanceManager.shared.setCustomAvatar(image)
         }
-    }
 
-    // MARK: - Wobble
-
-    private func startWobble() {
-        wobbleTimer?.invalidate()
-        wobbleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            Task { @MainActor in
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    wobbleAngle = Double.random(in: -8...8)
-                }
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    wobbleAngle = 0
-                }
-            }
+        // Brief delay so the user sees the waking animation before transition.
+        // Stored as a cancellable Task so it's cleaned up if the view disappears.
+        completionTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            state.hatchCompleted = true
         }
     }
 

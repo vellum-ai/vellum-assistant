@@ -24,13 +24,6 @@ function flag(name: string): boolean {
   return raw === "true" || raw === "1";
 }
 
-function flagTriState(name: string): boolean | undefined {
-  const raw = str(name);
-  if (raw === "true" || raw === "1") return true;
-  if (raw === "false" || raw === "0") return false;
-  return undefined;
-}
-
 // ── Registry ─────────────────────────────────────────────────────────────────
 // Each entry documents the env var name, type, default, and purpose.
 
@@ -44,75 +37,11 @@ export function getBaseDataDir(): string | undefined {
 }
 
 /**
- * VELLUM_DAEMON_TCP_PORT — number, default: 8765
- * TCP port for the daemon's TCP listener (used by iOS clients).
- */
-export function getDaemonTcpPort(): number {
-  const raw = str("VELLUM_DAEMON_TCP_PORT");
-  if (raw) {
-    const port = parseInt(raw, 10);
-    if (!isNaN(port) && port > 0 && port <= 65535) return port;
-  }
-  return 8765;
-}
-
-/**
- * VELLUM_DAEMON_TCP_ENABLED — boolean tri-state, default: undefined (falls back to flag file)
- * Whether the daemon TCP listener should be active.
- * 'true'/'1' → on, 'false'/'0' → off, unset → check flag file.
- */
-export function getDaemonTcpEnabled(): boolean | undefined {
-  return flagTriState("VELLUM_DAEMON_TCP_ENABLED");
-}
-
-/**
- * VELLUM_DAEMON_TCP_HOST — string, default: context-dependent (127.0.0.1 or 0.0.0.0)
- * Hostname/address for the TCP listener. When unset, platform.ts resolves
- * based on whether iOS pairing is enabled.
- */
-export function getDaemonTcpHost(): string | undefined {
-  return str("VELLUM_DAEMON_TCP_HOST");
-}
-
-/**
- * VELLUM_DAEMON_IOS_PAIRING — boolean tri-state, default: undefined (falls back to flag file)
- * Whether iOS pairing mode is enabled. When on, TCP binds to 0.0.0.0.
- * 'true'/'1' → on, 'false'/'0' → off, unset → check flag file.
- */
-export function getDaemonIosPairing(): boolean | undefined {
-  return flagTriState("VELLUM_DAEMON_IOS_PAIRING");
-}
-
-/**
- * VELLUM_DEBUG — boolean, default: false
- * Enables debug-level logging and verbose output.
- */
-export function getDebugMode(): boolean {
-  return flag("VELLUM_DEBUG");
-}
-
-/**
- * VELLUM_LOG_STDERR — boolean, default: false
- * Forces logger output to stderr instead of log files.
- */
-export function getLogStderr(): boolean {
-  return flag("VELLUM_LOG_STDERR");
-}
-
-/**
  * DEBUG_STDOUT_LOGS — boolean, default: false
  * Enables additional log output to stdout (alongside file logging).
  */
 export function getDebugStdoutLogs(): boolean {
   return flag("DEBUG_STDOUT_LOGS");
-}
-
-/**
- * VELLUM_ENABLE_MONITORING — boolean, default: false
- * Enables monitoring/telemetry (Logfire, etc.).
- */
-export function getEnableMonitoring(): boolean {
-  return flag("VELLUM_ENABLE_MONITORING");
 }
 
 /**
@@ -132,24 +61,26 @@ export function getIsContainerized(): boolean {
  * to warn about typos or unrecognized variables.
  */
 const KNOWN_VELLUM_VARS = new Set([
-  "VELLUM_DAEMON_TCP_PORT",
-  "VELLUM_DAEMON_TCP_ENABLED",
-  "VELLUM_DAEMON_TCP_HOST",
-  "VELLUM_DAEMON_IOS_PAIRING",
-  "VELLUM_DAEMON_NOAUTH",
+  "VELLUM_ASSISTANT_NAME",
+  "VELLUM_AWS_ROLE_ARN",
+  "VELLUM_CLAUDE_CODE_DEPTH",
+  "VELLUM_CUSTOM_QR_CODE_PATH",
   "VELLUM_DAEMON_AUTOSTART",
-  "VELLUM_DEBUG",
-  "VELLUM_LOG_STDERR",
-  "VELLUM_ENABLE_MONITORING",
+  "VELLUM_DAEMON_NOAUTH",
+  "VELLUM_DATA_DIR",
+  "VELLUM_DESKTOP_APP",
+  "VELLUM_DEV",
+  "VELLUM_ENABLE_INSECURE_LAN_PAIRING",
+  "VELLUM_HATCHED_BY",
   "VELLUM_HOOK_EVENT",
   "VELLUM_HOOK_NAME",
   "VELLUM_HOOK_SETTINGS",
+  "VELLUM_LOCKFILE_DIR",
+  "VELLUM_PLATFORM_URL",
   "VELLUM_ROOT_DIR",
-  "VELLUM_WORKSPACE_DIR",
-  "VELLUM_CLAUDE_CODE_DEPTH",
-  "VELLUM_ASSISTANT_PLATFORM_URL",
+  "VELLUM_SSH_USER",
   "VELLUM_UNSAFE_AUTH_BYPASS",
-  "VELLUM_DATA_DIR",
+  "VELLUM_WORKSPACE_DIR",
 ]);
 
 /**

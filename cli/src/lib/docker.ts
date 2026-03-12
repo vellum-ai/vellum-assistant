@@ -19,6 +19,57 @@ import {
 
 const _require = createRequire(import.meta.url);
 
+/**
+ * Checks whether the `docker` CLI and daemon are available on the system.
+ * Installs Colima and Docker via Homebrew if the CLI is missing, and starts
+ * Colima if the Docker daemon is not reachable.
+ */
+async function ensureDockerInstalled(): Promise<void> {
+  let installed = false;
+  try {
+    await execOutput("docker", ["--version"]);
+    installed = true;
+  } catch {
+    // docker CLI not found — install it
+  }
+
+  if (!installed) {
+    console.log("🐳 Docker not found. Installing via Homebrew...");
+    try {
+      await exec("brew", ["install", "colima", "docker"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to install Docker via Homebrew. Please install Docker manually.\n${message}`,
+      );
+    }
+
+    try {
+      await execOutput("docker", ["--version"]);
+    } catch {
+      throw new Error(
+        "Docker was installed but is still not available on PATH. " +
+          "You may need to restart your terminal.",
+      );
+    }
+  }
+
+  // Verify the Docker daemon is reachable; start Colima if it isn't
+  try {
+    await exec("docker", ["info"]);
+  } catch {
+    console.log("🚀 Docker daemon not running. Starting Colima...");
+    try {
+      await exec("colima", ["start"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to start Colima. Please run 'colima start' manually.\n${message}`,
+      );
+    }
+  }
+}
+
 interface DockerRoot {
   /** Directory to use as the Docker build context */
   root: string;
@@ -180,6 +231,8 @@ export async function hatchDocker(
 ): Promise<void> {
   resetLogFile("hatch.log");
 
+  await ensureDockerInstalled();
+
   let repoRoot: string;
   let dockerfileDir: string;
   try {
@@ -251,12 +304,7 @@ export async function hatchDocker(
   ];
 
   // Pass through environment variables the assistant needs
-  for (const envVar of [
-    "ANTHROPIC_API_KEY",
-    "GATEWAY_RUNTIME_PROXY_ENABLED",
-    "RUNTIME_PROXY_BEARER_TOKEN",
-    "VELLUM_ASSISTANT_PLATFORM_URL",
-  ]) {
+  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
     if (process.env[envVar]) {
       runArgs.push("-e", `${envVar}=${process.env[envVar]}`);
     }

@@ -18,8 +18,7 @@ final class VoiceModeManager: ObservableObject {
     @Published var liveTranscription: String = ""
     @Published var errorMessage: String = ""
     /// Set to true when deactivation was triggered by the conversation timeout
-    /// (as opposed to manual deactivation). WakeWordCoordinator uses this to
-    /// decide whether to resume passive listening.
+    /// (as opposed to manual deactivation).
     @Published var wasAutoDeactivated: Bool = false
 
     /// How long to wait in `.idle` before auto-deactivating voice mode.
@@ -281,11 +280,6 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
-            // Wake word routes directly to the bound chatViewModel rather than using
-            // PTT's priority routing (quick input → main window → TextResponseWindow → new session).
-            // This is by design: wake word activates a continuous conversational mode tied to a
-            // specific chat thread. Re-routing mid-conversation to a different surface would break
-            // the back-and-forth voice dialogue flow.
             chatViewModel.pendingVoiceMessage = true
             chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()
@@ -600,7 +594,7 @@ final class VoiceModeManager: ObservableObject {
     private func startConversationTimeout() {
         cancelConversationTimeout()
         // Read the user's preference each time so changes take effect immediately
-        let storedTimeout = UserDefaults.standard.integer(forKey: "wakeWordTimeoutSeconds")
+        let storedTimeout = UserDefaults.standard.integer(forKey: "voiceConversationTimeoutSeconds")
         let interval = storedTimeout > 0 ? TimeInterval(storedTimeout) : conversationTimeoutInterval
         let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
         conversationTimeoutTask = Task { [weak self] in

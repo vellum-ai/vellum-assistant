@@ -426,8 +426,8 @@ export interface PlaceOrderResult {
  * Refresh the Amazon session by grabbing cookies directly from Chrome
  * via the browser extension relay's `get_cookies` action.
  *
- * Much faster than the CDP-based Ride Shotgun flow — no separate Chrome
- * instance, no recording. Requires the extension to be loaded and connected.
+ * Grabs cookies directly from Chrome via the browser extension relay.
+ * Requires the extension to be loaded and connected.
  */
 export async function refreshSessionFromExtension(): Promise<AmazonSession> {
   const resp = await sendRelayCommand({

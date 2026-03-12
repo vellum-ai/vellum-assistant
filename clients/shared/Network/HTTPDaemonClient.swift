@@ -96,7 +96,7 @@ public struct WorkspaceFileResponse: Codable, Sendable {
 ///
 /// Responsibilities:
 /// - Periodic health check via `GET /healthz` to drive connection status
-/// - SSE stream connection to `GET /v1/events?conversationKey=...` (on demand)
+/// - SSE stream connection to `GET /v1/events` (unfiltered, on demand)
 /// - Translating message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
 @MainActor
@@ -104,7 +104,6 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let conversationKey: String
     private let sourceChannel: String
     let transportMetadata: TransportMetadata
 
@@ -172,14 +171,12 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
-    /// The local session ID used by the client (set from the synthetic session_info).
-    /// Used to remap the daemon's internal conversation ID to the client's session ID
-    /// so that ChatViewModel's belongsToSession() filter passes.
-    var activeLocalSessionId: String?
-
-    /// The daemon's internal conversation ID, learned from the first SSE event.
-    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
-    var remoteSessionId: String?
+    /// Maps the daemon's server-side conversationId → client-local sessionId.
+    /// Used to remap sessionId in incoming SSE events so ChatViewModel's
+    /// belongsToSession() filter passes. Supports multiple concurrent threads.
+    /// Capped at `serverToLocalSessionMapCap` entries to prevent unbounded growth.
+    var serverToLocalSessionMap: [String: String] = [:]
+    private let serverToLocalSessionMapCap = 500
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
@@ -203,7 +200,9 @@ public final class HTTPTransport {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
-        self.conversationKey = conversationKey
+        // conversationKey is accepted for DaemonConfig API compatibility but no longer stored;
+        // the SSE stream subscribes to all events without a conversationKey filter.
+        _ = conversationKey
         self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
@@ -246,7 +245,7 @@ public final class HTTPTransport {
     /// identity are modelled as associated values.
     enum Endpoint {
         case healthz
-        case events(conversationKey: String)
+        case eventsAll  // SSE subscription for all events
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
@@ -350,8 +349,6 @@ public final class HTTPTransport {
         case cuSessionAbort(sessionId: String)
         case cuObservation
         case cuTaskSubmit
-        case rideShotgunStart
-        case rideShotgunStop
         case cuWatch
 
         // Recordings
@@ -457,9 +454,8 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("/healthz", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("/v1/events", "conversationKey=\(encoded)")
+        case .eventsAll:
+            return ("/v1/events", nil)
         case .sendMessage:
             return ("/v1/messages", nil)
         case .getMessages(let conversationId):
@@ -728,10 +724,6 @@ public final class HTTPTransport {
             return ("/v1/computer-use/observations", nil)
         case .cuTaskSubmit:
             return ("/v1/computer-use/tasks", nil)
-        case .rideShotgunStart:
-            return ("/v1/computer-use/ride-shotgun/start", nil)
-        case .rideShotgunStop:
-            return ("/v1/computer-use/ride-shotgun/stop", nil)
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
         // Recordings
@@ -843,9 +835,8 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("\(prefix)/healthz/", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("\(prefix)/events/", "conversationKey=\(encoded)")
+        case .eventsAll:
+            return ("\(prefix)/events/", nil)
         case .sendMessage:
             return ("\(prefix)/messages/", nil)
         case .getMessages(let conversationId):
@@ -1114,10 +1105,6 @@ public final class HTTPTransport {
             return ("\(prefix)/computer-use/observations/", nil)
         case .cuTaskSubmit:
             return ("\(prefix)/computer-use/tasks/", nil)
-        case .rideShotgunStart:
-            return ("\(prefix)/computer-use/ride-shotgun/start/", nil)
-        case .rideShotgunStop:
-            return ("\(prefix)/computer-use/ride-shotgun/stop/", nil)
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
         // Recordings
@@ -1346,8 +1333,8 @@ public final class HTTPTransport {
     private func startSSEStream() {
         sseTask?.cancel()
 
-        guard let url = buildURL(for: .events(conversationKey: self.conversationKey)) else {
-            log.error("Invalid SSE URL for conversationKey: \(self.conversationKey)")
+        guard let url = buildURL(for: .eventsAll) else {
+            log.error("Invalid SSE URL for unfiltered events")
             return
         }
 
@@ -1421,44 +1408,44 @@ public final class HTTPTransport {
         }
     }
 
-    private func parseSSEData(_ data: String) {
-        // Remap the daemon's internal session/conversation ID to the client's
-        // local session ID so that ChatViewModel.belongsToSession() passes.
-        // The daemon assigns its own UUID via getOrCreateConversation(), which
-        // differs from the correlationId the client uses as sessionId.
-        var jsonString = data
-        if let localId = activeLocalSessionId {
-            if remoteSessionId == nil {
-                // Learn the daemon's session ID from the first event envelope.
-                if let eventData = data.data(using: .utf8),
-                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
-                   let eventSessionId = envelope.sessionId,
-                   eventSessionId != localId {
-                    remoteSessionId = eventSessionId
-                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
+    /// Extract the value of a JSON string field using lightweight string search.
+    /// Handles both `"key":"value"` and `"key": "value"` (with optional space after colon).
+    private func extractJsonStringValue(from jsonString: String, key: String) -> String? {
+        for pattern in ["\"\(key)\":\"", "\"\(key)\": \""] {
+            if let range = jsonString.range(of: pattern) {
+                let valueStart = range.upperBound
+                if let valueEnd = jsonString[valueStart...].firstIndex(of: "\"") {
+                    return String(jsonString[valueStart..<valueEnd])
                 }
             }
-            if let remoteId = remoteSessionId {
-                // Replace only the sessionId JSON value — not arbitrary occurrences
-                // of the UUID elsewhere in the payload. Handle both compact
-                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\":\"\(remoteId)\"",
-                    with: "\"sessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\": \"\(remoteId)\"",
-                    with: "\"sessionId\": \"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\":\"\(remoteId)\"",
-                    with: "\"parentSessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\": \"\(remoteId)\"",
-                    with: "\"parentSessionId\": \"\(localId)\""
-                )
-            }
+        }
+        return nil
+    }
+
+    private func parseSSEData(_ data: String) {
+        var jsonString = data
+        // Remap server conversation IDs to client-local session IDs via O(1) dictionary lookup
+        if let sessionId = extractJsonStringValue(from: jsonString, key: "sessionId"),
+           let localId = serverToLocalSessionMap[sessionId] {
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\":\"\(sessionId)\"",
+                with: "\"sessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\": \"\(sessionId)\"",
+                with: "\"sessionId\": \"\(localId)\""
+            )
+        }
+        if let parentSessionId = extractJsonStringValue(from: jsonString, key: "parentSessionId"),
+           let localId = serverToLocalSessionMap[parentSessionId] {
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\":\"\(parentSessionId)\"",
+                with: "\"parentSessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\": \"\(parentSessionId)\"",
+                with: "\"parentSessionId\": \"\(localId)\""
+            )
         }
 
         guard let jsonData = jsonString.data(using: .utf8) else { return }
@@ -1597,7 +1584,7 @@ public final class HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = [
-            "conversationKey": conversationKey,
+            "conversationKey": sessionId,
             "sourceChannel": sourceChannel,
             "interface": Self.defaultInterface
         ]
@@ -1616,6 +1603,23 @@ public final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
+                // Learn the server's conversationId for this thread's conversationKey.
+                // For new threads, the sessionId (used as conversationKey) differs from
+                // the server's internal conversationId. Store the mapping so parseSSEData
+                // can remap incoming events to the client's local session ID.
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let serverConvId = json["conversationId"] as? String,
+                   serverConvId != sessionId {
+                    self.serverToLocalSessionMap[serverConvId] = sessionId
+                    // Evict arbitrary entries when over cap to prevent unbounded growth.
+                    // Lost mappings are benign — unmapped events are filtered by belongsToSession.
+                    while self.serverToLocalSessionMap.count > self.serverToLocalSessionMapCap {
+                        if let key = self.serverToLocalSessionMap.keys.first {
+                            self.serverToLocalSessionMap.removeValue(forKey: key)
+                        }
+                    }
+                    log.info("Mapped server conversation \(serverConvId, privacy: .public) → local session \(sessionId, privacy: .public)")
+                }
             } else if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
@@ -3466,11 +3470,13 @@ public final class HTTPTransport {
                 }
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
+                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
                 onMessage?(.sessionError(SessionErrorMessage(
                     sessionId: sessionId,
                     code: .regenerateFailed,
                     userMessage: "Unable to regenerate response. Try sending your message again.",
-                    retryable: true
+                    retryable: true,
+                    debugDetails: "HTTP \(http.statusCode): \(body)"
                 )))
             }
         } catch {
@@ -3479,7 +3485,8 @@ public final class HTTPTransport {
                 sessionId: sessionId,
                 code: .regenerateFailed,
                 userMessage: "Unable to regenerate response. Try sending your message again.",
-                retryable: true
+                retryable: true,
+                debugDetails: error.localizedDescription
             )))
         }
     }

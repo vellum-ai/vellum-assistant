@@ -2,7 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 
 import { Debouncer } from "../util/debounce.js";
 import { pathExists } from "../util/fs.js";
-import { getLogger, isDebug } from "../util/logger.js";
+import { getLogger } from "../util/logger.js";
 import { getHooksDir } from "../util/platform.js";
 import { discoverHooks } from "./discovery.js";
 import { runHookScript } from "./runner.js";
@@ -72,9 +72,6 @@ export class HookManager {
             { hook: hook.name, event, exitCode: result.exitCode },
             "Hook exited with non-zero code",
           );
-        }
-        if (result.stderr && isDebug()) {
-          process.stderr.write(result.stderr);
         }
       } catch (err) {
         log.warn({ err, hook: hook.name, event }, "Hook execution failed");

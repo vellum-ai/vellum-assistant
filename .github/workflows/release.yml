@@ -1585,143 +1585,92 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  prepare-playwright:
-    name: Prepare Playwright matrix
-    needs: [bump-and-tag]
-    runs-on: ubuntu-latest
-    outputs:
-      shard-matrix: ${{ steps.set-matrix.outputs.matrix }}
-      total-shards: ${{ steps.set-matrix.outputs.total }}
-    steps:
-      - name: Compute shard indices
-        id: set-matrix
-        run: |
-          TOTAL=4
-          INDICES=$(python3 -c "import json; print(json.dumps(list(range(1, int($TOTAL) + 1))))")
-          echo "matrix=$INDICES" >> "$GITHUB_OUTPUT"
-          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
-
   ci-playwright:
-    name: Playwright Tests (${{ matrix.shard }}/${{ needs.prepare-playwright.outputs.total-shards }})
-    needs: [bump-and-tag, build-macos-arm64, prepare-playwright]
-    runs-on: macos-15
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJson(needs.prepare-playwright.outputs.shard-matrix) }}
-    env:
-      APP_DISPLAY_NAME: Vellum
-      TOTAL_SHARDS: ${{ needs.prepare-playwright.outputs.total-shards }}
+    name: Playwright Tests
+    needs: [bump-and-tag, build-macos-arm64]
+    if: ${{ !cancelled() && needs.build-macos-arm64.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
 
-      - name: Download DMG artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-build
-          path: /tmp/macos-artifacts
-
-      - name: Remove all source files except playwright
+      - name: Trigger Playwright workflow in platform repo
+        id: trigger
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Move playwright directory to safe location
-          mv playwright /tmp/playwright-tests
+          BRANCH="v${{ needs.bump-and-tag.outputs.version }}"
+          BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 
-          # Remove everything in the repo except .git
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/dispatches" \
+            -d "{\"ref\":\"main\",\"inputs\":{\"branch\":\"$BRANCH\",\"shards\":\"4\",\"test_filter\":\"stable\"}}"
 
-          # Restore playwright directory
-          mv /tmp/playwright-tests playwright
+          echo "Triggered playwright workflow for branch $BRANCH"
+          sleep 15
 
-      - name: Install app from DMG
+      - name: Wait for Playwright workflow result
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          DMG_PATH=$(find /tmp/macos-artifacts -name "*.dmg" -type f | head -1)
-          echo "Found DMG at: $DMG_PATH"
+          RUN_ID=""
+          for i in $(seq 1 30); do
+            RUN_ID=$(curl -fsSL \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/runs?created=>=${{ steps.trigger.outputs.before }}&event=workflow_dispatch&per_page=1" \
+              | python3 -c "import sys,json; runs=json.load(sys.stdin).get('workflow_runs',[]); print(runs[0]['id'] if runs else '')")
 
-          MOUNT_DIR=$(hdiutil attach "$DMG_PATH" -nobrowse | tail -1 | awk '{print $NF}')
-          echo "Mounted at: $MOUNT_DIR"
+            if [ -n "$RUN_ID" ]; then
+              echo "Found workflow run: $RUN_ID"
+              RUN_URL="https://github.com/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID"
+              echo "Run URL: $RUN_URL"
+              break
+            fi
+            echo "Waiting for run to appear... (attempt $i/30)"
+            sleep 10
+          done
 
-          # Copy the .app to the expected location for tests
-          mkdir -p clients/macos/dist
-          cp -R "$MOUNT_DIR/${APP_DISPLAY_NAME}.app" "clients/macos/dist/${APP_DISPLAY_NAME}.app"
-          echo "App installed at: clients/macos/dist/${APP_DISPLAY_NAME}.app"
-
-          hdiutil detach "$MOUNT_DIR"
-          rm -rf /tmp/macos-artifacts
-
-      - name: Verify no source files present
-        run: |
-          echo "=== Repository contents ==="
-          ls -la
-          echo ""
-          echo "Only playwright/ and clients/macos/dist/ should exist:"
-          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' | head -20 || true
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Fetch Anthropic API key from Secret Manager
-        id: secrets
-        uses: google-github-actions/get-secretmanager-secrets@v2
-        with:
-          secrets: |-
-            ANTHROPIC_API_KEY:vellum-nonprod/ANTHROPIC_API_KEY
-
-      - name: Set Anthropic API key in env
-        run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.9'
-
-      - name: Install Playwright dependencies
-        working-directory: playwright
-        run: bun install
-
-      - name: Install Chromium
-        working-directory: playwright
-        run: bunx playwright install --with-deps chromium
-
-      - name: Symlink vellum CLI into PATH
-        run: |
-          CLI_BINARY="clients/macos/dist/${APP_DISPLAY_NAME}.app/Contents/MacOS/vellum-cli"
-          if [ -f "$CLI_BINARY" ]; then
-            chmod +x "$CLI_BINARY"
-            sudo ln -sf "$(pwd)/$CLI_BINARY" /usr/local/bin/vellum
-            echo "Symlinked vellum CLI: $(vellum --version 2>&1 || echo 'version check failed')"
-          else
-            echo "::warning::Bundled CLI not found at $CLI_BINARY — skipping symlink"
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Could not find triggered workflow run after 5 minutes"
+            exit 1
           fi
 
-      - name: Run Playwright tests
-        working-directory: playwright
-        run: |
-          SHARD_ARGS=""
-          if [ "$TOTAL_SHARDS" -gt 1 ]; then
-            SHARD_ARGS="--shard=${{ matrix.shard }}/$TOTAL_SHARDS"
-          fi
-          bun run test $SHARD_ARGS
+          while true; do
+            RESPONSE=$(curl -fsSL \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID")
 
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-${{ matrix.shard }}
-          path: |
-            playwright/playwright-report/
-            playwright/test-results/
-          retention-days: 30
+            RUN_STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+            CONCLUSION=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('conclusion') or '')")
+
+            echo "$(date -u +%H:%M:%S) Run $RUN_ID: status=$RUN_STATUS conclusion=$CONCLUSION"
+
+            if [ "$RUN_STATUS" = "completed" ]; then
+              RUN_URL="https://github.com/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID"
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "Playwright tests passed! $RUN_URL"
+                exit 0
+              else
+                echo "::error::Playwright tests failed (conclusion: $CONCLUSION). See: $RUN_URL"
+                exit 1
+              fi
+            fi
+
+            sleep 30
+          done
 
   notify-release:
     name: Slack Notification (Release)

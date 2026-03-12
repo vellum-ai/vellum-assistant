@@ -328,11 +328,11 @@ describe("ephemeral-permissions", () => {
       testConfig.permissions.mode = "workspace";
     });
 
-    test("workspace mode auto-allows workspace-scoped file_write (medium risk)", async () => {
+    test("workspace mode prompts for workspace-scoped file_write (medium risk)", async () => {
       const filePath = join(testDir, "workspace-test-file.txt");
       const result = await check("file_write", { path: filePath }, testDir);
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("Workspace mode");
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("medium risk");
     });
 
     test("workspace mode still prompts for file_write outside workspace", async () => {

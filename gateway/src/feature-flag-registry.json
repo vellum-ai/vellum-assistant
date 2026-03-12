@@ -34,22 +34,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "messaging-gmail",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.gmail.enabled",
-      "label": "Messaging: Gmail",
-      "description": "Allow messaging tools to operate on the Gmail platform",
-      "defaultEnabled": true
-    },
-    {
-      "id": "messaging-telegram",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.telegram.enabled",
-      "label": "Messaging: Telegram",
-      "description": "Allow messaging tools to operate on the Telegram platform",
-      "defaultEnabled": false
-    },
-    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
@@ -79,6 +63,14 @@
       "key": "feature_flags.contacts.enabled",
       "label": "Contacts",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
+      "defaultEnabled": false
+    },
+    {
+      "id": "email-channel",
+      "scope": "assistant",
+      "key": "feature_flags.email-channel.enabled",
+      "label": "Email Channel",
+      "description": "Show the Email channel card on the Contacts page and enable the email-setup skill",
       "defaultEnabled": false
     },
     {
@@ -127,6 +119,14 @@
       "key": "feature_flags.settings-developer-nav.enabled",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
+      "defaultEnabled": true
+    },
+    {
+      "id": "logfire",
+      "scope": "assistant",
+      "key": "feature_flags.logfire.enabled",
+      "label": "Logfire LLM Observability",
+      "description": "Enable Logfire tracing for LLM request/response telemetry when LOGFIRE_TOKEN is set",
       "defaultEnabled": false
     }
   ]

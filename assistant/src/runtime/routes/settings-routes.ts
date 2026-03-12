@@ -14,22 +14,23 @@ import { loadSkillCatalog } from "../../config/skills.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
-  getProviderProfile,
+  getApp,
+  getConnectionByProvider,
+  getMostRecentAppByProvider,
+  getProvider,
+} from "../../oauth/oauth-store.js";
+import {
+  getProviderBehavior,
   resolveService,
-} from "../../oauth/provider-profiles.js";
+} from "../../oauth/provider-behaviors.js";
 import {
   check,
   classifyRisk,
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
-import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
-import {
-  assertMetadataWritable,
-  getCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import {
   type ManifestOverride,
   resolveExecutionTarget,
@@ -139,50 +140,39 @@ function sanitizeOAuthError(message: string): string {
   return "OAuth authentication failed. Please try again.";
 }
 
-/** Resolve client_secret from the keychain, checking canonical then alias service name. */
-function getClientSecret(
-  resolvedService: string,
-  rawService: string,
-): string | undefined {
-  return (
-    getSecureKey(credentialKey(resolvedService, "client_secret")) ??
-    (resolvedService !== rawService
-      ? getSecureKey(credentialKey(rawService, "client_secret"))
-      : undefined) ??
-    undefined
-  );
-}
-
 async function handleOAuthConnectStart(body: {
   service?: string;
   requestedScopes?: string[];
 }): Promise<Response> {
-  try {
-    assertMetadataWritable();
-  } catch {
-    return httpError(
-      "UNPROCESSABLE_ENTITY",
-      "Credential metadata file has an unrecognized version. Cannot store OAuth credentials.",
-      422,
-    );
-  }
-
   if (!body.service) {
     return httpError("BAD_REQUEST", "Missing required field: service", 400);
   }
 
   const resolvedService = resolveService(body.service);
 
-  // client_id is stored in metadata (oauth2ClientId), not the secure store.
-  let clientId = getCredentialMetadata(
-    resolvedService,
-    "access_token",
-  )?.oauth2ClientId;
-  if (!clientId && resolvedService !== body.service) {
-    clientId = getCredentialMetadata(
-      body.service,
-      "access_token",
-    )?.oauth2ClientId;
+  // Resolve client_id and client_secret from oauth-store.
+  let clientId: string | undefined;
+  let clientSecret: string | undefined;
+
+  // Try existing connection first (re-auth flow)
+  const conn = getConnectionByProvider(resolvedService);
+  if (conn) {
+    const app = getApp(conn.oauthAppId);
+    if (app) {
+      clientId = app.clientId;
+      clientSecret = getSecureKey(`oauth_app/${app.id}/client_secret`);
+    }
+  }
+
+  // Fall back to most recent app for this provider (first-time connect with stored app)
+  if (!clientId) {
+    const dbApp = getMostRecentAppByProvider(resolvedService);
+    if (dbApp) {
+      clientId = dbApp.clientId;
+      if (!clientSecret) {
+        clientSecret = getSecureKey(`oauth_app/${dbApp.id}/client_secret`);
+      }
+    }
   }
 
   if (!clientId) {
@@ -193,12 +183,11 @@ async function handleOAuthConnectStart(body: {
     );
   }
 
-  const clientSecret = getClientSecret(resolvedService, body.service);
-
-  const profile = getProviderProfile(resolvedService);
+  const behavior = getProviderBehavior(resolvedService);
+  const providerRow = getProvider(resolvedService);
   const requiresSecret =
-    profile?.setup?.requiresClientSecret ??
-    !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
+    behavior?.setup?.requiresClientSecret ??
+    !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
   if (requiresSecret && !clientSecret) {
     return httpError(
       "BAD_REQUEST",
@@ -222,6 +211,15 @@ async function handleOAuthConnectStart(body: {
         authUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
+        // Prefer accountInfo from oauth-store when available.
+        let accountInfo = deferredResult.accountInfo;
+        try {
+          const conn = getConnectionByProvider(resolvedService);
+          if (conn?.accountInfo) accountInfo = conn.accountInfo;
+        } catch {
+          // DB not ready — use orchestrator value
+        }
+
         // Emit oauth_connect_result to all connected SSE clients so the
         // UI can update immediately when the deferred browser flow completes.
         assistantEventHub
@@ -230,7 +228,7 @@ async function handleOAuthConnectStart(body: {
               type: "oauth_connect_result",
               success: deferredResult.success,
               service: deferredResult.service,
-              accountInfo: deferredResult.accountInfo,
+              accountInfo,
               error: deferredResult.error,
             }),
           )
@@ -273,10 +271,19 @@ async function handleOAuthConnectStart(body: {
       });
     }
 
+    // Prefer accountInfo from oauth-store when available.
+    let responseAccountInfo = result.accountInfo;
+    try {
+      const conn = getConnectionByProvider(resolvedService);
+      if (conn?.accountInfo) responseAccountInfo = conn.accountInfo;
+    } catch {
+      // DB not ready — use orchestrator value
+    }
+
     return Response.json({
       ok: true,
       grantedScopes: result.grantedScopes,
-      accountInfo: result.accountInfo,
+      accountInfo: responseAccountInfo,
       ...(authUrl ? { authUrl } : {}),
     });
   } catch (err) {

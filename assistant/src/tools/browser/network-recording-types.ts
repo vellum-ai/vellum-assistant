@@ -1,4 +1,4 @@
-/** Types for CDP network recording used by Ride Shotgun "learn" mode. */
+/** Types for CDP network recording. */
 
 export interface NetworkRecordedRequest {
   method: string;

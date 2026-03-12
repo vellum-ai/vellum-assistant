@@ -14,13 +14,14 @@ private let log = Logger(
 ///
 /// Log sources included:
 /// - `~/Library/Application Support/vellum-assistant/logs/`  — per-session JSON logs
-/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot
-/// - Daemon logs and audit data via `POST /v1/export` gateway HTTP API
+/// - `~/Library/Application Support/vellum-assistant/debug-state.json` — live debug snapshot (includes session error debug details)
+/// - Daemon logs, audit data, and sanitized config via `POST /v1/export` gateway HTTP API
 /// - `~/.config/vellum/logs/` — CLI XDG logs (hatch.log, retire.log, etc.)
 /// - `~/.vellum.lock.json` — sanitized lockfile with assistant entries and resource ports (credentials stripped)
 /// - `user-defaults.json` — snapshot of app-relevant UserDefaults keys
 /// - `auth-debug.json` — non-sensitive token expiry and refresh state for session debugging
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
+/// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 @MainActor
 enum LogExporter {
 
@@ -200,6 +201,12 @@ enum LogExporter {
             }
         }
 
+        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it
+        let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
+        if !fileManager.fileExists(atPath: configSnapshotPath.path) {
+            writeSanitizedWorkspaceConfig(to: configSnapshotPath)
+        }
+
         // Verify we have at least one file to export
         let collected = try fileManager.contentsOfDirectory(
             at: tempDir,
@@ -323,6 +330,16 @@ enum LogExporter {
                         atomically: true,
                         encoding: .utf8
                     )
+                }
+            }
+
+            // Write sanitized config snapshot from the daemon
+            if let configSnapshot = json["configSnapshot"] {
+                if let configData = try? JSONSerialization.data(
+                    withJSONObject: configSnapshot,
+                    options: [.prettyPrinted, .sortedKeys]
+                ) {
+                    try? configData.write(to: directory.appendingPathComponent("config-snapshot.json"))
                 }
             }
         } catch {
@@ -461,8 +478,6 @@ enum LogExporter {
             "lastActivePanel",
             "gateway_base_url",
             "conversation_key",
-            "wakeWordEnabled",
-            "wakeWordKeyword",
             "sidebarExpanded",
             "windowZoomLevel",
             "conversationTextZoomLevel",
@@ -554,6 +569,27 @@ enum LogExporter {
 
         guard let data = try? JSONSerialization.data(
             withJSONObject: info,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? data.write(to: url)
+    }
+
+    /// Reads the workspace config.json and writes a sanitized copy with API key
+    /// values replaced by presence flags. Falls back silently if unreadable.
+    private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
+        var config = WorkspaceConfigIO.read()
+        guard !config.isEmpty else { return }
+
+        // Strip API key values — preserve which providers have keys configured
+        if var apiKeys = config["apiKeys"] as? [String: Any] {
+            for key in apiKeys.keys {
+                apiKeys[key] = apiKeys[key] != nil ? "(set)" : "(empty)"
+            }
+            config["apiKeys"] = apiKeys
+        }
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: config,
             options: [.prettyPrinted, .sortedKeys]
         ) else { return }
         try? data.write(to: url)

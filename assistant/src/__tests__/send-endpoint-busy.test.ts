@@ -364,11 +364,17 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
         interface: "macos",
       }),
     });
-    const body = (await res.json()) as { accepted: boolean; messageId: string };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId: string;
+      conversationId: string;
+    };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
     expect(body.messageId).toBeDefined();
+    expect(typeof body.conversationId).toBe("string");
+    expect(body.conversationId.length).toBeGreaterThan(0);
 
     await stopServer();
   });
@@ -485,8 +491,8 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     createCanonicalGuardianRequest({
       id: requestId,
       kind: "tool_approval",
-      sourceType: "desktop",
-      sourceChannel: "vellum",
+      sourceType: "voice",
+      sourceChannel: "slack",
       conversationId,
       toolName: "call_start",
       status: "pending",
@@ -511,8 +517,8 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       body: JSON.stringify({
         conversationKey,
         content: "sure let's do that",
-        sourceChannel: "vellum",
-        interface: "macos",
+        sourceChannel: "slack",
+        interface: "slack",
       }),
     });
     const body = (await res.json()) as {
@@ -808,11 +814,17 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
         interface: "macos",
       }),
     });
-    const body2 = (await res2.json()) as { accepted: boolean; queued: boolean };
+    const body2 = (await res2.json()) as {
+      accepted: boolean;
+      queued: boolean;
+      conversationId: string;
+    };
 
     expect(res2.status).toBe(202);
     expect(body2.accepted).toBe(true);
     expect(body2.queued).toBe(true);
+    expect(typeof body2.conversationId).toBe("string");
+    expect(body2.conversationId.length).toBeGreaterThan(0);
 
     await stopServer();
   });

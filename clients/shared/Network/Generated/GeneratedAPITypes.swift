@@ -3213,90 +3213,6 @@ public struct ReorderThreadsRequestUpdate: Codable, Sendable {
     }
 }
 
-/// Server → Client: bootstrap failure during learn-mode recording setup.
-public struct RideShotgunError: Codable, Sendable {
-    public let type: String
-    public let watchId: String
-    public let sessionId: String
-    public let message: String
-
-    public init(type: String, watchId: String, sessionId: String, message: String) {
-        self.type = type
-        self.watchId = watchId
-        self.sessionId = sessionId
-        self.message = message
-    }
-}
-
-public struct RideShotgunProgress: Codable, Sendable {
-    public let type: String
-    public let watchId: String
-    public let message: String
-    public let networkEntryCount: Int?
-    public let statusMessage: String?
-    public let idleHint: Bool?
-
-    public init(type: String, watchId: String, message: String, networkEntryCount: Int? = nil, statusMessage: String? = nil, idleHint: Bool? = nil) {
-        self.type = type
-        self.watchId = watchId
-        self.message = message
-        self.networkEntryCount = networkEntryCount
-        self.statusMessage = statusMessage
-        self.idleHint = idleHint
-    }
-}
-
-public struct RideShotgunResult: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let watchId: String
-    public let summary: String
-    public let observationCount: Int
-    public let recordingId: String?
-    public let recordingPath: String?
-
-    public init(type: String, sessionId: String, watchId: String, summary: String, observationCount: Int, recordingId: String? = nil, recordingPath: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.watchId = watchId
-        self.summary = summary
-        self.observationCount = observationCount
-        self.recordingId = recordingId
-        self.recordingPath = recordingPath
-    }
-}
-
-public struct RideShotgunStart: Codable, Sendable {
-    public let type: String
-    public let durationSeconds: Double
-    public let intervalSeconds: Double
-    public let mode: String?
-    public let targetDomain: String?
-    /// Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com).
-    public let navigateDomain: String?
-    public let autoNavigate: Bool?
-
-    public init(type: String, durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, navigateDomain: String? = nil, autoNavigate: Bool? = nil) {
-        self.type = type
-        self.durationSeconds = durationSeconds
-        self.intervalSeconds = intervalSeconds
-        self.mode = mode
-        self.targetDomain = targetDomain
-        self.navigateDomain = navigateDomain
-        self.autoNavigate = autoNavigate
-    }
-}
-
-public struct RideShotgunStop: Codable, Sendable {
-    public let type: String
-    public let watchId: String
-
-    public init(type: String, watchId: String) {
-        self.type = type
-        self.watchId = watchId
-    }
-}
-
 public struct ScheduleRemove: Codable, Sendable {
     public let type: String
     public let id: String
@@ -4272,11 +4188,13 @@ public struct SubagentMessageRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let content: String
+    public let sessionId: String?
 
-    public init(type: String, subagentId: String, content: String) {
+    public init(type: String, subagentId: String, content: String, sessionId: String? = nil) {
         self.type = type
         self.subagentId = subagentId
         self.content = content
+        self.sessionId = sessionId
     }
 }
 
@@ -4534,16 +4452,18 @@ public struct ToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
     public let sessionId: String?
+    public let toolUseId: String?
     public let subType: String?
     public let subToolName: String?
     public let subToolInput: String?
     public let subToolIsError: Bool?
     public let subToolId: String?
 
-    public init(type: String, chunk: String, sessionId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
+    public init(type: String, chunk: String, sessionId: String? = nil, toolUseId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
         self.type = type
         self.chunk = chunk
         self.sessionId = sessionId
+        self.toolUseId = toolUseId
         self.subType = subType
         self.subToolName = subToolName
         self.subToolInput = subToolInput

@@ -209,10 +209,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func createThread() {
-        // If we're in draft mode, promote the draft to a real thread so callers
-        // get a guaranteed activeThreadId.
+        // If already in draft mode with an empty draft, no-op
         if draftViewModel != nil, activeThreadId == nil {
-            promoteDraft(fromUserSend: false)
             return
         }
 
@@ -228,29 +226,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
         }
 
-        removeAbandonedEmptyThread()
-
-        let thread = ThreadModel()
-        let viewModel = makeViewModel()
-        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
-        let threadId = thread.id
-        viewModel.onFirstUserMessage = { [weak self] _ in
-            self?.completedConversationCount += 1
-            // Only set "Untitled" if the user hasn't already renamed this thread.
-            if self?.pendingRenames[threadId] == nil {
-                self?.updateThreadTitle(id: threadId, title: "Untitled")
-            }
-            self?.updateLastInteracted(threadId: threadId)
-        }
-        threads.insert(thread, at: 0)
-        chatViewModels[thread.id] = viewModel
-        subscribeToBusyState(for: thread.id, viewModel: viewModel)
-        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
-        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
-        touchVMAccessOrder(thread.id)
-        evictStaleCachedViewModels()
-        activeThreadId = thread.id
-        log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
+        // Enter draft mode — thread only appears in sidebar when the user sends
+        // their first message (via promoteDraft triggered by onUserMessageSent).
+        enterDraftMode()
     }
 
     /// Ensures an active thread exists, selecting or creating one if needed.

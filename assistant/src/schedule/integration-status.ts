@@ -1,6 +1,8 @@
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import {
+  getConnectionByProvider,
+  isProviderConnected,
+} from "../oauth/oauth-store.js";
 
 interface IntegrationProbe {
   name: string;
@@ -13,14 +15,12 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Gmail",
     category: "email",
-    isConnected: () =>
-      !!getSecureKey(credentialKey("integration:gmail", "access_token")),
+    isConnected: () => isProviderConnected("integration:gmail"),
   },
   {
     name: "Slack",
     category: "messaging",
-    isConnected: () =>
-      !!getSecureKey(credentialKey("integration:slack", "access_token")),
+    isConnected: () => isProviderConnected("integration:slack"),
   },
   {
     name: "Twilio",
@@ -30,9 +30,10 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Telegram",
     category: "messaging",
-    isConnected: () =>
-      !!getSecureKey(credentialKey("telegram", "bot_token")) &&
-      !!getSecureKey(credentialKey("telegram", "webhook_secret")),
+    isConnected: () => {
+      const conn = getConnectionByProvider("telegram");
+      return !!(conn && conn.status === "active");
+    },
   },
 ];
 

@@ -5,7 +5,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 // MARK: - Computer Use & Recording HTTP Dispatchers
 
-/// Registers domain dispatchers for computer use sessions, ride-shotgun,
+/// Registers domain dispatchers for computer use sessions,
 /// watch observations, and recording lifecycle messages.
 extension HTTPTransport {
 
@@ -34,18 +34,6 @@ extension HTTPTransport {
             // --- Task Submit ---
             if let msg = message as? TaskSubmitMessage {
                 Task { await self.sendTaskSubmit(msg) }
-                return true
-            }
-
-            // --- Ride Shotgun Start ---
-            if let msg = message as? RideShotgunStartMessage {
-                Task { await self.sendRideShotgunStart(msg) }
-                return true
-            }
-
-            // --- Ride Shotgun Stop ---
-            if let msg = message as? RideShotgunStopMessage {
-                Task { await self.sendRideShotgunStop(msg) }
                 return true
             }
 
@@ -166,67 +154,6 @@ extension HTTPTransport {
             }
         } catch {
             log.error("Task submit error: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendRideShotgunStart(_ msg: RideShotgunStartMessage) async {
-        guard let url = buildURL(for: .rideShotgunStart) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "durationSeconds": msg.durationSeconds,
-            "intervalSeconds": msg.intervalSeconds,
-        ]
-        if let mode = msg.mode {
-            body["mode"] = mode
-        }
-        if let targetDomain = msg.targetDomain {
-            body["targetDomain"] = targetDomain
-        }
-        if let navigateDomain = msg.navigateDomain {
-            body["navigateDomain"] = navigateDomain
-        }
-        if let autoNavigate = msg.autoNavigate {
-            body["autoNavigate"] = autoNavigate
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 201 || http.statusCode == 200 {
-                log.info("Ride shotgun started via HTTP")
-            } else {
-                log.error("Ride shotgun start failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-        } catch {
-            log.error("Ride shotgun start error: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendRideShotgunStop(_ msg: RideShotgunStopMessage) async {
-        guard let url = buildURL(for: .rideShotgunStop) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        let body: [String: Any] = ["watchId": msg.watchId]
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                log.info("Ride shotgun stopped via HTTP")
-            } else {
-                log.error("Ride shotgun stop failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-        } catch {
-            log.error("Ride shotgun stop error: \(error.localizedDescription)")
         }
     }
 

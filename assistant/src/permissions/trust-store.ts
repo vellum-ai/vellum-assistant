@@ -76,6 +76,19 @@ function getCompiledPattern(pattern: string): Minimatch | null {
   return compiled;
 }
 
+/**
+ * Check whether a minimatch pattern matches a candidate string.
+ * Reuses the compiled pattern cache from trust rule evaluation.
+ */
+export function patternMatchesCandidate(
+  pattern: string,
+  candidate: string,
+): boolean {
+  const compiled = getCompiledPattern(pattern);
+  if (!compiled) return false;
+  return compiled.match(candidate);
+}
+
 /** Rebuild the compiled pattern cache from the current rule set. */
 function rebuildPatternCache(rules: TrustRule[]): void {
   compiledPatterns.clear();

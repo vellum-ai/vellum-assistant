@@ -15,15 +15,29 @@ extension HTTPTransport {
                 Task { await self.fetchSubagentDetail(subagentId: msg.subagentId, conversationId: msg.conversationId) }
                 return true
             } else if let msg = message as? SubagentAbortMessage {
-                Task { await self.handleSubagentAbort(subagentId: msg.subagentId) }
+                Task { await self.handleSubagentAbort(subagentId: msg.subagentId, sessionId: msg.sessionId) }
                 return true
             } else if let msg = message as? SubagentMessageRequest {
-                Task { await self.handleSubagentMessage(subagentId: msg.subagentId, content: msg.content) }
+                Task { await self.handleSubagentMessage(subagentId: msg.subagentId, content: msg.content, sessionId: msg.sessionId) }
                 return true
             }
 
             return false
         }
+    }
+
+    // MARK: - Session ID Translation
+
+    /// Given a client-local session ID, find the corresponding server conversation ID
+    /// by doing a reverse lookup in `serverToLocalSessionMap`. Returns the original ID
+    /// if no mapping exists (the ID is already a server conversation ID, e.g. restored threads).
+    func serverSessionId(forLocal localId: String) -> String {
+        for (serverId, mappedLocalId) in serverToLocalSessionMap {
+            if mappedLocalId == localId {
+                return serverId
+            }
+        }
+        return localId
     }
 
     // MARK: - Subagents HTTP Endpoints
@@ -62,7 +76,7 @@ extension HTTPTransport {
         }
     }
 
-    private func handleSubagentAbort(subagentId: String, isRetry: Bool = false) async {
+    private func handleSubagentAbort(subagentId: String, sessionId: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .subagentAbort(id: subagentId)) else { return }
 
         var request = URLRequest(url: url)
@@ -70,10 +84,12 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        // The abort endpoint requires a sessionId in the body
+        // The abort endpoint requires a sessionId in the body.
+        // Translate client-local session ID → server conversation ID so the
+        // server's ownership check (parentSessionId) passes.
         var body: [String: Any] = [:]
-        if let sessionId = activeLocalSessionId {
-            body["sessionId"] = sessionId
+        if let sessionId = sessionId {
+            body["sessionId"] = serverSessionId(forLocal: sessionId)
         }
 
         do {
@@ -83,7 +99,7 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await handleSubagentAbort(subagentId: subagentId, isRetry: true) }
+                    if case .success = result { await handleSubagentAbort(subagentId: subagentId, sessionId: sessionId, isRetry: true) }
                     return
                 }
                 guard (200..<300).contains(http.statusCode) else {
@@ -98,7 +114,7 @@ extension HTTPTransport {
         }
     }
 
-    private func handleSubagentMessage(subagentId: String, content: String, isRetry: Bool = false) async {
+    private func handleSubagentMessage(subagentId: String, content: String, sessionId: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .subagentMessage(id: subagentId)) else { return }
 
         var request = URLRequest(url: url)
@@ -106,9 +122,11 @@ extension HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
+        // Translate client-local session ID → server conversation ID so the
+        // server's ownership check (parentSessionId) passes.
         var body: [String: Any] = ["content": content]
-        if let sessionId = activeLocalSessionId {
-            body["sessionId"] = sessionId
+        if let sessionId = sessionId {
+            body["sessionId"] = serverSessionId(forLocal: sessionId)
         }
 
         do {
@@ -118,7 +136,7 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await handleSubagentMessage(subagentId: subagentId, content: content, isRetry: true) }
+                    if case .success = result { await handleSubagentMessage(subagentId: subagentId, content: content, sessionId: sessionId, isRetry: true) }
                     return
                 }
                 guard (200..<300).contains(http.statusCode) else {

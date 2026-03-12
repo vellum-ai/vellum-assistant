@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 /// Small pill in the toolbar showing the current push-to-talk activation key.
 /// Hidden when PTT is disabled (activationKey == "none").
-/// Tapping navigates to the Voice/Wake Word settings tab.
+/// Tapping navigates to the Voice settings tab.
 struct PTTKeyIndicator: View {
     /// Watches the raw `activationKey` default to trigger SwiftUI refreshes.
     @AppStorage("activationKey") private var activationKey: String = "fn"

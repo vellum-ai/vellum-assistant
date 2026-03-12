@@ -54,7 +54,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-  isDebug: () => false,
   truncateForLog: (v: string) => v,
 }));
 

@@ -71,7 +71,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
     "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
-    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
+    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|extracted[a-z ]*|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
     "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\.[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\\}\\}([[:space:]]+#.*)?[[:space:]]*$"
     # TS/JS/Swift: secret/key property assigned from a variable or dotted property (no string literal).
     # E.g. `body.client_secret = clientSecret;`, `oauth2ClientSecret: clientSecret ?? undefined`,
@@ -110,7 +110,8 @@ declare -a SAFE_LINE_PATTERNS=(
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
-    "[Cc]lient[_-]?[Ss]ecret[?]?:[[:space:]]*(string|String)[?]?[[:space:]]*[;,][[:space:]]*$"
+    # Also covers union types like `clientSecret: string | undefined;`.
+    "[Cc]lient[_-]?[Ss]ecret[?]?:[[:space:]]*(string|String)[?]?([[:space:]]*[|][[:space:]]*(undefined|null))?[[:space:]]*[;,][[:space:]]*$"
     # Swift var/let declarations with type annotation and empty string default
     # (e.g. `@State private var twitterClientSecret: String = ""`)
     "[Cc]lient[Ss]ecret:[[:space:]]*(String|string)[?]?[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
@@ -228,6 +229,10 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
+    # TS: clientSecret with union type annotation (false positive to whitelist)
+    SAFE_TS_UNION_TYPE_SECRET='  let clientSecret: string | undefined;'
+    # Documentation placeholder with lowercase descriptive text (false positive to whitelist)
+    SAFE_DOC_EXTRACTED_PLACEHOLDER='client_secret: "<extracted client secret>"  (if required)'
     SAFE_GHA_SECRETS_LINE='          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}'
     SAFE_GHA_SECRETS_COMMENT_LINE='          client_secret: ${{ secrets.CLIENT_SECRET }} # rotated monthly'
     UNSAFE_GHA_SECRETS_FALLBACK='          client_secret: ${{ secrets.CLIENT_SECRET || "SuperSecretFallback12345" }}'
@@ -437,6 +442,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_PASSPHRASE_SECRET" && matches_safe_line_pattern "$UNSAFE_PASSPHRASE_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} passphrase-style secret in angle brackets was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_UNION_TYPE_SECRET" && ! matches_safe_line_pattern "$SAFE_TS_UNION_TYPE_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} TS clientSecret union type annotation false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DOC_EXTRACTED_PLACEHOLDER" && ! matches_safe_line_pattern "$SAFE_DOC_EXTRACTED_PLACEHOLDER"; then
+        echo -e "${RED}Self-test failed:${NC} doc placeholder '<extracted client secret>' false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_GHA_SECRETS_LINE" && ! matches_safe_line_pattern "$SAFE_GHA_SECRETS_LINE"; then

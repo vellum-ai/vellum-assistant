@@ -4,7 +4,8 @@
  */
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import { GOOGLE_PEOPLE_BASE_URL } from "../../../oauth/provider-base-urls.js";
+
+const GOOGLE_PEOPLE_BASE_URL = "https://people.googleapis.com/v1";
 import { GmailApiError } from "./client.js";
 import type {
   PeopleConnectionsResponse,
@@ -16,10 +17,12 @@ const PERSON_FIELDS = "names,emailAddresses,phoneNumbers,organizations";
 async function request<T>(
   connection: OAuthConnection,
   path: string,
+  query?: Record<string, string | string[]>,
 ): Promise<T> {
   const resp = await connection.request({
     method: "GET",
     path,
+    query,
     baseUrl: GOOGLE_PEOPLE_BASE_URL,
   });
 
@@ -44,14 +47,15 @@ export async function listContacts(
   pageSize = 50,
   pageToken?: string,
 ): Promise<PeopleConnectionsResponse> {
-  const params = new URLSearchParams({
+  const query: Record<string, string> = {
     personFields: PERSON_FIELDS,
     pageSize: String(pageSize),
-  });
-  if (pageToken) params.set("pageToken", pageToken);
+  };
+  if (pageToken) query.pageToken = pageToken;
   return request<PeopleConnectionsResponse>(
     connection,
-    `/people/me/connections?${params}`,
+    "/people/me/connections",
+    query,
   );
 }
 
@@ -60,12 +64,8 @@ export async function searchContacts(
   connection: OAuthConnection,
   query: string,
 ): Promise<PeopleSearchResponse> {
-  const params = new URLSearchParams({
+  return request<PeopleSearchResponse>(connection, "/people:searchContacts", {
     query,
     readMask: PERSON_FIELDS,
   });
-  return request<PeopleSearchResponse>(
-    connection,
-    `/people:searchContacts?${params}`,
-  );
 }

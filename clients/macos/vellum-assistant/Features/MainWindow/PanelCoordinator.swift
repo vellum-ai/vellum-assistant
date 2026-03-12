@@ -350,7 +350,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId) },
+                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.sessionId) },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
                                 try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
@@ -657,9 +657,6 @@ struct ActiveChatViewWrapper: View {
             onDismissSessionError: { viewModel.dismissSessionError() },
             onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
-            isLearnMode: ambientAgent.currentSession?.isLearnMode ?? false,
-            networkEntryCount: ambientAgent.currentSession?.networkEntryCount ?? 0,
-            idleHint: ambientAgent.currentSession?.idleHint ?? false,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
@@ -683,7 +680,7 @@ struct ActiveChatViewWrapper: View {
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
-                try? daemonClient.sendSubagentAbort(subagentId: subagentId)
+                try? daemonClient.sendSubagentAbort(subagentId: subagentId, sessionId: viewModel.sessionId)
             },
             onSubagentTap: { subagentId in
                 windowState.selectedSubagentId = subagentId

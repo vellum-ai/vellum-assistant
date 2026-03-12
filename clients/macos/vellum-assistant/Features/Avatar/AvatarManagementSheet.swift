@@ -2,20 +2,40 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Modal overlay for managing the avatar: upload, edit in chat, or delete.
+/// Modal overlay for managing the avatar: upload, choose from presets, edit in chat, or delete.
 struct AvatarManagementSheet: View {
     let onClose: () -> Void
     let onEditAvatar: () -> Void
 
     @State private var appearance = AvatarAppearanceManager.shared
+    @State private var showingPresets = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with close button
+            // Header with close/back button
             HStack {
-                Text("Update Avatar")
-                    .font(VFont.cardTitle)
-                    .foregroundColor(VColor.textPrimary)
+                if showingPresets {
+                    Button {
+                        withAnimation(VAnimation.fast) {
+                            showingPresets = false
+                        }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.chevronLeft, size: 10)
+                            Text("Back")
+                                .font(VFont.bodyMedium)
+                        }
+                        .foregroundColor(VColor.textSecondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel("Back to options")
+                } else {
+                    Text("Update Avatar")
+                        .font(VFont.cardTitle)
+                        .foregroundColor(VColor.textPrimary)
+                }
                 Spacer()
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
@@ -30,6 +50,19 @@ struct AvatarManagementSheet: View {
             .padding(.top, VSpacing.xl)
             .padding(.bottom, VSpacing.lg)
 
+            if showingPresets {
+                presetGrid
+            } else {
+                actionList
+            }
+        }
+        .background(VColor.backgroundSubtle)
+    }
+
+    // MARK: - Action List
+
+    private var actionList: some View {
+        Group {
             // Avatar preview
             Image(nsImage: appearance.fullAvatarImage)
                 .resizable()
@@ -42,6 +75,19 @@ struct AvatarManagementSheet: View {
 
             // Action rows
             VStack(spacing: 0) {
+                actionRow(
+                    icon: "square.grid.2x2",
+                    label: "Choose from Presets",
+                    subtitle: "Pick one of the preset characters"
+                ) {
+                    withAnimation(VAnimation.fast) {
+                        showingPresets = true
+                    }
+                }
+
+                Divider().background(VColor.surfaceBorder)
+                    .padding(.horizontal, VSpacing.xl)
+
                 actionRow(
                     icon: "photo",
                     label: "Upload Image",
@@ -78,7 +124,44 @@ struct AvatarManagementSheet: View {
             }
             .padding(.vertical, VSpacing.sm)
         }
-        .background(VColor.backgroundSubtle)
+    }
+
+    // MARK: - Preset Grid
+
+    private var presetGrid: some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5),
+            spacing: VSpacing.sm
+        ) {
+            ForEach(PresetAvatar.all) { preset in
+                if let image = preset.image {
+                    Button {
+                        appearance.setCustomAvatar(image)
+                        onClose()
+                    } label: {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .padding(VSpacing.md)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .fill(VColor.surface)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel(preset.name)
+                }
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.bottom, VSpacing.xl)
     }
 
     // MARK: - Action Row

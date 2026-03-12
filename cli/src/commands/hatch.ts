@@ -103,7 +103,7 @@ export async function buildStartupScript(
   cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl =
-    process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
+    process.env.VELLUM_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"
@@ -133,27 +133,12 @@ ${timestampRedirect}
 trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > ${errorPath}; echo "Last 20 log lines:" >> ${errorPath}; tail -20 ${logPath} >> ${errorPath} 2>/dev/null || true; fi' EXIT
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
-GATEWAY_RUNTIME_PROXY_ENABLED=true
-RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
-VELLUM_CLOUD=${cloud}
-mkdir -p "\$HOME/.vellum"
-cat > "\$HOME/.vellum/.env" << DOTENV_EOF
+mkdir -p "\$HOME/.config/vellum"
+cat > "\$HOME/.config/vellum/env" << DOTENV_EOF
 ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
-GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
-RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 RUNTIME_HTTP_PORT=7821
-VELLUM_CLOUD=\$VELLUM_CLOUD
 DOTENV_EOF
-
-mkdir -p "\$HOME/.vellum/workspace"
-cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
-{
-  "logFile": {
-    "dir": "\$HOME/.vellum/workspace/data/logs"
-  }
-}
-CONFIG_EOF
 
 ${ownershipFixup}
 
@@ -743,7 +728,10 @@ async function hatchLocal(
         `🧹 Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"} — cleaning up...`,
       );
       for (const orphan of orphans) {
-        await stopProcess(parseInt(orphan.pid, 10), `${orphan.name} (PID ${orphan.pid})`);
+        await stopProcess(
+          parseInt(orphan.pid, 10),
+          `${orphan.name} (PID ${orphan.pid})`,
+        );
       }
     }
   }
@@ -776,7 +764,7 @@ async function hatchLocal(
 
   let runtimeUrl: string;
   try {
-    runtimeUrl = await startGateway(instanceName, watch, resources);
+    runtimeUrl = await startGateway(watch, resources);
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.

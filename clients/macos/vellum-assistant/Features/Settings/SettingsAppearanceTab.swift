@@ -17,7 +17,9 @@ struct SettingsAppearanceTab: View {
     @State private var shortcutConflictWarning: String?
     @State private var selectedTimezone: String = ""
     @State private var timezoneSearchText: String = ""
+    @State private var debouncedTimezoneSearchText: String = ""
     @State private var isTimezoneDropdownOpen: Bool = false
+    @State private var timezoneSearchDebounceTask: Task<Void, Never>?
     @FocusState private var isTimezoneSearchFocused: Bool
 
     var body: some View {
@@ -82,6 +84,12 @@ struct SettingsAppearanceTab: View {
                     }
                     .onChange(of: timezoneSearchText) { _, newValue in
                         isTimezoneDropdownOpen = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        timezoneSearchDebounceTask?.cancel()
+                        timezoneSearchDebounceTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            guard !Task.isCancelled else { return }
+                            debouncedTimezoneSearchText = newValue
+                        }
                     }
                     .onChange(of: isTimezoneSearchFocused) { _, focused in
                         if focused && timezoneSearchText.isEmpty {
@@ -124,11 +132,10 @@ struct SettingsAppearanceTab: View {
                                         .pointerCursor()
                                     }
                                 }
+                                .background { OverlayScrollerStyle() }
                             }
+                            .scrollContentBackground(.hidden)
                             .frame(maxHeight: 200)
-                            .background {
-                                OverlayScrollerStyle()
-                            }
                             .background(VColor.inputBackground)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                             .overlay(
@@ -407,7 +414,7 @@ struct SettingsAppearanceTab: View {
     private var filteredTimezones: [TimezoneEntry] {
         let now = Date()
         let formatter = Self.timeFormatter
-        let query = timezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let query = debouncedTimezoneSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         return Self.timezoneMetadata.compactMap { meta in
             let offset = Self.utcOffsetString(for: meta.tz)

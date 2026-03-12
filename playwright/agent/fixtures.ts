@@ -190,12 +190,12 @@ function preApproveScreenCapture(): void {
 }
 
 /**
- * Sets the VELLUM_ASSISTANT_PLATFORM_URL environment variable so the
+ * Sets the VELLUM_PLATFORM_URL environment variable so the
  * desktop app targets the dev platform instance during tests.
  */
 function ensurePlatformUrl(): void {
-  if (!process.env.VELLUM_ASSISTANT_PLATFORM_URL) {
-    process.env.VELLUM_ASSISTANT_PLATFORM_URL = "https://dev-platform.vellum.ai";
+  if (!process.env.VELLUM_PLATFORM_URL) {
+    process.env.VELLUM_PLATFORM_URL = "https://dev-platform.vellum.ai";
   }
 }
 

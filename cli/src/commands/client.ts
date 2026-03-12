@@ -60,9 +60,7 @@ function parseArgs(): ParsedArgs {
     }
   } else {
     const hasExplicitUrl =
-      process.env.RUNTIME_URL ||
-      flagArgs.includes("--url") ||
-      flagArgs.includes("-u");
+      flagArgs.includes("--url") || flagArgs.includes("-u");
     const active = getActiveAssistant();
     if (active) {
       entry = findAssistantByName(active);
@@ -84,15 +82,9 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  let runtimeUrl =
-    process.env.RUNTIME_URL ||
-    entry?.localUrl ||
-    entry?.runtimeUrl ||
-    FALLBACK_RUNTIME_URL;
-  let assistantId =
-    process.env.ASSISTANT_ID || entry?.assistantId || FALLBACK_ASSISTANT_ID;
-  const bearerToken =
-    process.env.RUNTIME_PROXY_BEARER_TOKEN || entry?.bearerToken || undefined;
+  let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
+  let assistantId = entry?.assistantId || FALLBACK_ASSISTANT_ID;
+  const bearerToken = entry?.bearerToken || undefined;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
   for (let i = 0; i < flagArgs.length; i++) {
@@ -177,7 +169,7 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
     Reads from ~/.vellum.lock.json (created by vellum hatch).
-    Override with flags above or env vars RUNTIME_URL / ASSISTANT_ID.
+    Override with flags above.
 
 ${ANSI.bold}EXAMPLES:${ANSI.reset}
     vellum client

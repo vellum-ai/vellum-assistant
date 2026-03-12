@@ -72,7 +72,7 @@ struct ChatEmptyStateView: View {
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.leading)
             }
-            .frame(maxWidth: 500)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
             .opacity(visible ? 1 : 0)
             .scaleEffect(visible ? 1 : 0.8)
             .padding(.horizontal, VSpacing.xl)
@@ -102,7 +102,7 @@ struct ChatEmptyStateView: View {
                 placeholderText: placeholder,
                 threadId: threadId
             )
-            .frame(maxWidth: 500)
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
 
@@ -195,6 +195,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                 placeholderText: "Ask anything...",
                 threadId: threadId
             )
+            .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 
             Spacer()
             Spacer()

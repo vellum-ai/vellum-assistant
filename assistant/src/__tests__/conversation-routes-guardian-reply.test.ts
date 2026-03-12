@@ -559,4 +559,140 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
+
+  test("desktop sessions do not pass approvalConversationGenerator to routeGuardianReply", async () => {
+    listPendingByDestinationMock.mockReturnValue([
+      { id: "pending-1", kind: "access_request" },
+    ]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: "not_consumed",
+    });
+
+    const mockGenerator = mock(async () => ({}));
+    const persistUserMessage = mock(async () => "persisted-user-id");
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setTrustContext: () => {},
+      updateClient: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => false,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      trustContext: undefined,
+      hasPendingConfirmation: () => false,
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
+    } as unknown as import("../daemon/session.js").Session;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationKey: "guardian-thread-key",
+        content: "no sorry, beats 0 and 3 should be new threads",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+
+    await handleSendMessage(
+      req,
+      {
+        sendMessageDeps: {
+          getOrCreateSession: async () => session,
+          assistantEventHub: { publish: async () => {} } as any,
+          resolveAttachments: () => [],
+        },
+        approvalConversationGenerator: mockGenerator as any,
+      },
+      testAuthContext,
+    );
+
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    const routerCall = (routeGuardianReplyMock as any).mock
+      .calls[0][0] as Record<string, unknown>;
+    // Desktop (vellum) should suppress the NL engine
+    expect(routerCall.approvalConversationGenerator).toBeUndefined();
+  });
+
+  test("channel sessions pass approvalConversationGenerator to routeGuardianReply", async () => {
+    listPendingByDestinationMock.mockReturnValue([
+      { id: "pending-1", kind: "access_request" },
+    ]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: "not_consumed",
+    });
+
+    const mockGenerator = mock(async () => ({}));
+    const persistUserMessage = mock(async () => "persisted-user-id");
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setTrustContext: () => {},
+      updateClient: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => false,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      trustContext: undefined,
+      hasPendingConfirmation: () => false,
+      setHostBashProxy: () => {},
+      setHostFileProxy: () => {},
+    } as unknown as import("../daemon/session.js").Session;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationKey: "guardian-thread-key",
+        content: "no sorry, beats 0 and 3 should be new threads",
+        sourceChannel: "telegram",
+        interface: "telegram",
+      }),
+    });
+
+    await handleSendMessage(
+      req,
+      {
+        sendMessageDeps: {
+          getOrCreateSession: async () => session,
+          assistantEventHub: { publish: async () => {} } as any,
+          resolveAttachments: () => [],
+        },
+        approvalConversationGenerator: mockGenerator as any,
+      },
+      testAuthContext,
+    );
+
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    const routerCall = (routeGuardianReplyMock as any).mock
+      .calls[0][0] as Record<string, unknown>;
+    // Channel sessions should receive the NL engine
+    expect(routerCall.approvalConversationGenerator).toBe(mockGenerator);
+  });
 });

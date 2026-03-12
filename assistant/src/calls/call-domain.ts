@@ -5,7 +5,6 @@
  * to these functions so business logic lives in one place.
  */
 
-import { getTwilioUserPhoneNumber } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../config/schema.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -111,8 +110,7 @@ export type CallerIdentitySource =
   | "per_call_override"
   | "implicit_default"
   | "user_config"
-  | "secure_key"
-  | "env_var";
+  | "secure_key";
 
 export type CallerIdentityResult =
   | {
@@ -194,9 +192,6 @@ export async function resolveCallerIdentity(
   if (identityConfig.userNumber) {
     userNumber = identityConfig.userNumber;
     numberSource = "user_config";
-  } else if (getTwilioUserPhoneNumber()) {
-    userNumber = getTwilioUserPhoneNumber()!;
-    numberSource = "env_var";
   } else {
     const secureKeyValue = getSecureKey(
       credentialKey("twilio", "user_phone_number"),

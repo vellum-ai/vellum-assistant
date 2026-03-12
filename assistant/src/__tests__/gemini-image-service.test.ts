@@ -100,10 +100,13 @@ describe("generateImage", () => {
   test("generate mode returns images from response parts", async () => {
     fakeResponse = imageResponse("image/png", "abc123");
 
-    const result = await generateImage("test-key", {
-      prompt: "a cat",
-      mode: "generate",
-    });
+    const result = await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "a cat",
+        mode: "generate",
+      },
+    );
 
     expect(result.images).toHaveLength(1);
     expect(result.images[0].mimeType).toBe("image/png");
@@ -114,10 +117,13 @@ describe("generateImage", () => {
   test("generate mode collects text commentary from response", async () => {
     fakeResponse = imageWithTextResponse("Here is your image");
 
-    const result = await generateImage("test-key", {
-      prompt: "a dog",
-      mode: "generate",
-    });
+    const result = await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "a dog",
+        mode: "generate",
+      },
+    );
 
     expect(result.text).toBe("Here is your image");
     expect(result.images).toHaveLength(1);
@@ -126,11 +132,14 @@ describe("generateImage", () => {
   test("edit mode passes source images as inline data", async () => {
     fakeResponse = imageResponse();
 
-    await generateImage("test-key", {
-      prompt: "remove background",
-      mode: "edit",
-      sourceImages: [{ mimeType: "image/jpeg", dataBase64: "srcdata" }],
-    });
+    await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "remove background",
+        mode: "edit",
+        sourceImages: [{ mimeType: "image/jpeg", dataBase64: "srcdata" }],
+      },
+    );
 
     expect(lastGenerateParams).not.toBeNull();
     const contents = (lastGenerateParams as Record<string, unknown>)
@@ -148,11 +157,14 @@ describe("generateImage", () => {
   test("model validation rejects unknown models and defaults", async () => {
     fakeResponse = imageResponse();
 
-    await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-      model: "invalid-model",
-    });
+    await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+        model: "invalid-model",
+      },
+    );
 
     expect(lastGenerateParams).not.toBeNull();
     expect((lastGenerateParams as Record<string, unknown>).model).toBe(
@@ -163,11 +175,14 @@ describe("generateImage", () => {
   test("model validation accepts allowed models", async () => {
     fakeResponse = imageResponse();
 
-    await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-      model: "gemini-3-pro-image",
-    });
+    await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+        model: "gemini-3-pro-image",
+      },
+    );
 
     expect((lastGenerateParams as Record<string, unknown>).model).toBe(
       "gemini-3-pro-image",
@@ -177,11 +192,14 @@ describe("generateImage", () => {
   test("variants makes parallel calls", async () => {
     fakeResponse = imageResponse();
 
-    const result = await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-      variants: 3,
-    });
+    const result = await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+        variants: 3,
+      },
+    );
 
     expect(generateCallCount).toBe(3);
     expect(result.images).toHaveLength(3);
@@ -190,11 +208,14 @@ describe("generateImage", () => {
   test("variants are clamped to 1-4", async () => {
     fakeResponse = imageResponse();
 
-    await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-      variants: 10,
-    });
+    await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+        variants: 10,
+      },
+    );
 
     expect(generateCallCount).toBe(4);
   });
@@ -202,10 +223,13 @@ describe("generateImage", () => {
   test("variants defaults to 1", async () => {
     fakeResponse = imageResponse();
 
-    await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-    });
+    await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+      },
+    );
 
     expect(generateCallCount).toBe(1);
   });
@@ -213,10 +237,13 @@ describe("generateImage", () => {
   test("handles empty candidates gracefully", async () => {
     fakeResponse = { candidates: [] };
 
-    const result = await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-    });
+    const result = await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+      },
+    );
 
     expect(result.images).toHaveLength(0);
     expect(result.text).toBeUndefined();
@@ -225,10 +252,13 @@ describe("generateImage", () => {
   test("response config includes TEXT and IMAGE modalities", async () => {
     fakeResponse = imageResponse();
 
-    await generateImage("test-key", {
-      prompt: "test",
-      mode: "generate",
-    });
+    await generateImage(
+      { type: "direct", apiKey: "test-key" },
+      {
+        prompt: "test",
+        mode: "generate",
+      },
+    );
 
     const config = (lastGenerateParams as Record<string, unknown>)
       .config as Record<string, unknown>;

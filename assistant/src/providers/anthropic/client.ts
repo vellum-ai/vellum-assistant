@@ -63,6 +63,20 @@ function isToolUseBlock(block: unknown): block is Anthropic.ToolUseBlockParam {
   );
 }
 
+/** Type-guard for server_tool_use blocks (e.g. native web search). */
+function isServerToolUseBlock(block: unknown): block is {
+  type: "server_tool_use";
+  id: string;
+  name: string;
+  input: unknown;
+} {
+  return (
+    typeof block === "object" &&
+    block != null &&
+    (block as { type: string }).type === "server_tool_use"
+  );
+}
+
 /** Type-guard for tool_result blocks in Anthropic-formatted content. */
 function isToolResultBlock(
   block: unknown,
@@ -71,6 +85,19 @@ function isToolResultBlock(
     typeof block === "object" &&
     block != null &&
     (block as { type: string }).type === "tool_result"
+  );
+}
+
+/** Type-guard for web_search_tool_result blocks. */
+function isWebSearchToolResultBlock(block: unknown): block is {
+  type: "web_search_tool_result";
+  tool_use_id: string;
+  content: unknown;
+} {
+  return (
+    typeof block === "object" &&
+    block != null &&
+    (block as { type: string }).type === "web_search_tool_result"
   );
 }
 
@@ -84,8 +111,12 @@ function summarizeMessages(messages: Anthropic.MessageParam[]): string[] {
     const blockDescs = content.map((b) => {
       const bt = (b as { type: string }).type;
       if (bt === "tool_use") return `tool_use(${(b as { id: string }).id})`;
+      if (bt === "server_tool_use")
+        return `server_tool_use(${(b as { id: string }).id})`;
       if (bt === "tool_result")
         return `tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
+      if (bt === "web_search_tool_result")
+        return `web_search_tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
       return bt;
     });
     return `[${idx}] ${m.role}: ${blockDescs.join(", ") || "(empty)"}`;
@@ -103,29 +134,70 @@ function buildSyntheticToolResult(
   };
 }
 
-function getOrderedToolUseIds(
-  content: Anthropic.ContentBlockParam[],
-): string[] {
+function buildSyntheticWebSearchToolResult(
+  toolUseId: string,
+): Anthropic.ContentBlockParam {
+  return {
+    type: "web_search_tool_result",
+    tool_use_id: toolUseId,
+    content: {
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    },
+  } as unknown as Anthropic.ContentBlockParam;
+}
+
+/** Build the appropriate synthetic result block based on whether the ID is for a server tool or regular tool. */
+function buildSyntheticResult(
+  toolUseId: string,
+  serverToolIds: ReadonlySet<string>,
+): Anthropic.ContentBlockParam {
+  if (serverToolIds.has(toolUseId)) {
+    return buildSyntheticWebSearchToolResult(toolUseId);
+  }
+  return buildSyntheticToolResult(toolUseId);
+}
+
+function getOrderedToolUseIds(content: Anthropic.ContentBlockParam[]): {
+  ids: string[];
+  serverToolIds: Set<string>;
+} {
   const ids: string[] = [];
   const seen = new Set<string>();
+  const serverToolIds = new Set<string>();
   for (const block of content) {
-    if (!isToolUseBlock(block)) continue;
-    if (seen.has(block.id)) continue;
-    seen.add(block.id);
-    ids.push(block.id);
+    if (isToolUseBlock(block)) {
+      if (!seen.has(block.id)) {
+        seen.add(block.id);
+        ids.push(block.id);
+      }
+    } else if (isServerToolUseBlock(block)) {
+      if (!seen.has(block.id)) {
+        seen.add(block.id);
+        ids.push(block.id);
+        serverToolIds.add(block.id);
+      }
+    }
   }
-  return ids;
+  return { ids, serverToolIds };
 }
 
 function hasOrderedToolResultPrefix(
   content: Anthropic.ContentBlockParam[],
   orderedToolUseIds: string[],
+  serverToolIds: ReadonlySet<string>,
 ): boolean {
   if (content.length < orderedToolUseIds.length) return false;
   for (let idx = 0; idx < orderedToolUseIds.length; idx++) {
     const block = content[idx];
-    if (!isToolResultBlock(block)) return false;
-    if (block.tool_use_id !== orderedToolUseIds[idx]) return false;
+    const expectedId = orderedToolUseIds[idx];
+    if (serverToolIds.has(expectedId)) {
+      if (!isWebSearchToolResultBlock(block)) return false;
+      if (block.tool_use_id !== expectedId) return false;
+    } else {
+      if (!isToolResultBlock(block)) return false;
+      if (block.tool_use_id !== expectedId) return false;
+    }
   }
   return true;
 }
@@ -134,14 +206,15 @@ function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
   pairedContent: Anthropic.ContentBlockParam[];
   carryoverContent: Anthropic.ContentBlockParam[];
   toolUseIds: string[];
+  serverToolIds: Set<string>;
 } {
   const leading: Anthropic.ContentBlockParam[] = [];
-  const toolUseBlocks: Anthropic.ToolUseBlockParam[] = [];
+  const toolUseBlocks: Anthropic.ContentBlockParam[] = [];
   const carryover: Anthropic.ContentBlockParam[] = [];
   let seenToolUse = false;
 
   for (const block of content) {
-    if (isToolUseBlock(block)) {
+    if (isToolUseBlock(block) || isServerToolUseBlock(block)) {
       seenToolUse = true;
       toolUseBlocks.push(block);
       continue;
@@ -158,6 +231,7 @@ function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
       pairedContent: content,
       carryoverContent: [],
       toolUseIds: [],
+      serverToolIds: new Set(),
     };
   }
 
@@ -165,16 +239,19 @@ function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
     ...leading,
     ...toolUseBlocks,
   ];
+  const { ids, serverToolIds } = getOrderedToolUseIds(pairedContent);
   return {
     pairedContent,
     carryoverContent: carryover,
-    toolUseIds: getOrderedToolUseIds(pairedContent),
+    toolUseIds: ids,
+    serverToolIds,
   };
 }
 
 function normalizeFollowingUserContent(
   nextContent: Anthropic.ContentBlockParam[],
   orderedToolUseIds: string[],
+  serverToolIds: ReadonlySet<string>,
 ): {
   toolResultPrefix: Anthropic.ContentBlockParam[];
   remainingContent: Anthropic.ContentBlockParam[];
@@ -182,7 +259,7 @@ function normalizeFollowingUserContent(
   hadOrderedPrefix: boolean;
 } {
   const pendingIds = new Set(orderedToolUseIds);
-  const matchedById = new Map<string, Anthropic.ToolResultBlockParam>();
+  const matchedById = new Map<string, Anthropic.ContentBlockParam>();
   const remaining: Anthropic.ContentBlockParam[] = [];
 
   for (const block of nextContent) {
@@ -194,12 +271,23 @@ function normalizeFollowingUserContent(
       matchedById.set(block.tool_use_id, block);
       continue;
     }
+    if (
+      isWebSearchToolResultBlock(block) &&
+      pendingIds.has(block.tool_use_id) &&
+      !matchedById.has(block.tool_use_id)
+    ) {
+      matchedById.set(
+        block.tool_use_id,
+        block as unknown as Anthropic.ContentBlockParam,
+      );
+      continue;
+    }
     remaining.push(block);
   }
 
   const missingIds = orderedToolUseIds.filter((id) => !matchedById.has(id));
   const orderedResults = orderedToolUseIds.map(
-    (id) => matchedById.get(id) ?? buildSyntheticToolResult(id),
+    (id) => matchedById.get(id) ?? buildSyntheticResult(id, serverToolIds),
   );
 
   return {
@@ -209,6 +297,7 @@ function normalizeFollowingUserContent(
     hadOrderedPrefix: hasOrderedToolResultPrefix(
       nextContent,
       orderedToolUseIds,
+      serverToolIds,
     ),
   };
 }
@@ -237,7 +326,7 @@ function ensureToolPairing(
     }
 
     const content = Array.isArray(msg.content) ? msg.content : [];
-    const { pairedContent, carryoverContent, toolUseIds } =
+    const { pairedContent, carryoverContent, toolUseIds, serverToolIds } =
       splitAssistantForToolPairing(content);
 
     if (toolUseIds.length === 0) {
@@ -246,7 +335,7 @@ function ensureToolPairing(
       continue;
     }
 
-    // Assistant message — push the paired portion (pre-tool text + tool_use blocks)
+    // Assistant message — push the paired portion (pre-tool text + tool_use/server_tool_use blocks)
     result.push({
       role: "assistant" as const,
       content: pairedContent,
@@ -267,7 +356,11 @@ function ensureToolPairing(
     const next = messages[i + 1];
     if (next && next.role === "user") {
       const nextContent = Array.isArray(next.content) ? next.content : [];
-      const normalized = normalizeFollowingUserContent(nextContent, toolUseIds);
+      const normalized = normalizeFollowingUserContent(
+        nextContent,
+        toolUseIds,
+        serverToolIds,
+      );
       if (normalized.missingIds.length > 0) {
         log.warn(
           {
@@ -332,7 +425,9 @@ function ensureToolPairing(
       );
       result.push({
         role: "user" as const,
-        content: toolUseIds.map((id) => buildSyntheticToolResult(id)),
+        content: toolUseIds.map((id) =>
+          buildSyntheticResult(id, serverToolIds),
+        ),
       });
 
       // If the assistant contained collapsed post-tool text, preserve it as a
@@ -353,17 +448,29 @@ function ensureToolPairing(
     const m = result[j];
     if (m.role !== "assistant") continue;
     const c = Array.isArray(m.content) ? m.content : [];
-    const ids = getOrderedToolUseIds(c);
-    if (ids.length === 0) continue;
+    const { ids: validationIds, serverToolIds: validationServerToolIds } =
+      getOrderedToolUseIds(c);
+    if (validationIds.length === 0) continue;
 
     const nxt = result[j + 1];
     const nxtContent =
       nxt && nxt.role === "user" && Array.isArray(nxt.content)
         ? nxt.content
         : [];
-    if (!hasOrderedToolResultPrefix(nxtContent, ids)) {
-      const unmatchedIds = ids.filter((id, idx) => {
+    if (
+      !hasOrderedToolResultPrefix(
+        nxtContent,
+        validationIds,
+        validationServerToolIds,
+      )
+    ) {
+      const unmatchedIds = validationIds.filter((id, idx) => {
         const block = nxtContent[idx];
+        if (validationServerToolIds.has(id)) {
+          return !(
+            isWebSearchToolResultBlock(block) && block.tool_use_id === id
+          );
+        }
         return !(isToolResultBlock(block) && block.tool_use_id === id);
       });
       log.error(

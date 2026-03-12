@@ -8,13 +8,13 @@
  *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via
  *      the in-chat config flow, the Settings UI, or `config set ingress.publicBaseUrl`. This is the
  *      primary source of truth. When the assistant spawns or restarts
- *      the gateway, this value is forwarded as the `INGRESS_PUBLIC_BASE_URL`
- *      environment variable so both processes agree on the same URL.
+ *      the gateway, the workspace config file is read so both processes
+ *      agree on the same URL.
  *
- *   2. **Environment variable** (`INGRESS_PUBLIC_BASE_URL`) — serves as a
- *      fallback for operational use (e.g. direct gateway-only deployments
- *      without the assistant, or CI overrides). When the assistant is
- *      managing the gateway, the env var is set automatically from (1).
+ *   2. **Module-level state** (`getIngressPublicBaseUrl()`) — serves as a
+ *      fallback for operational use (e.g. runtime tunnel updates). When
+ *      tunnels start or stop, `setIngressPublicBaseUrl()` updates this
+ *      value in-process.
  *
  * This chain ensures that:
  *   - The assistant's outbound callback URLs (Twilio webhooks, OAuth
@@ -70,7 +70,7 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   }
 
   throw new Error(
-    "No public base URL configured. Set ingress.publicBaseUrl in config or INGRESS_PUBLIC_BASE_URL env var.",
+    "No public base URL configured. Set ingress.publicBaseUrl in config.",
   );
 }
 

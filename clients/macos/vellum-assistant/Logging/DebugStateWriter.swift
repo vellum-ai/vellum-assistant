@@ -101,6 +101,7 @@ final class DebugStateWriter {
                 isBootstrapping: vm.isBootstrapping,
                 errorText: vm.errorText,
                 sessionErrorCategory: vm.sessionError.map { "\($0.category)" },
+                sessionErrorDebugDetails: vm.sessionError?.debugDetails,
                 selectedModel: vm.selectedModel,
                 messageCount: vm.messages.count,
                 pendingQueuedCount: vm.pendingQueuedCount,
@@ -168,6 +169,7 @@ struct DebugSnapshot: Codable {
         let isBootstrapping: Bool
         let errorText: String?
         let sessionErrorCategory: String?
+        let sessionErrorDebugDetails: String?
         let selectedModel: String
         let messageCount: Int
         let pendingQueuedCount: Int

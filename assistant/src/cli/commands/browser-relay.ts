@@ -18,14 +18,16 @@ import {
 } from "../../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
-// Shared relay helper — dual-path: in-process first, gateway fallback
+// Shared relay helper — in-process when connected, gateway HTTP otherwise
 // ---------------------------------------------------------------------------
 
 async function relayCommand(command: Record<string, unknown>): Promise<void> {
   try {
-    // Try the in-process extensionRelayServer first (for when CLI runs
-    // within the daemon). Falls back to gateway HTTP for out-of-process
-    // CLI contexts.
+    // Dual-path: use in-process relay when connected (daemon context),
+    // otherwise fall back to gateway HTTP (out-of-process CLI context).
+    // We check connection status upfront rather than try/catch to avoid
+    // double-execution of side-effectful commands (navigate, new_tab, etc.)
+    // when sendCommand fails after the command was already dispatched.
     let data: {
       id?: string;
       success: boolean;
@@ -34,12 +36,12 @@ async function relayCommand(command: Record<string, unknown>): Promise<void> {
       tabId?: number;
     };
 
-    try {
+    if (extensionRelayServer.getStatus().connected) {
       data = await extensionRelayServer.sendCommand(
         command as Omit<ExtensionCommand, "id">,
       );
-    } catch {
-      // In-process relay unavailable — fall back to gateway HTTP
+    } else {
+      // In-process relay not connected — fall back to gateway HTTP
       if (!isSigningKeyInitialized()) {
         initAuthSigningKey(loadOrCreateSigningKey());
       }
@@ -383,7 +385,10 @@ Examples:
     )
     .action(async () => {
       try {
-        // Dual-path: try in-process first, fall back to gateway HTTP
+        // Dual-path: use in-process status when connected (daemon context),
+        // otherwise query gateway HTTP (out-of-process CLI context).
+        // getStatus() is a synchronous getter that never throws — we check
+        // .connected to decide whether the local status is meaningful.
         let data: {
           connected: boolean;
           connectionId?: string | null;
@@ -391,10 +396,11 @@ Examples:
           pendingCommandCount: number;
         };
 
-        try {
-          data = extensionRelayServer.getStatus();
-        } catch {
-          // In-process relay unavailable — fall back to gateway HTTP
+        const localStatus = extensionRelayServer.getStatus();
+        if (localStatus.connected) {
+          data = localStatus;
+        } else {
+          // In-process relay not connected — fall back to gateway HTTP
           if (!isSigningKeyInitialized()) {
             initAuthSigningKey(loadOrCreateSigningKey());
           }

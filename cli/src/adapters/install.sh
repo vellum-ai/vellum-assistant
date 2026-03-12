@@ -229,14 +229,14 @@ symlink_vellum() {
     symlink_cli "assistant"
 }
 
-# Write a small sourceable env file to ~/.config/vellum/env so callers can
-# pick up PATH changes without restarting their shell:
+# Append PATH setup to ~/.config/vellum/env so callers can pick up PATH
+# changes without restarting their shell:
 #   curl -fsSL https://assistant.vellum.ai/install.sh | bash && . ~/.config/vellum/env
 write_env_file() {
     local env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vellum"
     local env_file="$env_dir/env"
     mkdir -p "$env_dir"
-    cat > "$env_file" <<'ENVEOF'
+    cat >> "$env_file" <<'ENVEOF'
 export BUN_INSTALL="$HOME/.bun"
 case ":$PATH:" in
   *":$BUN_INSTALL/bin:"*) ;;
@@ -278,8 +278,8 @@ main() {
         info "Note: 'assistant' command may require opening a new terminal session"
     fi
 
-    # Write a sourceable env file so the quickstart one-liner can pick up
-    # PATH changes in the caller's shell:
+    # Append PATH config to the env file so the quickstart one-liner can
+    # pick up PATH changes in the caller's shell:
     #   curl ... | bash && . ~/.config/vellum/env
     write_env_file
 
@@ -292,7 +292,7 @@ main() {
     info "Running vellum hatch..."
     printf "\n"
     if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
-        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
+        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.config/vellum/env\" ] && . \"\$HOME/.config/vellum/env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
     else
         vellum hatch
     fi

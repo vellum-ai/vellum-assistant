@@ -3,7 +3,6 @@
  */
 
 import { TwilioConversationRelayProvider } from "../../calls/twilio-provider.js";
-import { isTwilioWebhookValidationDisabled } from "../../config/env.js";
 import { loadConfig } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getLogger } from "../../util/logger.js";
@@ -51,21 +50,12 @@ export const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set([
  * Returns a 403 Response if signature validation fails.
  *
  * Fail-closed: if the auth token is not configured, the request is rejected
- * with 403 rather than silently skipping validation. An explicit local-dev
- * bypass is available via TWILIO_WEBHOOK_VALIDATION_DISABLED=true.
+ * with 403 rather than silently skipping validation.
  */
 export async function validateTwilioWebhook(
   req: Request,
 ): Promise<{ body: string } | Response> {
   const rawBody = await req.text();
-
-  // Allow explicit local-dev bypass -- must be exactly "true"
-  if (isTwilioWebhookValidationDisabled()) {
-    log.warn(
-      "Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED",
-    );
-    return { body: rawBody };
-  }
 
   const authToken = TwilioConversationRelayProvider.getAuthToken();
 

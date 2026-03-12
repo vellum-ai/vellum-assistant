@@ -679,7 +679,13 @@ export async function handleSendMessage(
       attachments,
       session,
       onEvent,
-      approvalConversationGenerator: deps.approvalConversationGenerator,
+      // Desktop path: disable NL classification to avoid consuming non-decision
+      // messages while a tool confirmation is pending. Deterministic code-prefix
+      // and callback parsing remain active. Mirrors session-process.ts behavior.
+      approvalConversationGenerator:
+        sourceChannel === "vellum"
+          ? undefined
+          : deps.approvalConversationGenerator,
       verifiedActorExternalUserId,
       verifiedActorPrincipalId,
     });
@@ -687,6 +693,7 @@ export async function handleSendMessage(
       return Response.json(
         {
           accepted: true,
+          conversationId: mapping.conversationId,
           ...(inlineReplyResult.messageId
             ? { messageId: inlineReplyResult.messageId }
             : {}),
@@ -751,7 +758,10 @@ export async function handleSendMessage(
       pendingInteractions.removeBySession(session);
     }
 
-    return Response.json({ accepted: true, queued: true }, { status: 202 });
+    return Response.json(
+      { accepted: true, queued: true, conversationId: mapping.conversationId },
+      { status: 202 },
+    );
   }
 
   // Session is idle — persist and fire agent loop immediately
@@ -821,20 +831,36 @@ export async function handleSendMessage(
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model, /models,
       // and provider shortcut commands (/gpt4, /opus, etc.).
-      if (isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)) {
-        onEvent(buildModelInfoEvent());
-      }
+      const shouldEmitModelInfo =
+        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent);
 
-      onEvent({ type: "assistant_text_delta", text: slashResult.message });
-      onEvent({
-        type: "message_complete",
-        sessionId: mapping.conversationId,
-      });
-
-      return Response.json(
-        { accepted: true, messageId: persisted.id },
+      const response = Response.json(
+        {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        },
         { status: 202 },
       );
+
+      // Defer event publishing to next tick so the HTTP response reaches the
+      // client first. This ensures the client's serverToLocalSessionMap is
+      // populated before SSE events arrive, preventing dropped events in new
+      // desktop threads.
+      const conversationId = mapping.conversationId;
+      const message = slashResult.message;
+      setTimeout(() => {
+        if (shouldEmitModelInfo) {
+          onEvent(buildModelInfoEvent());
+        }
+        onEvent({ type: "assistant_text_delta", text: message });
+        onEvent({
+          type: "message_complete",
+          sessionId: conversationId,
+        });
+      }, 0);
+
+      return response;
     } finally {
       session.processing = false;
       session.drainQueue().catch(() => {});
@@ -874,7 +900,10 @@ export async function handleSendMessage(
       );
     });
 
-  return Response.json({ accepted: true, messageId }, { status: 202 });
+  return Response.json(
+    { accepted: true, messageId, conversationId: mapping.conversationId },
+    { status: 202 },
+  );
 }
 
 async function generateLlmSuggestion(

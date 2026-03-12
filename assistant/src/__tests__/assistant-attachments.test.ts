@@ -10,7 +10,6 @@ import {
   estimateBase64Bytes,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
-  MAX_ASSISTANT_ATTACHMENTS,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
 
@@ -163,33 +162,27 @@ describe("validateDrafts", () => {
     expect(result.warnings[0]).toContain("exceeds");
   });
 
-  test("truncates beyond max count", () => {
-    const drafts = Array.from(
-      { length: MAX_ASSISTANT_ATTACHMENTS + 2 },
-      (_, i) => makeDraft({ filename: `file-${i}.txt` }),
+  test("accepts many drafts without count limit", () => {
+    const drafts = Array.from({ length: 20 }, (_, i) =>
+      makeDraft({ filename: `file-${i}.txt` }),
     );
     const result = validateDrafts(drafts);
-    expect(result.accepted).toHaveLength(MAX_ASSISTANT_ATTACHMENTS);
-    expect(result.warnings).toHaveLength(2);
-    expect(result.warnings[0]).toContain(
-      `file-${MAX_ASSISTANT_ATTACHMENTS}.txt`,
-    );
-    expect(result.warnings[0]).toContain("exceeded maximum");
+    expect(result.accepted).toHaveLength(20);
+    expect(result.warnings).toHaveLength(0);
   });
 
-  test("rejects oversized before applying count cap", () => {
+  test("rejects oversized while accepting all valid drafts", () => {
     const drafts = [
       makeDraft({
         filename: "big.bin",
         sizeBytes: MAX_ASSISTANT_ATTACHMENT_BYTES + 1,
       }),
-      ...Array.from({ length: MAX_ASSISTANT_ATTACHMENTS }, (_, i) =>
+      ...Array.from({ length: 10 }, (_, i) =>
         makeDraft({ filename: `ok-${i}.txt` }),
       ),
     ];
     const result = validateDrafts(drafts);
-    // big.bin rejected for size; all MAX_ASSISTANT_ATTACHMENTS ok files accepted
-    expect(result.accepted).toHaveLength(MAX_ASSISTANT_ATTACHMENTS);
+    expect(result.accepted).toHaveLength(10);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain("big.bin");
   });
@@ -431,11 +424,8 @@ describe("contentBlocksToDrafts", () => {
 // ---------------------------------------------------------------------------
 
 describe("validateDrafts with reversed tool drafts", () => {
-  test("most recent tool screenshots win the attachment cap when reversed before validation", () => {
-    // Simulate a browser session producing many screenshots chronologically.
-    // After reversing, the most recent (highest index) should appear first
-    // and win the MAX_ASSISTANT_ATTACHMENTS cap.
-    const totalScreenshots = MAX_ASSISTANT_ATTACHMENTS + 3;
+  test("all tool screenshots accepted after reversing", () => {
+    const totalScreenshots = 8;
     const toolDrafts = Array.from({ length: totalScreenshots }, (_, i) =>
       makeDraft({
         sourceType: "tool_block",
@@ -446,23 +436,11 @@ describe("validateDrafts with reversed tool drafts", () => {
       }),
     );
 
-    // Reverse to prioritize most recent
     toolDrafts.reverse();
 
     const result = validateDrafts(toolDrafts);
-    expect(result.accepted).toHaveLength(MAX_ASSISTANT_ATTACHMENTS);
-
-    // The accepted drafts should be the most recent screenshots (highest step numbers)
-    const acceptedFilenames = result.accepted.map((d) => d.filename);
-    for (let i = 0; i < MAX_ASSISTANT_ATTACHMENTS; i++) {
-      expect(acceptedFilenames[i]).toBe(
-        `screenshot-step-${totalScreenshots - 1 - i}.png`,
-      );
-    }
-
-    // The oldest screenshots should be dropped
-    expect(result.warnings).toHaveLength(3);
-    expect(result.warnings[0]).toContain("screenshot-step-2.png");
+    expect(result.accepted).toHaveLength(totalScreenshots);
+    expect(result.warnings).toHaveLength(0);
   });
 });
 

@@ -5,7 +5,6 @@ import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
 import {
-  editTelegramMessage,
   sendTelegramAttachments,
   sendTelegramReply,
   sendTypingIndicator,
@@ -50,7 +49,6 @@ export function createTelegramDeliverHandler(
       attachments?: RuntimeAttachmentMeta[];
       approval?: ApprovalPayload;
       chatAction?: "typing";
-      messageId?: number;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -65,23 +63,10 @@ export function createTelegramDeliverHandler(
       attachments,
       approval,
       chatAction,
-      messageId,
     } = body;
 
     if (!chatId || typeof chatId !== "string") {
       return Response.json({ error: "chatId is required" }, { status: 400 });
-    }
-
-    if (
-      messageId !== undefined &&
-      (typeof messageId !== "number" ||
-        !Number.isInteger(messageId) ||
-        messageId <= 0)
-    ) {
-      return Response.json(
-        { error: "messageId must be a positive integer" },
-        { status: 400 },
-      );
     }
 
     if (chatAction !== undefined && chatAction !== "typing") {
@@ -196,32 +181,13 @@ export function createTelegramDeliverHandler(
       ? { credentials: caches.credentials, configFile: caches.configFile }
       : undefined;
 
-    let sendMessageId: number | undefined;
     try {
       if (chatAction === "typing") {
         await sendTypingIndicator(config, chatId, credentialOpts);
       }
 
       if (text) {
-        if (messageId !== undefined) {
-          await editTelegramMessage(
-            config,
-            chatId,
-            messageId,
-            text,
-            approval,
-            credentialOpts,
-          );
-        } else {
-          const sendResult = await sendTelegramReply(
-            config,
-            chatId,
-            text,
-            approval,
-            credentialOpts,
-          );
-          sendMessageId = sendResult.messageId;
-        }
+        await sendTelegramReply(config, chatId, text, approval, credentialOpts);
       }
 
       if (attachments && attachments.length > 0) {
@@ -247,10 +213,6 @@ export function createTelegramDeliverHandler(
       "Reply sent",
     );
 
-    const responseBody: { ok: true; messageId?: number } = { ok: true };
-    if (sendMessageId !== undefined) {
-      responseBody.messageId = sendMessageId;
-    }
-    return Response.json(responseBody);
+    return Response.json({ ok: true });
   };
 }

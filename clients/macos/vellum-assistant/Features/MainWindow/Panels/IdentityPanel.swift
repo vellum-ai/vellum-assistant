@@ -109,12 +109,12 @@ struct IdentityPanel: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
             .overlay {
-                if let path = viewingFilePath {
-                    // Dismiss backdrop
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
-                        .onTapGesture { viewingFilePath = nil }
+                Color.black.opacity(viewingFilePath != nil ? 0.4 : 0)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(viewingFilePath != nil)
+                    .onTapGesture { viewingFilePath = nil }
 
+                if let path = viewingFilePath {
                     WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
                         .frame(width: 600, height: 500)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -124,11 +124,12 @@ struct IdentityPanel: View {
             }
             .animation(VAnimation.standard, value: viewingFilePath != nil)
             .overlay {
-                if showAvatarSheet {
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
-                        .onTapGesture { showAvatarSheet = false }
+                Color.black.opacity(showAvatarSheet ? 0.4 : 0)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(showAvatarSheet)
+                    .onTapGesture { showAvatarSheet = false }
 
+                if showAvatarSheet {
                     AvatarManagementSheet(
                         onClose: { showAvatarSheet = false },
                         onEditAvatar: {

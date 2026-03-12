@@ -402,7 +402,7 @@ GET /v1/assistants/:assistantId/attachments/:attachmentId
 
 ### Telegram
 
-The gateway downloads attachments from the runtime API and delivers them via Telegram's `sendPhoto` (images) or `sendDocument` (other files). Oversized attachments (exceeding `GATEWAY_MAX_ATTACHMENT_BYTES`, default 20 MB) are skipped. Partial failures send a user-visible notice listing undelivered files.
+The gateway downloads attachments from the runtime API and delivers them via Telegram's `sendPhoto` (images) or `sendDocument` (other files). Oversized attachments (exceeding 20 MB) are skipped. Partial failures send a user-visible notice listing undelivered files.
 
 ### Attachment Sources
 
@@ -465,7 +465,7 @@ GET /v1/events?conversationKey=<key>
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `conversationKey` | Yes | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. |
+| `conversationKey` | No | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. When omitted, subscribes to events from all conversations. |
 
 **Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
 

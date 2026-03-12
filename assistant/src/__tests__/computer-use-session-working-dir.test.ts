@@ -15,7 +15,6 @@ mock.module("../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
-  isDebug: () => false,
   truncateForLog: (value: string, maxLen = 500) =>
     value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   initLogger: () => {},
@@ -74,8 +73,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 180000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
     },
     assistantFeatureFlagValues: {},
   }),

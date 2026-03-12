@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { credentialKey } from "../security/credential-key.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that pull in mocked modules
 // ---------------------------------------------------------------------------
@@ -10,6 +8,12 @@ const secureKeyValues = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => secureKeyValues.get(key),
   setSecureKeyAsync: async () => {},
+}));
+
+let connectionByProvider: Record<string, unknown> = {};
+mock.module("../oauth/oauth-store.js", () => ({
+  getConnectionByProvider: (key: string) =>
+    connectionByProvider[key] ?? undefined,
 }));
 
 let listConversationsResult: unknown = { ok: true, channels: [] };
@@ -86,6 +90,7 @@ function makeRequest(body: unknown): Request {
 
 beforeEach(() => {
   secureKeyValues.clear();
+  connectionByProvider = {};
   listConversationsResult = { ok: true, channels: [] };
   userInfoResults = new Map();
   appStoreResult = null;
@@ -106,8 +111,9 @@ describe("handleListSlackChannels", () => {
   });
 
   test("returns channels sorted by type then name", async () => {
+    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
-      credentialKey("integration:slack", "access_token"),
+      "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
 
@@ -176,18 +182,6 @@ describe("handleListSlackChannels", () => {
       isPrivate: true,
     });
   });
-
-  test("falls back to legacy bot token", async () => {
-    secureKeyValues.set(
-      credentialKey("slack_channel", "bot_token"),
-      "xoxb-legacy",
-    );
-
-    listConversationsResult = { ok: true, channels: [] };
-
-    const res = await handleListSlackChannels();
-    expect(res.status).toBe(200);
-  });
 });
 
 describe("handleShareToSlackChannel", () => {
@@ -198,8 +192,9 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("returns 400 for malformed JSON", async () => {
+    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
-      credentialKey("integration:slack", "access_token"),
+      "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
     const req = new Request("http://localhost/v1/slack/share", {
@@ -212,8 +207,9 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("returns 400 when missing required fields", async () => {
+    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
-      credentialKey("integration:slack", "access_token"),
+      "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
     const req = makeRequest({ appId: "app1" });
@@ -224,8 +220,9 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("returns 404 when app not found", async () => {
+    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
-      credentialKey("integration:slack", "access_token"),
+      "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
     appStoreResult = null;
@@ -235,8 +232,9 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("posts message and returns success", async () => {
+    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
-      credentialKey("integration:slack", "access_token"),
+      "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
     appStoreResult = {

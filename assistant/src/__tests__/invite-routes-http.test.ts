@@ -24,8 +24,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Prevent ensureTelegramBotUsernameResolved() from reading real credentials
-// and calling the Telegram API, which would populate credential metadata
-// with the real bot username and shadow the env var override in tests.
+// and calling the Telegram API.
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => undefined,
   setSecureKey: () => {},
@@ -33,6 +32,13 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
   setSecureKeyAsync: async () => {},
   deleteSecureKeyAsync: async () => {},
+}));
+
+// Mock getTelegramBotUsername — the env var fallback was removed so we
+// control the return value directly via a mutable variable.
+let mockTelegramBotUsername: string | undefined;
+mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotUsername: () => mockTelegramBotUsername,
 }));
 
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
@@ -94,8 +100,7 @@ describe("ingress invite HTTP routes", () => {
   });
 
   test("POST /v1/contacts/invites — includes canonical share URL when bot username is configured", async () => {
-    const prevBotUsername = process.env.TELEGRAM_BOT_USERNAME;
-    process.env.TELEGRAM_BOT_USERNAME = "test_invite_bot";
+    mockTelegramBotUsername = "test_invite_bot";
 
     try {
       const req = new Request("http://localhost/v1/contacts/invites", {
@@ -121,11 +126,7 @@ describe("ingress invite HTTP routes", () => {
       expect(share.url).toBe(`https://t.me/test_invite_bot?start=iv_${token}`);
       expect(typeof share.displayText).toBe("string");
     } finally {
-      if (prevBotUsername === undefined) {
-        delete process.env.TELEGRAM_BOT_USERNAME;
-      } else {
-        process.env.TELEGRAM_BOT_USERNAME = prevBotUsername;
-      }
+      mockTelegramBotUsername = undefined;
     }
   });
 

@@ -45,7 +45,6 @@ Examples:
         autonomy: ["get", "set"],
       };
       const topLevel = [
-        "dev",
         "sessions",
         "config",
         "keys",
@@ -129,7 +128,6 @@ function generateZshCompletion(
 _assistant() {
     local -a commands
     commands=(
-        'dev:Run assistant in dev mode with auto-restart'
         'sessions:Manage sessions'
         'config:Manage configuration'
         'keys:Manage API keys in secure storage'
@@ -171,7 +169,6 @@ function generateFishCompletion(
   script += `complete -c assistant -f\n`;
 
   const descriptions: Record<string, string> = {
-    dev: "Run assistant in dev mode with auto-restart",
     sessions: "Manage sessions",
     config: "Manage configuration",
     keys: "Manage API keys in secure storage",

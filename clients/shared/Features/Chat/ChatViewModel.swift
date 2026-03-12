@@ -287,8 +287,6 @@ public final class ChatViewModel: ObservableObject {
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize
-    /// Maximum number of attachments per message.
-    public static let maxAttachments = ChatAttachmentManager.maxAttachments
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
@@ -431,6 +429,16 @@ public final class ChatViewModel: ObservableObject {
     var streamingDeltaBuffer: String = ""
     /// Scheduled flush work item; cancelled and re-created on each delta.
     var streamingFlushTask: Task<Void, Never>?
+
+    // MARK: - Partial Output Coalescing
+
+    /// Buffered partial-output chunks keyed by "messageUUID:tcIndex".
+    /// Uses stable message UUID instead of positional index so the buffer
+    /// survives message-list mutations (pagination prepend, memory trim).
+    var partialOutputBuffer: [String: (messageId: UUID, tcIndex: Int, content: String)] = [:]
+    /// Scheduled flush task for coalescing partial-output writes.
+    var partialOutputFlushTask: Task<Void, Never>?
+
     /// Safety timer that force-resets the UI if the daemon never acknowledges
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
@@ -870,6 +878,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
+                    self?.discardPartialOutputBuffer()
                     self?.reconnectDebounceTask?.cancel()
                     self?.reconnectDebounceTask = Task { @MainActor [weak self] in
                         defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
@@ -1404,6 +1413,7 @@ public final class ChatViewModel: ObservableObject {
                 }
                 self?.currentAssistantMessageId = nil
                 self?.discardStreamingBuffer()
+                self?.discardPartialOutputBuffer()
                 // If a send-direct was pending when the stream dropped,
                 // dispatch it now so the message isn't silently lost.
                 self?.dispatchPendingSendDirect()
@@ -1601,6 +1611,7 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1647,6 +1658,7 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             discardStreamingBuffer()
+            discardPartialOutputBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1710,6 +1722,7 @@ public final class ChatViewModel: ObservableObject {
             self.currentAssistantHasText = false
             self.lastContentWasToolCall = false
             self.discardStreamingBuffer()
+            self.discardPartialOutputBuffer()
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]
@@ -2517,6 +2530,9 @@ public final class ChatViewModel: ObservableObject {
             // Older page fetched on demand — prepend before existing messages
             // and expand the display window so the newly loaded messages are
             // visible. The loading indicator is cleared here.
+            // Flush any buffered partial output before prepending — the prepend
+            // shifts positional indices so stale buffer entries would corrupt.
+            flushPartialOutputBuffer()
             self.messages = chatMessages + self.messages
             // Expand the display window by the number of messages prepended so
             // the user sees them immediately. Use Int.max if no more pages exist.
@@ -2541,6 +2557,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        discardPartialOutputBuffer()
         cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
@@ -2614,6 +2631,7 @@ public final class ChatViewModel: ObservableObject {
         subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
+        partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
         for task in refetchTasks.values { task.cancel() }

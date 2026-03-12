@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # Debug Prompt Logger — prints the system prompt and conversation
-# history before each LLM call. Only active when VELLUM_DEBUG=1.
-
-[ "$VELLUM_DEBUG" != "1" ] && exit 0
+# history before each LLM call. Runs whenever the hook is installed.
 
 data=$(cat)
 

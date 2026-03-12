@@ -197,26 +197,6 @@ extension CuObservation {
     }
 }
 
-/// Sent to start a ride shotgun observation session.
-/// Backed by generated `RideShotgunStart`.
-public typealias RideShotgunStartMessage = RideShotgunStart
-
-extension RideShotgunStart {
-    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, navigateDomain: String? = nil, autoNavigate: Bool? = nil) {
-        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain, navigateDomain: navigateDomain, autoNavigate: autoNavigate)
-    }
-}
-
-/// Sent to stop a ride shotgun session early (with recording finalization).
-/// Backed by generated `RideShotgunStop`.
-public typealias RideShotgunStopMessage = RideShotgunStop
-
-extension RideShotgunStop {
-    public init(watchId: String) {
-        self.init(type: "ride_shotgun_stop", watchId: watchId)
-    }
-}
-
 /// Sent by the watch agent with OCR text from periodic screen captures.
 /// Backed by generated `WatchObservation`.
 public typealias WatchObservationMessage = WatchObservation
@@ -885,15 +865,6 @@ extension DictationRequest {
         self.init(type: "dictation_request", transcription: transcription, context: context, profileId: profileId)
     }
 }
-
-/// Bootstrap failure during learn-mode recording setup.
-public typealias RideShotgunErrorMessage = RideShotgunError
-
-/// Progress update from a ride shotgun auto-navigation session.
-public typealias RideShotgunProgressMessage = RideShotgunProgress
-
-/// Result from a ride shotgun observation session.
-public typealias RideShotgunResultMessage = RideShotgunResult
 
 /// Instructs the client to open a URL in the browser.
 /// Backed by generated `OpenUrl`.
@@ -2104,9 +2075,11 @@ public struct SubagentDetailRequestMessage: Encodable, Sendable {
 public struct SubagentAbortMessage: Encodable, Sendable {
     public let type: String = "subagent_abort"
     public let subagentId: String
+    public let sessionId: String?
 
-    public init(subagentId: String) {
+    public init(subagentId: String, sessionId: String? = nil) {
         self.subagentId = subagentId
+        self.sessionId = sessionId
     }
 }
 
@@ -2139,9 +2112,6 @@ public enum ServerMessage: Decodable, Sendable {
     case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
-    case rideShotgunError(RideShotgunErrorMessage)
-    case rideShotgunProgress(RideShotgunProgressMessage)
-    case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
@@ -2330,15 +2300,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
-        case "ride_shotgun_error":
-            let message = try RideShotgunErrorMessage(from: decoder)
-            self = .rideShotgunError(message)
-        case "ride_shotgun_progress":
-            let message = try RideShotgunProgressMessage(from: decoder)
-            self = .rideShotgunProgress(message)
-        case "ride_shotgun_result":
-            let message = try RideShotgunResultMessage(from: decoder)
-            self = .rideShotgunResult(message)
         case "ui_surface_show":
             let message = try UiSurfaceShowMessage(from: decoder)
             self = .uiSurfaceShow(message)

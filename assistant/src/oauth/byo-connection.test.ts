@@ -64,13 +64,48 @@ mock.module("../security/oauth2.js", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Mock oauth-store — token-manager reads refresh config from SQLite
+// ---------------------------------------------------------------------------
+
+/** Mutable per-test map of provider connections for getConnectionByProvider */
+const mockConnections = new Map<
+  string,
+  {
+    id: string;
+    providerKey: string;
+    oauthAppId: string;
+    expiresAt: number | null;
+    grantedScopes?: string;
+    accountInfo?: string | null;
+  }
+>();
+const mockApps = new Map<
+  string,
+  { id: string; providerKey: string; clientId: string }
+>();
+const mockProviders = new Map<
+  string,
+  {
+    key: string;
+    tokenUrl: string;
+    tokenEndpointAuthMethod?: string;
+    baseUrl?: string;
+  }
+>();
+
+mock.module("./oauth-store.js", () => ({
+  getConnectionByProvider: (service: string) => mockConnections.get(service),
+  getApp: (id: string) => mockApps.get(id),
+  getProvider: (key: string) => mockProviders.get(key),
+  updateConnection: () => {},
+  getMostRecentAppByProvider: () => undefined,
+  listConnections: () => [],
+}));
+
+// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import {
-  _resetMigrationFlag,
-  credentialKey,
-} from "../security/credential-key.js";
 import { setSecureKey } from "../security/secure-keys.js";
 import {
   _resetInflightRefreshes,
@@ -88,7 +123,6 @@ import { resolveOAuthConnection } from "./connection-resolver.js";
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let mockFetch: ReturnType<typeof mock<any>>;
 
 // ---------------------------------------------------------------------------
@@ -110,7 +144,10 @@ beforeEach(() => {
   _resetBackend();
   _resetRefreshBreakers();
   _resetInflightRefreshes();
-  _resetMigrationFlag();
+  // Clear mock oauth-store maps
+  mockConnections.clear();
+  mockApps.clear();
+  mockProviders.clear();
 
   // Default mock fetch returning 200 JSON
   mockFetch = mock(() =>
@@ -139,16 +176,40 @@ function setupCredential(
   service: string,
   opts?: { expiresAt?: number; grantedScopes?: string[] },
 ) {
-  setSecureKey(credentialKey(service, "access_token"), "test-access-token");
-  setSecureKey(credentialKey(service, "refresh_token"), "test-refresh-token");
-  setSecureKey(credentialKey(service, "client_secret"), "test-client-secret");
-  upsertCredentialMetadata(service, "access_token", {
-    expiresAt: opts?.expiresAt ?? Date.now() + 3600 * 1000,
-    grantedScopes: opts?.grantedScopes ?? ["read", "write"],
-    oauth2TokenUrl: "https://oauth2.googleapis.com/token",
-    oauth2ClientId: "test-client-id",
-    hasRefreshToken: true,
+  // Seed mock oauth-store maps so token-manager can resolve refresh config
+  const appId = `app-${service}`;
+  const connId = `conn-${service}`;
+  mockProviders.set(service, {
+    key: service,
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    // Only well-known providers (gmail) have a baseUrl; custom services don't
+    baseUrl:
+      service === "integration:gmail"
+        ? "https://gmail.googleapis.com/gmail/v1/users/me"
+        : undefined,
   });
+  mockApps.set(appId, {
+    id: appId,
+    providerKey: service,
+    clientId: "test-client-id",
+  });
+  mockConnections.set(service, {
+    id: connId,
+    providerKey: service,
+    oauthAppId: appId,
+    expiresAt: opts?.expiresAt ?? Date.now() + 3600 * 1000,
+    grantedScopes: JSON.stringify(opts?.grantedScopes ?? ["read", "write"]),
+    accountInfo: null,
+  });
+  // Store access token in oauth-store key format
+  setSecureKey(`oauth_connection/${connId}/access_token`, "test-access-token");
+  // Store refresh token and client_secret in secure keys (token-manager reads them)
+  setSecureKey(
+    `oauth_connection/${connId}/refresh_token`,
+    "test-refresh-token",
+  );
+  setSecureKey(`oauth_app/${appId}/client_secret`, "test-client-secret");
+  upsertCredentialMetadata(service, "access_token", {});
 }
 
 function createConnection(service = "integration:gmail"): BYOOAuthConnection {
@@ -185,10 +246,10 @@ describe("BYOOAuthConnection", () => {
       expect(url).toBe(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
       );
-      expect((init as RequestInit).headers).toMatchObject({
-        Authorization: "Bearer test-access-token",
-        "Content-Type": "application/json",
-      });
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bearer test-access-token");
+      // GET requests have no body, so Content-Type should not be set
+      expect(headers.has("Content-Type")).toBe(false);
       expect((init as RequestInit).method).toBe("GET");
     });
 
@@ -237,6 +298,9 @@ describe("BYOOAuthConnection", () => {
         JSON.stringify({ raw: "base64-encoded-email" }),
       );
       expect((init as RequestInit).method).toBe("POST");
+      // POST requests with a body should include Content-Type
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/json");
     });
 
     test("retries once on 401 response", async () => {
@@ -336,10 +400,9 @@ describe("BYOOAuthConnection", () => {
       });
 
       const [, init] = mockFetch.mock.calls[0];
-      expect((init as RequestInit).headers).toMatchObject({
-        "X-Custom-Header": "custom-value",
-        Authorization: "Bearer test-access-token",
-      });
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("X-Custom-Header")).toBe("custom-value");
+      expect(headers.get("Authorization")).toBe("Bearer test-access-token");
     });
   });
 
@@ -361,9 +424,10 @@ describe("BYOOAuthConnection", () => {
 
       // The request should use the refreshed token
       const [, init] = mockFetch.mock.calls[0];
-      expect((init as RequestInit).headers).toMatchObject({
-        Authorization: "Bearer refreshed-access-token",
-      });
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Authorization")).toBe(
+        "Bearer refreshed-access-token",
+      );
     });
   });
 
@@ -432,5 +496,42 @@ describe("resolveOAuthConnection", () => {
     expect(() => resolveOAuthConnection("integration:custom-service")).toThrow(
       /No base URL configured for "integration:custom-service"/,
     );
+  });
+
+  test("resolves base URL via app's canonical providerKey for custom credential_service", () => {
+    // Set up a well-known provider with a baseUrl
+    mockProviders.set("github", {
+      key: "github",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      baseUrl: "https://api.github.com",
+    });
+    // The custom credential service has no provider entry of its own
+    // (getProvider("integration:github-work") returns undefined)
+
+    // App points to the canonical "github" provider
+    const appId = "app-github-work";
+    mockApps.set(appId, {
+      id: appId,
+      providerKey: "github",
+      clientId: "test-client-id",
+    });
+
+    // Connection uses the custom credential service as its providerKey
+    const connId = "conn-github-work";
+    mockConnections.set("integration:github-work", {
+      id: connId,
+      providerKey: "integration:github-work",
+      oauthAppId: appId,
+      expiresAt: Date.now() + 3600 * 1000,
+      grantedScopes: JSON.stringify(["repo"]),
+      accountInfo: null,
+    });
+    setSecureKey(`oauth_connection/${connId}/access_token`, "ghp-test-token");
+
+    const conn = resolveOAuthConnection("integration:github-work");
+
+    expect(conn).toBeInstanceOf(BYOOAuthConnection);
+    expect(conn.providerKey).toBe("integration:github-work");
+    expect(conn.grantedScopes).toEqual(["repo"]);
   });
 });

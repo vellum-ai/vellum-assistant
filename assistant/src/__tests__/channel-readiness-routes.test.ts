@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the service
 // ---------------------------------------------------------------------------
 
-let mockTwilioPhoneNumberEnv: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
@@ -23,16 +22,27 @@ mock.module("../calls/twilio-rest.js", () => ({
   getTollFreeVerificationStatus: async () => null,
 }));
 
-mock.module("../config/env.js", () => ({
-  getTwilioPhoneNumberEnv: () => mockTwilioPhoneNumberEnv,
-}));
+mock.module("../config/env.js", () => ({}));
 
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => mockRawConfig,
+  loadConfig: () => {
+    const raw = mockRawConfig ?? {};
+    const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
+    const tw = (raw.twilio ?? {}) as Record<string, unknown>;
+    return {
+      twilio: { phoneNumber: (tw.phoneNumber as string) ?? "" },
+      whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
+    };
+  },
   getConfig: () => {
     const raw = mockRawConfig ?? {};
     const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
-    return { whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" } };
+    const tw = (raw.twilio ?? {}) as Record<string, unknown>;
+    return {
+      twilio: { phoneNumber: (tw.phoneNumber as string) ?? "" },
+      whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
+    };
   },
   invalidateConfigCache: () => {},
 }));
@@ -60,7 +70,6 @@ import { credentialKey } from "../security/credential-key.js";
 
 describe("channel readiness routes — email and WhatsApp probes", () => {
   beforeEach(() => {
-    mockTwilioPhoneNumberEnv = undefined;
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;

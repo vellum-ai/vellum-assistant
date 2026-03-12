@@ -6,7 +6,6 @@ import type { MessagingProvider } from "../../../../messaging/provider.js";
 import {
   getConnectedProviders,
   getMessagingProvider,
-  isPlatformEnabled,
 } from "../../../../messaging/registry.js";
 import type { OAuthConnection } from "../../../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
@@ -110,9 +109,7 @@ export function extractEmail(address: string): string {
 export function resolveProvider(platformInput?: string): MessagingProvider {
   if (platformInput) return getMessagingProvider(platformInput);
 
-  const connected = getConnectedProviders().filter((p) =>
-    isPlatformEnabled(p.id),
-  );
+  const connected = getConnectedProviders();
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
     throw new Error(

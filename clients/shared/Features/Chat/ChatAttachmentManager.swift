@@ -36,8 +36,6 @@ public final class ChatAttachmentManager: ObservableObject {
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
     nonisolated static let maxImageSize = 4 * 1024 * 1024
-    /// Maximum number of attachments per message.
-    nonisolated public static let maxAttachments = 5
 
     // MARK: - Error callback
 
@@ -57,11 +55,6 @@ public final class ChatAttachmentManager: ObservableObject {
     // MARK: - Public API
 
     public func addAttachment(url: URL) {
-        guard pendingAttachments.count < Self.maxAttachments else {
-            onError?("Maximum \(Self.maxAttachments) attachments per message.")
-            return
-        }
-
         // Move file reading, compression, and thumbnail generation off the main
         // thread — Data(contentsOf:) is a blocking syscall that can stall the UI
         // for up to 20 MB worth of I/O before we even begin image processing.
@@ -73,13 +66,6 @@ public final class ChatAttachmentManager: ObservableObject {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
             case .success(let attachment):
-                // Re-check cap here: multiple concurrent adds may have all passed
-                // the guard above before any of them appended, so we must verify
-                // again inside the async task before committing.
-                guard self.pendingAttachments.count < Self.maxAttachments else {
-                    self.onError?("Maximum \(Self.maxAttachments) attachments per message.")
-                    return
-                }
                 self.pendingAttachments.append(attachment)
             }
         }
@@ -122,11 +108,6 @@ public final class ChatAttachmentManager: ObservableObject {
     /// Add an attachment from raw image data (e.g. drag-and-drop, pasteboard).
     /// Converts TIFF to PNG if needed.
     public func addAttachment(imageData: Data, filename: String = "Dropped Image.png") {
-        guard pendingAttachments.count < Self.maxAttachments else {
-            onError?("Maximum \(Self.maxAttachments) attachments per message.")
-            return
-        }
-
         // Move image conversion, compression, and thumbnail generation off the
         // main thread — these are CPU-bound and can take tens of milliseconds
         // for large images.
@@ -138,12 +119,6 @@ public final class ChatAttachmentManager: ObservableObject {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
             case .success(let attachment):
-                // Re-check cap: multiple concurrent adds may all pass the guard
-                // above before any appends occur.
-                guard self.pendingAttachments.count < Self.maxAttachments else {
-                    self.onError?("Maximum \(Self.maxAttachments) attachments per message.")
-                    return
-                }
                 self.pendingAttachments.append(attachment)
             }
         }

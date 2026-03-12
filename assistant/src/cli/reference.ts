@@ -10,7 +10,6 @@ Options:
   -h, --help                               display help for command
 
 Commands:
-  dev [options]                            Run the assistant in dev mode
   sessions                                 Manage sessions
   config                                   Manage configuration
   keys                                     Manage API keys in secure storage
@@ -28,9 +27,8 @@ Commands:
   completions <shell>                      Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)
   notifications [options]                  Send and inspect notifications through the unified notification router
   platform [options]                       Manage platform integration for containerized deployments
-  oauth [options]                          Manage OAuth tokens for connected integrations
+  oauth [options]                          Manage OAuth providers, apps, connections, and tokens
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
-  map [options] <domain>                   Auto-navigate a domain and produce a deduplicated API map. Launches Chrome with CDP, starts a Ride Shotgun learn session, then analyzes captured network traffic.
   sequence [options]                       Manage email sequences
 `;

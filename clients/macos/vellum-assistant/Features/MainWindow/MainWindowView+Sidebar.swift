@@ -16,6 +16,17 @@ extension MainWindowView {
         }
     }
 
+    func startNewThread() {
+        threadManager.createThread()
+        if let id = threadManager.activeThreadId {
+            windowState.selection = .thread(id)
+        } else {
+            // Draft mode — clear selection so no sidebar thread is highlighted
+            windowState.selection = nil
+            windowState.persistentThreadId = nil
+        }
+    }
+
     /// Maps a thread's interaction state to a dot color for VThreadIcon.
     func interactionDotColor(for thread: ThreadModel) -> Color? {
         switch threadManager.interactionState(for: thread.id) {
@@ -215,12 +226,7 @@ extension MainWindowView {
                         windowState.dismissToast(id: toastId)
                     }
                 },
-                onNewThread: {
-                    threadManager.createThread()
-                    if let id = threadManager.activeThreadId {
-                        windowState.selection = .thread(id)
-                    }
-                }
+                onNewThread: { startNewThread() }
             )
 
             ScrollView {
@@ -481,10 +487,7 @@ extension MainWindowView {
             sidebarSectionDivider(isExpanded: false)
 
             SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Chat", isActive: false, isExpanded: false) {
-                threadManager.createThread()
-                if let id = threadManager.activeThreadId {
-                    windowState.selection = .thread(id)
-                }
+                startNewThread()
             }
 
             // MARK: Thread Section (collapsed)

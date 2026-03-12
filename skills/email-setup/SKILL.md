@@ -7,6 +7,7 @@ metadata:
   vellum:
     display-name: "Email Setup"
     user-invocable: true
+    feature-flag: "email-channel"
 ---
 
 You are setting up your own personal email address. This is a one-time operation — once you have an email, you do not need to run this again.

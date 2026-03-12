@@ -854,10 +854,16 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearTelegramCredentials() {
+        telegramSaveInProgress = true
+        telegramError = nil
         do {
-            guard let daemonClient else { return }
+            guard let daemonClient else {
+                telegramSaveInProgress = false
+                return
+            }
             try daemonClient.sendTelegramConfig(action: "clear")
         } catch {
+            telegramSaveInProgress = false
             log.error("Failed to send Telegram config clear: \(error)")
         }
     }

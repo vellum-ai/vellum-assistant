@@ -17,6 +17,7 @@ let mockGenerateResult = {
   resolvedModel: "gemini-2.5-flash-image",
 };
 let mockGenerateError: Error | null = null;
+let lastGenerateCredentials: unknown = null;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -27,7 +28,11 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../media/gemini-image-service.js", () => ({
-  generateImage: async (_apiKey: string, _request: Record<string, unknown>) => {
+  generateImage: async (
+    credentials: unknown,
+    _request: Record<string, unknown>,
+  ) => {
+    lastGenerateCredentials = credentials;
     if (mockGenerateError) throw mockGenerateError;
     return mockGenerateResult;
   },
@@ -35,6 +40,18 @@ mock.module("../media/gemini-image-service.js", () => ({
     if (error instanceof Error) return `Mock error: ${error.message}`;
     return "Mock unknown error";
   },
+}));
+
+let mockManagedBaseUrl: string | undefined;
+let mockManagedProxyContext = {
+  enabled: false,
+  platformBaseUrl: "",
+  assistantApiKey: "",
+};
+
+mock.module("../providers/managed-proxy/context.js", () => ({
+  buildManagedBaseUrl: () => mockManagedBaseUrl,
+  resolveManagedProxyContext: () => mockManagedProxyContext,
 }));
 
 let mockAttachments: Array<{
@@ -138,6 +155,13 @@ beforeEach(() => {
   };
   mockGenerateError = null;
   mockAttachments = [];
+  lastGenerateCredentials = null;
+  mockManagedBaseUrl = undefined;
+  mockManagedProxyContext = {
+    enabled: false,
+    platformBaseUrl: "",
+    assistantApiKey: "",
+  };
 });
 
 const fakeContext = {
@@ -153,13 +177,50 @@ describe("image-studio skill script wrapper", () => {
     expect(getTool("media_generate_image")).toBeUndefined();
   });
 
-  test("returns error when no API key is configured", async () => {
+  test("returns error when no API key and no managed proxy", async () => {
     mockApiKey = undefined;
 
     const result = await run({ prompt: "a cat" }, fakeContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No Gemini API key");
+  });
+
+  test("falls back to managed proxy when no API key is configured", async () => {
+    mockApiKey = undefined;
+    mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/vertex";
+    mockManagedProxyContext = {
+      enabled: true,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "managed-key-123",
+    };
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Generated 1 image");
+    expect(lastGenerateCredentials).toEqual({
+      type: "managed-proxy",
+      assistantApiKey: "managed-key-123",
+      baseUrl: "https://platform.example.com/v1/runtime-proxy/vertex",
+    });
+  });
+
+  test("prefers direct API key over managed proxy", async () => {
+    mockApiKey = "direct-key";
+    mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/vertex";
+    mockManagedProxyContext = {
+      enabled: true,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "managed-key-123",
+    };
+
+    await run({ prompt: "a cat" }, fakeContext);
+
+    expect(lastGenerateCredentials).toEqual({
+      type: "direct",
+      apiKey: "direct-key",
+    });
   });
 
   test("returns generated image with contentBlocks", async () => {

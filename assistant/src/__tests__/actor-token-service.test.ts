@@ -41,7 +41,6 @@ mock.module("../config/env.js", () => ({
   getGatewayBaseUrl: () => "http://localhost:7822",
   getRuntimeGatewayOriginSecret: () => undefined,
   isHttpAuthDisabledWithoutSafetyGate: () => false,
-  getEnableMonitoring: () => false,
   checkUnrecognizedEnvVars: () => {},
   getBaseDataDir: () => testDir,
 }));

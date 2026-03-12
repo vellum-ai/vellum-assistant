@@ -25,6 +25,7 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
+import { setIngressPublicBaseUrl } from "../config/env.js";
 import {
   getOAuthCallbackUrl,
   getPublicBaseUrl,
@@ -40,19 +41,12 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("getPublicBaseUrl", () => {
-  let savedIngressEnv: string | undefined;
-
   beforeEach(() => {
-    savedIngressEnv = process.env.INGRESS_PUBLIC_BASE_URL;
-    delete process.env.INGRESS_PUBLIC_BASE_URL;
+    setIngressPublicBaseUrl(undefined);
   });
 
   afterEach(() => {
-    if (savedIngressEnv !== undefined) {
-      process.env.INGRESS_PUBLIC_BASE_URL = savedIngressEnv;
-    } else {
-      delete process.env.INGRESS_PUBLIC_BASE_URL;
-    }
+    setIngressPublicBaseUrl(undefined);
   });
 
   test("returns ingress.publicBaseUrl when set", () => {
@@ -62,16 +56,16 @@ describe("getPublicBaseUrl", () => {
     expect(result).toBe("https://ingress.example.com");
   });
 
-  test("falls back to INGRESS_PUBLIC_BASE_URL env var when ingress.publicBaseUrl is empty", () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com/";
+  test("falls back to module-level ingress state when ingress.publicBaseUrl is empty", () => {
+    setIngressPublicBaseUrl("https://ingress-env.example.com/");
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: "" },
     });
     expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test("falls back to INGRESS_PUBLIC_BASE_URL env var when config is empty", () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com";
+  test("falls back to module-level ingress state when config is empty", () => {
+    setIngressPublicBaseUrl("https://ingress-env.example.com");
     const result = getPublicBaseUrl({});
     expect(result).toBe("https://ingress-env.example.com");
   });
@@ -118,8 +112,8 @@ describe("getPublicBaseUrl", () => {
     expect(result).toBe("https://example.com");
   });
 
-  test("falls back to env var when enabled is undefined and no publicBaseUrl", () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = "https://env-fallback.example.com";
+  test("falls back to module-level state when enabled is undefined and no publicBaseUrl", () => {
+    setIngressPublicBaseUrl("https://env-fallback.example.com");
     const result = getPublicBaseUrl({
       ingress: { enabled: undefined, publicBaseUrl: "" },
     });
@@ -140,22 +134,22 @@ describe("getPublicBaseUrl", () => {
     expect(result).toBe("https://example.com");
   });
 
-  test("skips whitespace-only ingress.publicBaseUrl and falls through to env", () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com";
+  test("skips whitespace-only ingress.publicBaseUrl and falls through to module state", () => {
+    setIngressPublicBaseUrl("https://ingress-env.example.com");
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: "   " },
     });
     expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test("normalizes trailing slashes from INGRESS_PUBLIC_BASE_URL", () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com///";
+  test("normalizes trailing slashes from module-level ingress state", () => {
+    setIngressPublicBaseUrl("https://ingress-env.example.com///");
     const result = getPublicBaseUrl({});
     expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test("trims whitespace from INGRESS_PUBLIC_BASE_URL", () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = "  https://ingress-env.example.com  ";
+  test("trims whitespace from module-level ingress state", () => {
+    setIngressPublicBaseUrl("  https://ingress-env.example.com  ");
     const result = getPublicBaseUrl({});
     expect(result).toBe("https://ingress-env.example.com");
   });

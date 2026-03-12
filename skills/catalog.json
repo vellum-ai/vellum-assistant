@@ -117,7 +117,8 @@
         "emoji": "📧",
         "vellum": {
           "display-name": "Email Setup",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "feature-flag": "email-channel"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -455,7 +456,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat — PTT key, wake word, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat — PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
       "metadata": {
         "emoji": "🎙️",
         "vellum": {

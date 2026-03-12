@@ -8,17 +8,13 @@
  * - Fail-fast validation via validateEnv() at startup
  * - Shared derived values (e.g. gateway base URL) instead of duplicated logic
  *
- * Bootstrap-level env vars (BASE_DATA_DIR, VELLUM_DAEMON_*, VELLUM_DEBUG,
- * VELLUM_LOG_STDERR, DEBUG_STDOUT_LOGS) are defined in config/env-registry.ts
- * which has no internal dependencies and can be imported from platform/logger
- * without circular imports.
+ * Bootstrap-level env vars (BASE_DATA_DIR, DEBUG_STDOUT_LOGS) are defined
+ * in config/env-registry.ts which has no internal dependencies and can be
+ * imported from platform/logger without circular imports.
  */
 
 import { getLogger } from "../util/logger.js";
-import {
-  checkUnrecognizedEnvVars,
-  getEnableMonitoring,
-} from "./env-registry.js";
+import { checkUnrecognizedEnvVars } from "./env-registry.js";
 
 const log = getLogger("env");
 
@@ -55,33 +51,23 @@ export function getGatewayPort(): number {
   return int("GATEWAY_PORT", DEFAULT_GATEWAY_PORT);
 }
 
-/**
- * Resolve the gateway base URL for internal service-to-service calls.
- * Prefers GATEWAY_INTERNAL_BASE_URL if set, then INTERNAL_GATEWAY_BASE_URL
- * (used by skill subprocesses), otherwise derives from port.
- */
+/** Resolve the gateway base URL for internal service-to-service calls. */
 export function getGatewayInternalBaseUrl(): string {
-  const explicit = str("GATEWAY_INTERNAL_BASE_URL");
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const skillInjected = str("INTERNAL_GATEWAY_BASE_URL");
-  if (skillInjected) return skillInjected.replace(/\/+$/, "");
   return `http://127.0.0.1:${getGatewayPort()}`;
 }
 
 // ── Ingress ──────────────────────────────────────────────────────────────────
 
-/** Read the INGRESS_PUBLIC_BASE_URL env var (may be mutated at runtime by config handlers). */
+let _ingressPublicBaseUrl: string | undefined;
+
+/** Read the ingress public base URL (module-level state, mutated at runtime by config handlers). */
 export function getIngressPublicBaseUrl(): string | undefined {
-  return str("INGRESS_PUBLIC_BASE_URL");
+  return _ingressPublicBaseUrl;
 }
 
-/** Set or clear the INGRESS_PUBLIC_BASE_URL env var (used by config handlers). */
+/** Set or clear the ingress public base URL (used by config handlers). */
 export function setIngressPublicBaseUrl(value: string | undefined): void {
-  if (value) {
-    process.env.INGRESS_PUBLIC_BASE_URL = value;
-  } else {
-    delete process.env.INGRESS_PUBLIC_BASE_URL;
-  }
+  _ingressPublicBaseUrl = value;
 }
 
 // ── Runtime HTTP ─────────────────────────────────────────────────────────────
@@ -117,35 +103,10 @@ export function hasUngatedHttpAuthDisabled(): boolean {
   return str("VELLUM_UNSAFE_AUTH_BYPASS")?.trim() !== "1";
 }
 
-// ── Twilio ───────────────────────────────────────────────────────────────────
-
-export function getTwilioPhoneNumberEnv(): string | undefined {
-  return str("TWILIO_PHONE_NUMBER");
-}
-
-export function getTwilioUserPhoneNumber(): string | undefined {
-  return str("TWILIO_USER_PHONE_NUMBER");
-}
-
-export function isTwilioWebhookValidationDisabled(): boolean {
-  // Intentionally strict: only exact "true" disables validation (not "1").
-  // This is a security-sensitive bypass — we don't want environments that
-  // template booleans as "1" to silently skip webhook signature checks.
-  return process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === "true";
-}
-
-export function getCallWelcomeGreeting(): string | undefined {
-  return str("CALL_WELCOME_GREETING");
-}
-
 // ── Monitoring ───────────────────────────────────────────────────────────────
 
 export function getLogfireToken(): string | undefined {
   return str("LOGFIRE_TOKEN");
-}
-
-export function isMonitoringEnabled(): boolean {
-  return getEnableMonitoring();
 }
 
 const DEFAULT_SENTRY_DSN =

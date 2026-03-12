@@ -472,10 +472,10 @@ private struct StepDetailRow: View {
             || toolCall.inputFull.hasSuffix("[truncated]")
     }
 
-    /// Whether this completed tool has detail content to show.
+    /// Whether this tool has detail content to show (running or completed).
     private var hasDetails: Bool {
-        guard toolCall.isComplete else { return false }
         return !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil
+            || !toolCall.partialOutput.isEmpty
             || (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true))
             || !toolCall.claudeCodeSteps.isEmpty
     }
@@ -681,6 +681,51 @@ private struct StepDetailRow: View {
                         steps: toolCall.claudeCodeSteps,
                         isRunning: false
                     )
+                }
+                .padding(.horizontal, VSpacing.lg)
+            }
+
+            // Live output: shown while tool is running, and also as fallback
+            // when the tool completed without a final result (cancel/error).
+            if !toolCall.partialOutput.isEmpty && (!toolCall.isComplete || (toolCall.result ?? "").isEmpty) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(toolCall.isComplete ? "Output" : "Live output")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .textCase(.uppercase)
+
+                    ZStack(alignment: .topTrailing) {
+                        ScrollView {
+                            Text(toolCall.partialOutput)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .defaultScrollAnchor(.bottom)
+                        .frame(maxHeight: 200)
+                        .padding(VSpacing.sm)
+                        .background(VColor.background.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                        )
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(toolCall.partialOutput, forType: .string)
+                        } label: {
+                            VIconView(.copy, size: 10)
+                                .foregroundColor(VColor.textMuted)
+                                .frame(width: 24, height: 24)
+                                .background(VColor.backgroundSubtle)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(VSpacing.xs)
+                        .accessibilityLabel("Copy live output")
+                    }
                 }
                 .padding(.horizontal, VSpacing.lg)
             }

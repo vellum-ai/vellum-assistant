@@ -6,7 +6,7 @@
  * provides a graceful-fallback interface: every public method returns a
  * safe default on failure and never throws.
  *
- * Socket path: read from VELLUM_KEYCHAIN_BROKER_SOCKET env var.
+ * Socket path: derived from getRootDir() as `~/.vellum/keychain-broker.sock`.
  * Auth token: read from ~/.vellum/protected/keychain-broker.token on first
  * connection, cached for process lifetime.
  */
@@ -70,8 +70,8 @@ function getTokenPath(): string {
   return join(getRootDir(), "protected", "keychain-broker.token");
 }
 
-function getSocketPath(): string | undefined {
-  return process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+function getSocketPath(): string {
+  return join(getRootDir(), "keychain-broker.sock");
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ export function createBrokerClient(): KeychainBrokerClient {
   function connect(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const socketPath = getSocketPath();
-      if (!socketPath) {
+      if (!pathExists(socketPath)) {
         reject(new Error("No socket path"));
         return;
       }
@@ -328,8 +328,7 @@ export function createBrokerClient(): KeychainBrokerClient {
   return {
     isAvailable(): boolean {
       if (permanentlyUnavailable) return false;
-      const socketPath = getSocketPath();
-      if (!socketPath) return false;
+      if (!pathExists(getSocketPath())) return false;
       return pathExists(getTokenPath());
     },
 
