@@ -4,18 +4,10 @@ import VellumAssistantShared
 struct WatchProgressView: View {
     @ObservedObject var session: WatchSession
     let onStop: () -> Void
-    var isLearnMode: Bool = false
-    var networkEntryCount: Int = 0
-    var idleHint: Bool = false
 
     @State private var isPulsing = false
 
     private var progress: Double {
-        if isLearnMode {
-            // In learn mode the capture loop is skipped, so use time-based progress
-            guard session.durationSeconds > 0 else { return 0 }
-            return min(session.elapsedSeconds / Double(session.durationSeconds), 1.0)
-        }
         guard session.totalExpected > 0 else { return 0 }
         return Double(session.captureCount) / Double(session.totalExpected)
     }
@@ -36,7 +28,7 @@ struct WatchProgressView: View {
         VStack(spacing: VSpacing.md) {
             // Pulsing icon + label
             HStack(spacing: VSpacing.sm) {
-                VIconView(isLearnMode ? .wifi : .eye, size: 14)
+                VIconView(.eye, size: 14)
                     .foregroundColor(VColor.accent)
                     .opacity(isPulsing ? 0.4 : 1.0)
                     .animation(
@@ -44,17 +36,16 @@ struct WatchProgressView: View {
                         value: isPulsing
                     )
 
-                Text(isLearnMode ? "Recording network traffic..." : "Watching your workflow...")
+                Text("Watching your workflow...")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
                 Spacer()
 
-                // Stop button — highlighted when idle hint is active
                 Button(action: onStop) {
                     VIconView(.square, size: 12)
-                        .foregroundColor(idleHint ? VColor.accent : VColor.error)
+                        .foregroundColor(VColor.error)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop watching")
@@ -71,32 +62,11 @@ struct WatchProgressView: View {
                         .foregroundColor(VColor.textSecondary)
                         .textSelection(.enabled)
                     Spacer()
-                    if isLearnMode {
-                        Text("\(networkEntryCount) network entries")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                            .textSelection(.enabled)
-                    } else {
-                        Text("\(session.captureCount)/\(session.totalExpected) captures")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-
-            // Idle hint prompt
-            if idleHint {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.accent)
-                    Text("No new activity detected. Ready to stop?")
+                    Text("\(session.captureCount)/\(session.totalExpected) captures")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
+                        .foregroundColor(VColor.textSecondary)
                         .textSelection(.enabled)
-                    Spacer()
                 }
-                .transition(.opacity)
             }
 
             // Current app badge
