@@ -43,6 +43,15 @@ Host file allows the assistant to perform file operations (read, write, edit) on
   - `POST /v1/host-file-result` — `{ requestId, content, isError }`
 - **Tracking**: Uses the same `pending-interactions` tracker as approvals and host bash, with `kind: "host_file"`. The endpoint validates the interaction kind before resolving.
 
+### Host CU (desktop proxy computer-use execution)
+
+Host CU will allow the assistant to proxy computer-use actions (screenshots, mouse/keyboard input) to the desktop host via the client, following the same pattern as host bash and host file.
+
+- **Discovery**: Clients will discover pending host CU requests via SSE events (`host_cu_request`) which include a `requestId`.
+- **Resolution**: Clients will execute the CU action on the host and respond via:
+  - `POST /v1/host-cu-result` — `{ requestId, ... }` (schema TBD in implementation PR)
+- **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. The type union already includes `host_cu`; registration and route will be added in a follow-up PR.
+
 ### Channel approvals (Telegram, Slack)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
