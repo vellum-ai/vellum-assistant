@@ -45,8 +45,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 100000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -203,9 +204,6 @@ mock.module("../memory/admin.js", () => ({
       supersededCompleted24h: 0,
     },
   }),
-}));
-mock.module("../memory/profile-compiler.js", () => ({
-  compileDynamicProfile: () => null,
 }));
 mock.module("../memory/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),

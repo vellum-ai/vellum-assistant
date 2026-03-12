@@ -5,7 +5,6 @@ import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import {
@@ -16,13 +15,10 @@ import {
   extractMediaBlocks,
   extractTextFromStoredMessageContent,
 } from "./message-content.js";
-import { bumpMemoryVersion } from "./recall-cache.js";
 import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
-const SUMMARY_JOB_CHECKPOINT_KEY = "memory:summary_jobs:last_scheduled_at";
-const SUMMARY_SCHEDULE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export interface IndexMessageInput {
   messageId: string;
@@ -173,19 +169,11 @@ export function indexMessageNow(
     );
   }
 
-  // Invalidate recall cache when synchronous segment writes changed content,
-  // so lexical/recency retrieval doesn't serve stale results during worker lag.
-  if (segments.length - skippedEmbedJobs > 0) {
-    bumpMemoryVersion();
-  }
-
   if (!isTrustedActor && (shouldExtract || shouldResolveConflicts)) {
     log.info(
       `Skipping extraction/conflict jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`,
     );
   }
-
-  enqueueSummaryRollupJobsIfDue();
 
   const extractionGated = !isTrustedActor;
   const enqueuedJobs =
@@ -220,19 +208,6 @@ export function getRecentSegmentsForConversation(
     .orderBy(desc(memorySegments.createdAt))
     .limit(limit)
     .all();
-}
-
-function enqueueSummaryRollupJobsIfDue(): void {
-  const now = Date.now();
-  const raw = getMemoryCheckpoint(SUMMARY_JOB_CHECKPOINT_KEY);
-  const last = raw ? Number.parseInt(raw, 10) : 0;
-  if (Number.isFinite(last) && now - last < SUMMARY_SCHEDULE_INTERVAL_MS)
-    return;
-
-  enqueueMemoryJob("refresh_weekly_summary", {});
-  enqueueMemoryJob("refresh_monthly_summary", {});
-  setMemoryCheckpoint(SUMMARY_JOB_CHECKPOINT_KEY, String(now));
-  log.debug("Scheduled periodic global summary jobs");
 }
 
 function buildSegmentId(messageId: string, segmentIndex: number): string {

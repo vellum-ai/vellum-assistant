@@ -999,20 +999,17 @@ const RUNTIME_INJECTION_PREFIXES = [
  *
  * Composes:
  * 1. `stripMemoryRecallMessages` (caller-supplied, handles its own logic)
- * 2. `stripDynamicProfileMessages` (caller-supplied, handles its own logic)
- * 3. Prefix-based stripping for channel capabilities, workspace top-level,
+ * 2. Prefix-based stripping for channel capabilities, workspace top-level,
  *    temporal context, and active surface context (single pass).
  */
 export function stripInjectedContext(
   messages: Message[],
   options: {
     stripRecall: (msgs: Message[]) => Message[];
-    stripDynamicProfile: (msgs: Message[]) => Message[];
   },
 ): Message[] {
   const afterRecall = options.stripRecall(messages);
-  const afterProfile = options.stripDynamicProfile(afterRecall);
-  return stripUserTextBlocksByPrefix(afterProfile, RUNTIME_INJECTION_PREFIXES);
+  return stripUserTextBlocksByPrefix(afterRecall, RUNTIME_INJECTION_PREFIXES);
 }
 
 /**

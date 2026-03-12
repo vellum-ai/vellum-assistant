@@ -2,7 +2,6 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
-import { reconcileFtsIndexes } from "./fts-reconciler.js";
 import {
   backfillEntityRelationsJob,
   backfillJob,
@@ -33,10 +32,7 @@ import {
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
-import {
-  buildConversationSummaryJob,
-  buildGlobalSummaryJob,
-} from "./job-handlers/summarization.js";
+import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -50,14 +46,12 @@ import {
   enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
   enqueuePruneOldConversationsJob,
-  enqueueReconcileFtsJob,
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
-import { bumpMemoryVersion } from "./recall-cache.js";
 
 // Re-export public utilities consumed by tests and other modules
 export { currentWeekWindow } from "./job-utils.js";
@@ -157,7 +151,6 @@ export async function runMemoryJobsOnce(
       try {
         await processJob(job, config);
         completeMemoryJob(job.id);
-        bumpMemoryVersion();
         groupProcessed += 1;
       } catch (err) {
         try {
@@ -312,12 +305,6 @@ async function processJob(
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
       return;
-    case "refresh_weekly_summary":
-      await buildGlobalSummaryJob("weekly_global", config);
-      return;
-    case "refresh_monthly_summary":
-      await buildGlobalSummaryJob("monthly_global", config);
-      return;
     case "backfill":
       backfillJob(job, config);
       return;
@@ -326,9 +313,6 @@ async function processJob(
       return;
     case "rebuild_index":
       rebuildIndexJob();
-      return;
-    case "reconcile_fts":
-      reconcileFtsIndexes();
       return;
     case "delete_qdrant_vectors":
       await deleteQdrantVectorsJob(job);
@@ -381,14 +365,12 @@ export function maybeEnqueueScheduledCleanupJobs(
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
-  const reconcileFtsJobId = enqueueReconcileFtsJob();
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
       resolvedConflictsJobId,
       staleSupersededItemsJobId,
       pruneConversationsJobId,
-      reconcileFtsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
       supersededItemRetentionMs: cleanup.supersededItemRetentionMs,

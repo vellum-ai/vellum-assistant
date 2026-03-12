@@ -20,6 +20,7 @@ These commands are specific to vellum-assistant and live in `.claude/skills/<nam
 
 - **`/update`** — Pull latest from main, use `vellum ps/sleep/wake` to manage assistant/gateway lifecycle, rebuild/launch the macOS app (`.claude/skills/update/SKILL.md`)
 - **`/release`** — Cut a new release by triggering the GitHub Actions release workflow (`.claude/skills/release/SKILL.md`)
+- **`/triage`** — Search Sentry for recent errors and log reports by user, assistant, or device, then cross-reference with Linear issues for a triage summary (`.claude/skills/triage/SKILL.md`)
 
 The shared-vs-local model:
 - **Shared commands**: maintained in the `claude-skills` repo, symlinked by `setup` to `.claude/skills/<name>` and `.claude/commands/<name>.md`

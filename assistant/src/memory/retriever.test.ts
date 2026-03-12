@@ -93,7 +93,6 @@ import {
   _resetQdrantBreaker,
   isQdrantBreakerOpen,
 } from "../memory/qdrant-circuit-breaker.js";
-import { bumpMemoryVersion } from "../memory/recall-cache.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
@@ -282,12 +281,10 @@ describe("Memory Retriever Degradation", () => {
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_items");
     db.run("DELETE FROM memory_segments");
-    db.run("DELETE FROM memory_segment_fts");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     _resetQdrantBreaker();
     clearEmbeddingBackendCache();
-    bumpMemoryVersion();
   });
 
   afterAll(() => {

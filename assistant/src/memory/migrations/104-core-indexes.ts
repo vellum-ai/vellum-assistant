@@ -69,9 +69,9 @@ export function createCoreIndexes(database: DrizzleDb): void {
   database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)`,
   );
-  // Partial covering index for directItemSearch: the LIKE '%term%' pattern can't
-  // seek a B-tree, but this index lets SQLite scan only active non-invalidated rows
-  // and evaluate LIKE + return columns without touching the main table.
+  // Partial covering index for active memory item queries: this index lets SQLite
+  // scan only active non-invalidated rows and return columns without touching
+  // the main table.
   migrateDropActiveSearchIndex(database);
   database.run(/*sql*/ `
     CREATE INDEX IF NOT EXISTS idx_memory_items_active_search

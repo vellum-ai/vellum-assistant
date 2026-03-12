@@ -50,6 +50,7 @@ import {
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropMemorySegmentFts,
   migrateDropRemindersTable,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
@@ -355,6 +356,9 @@ export function initializeDb(): void {
 
   // 56. Add supersession tracking columns and override confidence to memory_items
   migrateMemoryItemSupersession(database);
+
+  // 57. Drop memory_segment_fts virtual table and triggers (replaced by Qdrant hybrid search)
+  migrateDropMemorySegmentFts(database);
 
   validateMigrationState(database);
 

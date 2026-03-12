@@ -10,6 +10,32 @@ export interface HealthCheckResult {
   detail: string | null;
 }
 
+interface OrgListResponse {
+  results: { id: string }[];
+}
+
+async function fetchOrganizationId(
+  platformUrl: string,
+  token: string,
+): Promise<{ orgId: string } | { error: string }> {
+  try {
+    const response = await fetch(`${platformUrl}/v1/organizations/`, {
+      headers: { "X-Session-Token": token },
+    });
+    if (!response.ok) {
+      return { error: `org lookup failed (${response.status})` };
+    }
+    const body = (await response.json()) as OrgListResponse;
+    const orgId = body.results?.[0]?.id;
+    if (!orgId) {
+      return { error: "no organization found" };
+    }
+    return { orgId };
+  } catch {
+    return { error: "org lookup unreachable" };
+  }
+}
+
 export async function checkManagedHealth(
   runtimeUrl: string,
   assistantId: string,
@@ -23,20 +49,31 @@ export async function checkManagedHealth(
     };
   }
 
+  const orgResult = await fetchOrganizationId(runtimeUrl, token);
+  if ("error" in orgResult) {
+    return {
+      status: "error (auth)",
+      detail: orgResult.error,
+    };
+  }
+  const { orgId } = orgResult;
+
   try {
-    const url = `${runtimeUrl}/v1/assistants/${assistantId}/healthz/`;
+    const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),
       HEALTH_CHECK_TIMEOUT_MS,
     );
 
+    const headers: Record<string, string> = {
+      "X-Session-Token": token,
+      "Vellum-Organization-Id": orgId,
+    };
+
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Session-Token": token,
-      },
+      headers,
     });
 
     clearTimeout(timeoutId);

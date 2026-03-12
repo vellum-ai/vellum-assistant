@@ -22,8 +22,12 @@ import {
   messageAttachments,
   messages,
 } from "../../memory/schema.js";
-import { escapeLikeWildcards } from "../../memory/search/lexical.js";
 import { RiskLevel } from "../../permissions/types.js";
+
+/** Escape SQL LIKE wildcard characters so a literal substring match is used. */
+function escapeLikeWildcards(s: string): string {
+  return s.replace(/%/g, "").replace(/_/g, "");
+}
 import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";

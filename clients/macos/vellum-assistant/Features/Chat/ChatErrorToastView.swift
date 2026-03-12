@@ -147,16 +147,16 @@ struct ChatSessionErrorToast: View {
             return .cloudOff
         case .providerBilling:
             return .creditCard
+        case .providerOrdering:
+            return .cloudOff
+        case .providerWebSearch:
+            return .cloudOff
         case .contextTooLarge:
             return .fileText
         case .sessionAborted:
             return .circleStop
         case .processingFailed, .regenerateFailed:
             return .refreshCw
-        case .providerOrdering:
-            return .circleAlert
-        case .providerWebSearch:
-            return .globe
         case .authenticationRequired:
             return .lock
         case .unknown:

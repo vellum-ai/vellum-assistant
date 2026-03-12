@@ -89,7 +89,6 @@ import {
   formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./session-attachments.js";
-import { stripDynamicProfileMessages } from "./session-dynamic-profile.js";
 import {
   buildSessionErrorMessage,
   classifySessionError,
@@ -1289,7 +1288,6 @@ export async function runAgentLoopImpl(
           recall.injectedText,
           "separate_context_message",
         ),
-      stripDynamicProfile: (msgs) => stripDynamicProfileMessages(msgs, ""),
     });
 
     emitUsage(

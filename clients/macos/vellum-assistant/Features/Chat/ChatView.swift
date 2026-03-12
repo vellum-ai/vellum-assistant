@@ -315,11 +315,8 @@ struct ChatView: View {
             }
             return .ignored
         }
-        .onKeyPress(phases: .down) { press in
-            guard press.key == KeyEquivalent("f"),
-                  press.modifiers == .command else {
-                return .ignored
-            }
+        .onKeyPress("f", phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
             activateSearch()
             return .handled
         }
