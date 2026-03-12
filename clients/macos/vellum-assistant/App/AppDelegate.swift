@@ -28,7 +28,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var fnVLocalMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: (any SessionOverlayProviding)?
-    var currentTextSession: TextSession?
     /// Proxy state tracker for host CU overlay (proxy-based computer use sessions).
     var activeHostCuProxy: HostCuSessionProxy?
     /// Conversation/session ID of the active host CU overlay.
@@ -37,14 +36,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var hostCuOverlayCleanupTask: Task<Void, Never>?
     /// Combine subscriptions for host CU overlay state observation.
     var hostCuOverlayCancellables = Set<AnyCancellable>()
-    /// text_qa session IDs that should auto-enable CU auto-approve if they escalate.
-    var autoApproveEscalationSessionIds: Set<String> = []
     var isStartingSession = false
     var startSessionTask: Task<Void, Never>?
-    var textResponseWindow: TextResponseWindow?
     var voiceInput: VoiceInputManager?
     var voiceTranscriptionWindow: VoiceTranscriptionWindow?
-    var thinkingWindow: ThinkingIndicatorWindow?
     var quickInputWindow: QuickInputWindow?
     var quickInputHotKeyRef: EventHotKeyRef?
     var quickInputEventHandlerRef: EventHandlerRef?

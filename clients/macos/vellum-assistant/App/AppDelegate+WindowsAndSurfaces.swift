@@ -142,9 +142,7 @@ extension AppDelegate {
             guard let self else { return }
             Task { @MainActor in
                 // Auto-approve low/medium risk tool confirmations during CU sessions
-                // or voice-initiated text_qa sessions pending escalation
-                let isVoiceAutoApprove = msg.sessionId.map { self.autoApproveEscalationSessionIds.contains($0) } ?? false
-                if (self.currentSession?.autoApproveTools == true || isVoiceAutoApprove),
+                if self.currentSession?.autoApproveTools == true,
                    msg.riskLevel == "low" || msg.riskLevel == "medium" {
                     do {
                         try self.daemonClient.sendConfirmationResponse(

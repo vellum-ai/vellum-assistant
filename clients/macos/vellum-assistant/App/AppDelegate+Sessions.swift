@@ -10,19 +10,15 @@ extension AppDelegate {
 
     // MARK: - Session
 
-    func startSession(task: String, source: String? = nil) {
-        startSession(submission: TaskSubmission(task: task, attachments: [], source: source))
-    }
-
     /// Sends the user's task as a regular message via POST /v1/messages.
     /// The model decides whether to use computer-use tools; CU execution
     /// flows through the host_cu_request / host_cu_result pattern handled
     /// by HostCuExecutor.
-    func startSession(submission: TaskSubmission) {
-        guard currentSession == nil && currentTextSession == nil && !isStartingSession else { return }
+    func startSession(task: String, source: String? = nil) {
+        guard currentSession == nil && !isStartingSession else { return }
         isStartingSession = true
 
-        let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
 
         startSessionTask = Task { @MainActor in
