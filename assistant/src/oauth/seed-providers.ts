@@ -33,7 +33,7 @@ const PROVIDER_SEED_DATA: Record<
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-    baseUrl: "https://gmail.googleapis.com",
+    baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     defaultScopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/gmail.modify",
