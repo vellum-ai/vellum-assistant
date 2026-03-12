@@ -376,6 +376,62 @@ describe("WorkspaceHeartbeatService", () => {
     });
   });
 
+  describe("hook suppression (fail-closed auto-commits)", () => {
+    function installHook(
+      repoDir: string,
+      hookName: string,
+      sentinelPath: string,
+    ): void {
+      const hooksDir = join(repoDir, ".git", "hooks");
+      mkdirSync(hooksDir, { recursive: true });
+      const hookPath = join(hooksDir, hookName);
+      writeFileSync(hookPath, `#!/bin/sh\ntouch "${sentinelPath}"\nexit 0\n`, {
+        mode: 0o755,
+      });
+    }
+
+    test("heartbeat check commit does not run pre-commit hook", async () => {
+      const sentinel = join(testDir, "pre-commit-ran.marker");
+      installHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "file.txt"), "content");
+
+      let currentTime = 1000000;
+      const heartbeat = new WorkspaceHeartbeatService({
+        ageThresholdMs: 5 * 60 * 1000,
+        fileThreshold: 100,
+        getServices: () => services,
+        now: () => currentTime,
+      });
+
+      // First check: registers dirty state
+      await heartbeat.check();
+      // Advance past threshold
+      currentTime += 6 * 60 * 1000;
+      // Second check: should commit without running the hook
+      const result = await heartbeat.check();
+
+      expect(result.committed).toBe(1);
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("shutdown commit (commitAllPending) does not run pre-commit hook", async () => {
+      const sentinel = join(testDir, "pre-commit-shutdown.marker");
+      installHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "unsaved.txt"), "uncommitted content");
+
+      const heartbeat = new WorkspaceHeartbeatService({
+        getServices: () => services,
+      });
+
+      const result = await heartbeat.commitAllPending();
+
+      expect(result.committed).toBe(1);
+      expect(existsSync(sentinel)).toBe(false);
+    });
+  });
+
   describe("start and stop", () => {
     test("start and stop are idempotent", async () => {
       const heartbeat = new WorkspaceHeartbeatService({
