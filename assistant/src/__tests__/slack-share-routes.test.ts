@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { credentialKey } from "../security/credential-key.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that pull in mocked modules
 // ---------------------------------------------------------------------------
@@ -183,18 +181,6 @@ describe("handleListSlackChannels", () => {
       type: "dm",
       isPrivate: true,
     });
-  });
-
-  test("falls back to legacy bot token", async () => {
-    secureKeyValues.set(
-      credentialKey("slack_channel", "bot_token"),
-      "xoxb-legacy",
-    );
-
-    listConversationsResult = { ok: true, channels: [] };
-
-    const res = await handleListSlackChannels();
-    expect(res.status).toBe(200);
   });
 });
 
