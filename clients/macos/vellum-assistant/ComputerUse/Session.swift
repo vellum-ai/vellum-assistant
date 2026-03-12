@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import VellumAssistantShared
 import CoreGraphics
@@ -19,12 +20,16 @@ enum SessionState: Equatable {
 }
 
 @MainActor
-final class ComputerUseSession: ObservableObject {
+final class ComputerUseSession: ObservableObject, SessionOverlayProviding {
     @Published var state: SessionState = .idle
     @Published var undoCount = 0
     @Published var autoApproveTools = false
     /// Free-form guidance from the user, consumed on the next observation.
     @Published var pendingUserGuidance: String?
+
+    var statePublisher: Published<SessionState>.Publisher { $state }
+    var undoCountPublisher: Published<Int>.Publisher { $undoCount }
+    var autoApproveToolsPublisher: Published<Bool>.Publisher { $autoApproveTools }
 
     let task: String
     let id: String

@@ -13,20 +13,35 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Call this once at setup time so that incoming `host_cu_request` messages
 /// from the daemon are handled by the local verify -> execute -> observe cycle.
 ///
+/// The `overlayProvider` callback supplies the `HostCuSessionProxy` for a given
+/// session ID, creating one lazily on the first request. The executor updates
+/// the proxy's state around each action so the overlay reflects progress.
+///
 /// Usage:
 /// ```swift
-/// HostCuExecutor.register(on: daemonClient)
+/// HostCuExecutor.register(on: daemonClient) { sessionId, request in
+///     return getOrCreateOverlayProxy(for: sessionId, request: request)
+/// }
 /// ```
 enum HostCuExecutor {
 
     /// Register the host CU handler on the given daemon client.
     /// The handler will execute CU actions locally and post results back.
+    ///
+    /// - Parameters:
+    ///   - client: The daemon client to register on.
+    ///   - overlayProvider: Called on each request to get the session proxy for
+    ///     overlay state updates. May return nil to skip overlay updates.
     @MainActor
-    static func register(on client: DaemonClient) {
+    static func register(
+        on client: DaemonClient,
+        overlayProvider: @escaping @MainActor (_ sessionId: String, _ request: HostCuRequest) -> HostCuSessionProxy? = { _, _ in nil }
+    ) {
         client.onHostCuRequest = { [weak client] request in
             guard let client else { return }
             Task { @MainActor in
-                let result = await HostCuActionRunner.perform(request)
+                let proxy = overlayProvider(request.sessionId, request)
+                let result = await HostCuActionRunner.perform(request, overlayProxy: proxy)
                 log.debug("Host CU completed — requestId=\(request.requestId, privacy: .public) toolName=\(request.toolName, privacy: .public)")
                 await client.httpTransport?.postHostCuResult(result)
             }
@@ -40,7 +55,10 @@ enum HostCuExecutor {
 @MainActor
 enum HostCuActionRunner {
 
-    static func perform(_ request: HostCuRequest) async -> HostCuResultPayload {
+    /// Default max steps shown in the overlay when the daemon doesn't provide one.
+    private static let defaultMaxSteps = 50
+
+    static func perform(_ request: HostCuRequest, overlayProxy: HostCuSessionProxy? = nil) async -> HostCuResultPayload {
         let enumerator = AccessibilityTreeEnumerator()
         let screenCapture = ScreenCapture()
         let executor = ActionExecutor()
@@ -65,11 +83,13 @@ enum HostCuActionRunner {
                     executionError: "Could not resolve element coordinates for action",
                     stepNumber: request.stepNumber
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs)
+                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
             }
 
-            // Skip execution for done/respond — those are completion signals
-            if resolvedAction.type == .done || resolvedAction.type == .respond {
+            // Handle done/respond completion signals — transition overlay and skip execution
+            if resolvedAction.type == .done {
+                let summary = resolvedAction.summary ?? "Task completed"
+                overlayProxy?.state = .completed(summary: summary, steps: request.stepNumber)
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
@@ -77,8 +97,29 @@ enum HostCuActionRunner {
                     executionError: nil,
                     stepNumber: request.stepNumber
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs)
+                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
             }
+
+            if resolvedAction.type == .respond {
+                let answer = resolvedAction.text ?? resolvedAction.summary ?? ""
+                overlayProxy?.state = .responded(answer: answer, steps: request.stepNumber)
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: nil,
+                    executionError: nil,
+                    stepNumber: request.stepNumber
+                )
+                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
+            }
+
+            // Update overlay state to running before execution
+            overlayProxy?.state = .running(
+                step: request.stepNumber,
+                maxSteps: defaultMaxSteps,
+                lastAction: resolvedAction.displayDescription,
+                reasoning: request.reasoning ?? ""
+            )
 
             // VERIFY (local safety check)
             let verifyResult = verifier.verify(resolvedAction)
@@ -104,7 +145,7 @@ enum HostCuActionRunner {
                         executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
                         stepNumber: request.stepNumber
                     )
-                    return buildResultPayload(requestId: request.requestId, observation: obs)
+                    return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
                 }
 
             case .blocked(let reason):
@@ -116,7 +157,7 @@ enum HostCuActionRunner {
                     executionError: "BLOCKED: \(reason)",
                     stepNumber: request.stepNumber
                 )
-                return buildResultPayload(requestId: request.requestId, observation: obs)
+                return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
             }
 
             // EXECUTE
@@ -138,6 +179,9 @@ enum HostCuActionRunner {
             }
         }
 
+        // Update overlay state to thinking after execution
+        overlayProxy?.state = .thinking(step: request.stepNumber + 1, maxSteps: defaultMaxSteps)
+
         // OBSERVE — capture AX tree, screenshot, etc.
         let obs = await buildObservation(
             enumerator: enumerator,
@@ -147,7 +191,7 @@ enum HostCuActionRunner {
             stepNumber: request.stepNumber
         )
 
-        return buildResultPayload(requestId: request.requestId, observation: obs)
+        return buildResultPayload(requestId: request.requestId, observation: obs, proxy: overlayProxy)
     }
 
     // MARK: - Tool Name Mapping
@@ -377,8 +421,12 @@ enum HostCuActionRunner {
     }
 
     /// Package observation data into a `HostCuResultPayload`.
-    private static func buildResultPayload(requestId: String, observation: ObservationData) -> HostCuResultPayload {
-        HostCuResultPayload(
+    /// Drains any pending user guidance from the proxy.
+    private static func buildResultPayload(requestId: String, observation: ObservationData, proxy: HostCuSessionProxy? = nil) -> HostCuResultPayload {
+        let guidance = proxy?.pendingUserGuidance
+        proxy?.pendingUserGuidance = nil
+
+        return HostCuResultPayload(
             requestId: requestId,
             axTree: observation.axTree,
             axDiff: nil, // Diff requires tracking previous state across requests; handled server-side
@@ -390,7 +438,7 @@ enum HostCuActionRunner {
             executionResult: observation.executionResult,
             executionError: observation.executionError,
             secondaryWindows: observation.secondaryWindows,
-            userGuidance: nil
+            userGuidance: guidance
         )
     }
 

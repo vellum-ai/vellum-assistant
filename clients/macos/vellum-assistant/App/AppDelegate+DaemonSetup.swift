@@ -346,8 +346,13 @@ extension AppDelegate {
         }
 
         // Register host CU handler so incoming host_cu_request messages
-        // execute locally (verify -> execute -> observe -> post result)
-        HostCuExecutor.register(on: daemonClient)
+        // execute locally (verify -> execute -> observe -> post result).
+        // The overlay provider lazily creates a session overlay on the first
+        // host_cu_request for each conversation.
+        HostCuExecutor.register(on: daemonClient) { [weak self] sessionId, request in
+            guard let self else { return nil }
+            return self.getOrCreateHostCuOverlay(sessionId: sessionId, request: request)
+        }
 
         Task {
             if !isCurrentAssistantRemote {

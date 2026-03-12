@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import UserNotifications
 import VellumAssistantShared
 import os
@@ -32,6 +33,9 @@ extension AppDelegate {
     /// Handle escalation from an active text_qa session to foreground computer use.
     func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
         Task { @MainActor in
+            // Dismiss any active host CU overlay to avoid conflicts
+            self.dismissHostCuOverlay()
+
             let shouldAutoApproveTools = routed.escalatedFrom
                 .map { self.autoApproveEscalationSessionIds.contains($0) } ?? false
 
@@ -210,6 +214,8 @@ extension AppDelegate {
             let shouldAutoApproveTools = submission.isVoiceAction
             switch routed.interactionType {
             case "computer_use":
+                // Dismiss any active host CU overlay to avoid conflicts
+                self.dismissHostCuOverlay()
                 guard await self.waitForAccessibilityPermission() else {
                     log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
                     do {
@@ -391,6 +397,99 @@ extension AppDelegate {
             overlay.close()
             self.overlayWindow = nil
             self.currentSession = nil
+        }
+    }
+
+    // MARK: - Host CU Overlay (Proxy-Based Computer Use)
+
+    /// Returns the existing or newly created `HostCuSessionProxy` for the given
+    /// session. On first call for a session, creates the overlay window and pauses
+    /// ambient monitoring — matching the UX of foreground CU sessions.
+    func getOrCreateHostCuOverlay(sessionId: String, request: HostCuRequest) -> HostCuSessionProxy? {
+        // If there's already a foreground CU session, skip the overlay to avoid conflicts
+        guard currentSession == nil else {
+            log.debug("Skipping host CU overlay — foreground CU session is active")
+            return nil
+        }
+
+        // Return existing proxy if this session already has one
+        if activeOverlayConversationId == sessionId, let proxy = activeHostCuProxy {
+            return proxy
+        }
+
+        // Dismiss any stale overlay from a previous session
+        dismissHostCuOverlay()
+
+        let taskDescription = request.reasoning ?? "Computer use"
+        let proxy = HostCuSessionProxy(task: taskDescription, sessionId: sessionId)
+        proxy.state = .thinking(step: request.stepNumber, maxSteps: 50)
+
+        // Wire cancel to abort the main conversation session on the daemon
+        proxy.onCancel = { [weak self] in
+            guard let self else { return }
+            do {
+                try self.daemonClient.send(CancelMessage(sessionId: sessionId))
+            } catch {
+                log.error("Failed to send cancel for host CU session \(sessionId): \(error)")
+            }
+            self.dismissHostCuOverlay()
+        }
+
+        self.activeHostCuProxy = proxy
+        self.activeOverlayConversationId = sessionId
+
+        let overlay = SessionOverlayWindow(session: proxy)
+        overlay.show()
+        self.overlayWindow = overlay
+        self.ambientAgent.pause()
+
+        // Hide main window so the target app becomes frontmost for CU
+        if mainWindow?.isVisible == true {
+            mainWindow?.hide()
+        }
+
+        // Watch for terminal states and auto-dismiss after a delay.
+        // Use Combine sink instead of async publisher to avoid holding
+        // a long-lived task that blocks forever if terminal state is never reached.
+        hostCuOverlayCleanupTask?.cancel()
+        hostCuOverlayCleanupTask = nil
+        proxy.statePublisher
+            .sink { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .completed, .responded, .failed, .cancelled:
+                    // Terminal state — schedule delayed cleanup
+                    self.hostCuOverlayCleanupTask?.cancel()
+                    self.hostCuOverlayCleanupTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                        guard !Task.isCancelled else { return }
+                        self?.dismissHostCuOverlay()
+                    }
+                default:
+                    break
+                }
+            }
+            .store(in: &hostCuOverlayCancellables)
+
+        log.info("Created host CU overlay for session \(sessionId)")
+        return proxy
+    }
+
+    /// Dismiss the host CU overlay and clean up all associated state.
+    func dismissHostCuOverlay() {
+        hostCuOverlayCleanupTask?.cancel()
+        hostCuOverlayCleanupTask = nil
+        hostCuOverlayCancellables.removeAll()
+
+        overlayWindow?.close()
+        overlayWindow = nil
+        activeHostCuProxy = nil
+        activeOverlayConversationId = nil
+        ambientAgent.resume()
+
+        // Restore main window if it was hidden
+        if mainWindow?.isVisible == false {
+            mainWindow?.show()
         }
     }
 }

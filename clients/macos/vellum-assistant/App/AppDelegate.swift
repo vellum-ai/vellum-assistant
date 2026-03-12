@@ -29,6 +29,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
+    /// Proxy state tracker for host CU overlay (proxy-based computer use sessions).
+    var activeHostCuProxy: HostCuSessionProxy?
+    /// Conversation/session ID of the active host CU overlay.
+    var activeOverlayConversationId: String?
+    /// Cleanup task for dismissing the host CU overlay after completion.
+    var hostCuOverlayCleanupTask: Task<Void, Never>?
+    /// Combine subscriptions for host CU overlay state observation.
+    var hostCuOverlayCancellables = Set<AnyCancellable>()
     /// text_qa session IDs that should auto-enable CU auto-approve if they escalate.
     var autoApproveEscalationSessionIds: Set<String> = []
     var isStartingSession = false
