@@ -33,6 +33,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
   `cd assistant && bun test src/path/to/file.test.ts`
 - To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
 - Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
+- **Regression tests for unfixed bugs**: When adding tests that reproduce a bug or document expected behavior before the fix lands, use `test.todo("description", () => {})` so mainline stays green. Never commit normally-failing `test(...)` cases — red CI blocks merges and erodes signal. Convert `test.todo` to `test` when the implementation PR lands.
 
 ## PR Workflow
 
