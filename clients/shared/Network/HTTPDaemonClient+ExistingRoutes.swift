@@ -31,10 +31,28 @@ extension HTTPTransport {
                 // session ID from the start — no remapping needed.
                 Task {
                     let conversationKey = "vellum:\(UUID().uuidString)"
-                    let realSessionId = await self.createConversation(conversationKey: conversationKey)
-                    let sessionId = realSessionId ?? UUID().uuidString
+                    // Retry createConversation up to 3 times on transient failures.
+                    // A fabricated UUID would permanently desync with the daemon's
+                    // real conversationId, making the thread stuck (belongsToSession
+                    // rejects all events for the mismatched ID).
+                    var realSessionId: String?
+                    for attempt in 1...3 {
+                        realSessionId = await self.createConversation(conversationKey: conversationKey)
+                        if realSessionId != nil { break }
+                        if attempt < 3 {
+                            try? await Task.sleep(nanoseconds: UInt64(attempt) * 500_000_000)
+                        }
+                    }
+                    guard let sessionId = realSessionId else {
+                        log.error("createConversation failed after 3 attempts — cannot create session")
+                        return
+                    }
                     // Track the conversationKey for this session so sendMessage can route correctly
                     self.conversationKeysBySessionId[sessionId] = conversationKey
+                    // Update the active conversationKey so subagent operations
+                    // (abort, message) use the correct sessionId immediately,
+                    // rather than waiting for a thread switch to trigger it.
+                    self.switchConversationKey(sessionId)
                     let info = ServerMessage.sessionInfo(
                         SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
                     )

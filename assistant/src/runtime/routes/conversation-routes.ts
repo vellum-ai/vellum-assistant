@@ -532,6 +532,10 @@ export async function handleSendMessage(
     );
   }
 
+  if (body.conversationId && typeof body.conversationId !== "string") {
+    return httpError("BAD_REQUEST", "conversationId must be a string", 400);
+  }
+
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {
     return httpError("BAD_REQUEST", "content must be a string", 400);
