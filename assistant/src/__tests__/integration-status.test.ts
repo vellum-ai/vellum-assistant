@@ -23,6 +23,10 @@ mock.module("../config/loader.js", () => ({
 mock.module("../oauth/oauth-store.js", () => ({
   isProviderConnected: (providerKey: string) =>
     connectedProviders.has(providerKey),
+  getConnectionByProvider: (providerKey: string) =>
+    connectedProviders.has(providerKey)
+      ? { id: `conn-${providerKey}`, status: "active" }
+      : undefined,
 }));
 
 /** Mark a provider as fully connected (active row + access token). */
@@ -56,11 +60,7 @@ describe("integration-status", () => {
       setOAuthConnected("integration:slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
       const summary = getIntegrationSummary();
       expect(summary.every((s: { connected: boolean }) => s.connected)).toBe(
@@ -71,11 +71,7 @@ describe("integration-status", () => {
     test("returns mixed status", () => {
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
       const summary = getIntegrationSummary();
       const connected = summary.filter(
@@ -103,9 +99,8 @@ describe("integration-status", () => {
       expect(twilio?.connected).toBe(false);
     });
 
-    test("Telegram disconnected when only bot_token is set (missing webhook_secret)", () => {
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-
+    test("Telegram disconnected when no connection record exists", () => {
+      // No oauth_connection record for telegram — should be disconnected
       const summary = getIntegrationSummary();
       const telegram = summary.find(
         (s: { name: string }) => s.name === "Telegram",
@@ -118,11 +113,7 @@ describe("integration-status", () => {
     test("shows checkmarks and crosses", () => {
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
@@ -142,11 +133,7 @@ describe("integration-status", () => {
       setOAuthConnected("integration:slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
@@ -162,17 +149,12 @@ describe("integration-status", () => {
     });
 
     test("returns true when any integration in category is connected", () => {
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      secureKeyValues.set(
-        credentialKey("telegram", "webhook_secret"),
-        "secret",
-      );
+      setOAuthConnected("telegram");
       expect(hasCapability("messaging")).toBe(true);
     });
 
-    test("returns false when only partial credentials exist for category integrations", () => {
-      secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
-      // Missing webhook_secret — Telegram should not count as connected
+    test("returns false when no connection record exists for category integrations", () => {
+      // No oauth_connection record for telegram — should not count as connected
       expect(hasCapability("messaging")).toBe(false);
     });
 

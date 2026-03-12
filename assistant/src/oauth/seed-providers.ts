@@ -120,6 +120,35 @@ const PROVIDER_SEED_DATA: Record<
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "gateway",
   },
+
+  // Manual-token providers: these don't use OAuth2 flows but need provider
+  // rows so that oauth_app and oauth_connection FK chains can reference them.
+  // The authUrl/tokenUrl values are placeholders — never used at runtime.
+  slack_channel: {
+    providerKey: "slack_channel",
+    authUrl: "urn:manual-token",
+    tokenUrl: "urn:manual-token",
+    baseUrl: "https://slack.com/api",
+    defaultScopes: [],
+    scopePolicy: {
+      allowAdditionalScopes: false,
+      allowedOptionalScopes: [],
+      forbiddenScopes: [],
+    },
+  },
+
+  telegram: {
+    providerKey: "telegram",
+    authUrl: "urn:manual-token",
+    tokenUrl: "urn:manual-token",
+    baseUrl: "https://api.telegram.org",
+    defaultScopes: [],
+    scopePolicy: {
+      allowAdditionalScopes: false,
+      allowedOptionalScopes: [],
+      forbiddenScopes: [],
+    },
+  },
 };
 
 /**

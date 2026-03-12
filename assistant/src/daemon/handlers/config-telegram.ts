@@ -8,6 +8,11 @@ import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
+import {
+  ensureManualTokenConnection,
+  removeManualTokenConnection,
+} from "../../oauth/manual-token-connection.js";
+import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -61,17 +66,15 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 // -- Extracted business logic functions --
 
 export function getTelegramConfig(): TelegramConfigResult {
-  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-  const hasWebhookSecret = !!getSecureKey(
-    credentialKey("telegram", "webhook_secret"),
-  );
+  const conn = getConnectionByProvider("telegram");
+  const connected = !!(conn && conn.status === "active");
   const botUsername = getTelegramBotUsername();
   return {
     success: true,
-    hasBotToken,
+    hasBotToken: connected,
     botUsername,
-    connected: hasBotToken && hasWebhookSecret,
-    hasWebhookSecret,
+    connected,
+    hasWebhookSecret: connected,
   };
 }
 
@@ -200,6 +203,13 @@ export async function setTelegramConfig(
     upsertCredentialMetadata("telegram", "webhook_secret", {});
   }
 
+  // Sync oauth_connection record so getConnectionByProvider("telegram")
+  // reflects the current credential state.
+  await ensureManualTokenConnection(
+    "telegram",
+    botUsername ? `@${botUsername}` : undefined,
+  );
+
   const result: TelegramConfigResult = {
     success: true,
     hasBotToken: true,
@@ -245,21 +255,23 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   );
 
   if (r1 === "error" || r2 === "error") {
-    const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-    const hasWebhookSecret = !!getSecureKey(
-      credentialKey("telegram", "webhook_secret"),
-    );
+    // Check what's still in the keychain to report accurate status.
+    const errConn = getConnectionByProvider("telegram");
+    const errConnected = !!(errConn && errConn.status === "active");
     return {
       success: false,
-      hasBotToken,
-      connected: hasBotToken && hasWebhookSecret,
-      hasWebhookSecret,
+      hasBotToken: errConnected,
+      connected: errConnected,
+      hasWebhookSecret: errConnected,
       error: "Failed to delete Telegram credentials from secure storage",
     };
   }
 
   deleteCredentialMetadata("telegram", "bot_token");
   deleteCredentialMetadata("telegram", "webhook_secret");
+
+  // Remove the oauth_connection row so getConnectionByProvider returns undefined.
+  removeManualTokenConnection("telegram");
 
   // Clear bot username from config so getTelegramBotUsername() doesn't
   // return a stale value after disconnect.
@@ -306,38 +318,36 @@ export async function setTelegramCommands(
     );
     if (!res.ok) {
       const body = await res.text();
+      const cmdConn = getConnectionByProvider("telegram");
+      const cmdConnected = !!(cmdConn && cmdConn.status === "active");
       return {
         success: false,
         hasBotToken: true,
-        connected: !!getSecureKey(credentialKey("telegram", "webhook_secret")),
-        hasWebhookSecret: !!getSecureKey(
-          credentialKey("telegram", "webhook_secret"),
-        ),
+        connected: cmdConnected,
+        hasWebhookSecret: cmdConnected,
         error: `Failed to set bot commands: ${body}`,
       };
     }
   } catch (err) {
     const message = summarizeTelegramError(err);
+    const cmdConn = getConnectionByProvider("telegram");
+    const cmdConnected = !!(cmdConn && cmdConn.status === "active");
     return {
       success: false,
       hasBotToken: true,
-      connected: !!getSecureKey(credentialKey("telegram", "webhook_secret")),
-      hasWebhookSecret: !!getSecureKey(
-        credentialKey("telegram", "webhook_secret"),
-      ),
+      connected: cmdConnected,
+      hasWebhookSecret: cmdConnected,
       error: `Failed to set bot commands: ${message}`,
     };
   }
 
-  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
-  const hasWebhookSecret = !!getSecureKey(
-    credentialKey("telegram", "webhook_secret"),
-  );
+  const cmdConn = getConnectionByProvider("telegram");
+  const cmdConnected = !!(cmdConn && cmdConn.status === "active");
   return {
     success: true,
-    hasBotToken,
-    connected: hasBotToken && hasWebhookSecret,
-    hasWebhookSecret,
+    hasBotToken: cmdConnected,
+    connected: cmdConnected,
+    hasWebhookSecret: cmdConnected,
     commandsRegistered: resolvedCommands.map((c) => c.command),
   };
 }
