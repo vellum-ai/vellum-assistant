@@ -18,6 +18,9 @@ import {
   deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("oauth-store");
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -437,8 +440,25 @@ export async function disconnectOAuthProvider(
   const conn = getConnectionByProvider(providerKey);
   if (!conn) return false;
 
-  await deleteSecureKeyAsync(`oauth_connection/${conn.id}/access_token`);
-  await deleteSecureKeyAsync(`oauth_connection/${conn.id}/refresh_token`);
+  const r1 = await deleteSecureKeyAsync(
+    `oauth_connection/${conn.id}/access_token`,
+  );
+  const r2 = await deleteSecureKeyAsync(
+    `oauth_connection/${conn.id}/refresh_token`,
+  );
+
+  if (r1 === "error" || r2 === "error") {
+    log.warn(
+      {
+        providerKey,
+        connectionId: conn.id,
+        accessTokenResult: r1,
+        refreshTokenResult: r2,
+      },
+      "Failed to delete OAuth secure keys — skipping connection row deletion to avoid orphaning secrets",
+    );
+    return false;
+  }
 
   deleteConnection(conn.id);
 
