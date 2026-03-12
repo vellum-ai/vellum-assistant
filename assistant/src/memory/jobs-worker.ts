@@ -2,7 +2,6 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
-import { reconcileFtsIndexes } from "./fts-reconciler.js";
 import {
   backfillEntityRelationsJob,
   backfillJob,
@@ -50,7 +49,6 @@ import {
   enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
   enqueuePruneOldConversationsJob,
-  enqueueReconcileFtsJob,
   failMemoryJob,
   failStalledJobs,
   type MemoryJob,
@@ -327,9 +325,6 @@ async function processJob(
     case "rebuild_index":
       rebuildIndexJob();
       return;
-    case "reconcile_fts":
-      reconcileFtsIndexes();
-      return;
     case "delete_qdrant_vectors":
       await deleteQdrantVectorsJob(job);
       return;
@@ -381,14 +376,12 @@ export function maybeEnqueueScheduledCleanupJobs(
     cleanup.conversationRetentionDays > 0
       ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
       : null;
-  const reconcileFtsJobId = enqueueReconcileFtsJob();
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug(
     {
       resolvedConflictsJobId,
       staleSupersededItemsJobId,
       pruneConversationsJobId,
-      reconcileFtsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
       supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
