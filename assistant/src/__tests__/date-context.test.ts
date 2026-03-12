@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildTemporalContext } from "../daemon/date-context.js";
+import {
+  buildTemporalContext,
+  extractUserTimeZoneFromRecall,
+} from "../daemon/date-context.js";
 
 // Fixed timestamps for deterministic assertions (all UTC midday to avoid DST edge cases).
 
@@ -534,5 +537,97 @@ describe("trip-planning: timezone-shifted weekend anchors", () => {
     });
     expect(result).toContain("Today: 2026-02-27 (Friday)");
     expect(result).toContain("Next weekend: 2026-02-28 – 2026-03-01");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractUserTimeZoneFromRecall
+// ---------------------------------------------------------------------------
+
+describe("extractUserTimeZoneFromRecall", () => {
+  test("returns null for empty input", () => {
+    expect(extractUserTimeZoneFromRecall("")).toBeNull();
+    expect(extractUserTimeZoneFromRecall("  ")).toBeNull();
+  });
+
+  test("extracts IANA timezone from user_identity section", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's timezone is America/New_York
+User works as a software engineer
+</user_identity>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("America/New_York");
+  });
+
+  test("extracts timezone from 'timezone: ...' line in identity", () => {
+    const text = `<memory_context>
+
+<user_identity>
+- name: Alice
+- timezone: Europe/London
+- role: designer
+</user_identity>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("Europe/London");
+  });
+
+  test("extracts UTC offset timezone", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's time zone is UTC+5:30
+</user_identity>
+
+</memory_context>`;
+    const result = extractUserTimeZoneFromRecall(text);
+    expect(result).not.toBeNull();
+    // UTC+5:30 should canonicalize to +05:30
+    expect(result).toBe("+05:30");
+  });
+
+  test("falls back to scanning full text when no identity section", () => {
+    const text = `<memory_context>
+
+<relevant_context>
+<episode source="Mar 5">
+User mentioned their timezone is Asia/Tokyo
+</episode>
+</relevant_context>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("Asia/Tokyo");
+  });
+
+  test("returns null when no timezone info present", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's name is Bob
+User works at Acme Corp
+</user_identity>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBeNull();
+  });
+
+  test("prefers identity section over other sections", () => {
+    const text = `<memory_context>
+
+<user_identity>
+User's timezone is America/Chicago
+</user_identity>
+
+<relevant_context>
+<episode source="Mar 5">
+Discussed timezone America/Los_Angeles for the deployment
+</episode>
+</relevant_context>
+
+</memory_context>`;
+    expect(extractUserTimeZoneFromRecall(text)).toBe("America/Chicago");
   });
 });

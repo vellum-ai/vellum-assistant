@@ -71,7 +71,10 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "./context-overflow-reducer.js";
-import { buildTemporalContext } from "./date-context.js";
+import {
+  buildTemporalContext,
+  extractUserTimeZoneFromRecall,
+} from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -616,13 +619,16 @@ export async function runAgentLoopImpl(
 
     // Compute fresh temporal context each turn for date grounding.
     // Absolute "now" is always anchored to assistant host clock, while local
-    // date semantics prefer configured user timezone, then profile memory.
+    // date semantics prefer configured user timezone, then recalled memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
+    const recalledUserTimeZone = extractUserTimeZoneFromRecall(
+      recall.injectedText,
+    );
     const temporalContext = buildTemporalContext({
       hostTimeZone,
       configuredUserTimeZone,
-      userTimeZone: null,
+      userTimeZone: recalledUserTimeZone,
     });
 
     // Use the channel/interface context captured at the top of this function

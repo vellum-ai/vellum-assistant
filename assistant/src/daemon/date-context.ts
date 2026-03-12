@@ -117,6 +117,69 @@ function canonicalizeTimeZone(timeZone: string): string | null {
 }
 
 /**
+ * Regex matching IANA timezone identifiers (e.g. "America/New_York") and
+ * UTC/GMT offset tokens (e.g. "UTC+5", "GMT-8:30").
+ */
+const TIMEZONE_TOKEN_RE =
+  /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b/gi;
+
+/**
+ * Extract the user's timezone from V2 memory recall injected text.
+ *
+ * Scans the `<user_identity>` section (if present) for lines containing
+ * "timezone" and tries to resolve an IANA identifier. Falls back to
+ * scanning the full text body.
+ */
+export function extractUserTimeZoneFromRecall(
+  injectedText: string,
+): string | null {
+  if (!injectedText || injectedText.trim().length === 0) return null;
+
+  // Prefer lines inside <user_identity> that mention "timezone"
+  const identityMatch = injectedText.match(
+    /<user_identity>([\s\S]*?)<\/user_identity>/,
+  );
+  if (identityMatch) {
+    const identityBlock = identityMatch[1];
+    for (const line of identityBlock.split("\n")) {
+      if (/time\s*zone/i.test(line)) {
+        for (const token of extractTimeZoneCandidates(line)) {
+          const canonical = canonicalizeTimeZone(token);
+          if (canonical) return canonical;
+        }
+      }
+    }
+    // Scan full identity block for any timezone token
+    for (const token of extractTimeZoneCandidates(identityBlock)) {
+      const canonical = canonicalizeTimeZone(token);
+      if (canonical) return canonical;
+    }
+  }
+
+  // Fallback: scan entire injected text for timezone tokens in
+  // lines that mention "timezone"
+  for (const line of injectedText.split("\n")) {
+    if (/time\s*zone/i.test(line)) {
+      for (const token of extractTimeZoneCandidates(line)) {
+        const canonical = canonicalizeTimeZone(token);
+        if (canonical) return canonical;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractTimeZoneCandidates(text: string): string[] {
+  const matches = (text.match(TIMEZONE_TOKEN_RE) ?? [])
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+  const ianaTokens = matches.filter((token) => token.includes("/"));
+  const offsetTokens = matches.filter((token) => !token.includes("/"));
+  return [...ianaTokens, ...offsetTokens];
+}
+
+/**
  * Get the local date parts for a given instant in the specified timezone.
  */
 function localDateParts(
