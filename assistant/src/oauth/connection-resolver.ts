@@ -19,9 +19,7 @@ export function resolveOAuthConnection(
     );
   }
 
-  const accessToken = getSecureKey(
-    `oauth_connection/${conn.id}/access_token`,
-  );
+  const accessToken = getSecureKey(`oauth_connection/${conn.id}/access_token`);
 
   if (!accessToken) {
     throw new Error(
@@ -29,7 +27,12 @@ export function resolveOAuthConnection(
     );
   }
 
-  const provider = getProvider(credentialService);
+  // Look up the provider by credentialService first; fall back to the
+  // connection's canonical providerKey so custom credential_service overrides
+  // (e.g. "integration:github-work") still resolve to the well-known provider's
+  // base URL.
+  const provider =
+    getProvider(credentialService) ?? getProvider(conn.providerKey);
   const baseUrl = provider?.baseUrl;
 
   if (!baseUrl) {
