@@ -228,9 +228,9 @@ Examples:
   $ assistant oauth apps delete 550e8400-e29b-41d4-a716-446655440000
   $ assistant oauth apps delete 550e8400-e29b-41d4-a716-446655440000 --json`,
     )
-    .action((id: string, _opts: unknown, cmd: Command) => {
+    .action(async (id: string, _opts: unknown, cmd: Command) => {
       try {
-        const deleted = deleteApp(id);
+        const deleted = await deleteApp(id);
 
         if (!deleted) {
           writeOutput(cmd, {

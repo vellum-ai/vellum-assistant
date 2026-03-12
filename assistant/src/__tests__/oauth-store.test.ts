@@ -346,14 +346,14 @@ describe("app operations", () => {
   describe("deleteApp", () => {
     test("removes the row and returns true", async () => {
       const app = await createTestApp("github", "client-1");
-      const deleted = deleteApp(app.id);
+      const deleted = await deleteApp(app.id);
 
       expect(deleted).toBe(true);
       expect(getApp(app.id)).toBeUndefined();
     });
 
-    test("returns false for nonexistent id", () => {
-      expect(deleteApp("nonexistent-id")).toBe(false);
+    test("returns false for nonexistent id", async () => {
+      expect(await deleteApp("nonexistent-id")).toBe(false);
     });
   });
 });

@@ -278,8 +278,17 @@ export function listApps(): OAuthAppRow[] {
   return db.select().from(oauthApps).all();
 }
 
-/** Delete an app by ID. Returns true if a row was deleted. */
-export function deleteApp(id: string): boolean {
+/** Delete an app by ID. Cleans up the client_secret from secure storage. Returns true if a row was deleted. */
+export async function deleteApp(id: string): Promise<boolean> {
+  const result = await deleteSecureKeyAsync(`oauth_app/${id}/client_secret`);
+  if (result === "error") {
+    log.warn(
+      { appId: id },
+      "Failed to delete client_secret from secure storage — skipping app deletion to avoid orphaning secrets",
+    );
+    return false;
+  }
+
   const db = getDb();
   db.delete(oauthApps).where(eq(oauthApps.id, id)).run();
   return rawChanges() > 0;
