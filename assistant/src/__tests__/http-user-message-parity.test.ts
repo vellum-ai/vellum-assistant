@@ -169,6 +169,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     updateClient: () => {},
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
+    setHostCuProxy: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
