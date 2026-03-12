@@ -15,6 +15,7 @@ import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
+  setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
@@ -233,6 +234,19 @@ export async function runDaemon(): Promise<void> {
 
     log.info("Daemon startup: loading config");
     const config = loadConfig();
+
+    // Seed module-level ingress state from the workspace config so that
+    // getIngressPublicBaseUrl() returns the correct value immediately after
+    // startup (before any handleIngressConfig("set") call). Without this,
+    // code paths that read the module-level state directly (e.g. session-slash
+    // pairing info) would see undefined until an explicit set.
+    if (config.ingress.enabled && config.ingress.publicBaseUrl) {
+      setIngressPublicBaseUrl(config.ingress.publicBaseUrl);
+      log.info(
+        { url: config.ingress.publicBaseUrl },
+        "Daemon startup: seeded ingress URL from workspace config",
+      );
+    }
 
     if (config.logFile.dir) {
       initLogger({
