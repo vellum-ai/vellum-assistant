@@ -84,7 +84,7 @@ private struct ChatSearchBarPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            VColor.background.ignoresSafeArea()
+            VColor.surfaceBase.ignoresSafeArea()
             ChatSearchBar(
                 searchText: $text,
                 matchCount: 5,
