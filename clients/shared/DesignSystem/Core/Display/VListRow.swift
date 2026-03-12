@@ -38,25 +38,3 @@ public struct VListRow<Content: View>: View {
     }
 }
 
-#Preview("VListRow") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 0) {
-            VListRow(onTap: {}) {
-                HStack {
-                    VIconView(.fileText, size: 14)
-                        .foregroundColor(VColor.primaryBase)
-                    Text("Tappable row")
-                        .foregroundColor(VColor.contentDefault)
-                }
-            }
-            Divider()
-            VListRow {
-                Text("Static row")
-                    .foregroundColor(VColor.contentSecondary)
-            }
-        }
-        .padding()
-    }
-    .frame(width: 300, height: 150)
-}

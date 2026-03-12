@@ -175,27 +175,4 @@ public struct InlineTableWidget: View {
 }
 
 #if DEBUG
-#Preview("InlineTableWidget") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        InlineTableWidget(
-            data: TableSurfaceData(
-                columns: [
-                    TableColumn(id: "sender", label: "Sender", width: nil),
-                    TableColumn(id: "count", label: "Emails", width: nil),
-                ],
-                rows: [
-                    TableRow(id: "1", cells: ["sender": TableCellValue(text: "newsletter@tech.co"), "count": TableCellValue(text: "47")], selectable: true, selected: false),
-                    TableRow(id: "2", cells: ["sender": TableCellValue(text: "deals@store.com"), "count": TableCellValue(text: "32")], selectable: true, selected: false),
-                    TableRow(id: "3", cells: ["sender": TableCellValue(text: "updates@social.app"), "count": TableCellValue(text: "28", icon: "checkmark.circle.fill", iconColor: "success")], selectable: true, selected: false),
-                ],
-                selectionMode: .multiple,
-                caption: "3 newsletters found from last 30 days"
-            ),
-            onAction: { _, _ in }
-        )
-        .padding()
-    }
-    .frame(width: 500, height: 300)
-}
 #endif

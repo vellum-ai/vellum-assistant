@@ -32,24 +32,3 @@ public struct VInfoTooltip: View {
     }
 }
 
-#Preview("VInfoTooltip") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: VSpacing.xs) {
-                Text("Some Setting")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
-                VInfoTooltip("This is an explanation of the setting.")
-            }
-            HStack(spacing: VSpacing.xs) {
-                Text("Another Setting")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-                VInfoTooltip("Hover over the icon to see this tooltip.")
-            }
-        }
-        .padding()
-    }
-    .frame(width: 300, height: 120)
-}

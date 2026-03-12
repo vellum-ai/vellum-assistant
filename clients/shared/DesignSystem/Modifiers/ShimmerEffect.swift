@@ -68,26 +68,3 @@ public extension View {
     }
 }
 
-#Preview("ShimmerEffect") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: VSpacing.lg) {
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.borderBase.opacity(0.5))
-                .frame(width: 200, height: 14)
-                .vShimmer()
-
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.borderBase.opacity(0.5))
-                .frame(width: 300, height: 40)
-                .vShimmer()
-
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.borderBase.opacity(0.5))
-                .frame(height: 80)
-                .vShimmer()
-        }
-        .padding()
-    }
-    .frame(width: 400, height: 250)
-}

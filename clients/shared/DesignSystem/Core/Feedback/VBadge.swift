@@ -45,28 +45,3 @@ public struct VBadge: View {
     }
 }
 
-#Preview("VBadge") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 16) {
-            HStack(spacing: 12) {
-                VBadge(style: .count(5))
-                VBadge(style: .count(42), color: VColor.systemNegativeStrong)
-                VBadge(style: .count(99), color: VColor.systemPositiveStrong)
-            }
-            HStack(spacing: 12) {
-                VBadge(style: .dot)
-                VBadge(style: .dot, color: VColor.systemPositiveStrong)
-                VBadge(style: .dot, color: VColor.systemNegativeStrong)
-                VBadge(style: .dot, color: VColor.systemNegativeHover)
-            }
-            HStack(spacing: 12) {
-                VBadge(style: .label("New"))
-                VBadge(style: .label("Beta"), color: VColor.systemPositiveStrong)
-                VBadge(style: .label("Error"), color: VColor.systemNegativeStrong)
-            }
-        }
-        .padding()
-    }
-    .frame(width: 350, height: 200)
-}

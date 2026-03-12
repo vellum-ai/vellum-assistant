@@ -40,14 +40,4 @@ public struct TypingIndicatorView: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("TypingIndicatorView") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack {
-            TypingIndicatorView()
-            Spacer()
-        }
-        .padding(VSpacing.xl)
-    }
-}
 #endif

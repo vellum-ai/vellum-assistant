@@ -129,23 +129,3 @@ public struct VToast: View {
     }
 }
 
-#Preview("VToast") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 12) {
-            VToast(message: "Information message", style: .info)
-            VToast(message: "Success message", style: .success)
-            VToast(message: "Warning message", style: .warning)
-            VToast(message: "Error message", style: .error)
-            VToast(
-                message: "Error with actions",
-                style: .error,
-                primaryAction: VToastAction(label: "Retry") {},
-                secondaryAction: VToastAction(label: "Copy Debug Info") {},
-                onDismiss: {}
-            )
-        }
-        .padding()
-    }
-    .frame(width: 500, height: 400)
-}

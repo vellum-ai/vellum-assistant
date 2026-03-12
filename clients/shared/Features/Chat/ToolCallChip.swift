@@ -289,35 +289,4 @@ public struct ToolCallChip: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("ToolCallChip") {
-    VStack(alignment: .leading, spacing: VSpacing.md) {
-        ToolCallChip(toolCall: ToolCallData(
-            toolName: "bash",
-            inputSummary: "ls -la /Users/test/project",
-            result: "total 42\ndrwxr-xr-x  10 user  staff  320 Jan  1 12:00 .\ndrwxr-xr-x   5 user  staff  160 Jan  1 11:00 ..",
-            isComplete: true
-        ))
-        ToolCallChip(toolCall: ToolCallData(
-            toolName: "file_read",
-            inputSummary: "/src/main.swift",
-            isComplete: false
-        ))
-        ToolCallChip(toolCall: ToolCallData(
-            toolName: "file_edit",
-            inputSummary: "/src/Config.swift",
-            result: "File updated successfully.",
-            isComplete: true
-        ))
-        ToolCallChip(toolCall: ToolCallData(
-            toolName: "bash",
-            inputSummary: "rm -rf /important",
-            result: "Permission denied",
-            isError: true,
-            isComplete: true
-        ))
-    }
-    .padding(VSpacing.xl)
-    .background(VColor.surfaceOverlay)
-    .frame(width: 500)
-}
 #endif

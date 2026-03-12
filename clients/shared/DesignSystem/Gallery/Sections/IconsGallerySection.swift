@@ -49,12 +49,4 @@ struct IconsGallerySection: View {
     }
 }
 
-#Preview("Icons Gallery") {
-    ScrollView {
-        IconsGallerySection()
-            .padding(VSpacing.xxl)
-    }
-    .frame(width: 800, height: 600)
-    .background(VColor.surfaceOverlay)
-}
 #endif

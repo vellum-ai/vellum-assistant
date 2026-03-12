@@ -314,35 +314,3 @@ public struct MarkdownRenderer: View {
     }
 }
 
-#Preview("Markdown Renderer") {
-    ScrollView {
-        MarkdownRenderer(text: """
-        # Heading 1
-
-        ## Heading 2
-
-        ### Heading 3
-
-        A paragraph with **bold**, _italic_, and `inline code`.
-
-        ```swift
-        let greeting = "Hello, world!"
-        print(greeting)
-        ```
-
-        - Item one
-        - Item two
-        - Item three
-
-        1. First step
-        2. Second step
-        3. Third step
-
-        ---
-
-        Another paragraph after a rule.
-        """)
-        .padding()
-    }
-    .background(VColor.surfaceOverlay)
-}

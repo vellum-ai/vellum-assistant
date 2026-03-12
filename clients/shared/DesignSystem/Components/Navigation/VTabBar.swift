@@ -19,14 +19,3 @@ public struct VTabBar<Content: View>: View {
     }
 }
 
-#Preview("VTabBar") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VTabBar {
-            VTab(label: "Home", icon: "house", isSelected: true, onSelect: {})
-            VTab(label: "Sessions", icon: "list.bullet", onSelect: {})
-            VTab(label: "Logs", icon: "doc.text", onSelect: {})
-        }
-    }
-    .frame(width: 500, height: 60)
-}

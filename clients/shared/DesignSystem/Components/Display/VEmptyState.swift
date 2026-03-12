@@ -32,19 +32,3 @@ public struct VEmptyState: View {
     }
 }
 
-#Preview("VEmptyState") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 24) {
-            VEmptyState(
-                title: "No items yet",
-                subtitle: "Create your first item to get started",
-                icon: VIcon.inbox.rawValue
-            )
-            Divider()
-            VEmptyState(title: "No results")
-        }
-        .padding()
-    }
-    .frame(width: 350, height: 400)
-}

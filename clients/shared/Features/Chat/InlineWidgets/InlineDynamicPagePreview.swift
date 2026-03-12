@@ -98,25 +98,4 @@ public struct InlineDynamicPagePreview: View {
 }
 
 #if DEBUG
-#Preview("InlineDynamicPagePreview") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        InlineDynamicPagePreview(
-            preview: DynamicPagePreview(
-                title: "Expense Tracker",
-                subtitle: "Personal Finance App",
-                description: "Track your daily expenses with category breakdowns and monthly summaries.",
-                icon: "\u{1F4B0}",
-                metrics: [
-                    (label: "Records", value: "24"),
-                    (label: "Categories", value: "8"),
-                    (label: "Total", value: "$1,234"),
-                ]
-            ),
-            onViewOutput: {}
-        )
-        .padding()
-    }
-    .frame(width: 400, height: 300)
-}
 #endif

@@ -20,22 +20,3 @@ public extension View {
     }
 }
 
-#Preview("HoverEffect") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 4) {
-            Text("Hover over me")
-                .foregroundColor(VColor.contentDefault)
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .vHover()
-            Text("Hover here too")
-                .foregroundColor(VColor.contentDefault)
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .vHover()
-        }
-        .padding()
-    }
-    .frame(width: 300, height: 150)
-}

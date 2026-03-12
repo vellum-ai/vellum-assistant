@@ -78,22 +78,4 @@ public struct InlineListWidget: View {
 }
 
 #if DEBUG
-#Preview("InlineListWidget") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        InlineListWidget(
-            data: ListSurfaceData(
-                items: [
-                    ListItemData(id: "1", title: "Option A", subtitle: "First choice", icon: nil, selected: false),
-                    ListItemData(id: "2", title: "Option B", subtitle: "Second choice", icon: nil, selected: true),
-                    ListItemData(id: "3", title: "Option C", subtitle: nil, icon: nil, selected: false),
-                ],
-                selectionMode: .single
-            ),
-            onAction: { _, _ in }
-        )
-        .padding()
-    }
-    .frame(width: 400, height: 250)
-}
 #endif

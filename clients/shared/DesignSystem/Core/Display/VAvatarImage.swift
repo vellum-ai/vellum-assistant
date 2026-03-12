@@ -76,25 +76,5 @@ public struct VAvatarImage: View {
 }
 
 #if DEBUG
-#Preview("VAvatarImage") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: VSpacing.lg) {
-            VAvatarImage(
-                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                size: 28
-            )
-            VAvatarImage(
-                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                size: 40
-            )
-            VAvatarImage(
-                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                size: 52
-            )
-        }
-    }
-    .frame(width: 300, height: 100)
-}
 #endif
 #endif

@@ -203,25 +203,3 @@ public struct VIconButtonStyle: ButtonStyle {
     }
 }
 
-#Preview("VIconButton") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 16) {
-            HStack(spacing: 12) {
-                VIconButton(label: "Ghost", icon: VIcon.settings.rawValue) {}
-                VIconButton(label: "Active", icon: VIcon.star.rawValue, isActive: true) {}
-                VIconButton(label: "Icon Only", icon: VIcon.plus.rawValue, iconOnly: true) {}
-                VIconButton(label: "Active Icon", icon: VIcon.pencil.rawValue, isActive: true, iconOnly: true) {}
-            }
-            HStack(spacing: 12) {
-                VIconButton(label: "Primary", icon: VIcon.ellipsis.rawValue, iconOnly: true, variant: .primary) {}
-                VIconButton(label: "Danger", icon: VIcon.x.rawValue, iconOnly: true, variant: .danger) {}
-                VIconButton(label: "Neutral", icon: VIcon.square.rawValue, iconOnly: true, variant: .neutral) {}
-                VIconButton(label: "Secondary", icon: VIcon.arrowUp.rawValue, iconOnly: true, variant: .secondary) {}
-                VIconButton(label: "Outlined", icon: VIcon.x.rawValue, iconOnly: true, variant: .outlined) {}
-            }
-        }
-        .padding()
-    }
-    .frame(width: 500, height: 140)
-}

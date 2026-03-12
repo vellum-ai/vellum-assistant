@@ -21,24 +21,3 @@ public struct VCard<Content: View>: View {
     }
 }
 
-#Preview("VCard") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 16) {
-            VCard {
-                Text("Default padding")
-                    .foregroundColor(VColor.contentDefault)
-            }
-            VCard(padding: VSpacing.sm) {
-                Text("Small padding")
-                    .foregroundColor(VColor.contentDefault)
-            }
-            VCard(padding: VSpacing.xxxl) {
-                Text("Large padding")
-                    .foregroundColor(VColor.contentDefault)
-            }
-        }
-        .padding()
-    }
-    .frame(width: 300, height: 300)
-}

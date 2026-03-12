@@ -156,32 +156,3 @@ public extension VSplitView where Panel == EmptyView {
     }
 }
 
-#Preview("VSplitView") {
-    struct PreviewWrapper: View {
-        @State private var panelWidth: Double = 200
-
-        var body: some View {
-            ZStack {
-                VColor.surfaceOverlay.ignoresSafeArea()
-                VSplitView(panelWidth: $panelWidth, showPanel: true) {
-                    VStack {
-                        Text("Main Content")
-                            .font(VFont.title)
-                            .foregroundColor(VColor.contentDefault)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(VColor.surfaceBase)
-                } panel: {
-                    VSidePanel(title: "Panel", pinnedContent: { EmptyView() }) {
-                        Text("Side panel")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.contentSecondary)
-                    }
-                }
-            }
-            .frame(width: 600, height: 300)
-        }
-    }
-
-    return PreviewWrapper()
-}

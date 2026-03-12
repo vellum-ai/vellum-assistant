@@ -281,10 +281,3 @@ private struct WaveformPreviewContainer: View {
     }
 }
 
-#Preview("VStreamingWaveform") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        WaveformPreviewContainer()
-    }
-    .frame(width: 400, height: 450)
-}

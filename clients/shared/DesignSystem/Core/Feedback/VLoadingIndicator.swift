@@ -28,17 +28,3 @@ public struct VLoadingIndicator: View {
     }
 }
 
-#Preview("VLoadingIndicator") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 24) {
-            VLoadingIndicator(size: 14)
-            VLoadingIndicator()
-            VLoadingIndicator(size: 32)
-            VLoadingIndicator(color: VColor.systemPositiveStrong)
-            VLoadingIndicator(color: VColor.systemNegativeStrong)
-        }
-        .padding()
-    }
-    .frame(width: 350, height: 100)
-}

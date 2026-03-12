@@ -184,25 +184,4 @@ public struct InlineTaskProgressWidget: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("InlineTaskProgressWidget") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ScrollView {
-            InlineTaskProgressWidget(data: TaskProgressData(
-                title: "Ordering lunch",
-                status: "in_progress",
-                steps: [
-                    TaskStepItem(id: "1", label: "Find nearby restaurants", status: "completed", detail: "Found 3 options within 1 mile"),
-                    TaskStepItem(id: "2", label: "Select restaurant", status: "completed", detail: "Chose Thai Palace"),
-                    TaskStepItem(id: "3", label: "Place order", status: "in_progress", detail: "Adding items to cart"),
-                    TaskStepItem(id: "4", label: "Confirm payment", status: "pending", detail: nil),
-                    TaskStepItem(id: "5", label: "Track delivery", status: "pending", detail: nil),
-                ]
-            ))
-            .padding()
-            .frame(width: 450)
-        }
-    }
-    .frame(width: 500, height: 400)
-}
 #endif

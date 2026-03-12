@@ -41,25 +41,3 @@ public struct VBusyIndicator: View {
     }
 }
 
-#Preview("VBusyIndicator") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 24) {
-            HStack(spacing: 24) {
-                VBusyIndicator(size: 8)
-                VBusyIndicator()
-                VBusyIndicator(size: 14)
-                VBusyIndicator(color: VColor.systemPositiveStrong)
-            }
-            HStack(spacing: 24) {
-                Text("Reduced motion:")
-                    .foregroundColor(VColor.contentDefault)
-                Text("(reads @Environment automatically)")
-                    .foregroundColor(VColor.contentSecondary)
-                    .font(VFont.caption)
-            }
-        }
-        .padding()
-    }
-    .frame(width: 450, height: 150)
-}

@@ -83,32 +83,4 @@ public extension View {
 }
 
 #if DEBUG
-#Preview("InlineWidgetCard") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: VSpacing.lg) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Widget Title")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentDefault)
-                Text("Some body content for the widget card.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-            }
-            .inlineWidgetCard()
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Another Widget")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.contentDefault)
-                Text("Both cards share the same chrome.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentSecondary)
-            }
-            .inlineWidgetCard()
-        }
-        .padding()
-    }
-    .frame(width: 450, height: 300)
-}
 #endif

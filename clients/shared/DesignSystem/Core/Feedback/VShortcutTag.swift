@@ -53,15 +53,3 @@ public struct VShortcutTag: View {
     }
 }
 
-#Preview("VShortcutTag") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 12) {
-            VShortcutTag("\u{2318}K")
-            VShortcutTag("fn", icon: VIcon.mic.rawValue)
-            VShortcutTag("\u{2318}G")
-        }
-        .padding()
-    }
-    .frame(width: 400, height: 80)
-}

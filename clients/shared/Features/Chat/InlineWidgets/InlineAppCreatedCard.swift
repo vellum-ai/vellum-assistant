@@ -107,22 +107,5 @@ struct InlineAppCreatedCard: View {
 }
 
 #if DEBUG
-#Preview("InlineAppCreatedCard") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        InlineAppCreatedCard(
-            preview: DynamicPagePreview(
-                title: "Kanban Board",
-                description: "Here's a simple dashboard with drag-and-drop task management.",
-                icon: "🎯"
-            ),
-            appId: "test-app-id",
-            onOpenApp: {}
-        )
-        .frame(width: 400)
-        .padding()
-    }
-    .frame(width: 500, height: 400)
-}
 #endif
 #endif

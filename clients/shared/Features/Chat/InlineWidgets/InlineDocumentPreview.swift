@@ -45,19 +45,4 @@ public struct InlineDocumentPreview: View {
 }
 
 #if DEBUG
-#Preview("InlineDocumentPreview") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        InlineDocumentPreview(
-            data: DocumentPreviewSurfaceData(
-                title: "Blog Post: The Future of Swift",
-                surfaceId: "doc-preview-123",
-                subtitle: "Document"
-            ),
-            onOpen: {}
-        )
-        .padding()
-    }
-    .frame(width: 400, height: 120)
-}
 #endif

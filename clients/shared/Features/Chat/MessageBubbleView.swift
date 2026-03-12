@@ -313,51 +313,5 @@ public struct MessageBubbleView: View {
     }
 }
 
-#Preview("User Message") {
-    VStack(spacing: VSpacing.md) {
-        MessageBubbleView(
-            message: ChatMessage(
-                role: .user,
-                text: "Hello! Can you help me with something?"
-            ),
-            onConfirmationResponse: nil,
-            onSurfaceAction: nil,
-            onRegenerate: nil
-        )
-    }
-    .padding()
-    .background(VColor.surfaceOverlay)
-}
 
-#Preview("Assistant Message") {
-    VStack(spacing: VSpacing.md) {
-        MessageBubbleView(
-            message: ChatMessage(
-                role: .assistant,
-                text: "Of course! I'd be happy to help. What do you need assistance with?\n\n**Bold text** and _italic_ and `code` all render via markdown."
-            ),
-            onConfirmationResponse: nil,
-            onSurfaceAction: nil,
-            onRegenerate: { log.debug("Preview: Regenerate tapped") }
-        )
-    }
-    .padding()
-    .background(VColor.surfaceOverlay)
-}
 
-#Preview("Streaming") {
-    VStack(spacing: VSpacing.md) {
-        MessageBubbleView(
-            message: ChatMessage(
-                role: .assistant,
-                text: "I'm thinking about",
-                isStreaming: true
-            ),
-            onConfirmationResponse: nil,
-            onSurfaceAction: nil,
-            onRegenerate: nil
-        )
-    }
-    .padding()
-    .background(VColor.surfaceOverlay)
-}

@@ -84,15 +84,3 @@ public struct VTab: View {
     }
 }
 
-#Preview("VTab") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 8) {
-            VTab(label: "Dashboard", icon: VIcon.house.rawValue, isSelected: true, onSelect: {})
-            VTab(label: "Settings", icon: VIcon.settings.rawValue, onSelect: {})
-            VTab(label: "Thread", icon: VIcon.plus.rawValue, isCloseable: false, style: .rectangular, onSelect: {})
-        }
-        .padding()
-    }
-    .frame(width: 450, height: 80)
-}

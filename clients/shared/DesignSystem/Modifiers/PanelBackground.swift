@@ -16,19 +16,3 @@ public extension View {
     }
 }
 
-#Preview("PanelBackground") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 0) {
-            Text("Main area")
-                .foregroundColor(VColor.contentDefault)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-            Text("Panel area")
-                .foregroundColor(VColor.contentDefault)
-                .frame(width: 150)
-                .vPanelBackground()
-        }
-    }
-    .frame(width: 400, height: 200)
-}

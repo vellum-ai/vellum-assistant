@@ -212,26 +212,3 @@ private extension View {
     }
 }
 
-#Preview("VButton") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 16) {
-            VButton(label: "Primary", style: .primary, size: .medium) {}
-            VButton(label: "Secondary", style: .secondary, size: .medium) {}
-            VButton(label: "Tertiary", style: .tertiary, size: .medium) {}
-            VButton(label: "Danger", style: .danger, size: .medium) {}
-            VButton(label: "Ghost", style: .ghost, size: .medium) {}
-            VButton(label: "Record", style: .outlined, size: .large) {}
-            HStack(spacing: 12) {
-                VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
-                VButton(label: "Disconnect", style: .danger, size: .medium) {}
-            }
-            VButton(label: "Connect", style: .primary, size: .medium) {}
-            VButton(label: "With Icon", leftIcon: VIcon.plus.rawValue, style: .primary, size: .small) {}
-            VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
-            VButton(label: "Disabled", style: .primary, isDisabled: true) {}
-        }
-        .padding()
-    }
-    .frame(width: 320, height: 580)
-}

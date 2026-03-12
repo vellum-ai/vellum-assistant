@@ -87,24 +87,4 @@ public struct InlineCardWidget: View {
 }
 
 #if DEBUG
-#Preview("InlineCardWidget") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        InlineCardWidget(data: CardSurfaceData(
-            title: "Weather in New York",
-            subtitle: "Next 7 days",
-            body: "Partly cloudy with temperatures ranging from 45°F to 62°F. Rain expected on Wednesday.",
-            metadata: [
-                (label: "High", value: "62°F"),
-                (label: "Low", value: "45°F"),
-                (label: "Humidity", value: "65%"),
-                (label: "Wind", value: "12 mph NW"),
-            ],
-            template: nil,
-            templateData: nil
-        ))
-        .padding()
-    }
-    .frame(width: 400, height: 300)
-}
 #endif

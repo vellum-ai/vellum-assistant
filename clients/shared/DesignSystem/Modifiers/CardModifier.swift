@@ -29,16 +29,3 @@ public extension View {
     }
 }
 
-#Preview("CardModifier") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 16) {
-            Text("xs").padding().vCard(radius: VRadius.xs)
-            Text("md").padding().vCard(radius: VRadius.lg)
-            Text("xl").padding().vCard(radius: VRadius.xl)
-        }
-        .foregroundColor(VColor.contentDefault)
-        .padding()
-    }
-    .frame(width: 400, height: 120)
-}

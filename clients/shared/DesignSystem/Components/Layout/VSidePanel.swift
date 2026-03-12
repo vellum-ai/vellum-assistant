@@ -50,22 +50,6 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     }
 }
 
-#Preview("VSidePanel") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VSidePanel(title: "Inspector", onClose: {}, pinnedContent: { EmptyView() }) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Panel content here")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.contentDefault)
-                Text("With scrollable content area")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.contentSecondary)
-            }
-        }
-    }
-    .frame(width: 300, height: 300)
-}
 
 #if DEBUG
 struct VSidePanel_PinnedContent_Preview: PreviewProvider {
