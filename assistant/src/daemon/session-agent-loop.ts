@@ -352,16 +352,13 @@ export async function runAgentLoopImpl(
   ctx.lastAttachmentWarnings = [];
 
   // Ensure workspace git repo is initialized before any tools run.
-  let workspaceGitServiceForHooks: {
-    runReadOnlyGit(args: string[]): Promise<{ stdout: string; stderr: string }>;
-  } | null = null;
+  let gitInitSucceeded = false;
   try {
     const getWorkspaceGitServiceFn =
       ctx.getWorkspaceGitService ?? getWorkspaceGitService;
     const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
     await gitService.ensureInitialized();
-    workspaceGitServiceForHooks =
-      gitService as typeof workspaceGitServiceForHooks;
+    gitInitSucceeded = true;
   } catch (err) {
     rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
   }
@@ -372,17 +369,19 @@ export async function runAgentLoopImpl(
   // that the prompt does not delay normal message processing.  The result is
   // persisted via setGitHooksTrustDecision so it survives restarts.
   if (
-    workspaceGitServiceForHooks &&
+    gitInitSucceeded &&
     !ctx.hasNoClient &&
     ctx.gitHooksTrustPromptIssuedForWorkspace !== ctx.workingDir
   ) {
     const trustDecision = getGitHooksTrustDecision(ctx.workingDir);
     if (trustDecision === "ask") {
-      const gitSvc = workspaceGitServiceForHooks;
       const workingDir = ctx.workingDir;
+      // Obtain the git service again — this time using the module-level function
+      // which returns the full WorkspaceGitService with runReadOnlyGit support.
+      const gitSvcForDetection = getWorkspaceGitService(workingDir);
       // Mark as issued immediately to prevent duplicate prompts on concurrent turns.
       ctx.gitHooksTrustPromptIssuedForWorkspace = workingDir;
-      detectConfiguredHooks(workingDir, gitSvc)
+      detectConfiguredHooks(workingDir, gitSvcForDetection)
         .then(async (detected) => {
           if (!detected.hasHooks) return;
           // Re-check in case another turn resolved it while we were detecting.
