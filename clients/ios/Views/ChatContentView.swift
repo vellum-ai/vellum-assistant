@@ -420,6 +420,8 @@ struct ChatContentView: View {
         case .providerNetwork: return .wifiOff
         case .rateLimit: return .clockAlert
         case .providerApi: return .cloudOff
+        case .providerOrdering: return .cloudOff
+        case .providerWebSearch: return .cloudOff
         case .sessionAborted: return .circleStop
         case .processingFailed, .regenerateFailed: return .refreshCw
         case .contextTooLarge: return .fileText
