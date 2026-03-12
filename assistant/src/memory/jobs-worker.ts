@@ -2,10 +2,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 import { rawRun } from "./db.js";
-import {
-  backfillEntityRelationsJob,
-  backfillJob,
-} from "./job-handlers/backfill.js";
+import { backfillJob } from "./job-handlers/backfill.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
@@ -18,10 +15,7 @@ import {
   embedSegmentJob,
   embedSummaryJob,
 } from "./job-handlers/embedding.js";
-import {
-  extractEntitiesJob,
-  extractItemsJob,
-} from "./job-handlers/extraction.js";
+import { extractItemsJob } from "./job-handlers/extraction.js";
 import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
@@ -279,7 +273,7 @@ async function processJob(
       await extractItemsJob(job);
       return;
     case "extract_entities":
-      await extractEntitiesJob(job, config);
+      // Entity extraction has been removed — silently drop legacy jobs
       return;
     case "cleanup_stale_superseded_items":
       cleanupStaleSupersededItemsJob(job, config);
@@ -294,7 +288,7 @@ async function processJob(
       backfillJob(job, config);
       return;
     case "backfill_entity_relations":
-      backfillEntityRelationsJob(job, config);
+      // Entity relation backfill has been removed — silently drop legacy jobs
       return;
     case "rebuild_index":
       rebuildIndexJob();

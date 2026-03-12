@@ -20,9 +20,6 @@ import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
-  memoryEntities,
-  memoryEntityRelations,
-  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   messages,
@@ -168,9 +165,6 @@ describe("Context + Memory E2E regression", () => {
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
-    db.run("DELETE FROM memory_item_entities");
-    db.run("DELETE FROM memory_entity_relations");
-    db.run("DELETE FROM memory_entities");
     db.run("DELETE FROM memory_embeddings");
     db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM memory_items");
@@ -279,43 +273,6 @@ describe("Context + Memory E2E regression", () => {
       now + 100_000,
     );
 
-    db.insert(memoryEntities)
-      .values([
-        {
-          id: "entity-apollo",
-          name: "Apollo",
-          type: "project",
-          aliases: JSON.stringify(["project-apollo"]),
-          description: null,
-          firstSeenAt: now,
-          lastSeenAt: now + 100_000,
-          mentionCount: 6,
-        },
-        {
-          id: "entity-hermes",
-          name: "HermesGate",
-          type: "strategy",
-          aliases: JSON.stringify(["hermes-gate"]),
-          description: null,
-          firstSeenAt: now,
-          lastSeenAt: now + 100_000,
-          mentionCount: 4,
-        },
-      ])
-      .run();
-
-    db.insert(memoryEntityRelations)
-      .values({
-        id: "rel-apollo-hermes",
-        sourceEntityId: "entity-apollo",
-        targetEntityId: "entity-hermes",
-        relation: "uses",
-        evidence: "Apollo uses HermesGate for risky changes",
-        firstSeenAt: now,
-        lastSeenAt: now + 50_000,
-      })
-      .run();
-
     insertMemoryItem({
       id: "item-apollo-direct",
       kind: "preference",
@@ -333,12 +290,6 @@ describe("Context + Memory E2E regression", () => {
         messageId: "msg-e2e-user-10",
         evidence: "User confirmed policy in sprint review",
         createdAt: now + 10_000,
-      })
-      .run();
-    db.insert(memoryItemEntities)
-      .values({
-        memoryItemId: "item-apollo-direct",
-        entityId: "entity-apollo",
       })
       .run();
 
@@ -361,12 +312,6 @@ describe("Context + Memory E2E regression", () => {
         createdAt: now + 12_000,
       })
       .run();
-    db.insert(memoryItemEntities)
-      .values({
-        memoryItemId: "item-hermes-relation",
-        entityId: "entity-hermes",
-      })
-      .run();
 
     insertMemoryItem({
       id: "item-apollo-stale",
@@ -387,12 +332,6 @@ describe("Context + Memory E2E regression", () => {
         createdAt: now - 390 * 24 * 60 * 60 * 1000,
       })
       .run();
-    db.insert(memoryItemEntities)
-      .values({
-        memoryItemId: "item-apollo-stale",
-        entityId: "entity-apollo",
-      })
-      .run();
 
     insertMemoryItem({
       id: "item-apollo-secret",
@@ -410,12 +349,6 @@ describe("Context + Memory E2E regression", () => {
         messageId: currentMessageId,
         evidence: "Current turn only",
         createdAt: now + 100_000,
-      })
-      .run();
-    db.insert(memoryItemEntities)
-      .values({
-        memoryItemId: "item-apollo-secret",
-        entityId: "entity-apollo",
       })
       .run();
 
@@ -470,14 +403,6 @@ describe("Context + Memory E2E regression", () => {
         },
         entity: {
           ...DEFAULT_CONFIG.memory.entity,
-          relationRetrieval: {
-            ...DEFAULT_CONFIG.memory.entity.relationRetrieval,
-            enabled: true,
-            maxSeedEntities: 4,
-            maxNeighborEntities: 6,
-            maxEdges: 8,
-            neighborScoreMultiplier: 0.65,
-          },
         },
       },
     };
@@ -511,19 +436,16 @@ describe("Context + Memory E2E regression", () => {
     );
 
     expect(recall.injectedTokens).toBeLessThanOrEqual(recallBudget);
-    expect(recall.relationSeedEntityCount).toBeGreaterThan(0);
-    expect(recall.relationTraversedEdgeCount).toBeGreaterThan(0);
-    expect(recall.relationNeighborEntityCount).toBeGreaterThan(0);
-    expect(recall.relationExpandedItemCount).toBeGreaterThan(0);
+    // Entity search has been removed — relation counters are always zero
+    expect(recall.relationSeedEntityCount).toBe(0);
+    expect(recall.relationTraversedEdgeCount).toBe(0);
+    expect(recall.relationNeighborEntityCount).toBe(0);
+    expect(recall.relationExpandedItemCount).toBe(0);
 
-    expect(recall.injectedText).toContain("staged canary releases");
-    expect(recall.injectedText).toContain("start at 5% traffic");
+    // Without entity graph traversal and with FTS removed, item recall
+    // depends on semantic search (which is mocked). Verify no current-turn
+    // secrets leak and that some recall text was produced from segments.
     expect(recall.injectedText).not.toContain("123XYZ");
-
-    const directIndex = recall.injectedText.indexOf("staged canary releases");
-    const relationIndex = recall.injectedText.indexOf("start at 5% traffic");
-    expect(directIndex).toBeGreaterThanOrEqual(0);
-    expect(relationIndex).toBeGreaterThanOrEqual(0);
-    expect(directIndex).toBeLessThan(relationIndex);
+    expect(recall.injectedText.length).toBeGreaterThan(0);
   });
 });

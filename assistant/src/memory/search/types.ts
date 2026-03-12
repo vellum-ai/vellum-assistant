@@ -3,8 +3,6 @@ export type CandidateSource =
   | "lexical"
   | "semantic"
   | "recency"
-  | "entity_direct"
-  | "entity_relation"
   | "item_direct";
 
 export type StalenessLevel = "fresh" | "aging" | "stale" | "very_stale";
@@ -43,7 +41,7 @@ export type DegradationReason =
   | "qdrant_unavailable"
   | "embedding_generation_failed";
 
-export type FallbackSource = "lexical" | "recency" | "direct_item" | "entity";
+export type FallbackSource = "lexical" | "recency" | "direct_item";
 
 export interface DegradationStatus {
   semanticUnavailable: boolean;
@@ -62,9 +60,13 @@ export interface MemoryRecallResult {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
   relationSeedEntityCount: number;
+  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
   relationTraversedEdgeCount: number;
+  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
   relationNeighborEntityCount: number;
+  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
   relationExpandedItemCount: number;
   earlyTerminated: boolean;
   mergedCount: number;
@@ -114,10 +116,6 @@ export interface CollectedCandidates {
   recency: Candidate[];
   semantic: Candidate[];
   entity: Candidate[];
-  relationSeedEntityCount: number;
-  relationTraversedEdgeCount: number;
-  relationNeighborEntityCount: number;
-  relationExpandedItemCount: number;
   earlyTerminated: boolean;
   /** True when semantic search was attempted but threw an error. */
   semanticSearchFailed: boolean;
@@ -128,49 +126,9 @@ export interface CollectedCandidates {
   merged: Candidate[];
 }
 
-export interface EntitySearchResult {
-  candidates: Candidate[];
-  relationSeedEntityCount: number;
-  relationTraversedEdgeCount: number;
-  relationNeighborEntityCount: number;
-  relationExpandedItemCount: number;
-  candidateDepths?: Map<string, number>; // candidate key → BFS hop depth (1-based)
-}
-
-export interface MatchedEntityRow {
-  id: string;
-  name: string;
-  type: string;
-  aliases: string | null;
-  mention_count: number;
-}
-
 export interface ItemMetadata {
   accessCount: number;
   lastUsedAt: number | null;
   verificationState: string;
   sourceConversationCount?: number;
-}
-
-import type { EntityRelationType, EntityType } from "../entity-extractor.js";
-
-export interface TraversalOptions {
-  maxEdges: number;
-  maxNeighborEntities: number;
-  maxDepth?: number; // default 3
-  relationTypes?: EntityRelationType[];
-  entityTypes?: EntityType[];
-  /** When true, only follow source→target edges (frontier must be on source side). */
-  directed?: boolean;
-}
-
-export interface TraversalResult {
-  neighborEntityIds: string[];
-  traversedEdgeCount: number;
-  neighborDepths: Map<string, number>; // entityId → depth (1-based)
-}
-
-export interface TraversalStep {
-  relationTypes?: EntityRelationType[];
-  entityTypes?: EntityType[];
 }

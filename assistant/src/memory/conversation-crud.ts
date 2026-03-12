@@ -19,7 +19,6 @@ import {
   conversations,
   llmRequestLogs,
   memoryEmbeddings,
-  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   memorySegments,
@@ -759,10 +758,6 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
       result.orphanedItemIds = orphanedIds;
 
       if (orphanedIds.length > 0) {
-        // Delete memory_item_entities (no FK cascade on this table).
-        tx.delete(memoryItemEntities)
-          .where(inArray(memoryItemEntities.memoryItemId, orphanedIds))
-          .run();
         // Delete embeddings referencing these items.
         tx.delete(memoryEmbeddings)
           .where(

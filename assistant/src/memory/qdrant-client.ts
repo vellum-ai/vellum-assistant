@@ -34,7 +34,6 @@ export interface QdrantPointPayload {
   conversation_id?: string;
   message_id?: string;
   memory_scope_id?: string;
-  entity_ids?: string[];
   modality?: "text" | "image" | "audio" | "video";
 }
 

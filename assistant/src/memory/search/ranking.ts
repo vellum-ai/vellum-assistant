@@ -26,9 +26,7 @@ export const SOURCE_WEIGHTS: Record<CandidateSource, number> = {
   lexical: 1.0,
   semantic: 1.0,
   recency: 1.0,
-  entity_direct: 1.0,
   item_direct: 0.95,
-  entity_relation: 1.0,
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -56,19 +54,8 @@ export function mergeCandidates(
     staleDecay: number;
     reinforcementShieldDays: number;
   },
-  relationScoreMultiplier?: number,
-  candidateDepthMap?: Map<string, number>,
 ): Candidate[] {
-  // Build effective weight map that reflects the actual scoring weight for
-  // each source.  For entity_relation the static SOURCE_WEIGHTS entry is 1.0
-  // (a neutral placeholder) but the real multiplier comes from the config
-  // (relationScoreMultiplier).  Using the effective weight in the dedup
-  // upgrade comparison ensures item_direct (0.95) correctly outranks
-  // entity_relation (e.g. 0.7) when both sources return the same candidate.
   const effectiveWeights: Record<string, number> = { ...SOURCE_WEIGHTS };
-  if (relationScoreMultiplier != null) {
-    effectiveWeights["entity_relation"] = relationScoreMultiplier;
-  }
 
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
@@ -140,15 +127,7 @@ export function mergeCandidates(
       freshnessConfig,
     );
 
-    let sourceWeight = effectiveWeights[row.source] ?? 1.0;
-    if (
-      row.source === "entity_relation" &&
-      candidateDepthMap &&
-      relationScoreMultiplier != null
-    ) {
-      const depth = candidateDepthMap.get(row.key) ?? 1;
-      sourceWeight = Math.pow(relationScoreMultiplier, depth);
-    }
+    const sourceWeight = effectiveWeights[row.source] ?? 1.0;
     row.finalScore =
       rrfScore *
       (0.5 + 0.5 * effectiveImportance) *
@@ -192,24 +171,12 @@ function buildSourceCaps(
 ): Record<CandidateSource, number> {
   const lexicalTopK = Math.max(1, config.memory.retrieval.lexicalTopK);
   const semanticTopK = Math.max(1, config.memory.retrieval.semanticTopK);
-  const relationLimit = Math.max(
-    3,
-    Math.floor(
-      Math.min(
-        config.memory.entity.relationRetrieval.maxNeighborEntities,
-        config.memory.entity.relationRetrieval.maxEdges,
-        semanticTopK,
-      ) * 0.4,
-    ),
-  );
 
   return {
     lexical: Math.max(12, lexicalTopK),
     semantic: Math.max(8, semanticTopK),
     recency: Math.max(6, Math.floor(semanticTopK / 2)),
-    entity_direct: Math.max(6, Math.floor(semanticTopK / 2)),
     item_direct: Math.max(8, Math.floor(lexicalTopK / 2)),
-    entity_relation: relationLimit,
   };
 }
 

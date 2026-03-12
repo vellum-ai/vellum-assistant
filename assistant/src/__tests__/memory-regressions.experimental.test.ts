@@ -81,9 +81,6 @@ describe("Memory regressions (experimental)", () => {
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM memory_item_conflicts");
-    db.run("DELETE FROM memory_item_entities");
-    db.run("DELETE FROM memory_entity_relations");
-    db.run("DELETE FROM memory_entities");
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_embeddings");
     db.run("DELETE FROM memory_summaries");

@@ -21,7 +21,6 @@ import {
   QdrantCircuitOpenError,
 } from "./qdrant-circuit-breaker.js";
 import { memoryItems, memoryItemSources, messages } from "./schema.js";
-import { entitySearch } from "./search/entity.js";
 import {
   buildTwoLayerInjection,
   IDENTITY_KINDS,
@@ -130,7 +129,7 @@ function buildScopeFilter(
 
 /**
  * Shared retrieval pipeline: collect candidates from all available sources
- * (lexical, recency, semantic, entity, direct item search) and merge them
+ * (recency, semantic, direct item search) and merge them
  * using RRF.
  */
 export async function collectAndMergeCandidates(
@@ -164,7 +163,7 @@ export async function collectAndMergeCandidates(
   // Detect when semantic search won't be available.
   const semanticUnavailable = !queryVector || isQdrantBreakerOpen();
   if (semanticUnavailable) {
-    log.debug("Semantic search unavailable — recency + entity only");
+    log.debug("Semantic search unavailable — recency only");
   }
 
   // -- Phase 1: recency search (conversation-scoped supplementary query) --
@@ -184,16 +183,9 @@ export async function collectAndMergeCandidates(
       )
     : [];
 
-  // -- Phase 2: semantic + entity search --
+  // -- Phase 2: semantic search --
   let semantic: Candidate[] = [];
-  let entity: Candidate[] = [];
-  let candidateDepths: Map<string, number> | undefined;
-  let relationSeedEntityCount = 0;
-  let relationTraversedEdgeCount = 0;
-  let relationNeighborEntityCount = 0;
-  let relationExpandedItemCount = 0;
 
-  // Start semantic search — the network round-trip overlaps with entity search.
   const semanticPromise = queryVector
     ? semanticSearch(
         queryVector,
@@ -220,59 +212,25 @@ export async function collectAndMergeCandidates(
       })
     : null;
 
-  // Entity search is synchronous — run it while the semantic promise
-  // is in flight.
-  if (config.memory.entity.enabled) {
-    const entitySearchResult = entitySearch(
-      query,
-      config.memory.entity,
-      scopeIds,
-      excludeMessageIds,
-    );
-    entity = entitySearchResult.candidates;
-    candidateDepths = entitySearchResult.candidateDepths;
-    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
-    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
-    relationNeighborEntityCount =
-      entitySearchResult.relationNeighborEntityCount;
-    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
-  }
-
   if (semanticPromise) {
     semantic = await semanticPromise;
   }
 
   const lexical: Candidate[] = [];
 
-  const relationScoreMultiplier =
-    config.memory.entity.enabled &&
-    config.memory.entity.relationRetrieval.enabled
-      ? config.memory.entity.relationRetrieval.neighborScoreMultiplier
-      : undefined;
-  const depthMap =
-    config.memory.entity.enabled &&
-    config.memory.entity.relationRetrieval.depthDecay
-      ? candidateDepths
-      : undefined;
   const merged = mergeCandidates(
     lexical,
     semantic,
     recency,
-    entity,
+    [],
     config.memory.retrieval.freshness,
-    relationScoreMultiplier,
-    depthMap,
   );
 
   return {
     lexical,
     recency,
     semantic,
-    entity,
-    relationSeedEntityCount,
-    relationTraversedEdgeCount,
-    relationNeighborEntityCount,
-    relationExpandedItemCount,
+    entity: [],
     earlyTerminated: false,
     semanticSearchFailed,
     semanticUnavailable,
@@ -287,12 +245,13 @@ export async function collectAndMergeCandidates(
  */
 function buildDegradationStatus(
   reason: DegradationReason,
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): DegradationStatus {
-  const fallbackSources: FallbackSource[] = ["recency"];
-  if (config.memory.entity.enabled) {
-    fallbackSources.push("entity");
-  }
+  const fallbackSources: FallbackSource[] = [
+    "lexical",
+    "recency",
+    "direct_item",
+  ];
   return {
     semanticUnavailable: true,
     reason,
@@ -459,10 +418,10 @@ function formatRecallResult(
       semanticHits: collected.semantic.length,
       recencyHits: collected.recency.length,
       entityHits: collected.entity.length,
-      relationSeedEntityCount: collected.relationSeedEntityCount,
-      relationTraversedEdgeCount: collected.relationTraversedEdgeCount,
-      relationNeighborEntityCount: collected.relationNeighborEntityCount,
-      relationExpandedItemCount: collected.relationExpandedItemCount,
+      relationSeedEntityCount: 0,
+      relationTraversedEdgeCount: 0,
+      relationNeighborEntityCount: 0,
+      relationExpandedItemCount: 0,
       earlyTerminated: collected.earlyTerminated,
       mergedCount,
       selected: selected.length,
@@ -485,10 +444,10 @@ function formatRecallResult(
     semanticHits: collected.semantic.length,
     recencyHits: collected.recency.length,
     entityHits: collected.entity.length,
-    relationSeedEntityCount: collected.relationSeedEntityCount,
-    relationTraversedEdgeCount: collected.relationTraversedEdgeCount,
-    relationNeighborEntityCount: collected.relationNeighborEntityCount,
-    relationExpandedItemCount: collected.relationExpandedItemCount,
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
     earlyTerminated: collected.earlyTerminated,
     mergedCount,
     selectedCount: selected.length,
@@ -536,7 +495,7 @@ export async function buildMemoryRecall(
   );
   if ("earlyExit" in embeddingResult) return embeddingResult.earlyExit;
 
-  // Stage 2: Candidate collection (lexical, recency, direct, semantic, entity)
+  // Stage 2: Candidate collection (recency, semantic)
   let collected: CollectedCandidates;
   try {
     collected = await collectAndMergeCandidates(query, config, {

@@ -94,6 +94,7 @@ export { createOAuthTables } from "./149-oauth-tables.js";
 export { migrateOAuthAppsClientSecretPath } from "./150-oauth-apps-client-secret-path.js";
 export { migrateOAuthProvidersPingUrl } from "./151-oauth-providers-ping-url.js";
 export { migrateMemoryItemSupersession } from "./152-memory-item-supersession.js";
+export { migrateDropEntityTables } from "./153-drop-entity-tables.js";
 export { migrateDropMemorySegmentFts } from "./154-drop-fts.js";
 export { migrateDropConflicts } from "./155-drop-conflicts.js";
 export {

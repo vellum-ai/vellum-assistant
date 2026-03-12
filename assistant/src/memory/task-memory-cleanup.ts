@@ -94,9 +94,9 @@ export function invalidateAssistantInferredItemsForConversation(
 }
 
 /**
- * Cancel pending `extract_items` and `extract_entities` jobs whose messageId
- * belongs to the given conversation. This drains the queue so the worker never
- * processes them, complementing the runtime check in the extraction handler.
+ * Cancel pending `extract_items` jobs whose messageId belongs to the given
+ * conversation. This drains the queue so the worker never processes them,
+ * complementing the runtime check in the extraction handler.
  */
 function cancelPendingExtractionJobsForConversation(
   conversationId: string,
@@ -107,7 +107,7 @@ function cancelPendingExtractionJobsForConversation(
         SET status = 'failed',
             last_error = 'conversation_failed',
             updated_at = ?
-      WHERE type IN ('extract_items', 'extract_entities')
+      WHERE type IN ('extract_items')
         AND status IN ('pending', 'running')
         AND json_extract(payload, '$.messageId') IN (
           SELECT id FROM messages WHERE conversation_id = ?

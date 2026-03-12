@@ -5,11 +5,7 @@ import { getLogger } from "../../util/logger.js";
 import { getDb, rawAll, rawRun } from "../db.js";
 import { asPositiveMs } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
-import {
-  memoryEmbeddings,
-  memoryItemEntities,
-  memoryItems,
-} from "../schema.js";
+import { memoryEmbeddings, memoryItems } from "../schema.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -39,9 +35,6 @@ export function cleanupStaleSupersededItemsJob(
   if (stale.length === 0) return;
 
   const ids = stale.map((row) => row.id);
-  db.delete(memoryItemEntities)
-    .where(inArray(memoryItemEntities.memoryItemId, ids))
-    .run();
   db.delete(memoryEmbeddings)
     .where(
       and(

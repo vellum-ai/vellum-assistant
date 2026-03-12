@@ -89,8 +89,6 @@ import * as calendarListEvents from "./bundled-skills/google-calendar/tools/cale
 import * as calendarRsvp from "./bundled-skills/google-calendar/tools/calendar-rsvp.js";
 // ── image-studio ───────────────────────────────────────────────────────────────
 import * as mediaGenerateImage from "./bundled-skills/image-studio/tools/media-generate-image.js";
-// ── knowledge-graph ────────────────────────────────────────────────────────────
-import * as graphQuery from "./bundled-skills/knowledge-graph/tools/graph-query.js";
 // ── media-processing ───────────────────────────────────────────────────────────
 import * as analyzeKeyframes from "./bundled-skills/media-processing/tools/analyze-keyframes.js";
 import * as extractKeyframes from "./bundled-skills/media-processing/tools/extract-keyframes.js";
@@ -277,9 +275,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // image-studio
   ["image-studio:tools/media-generate-image.ts", mediaGenerateImage],
-
-  // knowledge-graph
-  ["knowledge-graph:tools/graph-query.ts", graphQuery],
 
   // media-processing
   ["media-processing:tools/ingest-media.ts", ingestMedia],

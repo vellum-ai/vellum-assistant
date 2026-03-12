@@ -157,8 +157,8 @@ Examples:
 Arguments:
   text   The recall query string used to search memory (e.g. "What is the
          project deadline?"). Matched against indexed segments using the full
-         recall pipeline: lexical (FTS), semantic (vector similarity), recency
-         (time-weighted), and entity (named entity extraction).
+         recall pipeline: lexical (FTS), semantic (vector similarity), and recency
+         (time-weighted).
 
 Runs the complete memory recall pipeline and displays hit counts for each
 retrieval strategy, the total injected token count, query latency, and the

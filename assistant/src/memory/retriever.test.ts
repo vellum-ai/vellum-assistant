@@ -309,7 +309,8 @@ describe("Memory Retriever Degradation", () => {
     expect(result.degraded).toBe(false);
     expect(result.degradation).toBeUndefined();
     // Lexical search should find matches
-    expect(result.lexicalHits).toBeGreaterThan(0);
+    // FTS/LIKE search removed — lexical hits are always 0 in V1 pipeline
+    expect(result.lexicalHits).toBe(0);
     // Should have selected some candidates
     expect(result.selectedCount).toBeGreaterThan(0);
     expect(result.injectedText.length).toBeGreaterThan(0);
@@ -347,7 +348,8 @@ describe("Memory Retriever Degradation", () => {
     // Semantic search should be skipped entirely
     expect(result.semanticHits).toBe(0);
     // Lexical search should still work (boosted limits)
-    expect(result.lexicalHits).toBeGreaterThan(0);
+    // FTS/LIKE search removed — lexical hits are always 0 in V1 pipeline
+    expect(result.lexicalHits).toBe(0);
     // Results should still be returned despite no semantic
     expect(result.selectedCount).toBeGreaterThan(0);
     expect(result.injectedText.length).toBeGreaterThan(0);
@@ -389,7 +391,8 @@ describe("Memory Retriever Degradation", () => {
     // With no embedding provider, semantic search should be skipped
     expect(result.semanticHits).toBe(0);
     // Lexical search should still produce results
-    expect(result.lexicalHits).toBeGreaterThan(0);
+    // FTS/LIKE search removed — lexical hits are always 0 in V1 pipeline
+    expect(result.lexicalHits).toBe(0);
     expect(result.selectedCount).toBeGreaterThan(0);
   });
 
@@ -463,7 +466,8 @@ describe("Memory Retriever Degradation", () => {
     expect(result.semanticHits).toBe(0);
     // The expanded query ("discuss", "API", "design") should match our seeded
     // segments and items containing those terms.
-    expect(result.lexicalHits).toBeGreaterThan(0);
+    // FTS/LIKE search removed — lexical hits are always 0 in V1 pipeline
+    expect(result.lexicalHits).toBe(0);
     expect(result.selectedCount).toBeGreaterThan(0);
     // Verify the injected text contains content from our seeded data
     expect(result.injectedText).toContain("API");
@@ -527,10 +531,10 @@ describe("Memory Retriever Degradation", () => {
     expect(result.degradation!.fallbackSources.length).toBeGreaterThan(0);
   });
 
-  test("degradation status: entity fallback included when entity search enabled", async () => {
+  test("degradation status: entity fallback is never included after entity search removal", async () => {
     seedMemory();
 
-    const entityConfig: AssistantConfig = {
+    const config: AssistantConfig = {
       ...TEST_CONFIG,
       apiKeys: {
         ...TEST_CONFIG.apiKeys,
@@ -540,10 +544,6 @@ describe("Memory Retriever Degradation", () => {
       },
       memory: {
         ...TEST_CONFIG.memory,
-        entity: {
-          ...TEST_CONFIG.memory.entity,
-          enabled: true,
-        },
         embeddings: {
           ...TEST_CONFIG.memory.embeddings,
           provider: "openai",
@@ -555,42 +555,7 @@ describe("Memory Retriever Degradation", () => {
     const result = await buildMemoryRecall(
       "API design",
       "conv-degrade-test",
-      entityConfig,
-    );
-
-    expect(result.degradation).toBeDefined();
-    expect(result.degradation!.fallbackSources).toContain("entity");
-  });
-
-  test("degradation status: entity fallback excluded when entity search disabled", async () => {
-    seedMemory();
-
-    const noEntityConfig: AssistantConfig = {
-      ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
-      memory: {
-        ...TEST_CONFIG.memory,
-        entity: {
-          ...TEST_CONFIG.memory.entity,
-          enabled: false,
-        },
-        embeddings: {
-          ...TEST_CONFIG.memory.embeddings,
-          provider: "openai",
-          required: true,
-        },
-      },
-    };
-
-    const result = await buildMemoryRecall(
-      "API design",
-      "conv-degrade-test",
-      noEntityConfig,
+      config,
     );
 
     expect(result.degradation).toBeDefined();

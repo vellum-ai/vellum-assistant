@@ -79,49 +79,6 @@ export function enqueueMemoryJob(
   return id;
 }
 
-/**
- * Ensure there is only one pending relation backfill orchestrator job.
- * If `force=true` arrives while a pending job exists, its payload is upgraded.
- */
-export function enqueueBackfillEntityRelationsJob(force = false): string {
-  const db = getDb();
-  const now = Date.now();
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "backfill_entity_relations"),
-        eq(memoryJobs.status, "pending"),
-      ),
-    )
-    .orderBy(asc(memoryJobs.createdAt))
-    .get();
-
-  if (existing) {
-    if (force) {
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = JSON.parse(existing.payload) as Record<string, unknown>;
-      } catch {
-        payload = {};
-      }
-      if (payload.force !== true) {
-        db.update(memoryJobs)
-          .set({
-            payload: JSON.stringify({ ...payload, force: true }),
-            updatedAt: now,
-          })
-          .where(eq(memoryJobs.id, existing.id))
-          .run();
-      }
-    }
-    return existing.id;
-  }
-
-  return enqueueMemoryJob("backfill_entity_relations", { force });
-}
-
 export function enqueueCleanupStaleSupersededItemsJob(
   retentionMs?: number,
 ): string {
