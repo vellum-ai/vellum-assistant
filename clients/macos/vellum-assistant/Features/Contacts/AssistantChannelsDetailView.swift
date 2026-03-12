@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct AssistantChannelsDetailView: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    var isEmailEnabled: Bool = false
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -50,13 +51,17 @@ struct AssistantChannelsDetailView: View {
                 telegramCard
                 slackChannelCard
                 voiceCard
-                emailCard
+                if isEmailEnabled {
+                    emailCard
+                }
             }
             .padding(VSpacing.lg)
         }
         .onAppear {
             store.fetchChannelSetupStatus()
-            store.refreshAssistantEmail()
+            if isEmailEnabled {
+                store.refreshAssistantEmail()
+            }
             store.refreshChannelVerificationStatus(channel: "telegram")
             store.refreshChannelVerificationStatus(channel: "phone")
             store.refreshChannelVerificationStatus(channel: "slack")
