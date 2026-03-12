@@ -460,6 +460,12 @@ export function createSlackDeliverHandler(
         { status: 400 },
       );
     }
+    if (isEphemeral && attachments && attachments.length > 0) {
+      return Response.json(
+        { error: "attachments are not supported for ephemeral messages" },
+        { status: 400 },
+      );
+    }
 
     // Validate approval payload shape
     if (body.approval) {
