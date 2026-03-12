@@ -8,7 +8,6 @@ import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
-import { getConnectionByProvider } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -62,15 +61,17 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 // -- Extracted business logic functions --
 
 export function getTelegramConfig(): TelegramConfigResult {
-  const conn = getConnectionByProvider("telegram");
-  const connected = !!(conn && conn.status === "active");
+  const hasBotToken = !!getSecureKey(credentialKey("telegram", "bot_token"));
+  const hasWebhookSecret = !!getSecureKey(
+    credentialKey("telegram", "webhook_secret"),
+  );
   const botUsername = getTelegramBotUsername();
   return {
     success: true,
-    hasBotToken: connected,
+    hasBotToken,
     botUsername,
-    connected,
-    hasWebhookSecret: connected,
+    connected: hasBotToken && hasWebhookSecret,
+    hasWebhookSecret,
   };
 }
 
