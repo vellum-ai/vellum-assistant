@@ -1214,7 +1214,7 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release, ci-playwright]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1587,8 +1587,8 @@ jobs:
 
   ci-playwright:
     name: Playwright Tests
-    needs: [bump-and-tag, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    needs: [bump-and-tag, build-macos-arm64]
+    if: ${{ !cancelled() && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1606,7 +1606,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          BRANCH="v${{ needs.bump-and-tag.outputs.version }}"
           BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 
@@ -1615,9 +1615,9 @@ jobs:
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/vellum-ai/vellum-assistant-platform/actions/workflows/playwright.yaml/dispatches" \
-            -d "{\"ref\":\"main\",\"inputs\":{\"release_version\":\"$VERSION\",\"shards\":\"4\",\"test_filter\":\"stable\"}}"
+            -d "{\"ref\":\"main\",\"inputs\":{\"branch\":\"$BRANCH\",\"shards\":\"4\",\"test_filter\":\"stable\"}}"
 
-          echo "Triggered playwright workflow for version v$VERSION"
+          echo "Triggered playwright workflow for branch $BRANCH"
           sleep 15
 
       - name: Wait for Playwright workflow result
