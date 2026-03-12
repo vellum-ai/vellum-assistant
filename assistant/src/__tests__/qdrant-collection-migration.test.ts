@@ -21,12 +21,14 @@ interface MockCallLog {
 
 let mockCollectionExists: boolean;
 let mockCollectionSize: number;
+let mockUseNamedVectors: boolean;
 let mockSentinelPayload: Record<string, unknown> | null;
 let callLog: MockCallLog;
 
 function resetMockState() {
   mockCollectionExists = false;
   mockCollectionSize = 384;
+  mockUseNamedVectors = false;
   mockSentinelPayload = null;
   callLog = {
     collectionExists: 0,
@@ -51,7 +53,9 @@ mock.module("@qdrant/js-client-rest", () => ({
       return {
         config: {
           params: {
-            vectors: { size: mockCollectionSize },
+            vectors: mockUseNamedVectors
+              ? { dense: { size: mockCollectionSize } }
+              : { size: mockCollectionSize },
           },
         },
       };
@@ -97,6 +101,7 @@ beforeEach(() => {
 describe("Qdrant collection migration", () => {
   test("deletes and recreates collection on dimension mismatch", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 384; // Current collection has 384-dim vectors
 
     const client = new VellumQdrantClient({
@@ -116,6 +121,7 @@ describe("Qdrant collection migration", () => {
 
   test("deletes and recreates collection on model-only mismatch", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 768; // Same dimension
     mockSentinelPayload = {
       _meta: true,
@@ -141,6 +147,7 @@ describe("Qdrant collection migration", () => {
 
   test("leaves collection untouched when dimensions and model match", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 768;
     mockSentinelPayload = {
       _meta: true,
@@ -164,6 +171,7 @@ describe("Qdrant collection migration", () => {
 
   test("does not rebuild pre-existing collection without sentinel (graceful upgrade)", async () => {
     mockCollectionExists = true;
+    mockUseNamedVectors = true;
     mockCollectionSize = 768;
     mockSentinelPayload = null; // No sentinel — pre-existing collection
 
