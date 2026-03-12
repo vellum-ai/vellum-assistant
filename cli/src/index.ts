@@ -9,6 +9,7 @@ import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { retire } from "./commands/retire";
+import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
@@ -25,6 +26,7 @@ const commands = {
   ps,
   recover,
   retire,
+  setup,
   sleep,
   ssh,
   tunnel,
@@ -59,6 +61,7 @@ async function main() {
     );
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");
+    console.log("  setup    Configure API keys interactively");
     console.log("  sleep    Stop the assistant process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  tunnel   Create a tunnel for a locally hosted assistant");

@@ -36,7 +36,11 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 ## PR Workflow
 
-- **Linear tickets**: Include issue ID in branch names and commit messages. Keep status in sync: In Progress when starting, In Review when PR is created, Done when merged.
+- **Linear tickets**: When a Linear ticket is provided anywhere in context (user message, TODO, plan), use the issue identifier (e.g. `JARVIS-123`) throughout:
+  - **Branch name**: Include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
+  - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
+  - **PR description**: Mention the identifier (e.g. `Closes JARVIS-123`) in the PR body for redundancy — Linear also parses PR descriptions.
+  - **Status sync**: Transition the ticket to In Progress when starting work, In Review when the PR is created, and Done when merged. Use the Linear MCP tools when available.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 

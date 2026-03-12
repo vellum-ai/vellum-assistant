@@ -11,6 +11,30 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatAttachmentManager")
 
+/// Async-compatible semaphore that suspends (not blocks) waiting tasks.
+/// Drop-in replacement for DispatchSemaphore in structured concurrency contexts,
+/// avoiding thread starvation on the cooperative thread pool.
+private actor AsyncSemaphore {
+    private var count: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(value: Int) { self.count = value }
+
+    func wait() async {
+        if count > 0 { count -= 1; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func signal() {
+        if let next = waiters.first {
+            waiters.removeFirst()
+            next.resume()
+        } else {
+            count += 1
+        }
+    }
+}
+
 /// Owns the pending-attachment list and all attachment-manipulation methods that
 /// were previously part of ChatViewModel / ChatViewModel+Attachments.
 /// ChatViewModel holds a reference to this object and forwards reads/writes via
@@ -28,6 +52,11 @@ public final class ChatAttachmentManager: ObservableObject {
     private var loadingCount: Int = 0 {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
+
+    /// Limits concurrent attachment I/O to avoid unbounded memory spikes when
+    /// many files are selected at once (each can read up to 20 MB).
+    private static let maxConcurrentLoads = 4
+    private let loadSemaphore = AsyncSemaphore(value: maxConcurrentLoads)
 
     // MARK: - Limits
 
@@ -61,7 +90,7 @@ public final class ChatAttachmentManager: ObservableObject {
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
-            let result = await Self.loadAttachment(url: url)
+            let result = await self.loadAttachment(url: url)
             switch result {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
@@ -114,7 +143,7 @@ public final class ChatAttachmentManager: ObservableObject {
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
-            let result = await Self.loadAttachment(imageData: imageData, filename: filename)
+            let result = await self.loadAttachment(imageData: imageData, filename: filename)
             switch result {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
@@ -129,15 +158,17 @@ public final class ChatAttachmentManager: ObservableObject {
     /// Reads, validates, compresses, and thumbnails an attachment from a file URL.
     /// All blocking work runs off the main actor; callers receive a ready-to-use
     /// ChatAttachment (or an error message) and can update UI state directly.
-    private static func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
+    private func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
+        // Suspend (not block) until a concurrency slot is available.
+        await loadSemaphore.wait()
         // Hop off the main actor for all blocking I/O and CPU work.
-        return await Task.detached(priority: .userInitiated) {
+        let result = await Task.detached(priority: .userInitiated) {
             let data: Data
             do {
                 data = try Data(contentsOf: url)
             } catch {
                 log.error("Failed to read attachment: \(error.localizedDescription)")
-                return .failure(.message("Could not read file."))
+                return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
             }
 
             // Belt-and-suspenders: validate the actual byte count after reading.
@@ -200,12 +231,16 @@ public final class ChatAttachmentManager: ObservableObject {
             )
             return .success(attachment)
         }.value
+        await loadSemaphore.signal()
+        return result
     }
 
     /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
     /// All blocking work runs off the main actor.
-    private static func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
-        return await Task.detached(priority: .userInitiated) {
+    private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
+        // Suspend (not block) until a concurrency slot is available.
+        await loadSemaphore.wait()
+        let result = await Task.detached(priority: .userInitiated) {
             // Convert to PNG if needed — raw image data may be TIFF
             let pngData: Data
             #if os(macOS)
@@ -220,11 +255,11 @@ public final class ChatAttachmentManager: ObservableObject {
                     pngData = converted
                 } else {
                     log.error("Failed to convert dropped image to PNG")
-                    return .failure(.message("Could not process image."))
+                    return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
                 }
             } else {
                 log.error("Dropped data is not a valid image")
-                return .failure(.message("Could not process image."))
+                return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
             }
             #elseif os(iOS)
             if let image = UIImage(data: imageData) {
@@ -237,11 +272,11 @@ public final class ChatAttachmentManager: ObservableObject {
                     pngData = converted
                 } else {
                     log.error("Failed to convert dropped image to PNG")
-                    return .failure(.message("Could not process image."))
+                    return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
                 }
             } else {
                 log.error("Dropped data is not a valid image")
-                return .failure(.message("Could not process image."))
+                return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
             }
             #else
             #error("Unsupported platform")
@@ -291,6 +326,8 @@ public final class ChatAttachmentManager: ObservableObject {
             )
             return .success(attachment)
         }.value
+        await loadSemaphore.signal()
+        return result
     }
 
     // MARK: - Static helpers (shared with ChatViewModel+Attachments and mapMessageAttachments)

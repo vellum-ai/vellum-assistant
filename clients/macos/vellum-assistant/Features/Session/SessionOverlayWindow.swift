@@ -6,7 +6,7 @@ import VellumAssistantShared
 @MainActor
 final class SessionOverlayWindow {
     private var panel: NSPanel?
-    private let session: ComputerUseSession
+    private let session: any SessionOverlayProviding
     private var cancellables = Set<AnyCancellable>()
 
     // Retained views for in-place updates
@@ -23,7 +23,7 @@ final class SessionOverlayWindow {
     private let padding: CGFloat = 16
     private let sectionSpacing: CGFloat = 14 // VSpacing.md + VSpacing.xxs
 
-    init(session: ComputerUseSession) {
+    init(session: any SessionOverlayProviding) {
         self.session = session
     }
 
@@ -64,19 +64,19 @@ final class SessionOverlayWindow {
         self.panel = panel
 
         // Observe state, undoCount, and autoApproveTools changes
-        session.$state
+        session.statePublisher
             .sink { [weak self] state in
                 self?.updateState(state)
             }
             .store(in: &cancellables)
 
-        session.$undoCount
+        session.undoCountPublisher
             .sink { [weak self] _ in
                 self?.updateControls()
             }
             .store(in: &cancellables)
 
-        session.$autoApproveTools
+        session.autoApproveToolsPublisher
             .sink { [weak self] _ in
                 self?.updateControls()
             }
@@ -731,10 +731,10 @@ final class SessionOverlayWindow {
 // MARK: - Button Target (NSObject for selectors)
 
 private class SessionOverlayButtonTarget: NSObject {
-    private let session: ComputerUseSession
+    private let session: any SessionOverlayProviding
     weak var overlayWindow: SessionOverlayWindow?
 
-    init(session: ComputerUseSession) {
+    init(session: any SessionOverlayProviding) {
         self.session = session
     }
 

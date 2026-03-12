@@ -10,6 +10,56 @@ export interface HealthCheckResult {
   detail: string | null;
 }
 
+export async function checkManagedHealth(
+  runtimeUrl: string,
+  assistantId: string,
+): Promise<HealthCheckResult> {
+  const { readPlatformToken } = await import("./platform-client.js");
+  const token = readPlatformToken();
+  if (!token) {
+    return {
+      status: "error (auth)",
+      detail: "not logged in — run `vellum login`",
+    };
+  }
+
+  try {
+    const url = `${runtimeUrl}/v1/assistants/${assistantId}/healthz/`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      HEALTH_CHECK_TIMEOUT_MS,
+    );
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Session-Token": token,
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return { status: `error (${response.status})`, detail: null };
+    }
+
+    const data = (await response.json()) as HealthResponse;
+    const status = data.status || "unknown";
+    return {
+      status,
+      detail: status !== "healthy" ? (data.message ?? null) : null,
+    };
+  } catch (error) {
+    const status =
+      error instanceof Error && error.name === "AbortError"
+        ? "timeout"
+        : "unreachable";
+    return { status, detail: null };
+  }
+}
+
 export async function checkHealth(
   runtimeUrl: string,
   bearerToken?: string,

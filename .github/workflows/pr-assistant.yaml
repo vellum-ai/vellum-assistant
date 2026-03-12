@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Lint
         run: bun run lint
 
@@ -72,6 +75,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Type check
         run: bunx tsc --noEmit
 
@@ -102,6 +108,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
 
       - name: Test
         run: bun run test

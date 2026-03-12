@@ -376,23 +376,6 @@ struct LockfileAssistant {
         return resolved
     }
 
-    /// Writes this assistant's config to `~/.vellum/workspace/config.json`
-    /// via `WorkspaceConfigIO.merge()`.
-    func writeToWorkspaceConfig() {
-        var homeConfig: [String: Any] = ["cloud": cloud]
-        if let runtimeUrl { homeConfig["runtimeUrl"] = runtimeUrl }
-        if let project { homeConfig["project"] = project }
-        if let region { homeConfig["region"] = region }
-        if let zone { homeConfig["zone"] = zone }
-        if let instanceId { homeConfig["instanceId"] = instanceId }
-
-        let existing = WorkspaceConfigIO.read()
-        var assistantConfig = existing["assistant"] as? [String: Any] ?? [:]
-        assistantConfig["id"] = assistantId
-        assistantConfig["home"] = homeConfig
-        try? WorkspaceConfigIO.merge(["assistant": assistantConfig])
-    }
-
     /// Inserts or updates a managed (cloud = "vellum") entry in the lockfile.
     ///
     /// If an entry with the same `assistantId` already exists, it is updated

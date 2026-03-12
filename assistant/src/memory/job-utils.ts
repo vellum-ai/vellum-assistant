@@ -8,6 +8,7 @@ import { getLogger } from "../util/logger.js";
 import { getDb } from "./db.js";
 import {
   embedWithBackend,
+  generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "./embedding-backend.js";
 import type { EmbeddingInput } from "./embedding-types.js";
@@ -201,6 +202,14 @@ export async function embedAndUpsert(
       ? normalized.text
       : `[${normalized.type}:${normalized.mimeType}]`;
 
+  // Generate sparse embedding from the same source text used for dense embedding.
+  // For non-text (media) inputs, sparse vectors are skipped since tokenization
+  // only applies to text content.
+  const sparseVector =
+    normalized.type === "text"
+      ? generateSparseEmbedding(normalized.text)
+      : undefined;
+
   // Persist embedding in SQLite for cross-restart cache
   const now = Date.now();
   try {
@@ -249,12 +258,18 @@ export async function embedAndUpsert(
   try {
     const modality = normalized.type;
     await withQdrantBreaker(() =>
-      qdrant.upsert(targetType, targetId, vector, {
-        text: payloadText,
-        modality,
-        created_at: (extraPayload?.created_at as number) ?? now,
-        ...(extraPayload as Record<string, unknown> | undefined),
-      }),
+      qdrant.upsert(
+        targetType,
+        targetId,
+        vector,
+        {
+          text: payloadText,
+          modality,
+          created_at: (extraPayload?.created_at as number) ?? now,
+          ...(extraPayload as Record<string, unknown> | undefined),
+        },
+        sparseVector,
+      ),
     );
   } catch (err) {
     log.warn(

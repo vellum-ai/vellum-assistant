@@ -19,10 +19,9 @@ const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
 
-// Place the test registry file adjacent to the gateway source so
-// getRegistryCandidates() finds it via the bundled-copy candidate.
-const gatewaySrcDir = join(import.meta.dirname, "..");
-const defaultsPath = join(gatewaySrcDir, "feature-flag-registry.json");
+// Write the test registry to an isolated temp path so we never touch
+// the committed gateway/src/feature-flag-registry.json file.
+const defaultsPath = join(testDir, "feature-flag-registry.json");
 
 const TEST_REGISTRY = {
   version: 1,
@@ -64,19 +63,12 @@ const TEST_REGISTRY = {
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
 
-// Save the original committed registry contents so we can restore after tests
-let originalRegistryContents: string | null = null;
-
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   mkdirSync(workspaceDir, { recursive: true });
-  // Preserve the original committed file before overwriting with test data
-  try {
-    originalRegistryContents = readFileSync(defaultsPath, "utf-8");
-  } catch {
-    originalRegistryContents = null;
-  }
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
+  // Point registry resolution at the isolated test file first
+  _setRegistryCandidateOverrides([defaultsPath]);
   resetFeatureFlagDefaultsCache();
 });
 
@@ -91,22 +83,18 @@ afterEach(() => {
   } catch {
     // best effort cleanup
   }
-  // Restore the original committed registry file instead of deleting it
-  try {
-    if (originalRegistryContents !== null) {
-      writeFileSync(defaultsPath, originalRegistryContents);
-    }
-  } catch {
-    // best effort cleanup
-  }
-  // Reset the defaults cache so tests don't leak state
+  // Clear the test-only candidate override and reset the defaults cache
+  _setRegistryCandidateOverrides(null);
   resetFeatureFlagDefaultsCache();
 });
 
 const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
   await import("../http/routes/feature-flags.js");
-const { loadFeatureFlagDefaults, resetFeatureFlagDefaultsCache } =
-  await import("../feature-flag-defaults.js");
+const {
+  loadFeatureFlagDefaults,
+  resetFeatureFlagDefaultsCache,
+  _setRegistryCandidateOverrides,
+} = await import("../feature-flag-defaults.js");
 
 describe("GET /v1/feature-flags handler", () => {
   test("returns all declared assistant-scope flags with defaults when config file does not exist", async () => {

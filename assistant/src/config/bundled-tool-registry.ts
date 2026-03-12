@@ -48,6 +48,7 @@ import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
 import * as computerUseDrag from "./bundled-skills/computer-use/tools/computer-use-drag.js";
 import * as computerUseKey from "./bundled-skills/computer-use/tools/computer-use-key.js";
+import * as computerUseObserve from "./bundled-skills/computer-use/tools/computer-use-observe.js";
 import * as computerUseOpenApp from "./bundled-skills/computer-use/tools/computer-use-open-app.js";
 import * as computerUseRespond from "./bundled-skills/computer-use/tools/computer-use-respond.js";
 import * as computerUseRunApplescript from "./bundled-skills/computer-use/tools/computer-use-run-applescript.js";
@@ -219,6 +220,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["claude-code:tools/claude-code.ts", claudeCode],
 
   // computer-use
+  ["computer-use:tools/computer-use-observe.ts", computerUseObserve],
   ["computer-use:tools/computer-use-click.ts", computerUseClick],
   ["computer-use:tools/computer-use-type-text.ts", computerUseTypeText],
   ["computer-use:tools/computer-use-key.ts", computerUseKey],

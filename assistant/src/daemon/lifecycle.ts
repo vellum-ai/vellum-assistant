@@ -15,6 +15,7 @@ import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
+  setIngressPublicBaseUrl,
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
@@ -22,9 +23,10 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry } from "../instrument.js";
-import { initLogfire } from "../logfire.js";
+import { disableLogfire, initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
+import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import {
   deleteMessageById,
   getConversationThreadType,
@@ -40,6 +42,7 @@ import {
   emitNotificationSignal,
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
+import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
@@ -157,7 +160,23 @@ export async function runDaemon(): Promise<void> {
     initializeDb();
     // Seed well-known OAuth provider configurations (insert-if-not-exists)
     seedOAuthProviders();
+    // Backfill oauth_connection rows for manual-token providers (Telegram,
+    // Slack channel) that already have keychain credentials from before the
+    // oauth_connection migration. Safe to call on every startup.
+    await backfillManualTokenConnections();
     log.info("Daemon startup: DB initialized");
+
+    // Expire any pending canonical guardian requests left over from before
+    // this process started.  Their in-memory pending-interaction session
+    // references are gone, so they can never be completed.  The agent loop
+    // will re-request tool approvals on the next turn.
+    const expiredCount = expireAllPendingCanonicalRequests();
+    if (expiredCount > 0) {
+      log.info(
+        { event: "startup_expired_stale_requests", expiredCount },
+        `Expired ${expiredCount} stale pending canonical request(s) from previous process`,
+      );
+    }
 
     // Ensure a vellum guardian binding exists and mint the CLI edge token
     // as an actor token bound to the guardian principal.
@@ -234,6 +253,19 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
+    // Seed module-level ingress state from the workspace config so that
+    // getIngressPublicBaseUrl() returns the correct value immediately after
+    // startup (before any handleIngressConfig("set") call). Without this,
+    // code paths that read the module-level state directly (e.g. session-slash
+    // pairing info) would see undefined until an explicit set.
+    if (config.ingress.enabled && config.ingress.publicBaseUrl) {
+      setIngressPublicBaseUrl(config.ingress.publicBaseUrl);
+      log.info(
+        { url: config.ingress.publicBaseUrl },
+        "Daemon startup: seeded ingress URL from workspace config",
+      );
+    }
+
     if (config.logFile.dir) {
       initLogger({
         dir: config.logFile.dir,
@@ -249,6 +281,18 @@ export async function runDaemon(): Promise<void> {
     );
     if (!collectUsageData) {
       await closeSentry();
+    }
+
+    // If Logfire observability is not explicitly enabled, disable it so
+    // wrapWithLogfire() calls during provider setup become no-ops. Logfire
+    // is initialized eagerly (before config loads) for the same reason as
+    // Sentry — but the feature flag gates whether it actually traces.
+    const logfireEnabled = isAssistantFeatureFlagEnabled(
+      "feature_flags.logfire.enabled",
+      config,
+    );
+    if (!logfireEnabled) {
+      disableLogfire();
     }
 
     await initializeProvidersAndTools(config);
@@ -493,12 +537,9 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
-      getComputerUseDeps: () => {
+      getWatchDeps: () => {
         const ctx = server.getHandlerContext();
         return {
-          cuSessions: ctx.cuSessions,
-          sharedRequestTimestamps: ctx.sharedRequestTimestamps,
-          cuObservationParseSequence: ctx.cuObservationParseSequence,
           handleWatchObservation: async (params) => {
             await handleWatchObservation(
               {

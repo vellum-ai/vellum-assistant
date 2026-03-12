@@ -11,14 +11,11 @@ import {
   embeddingInputContentHash,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
+  type SparseEmbedding,
   type TextEmbeddingInput,
 } from "./embedding-types.js";
 
-export type {
-  EmbeddingInput,
-  MultimodalEmbeddingInput,
-  TextEmbeddingInput,
-};
+export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
 export { embeddingInputContentHash, normalizeEmbeddingInput };
 
 const log = getLogger("memory-embeddings");
@@ -412,7 +409,12 @@ export async function embedWithBackend(
 
   // ── In-memory cache check (primary provider only) ──────────────
   const cached: (number[] | null)[] = inputs.map((input) => {
-    const v = getFromVectorCache(primaryProvider, primaryModel, input, vectorExtras);
+    const v = getFromVectorCache(
+      primaryProvider,
+      primaryModel,
+      input,
+      vectorExtras,
+    );
     if (v && v.length === expectedDim) return v;
     return null;
   });
@@ -443,7 +445,8 @@ export async function embedWithBackend(
 
     // Skip text-only backends for multimodal inputs
     const hasNonText = inputsToEmbed.some(
-      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+      (i) =>
+        typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
     if (backend.provider !== "gemini" && hasNonText) {
       continue;
@@ -502,7 +505,8 @@ export async function embedWithBackend(
   }
   if (!anyBackendAttempted) {
     const hasMultimodal = inputs.some(
-      (i) => typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
+      (i) =>
+        typeof i !== "string" && normalizeEmbeddingInput(i).type !== "text",
     );
     if (hasMultimodal) {
       throw new Error(
@@ -613,4 +617,69 @@ function isOllamaConfigured(config: AssistantConfig): boolean {
     Boolean(config.apiKeys.ollama) ||
     Boolean(getOllamaBaseUrlEnv())
   );
+}
+
+// ── TF-IDF sparse embedding ───────────────────────────────────────
+// Simple tokenizer + TF-IDF sparse encoder. Produces a SparseEmbedding
+// with term indices (hashed to a fixed vocabulary) and TF-IDF weights.
+// Can be upgraded to a learned sparse encoder (e.g. SPLADE) later.
+
+const SPARSE_VOCAB_SIZE = 30_000;
+
+/** Tokenize text into lowercase alphanumeric tokens. */
+function tokenize(text: string): string[] {
+  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+}
+
+/** Hash a token to a stable index in [0, vocabSize). */
+function tokenHash(token: string, vocabSize: number): number {
+  // FNV-1a 32-bit hash for speed
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < token.length; i++) {
+    hash ^= token.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return hash % vocabSize;
+}
+
+/**
+ * Generate a TF-IDF-based sparse embedding for the given text.
+ *
+ * Term frequency is computed from the input. IDF is approximated using
+ * sub-linear TF weighting (1 + log(tf)) since we don't have a corpus-level
+ * document frequency table. This still produces useful sparse vectors for
+ * lexical matching via Qdrant's sparse vector support.
+ */
+export function generateSparseEmbedding(text: string): SparseEmbedding {
+  const tokens = tokenize(text);
+  if (tokens.length === 0) {
+    return { indices: [], values: [] };
+  }
+
+  // Count term frequencies per hash bucket
+  const tf = new Map<number, number>();
+  for (const token of tokens) {
+    const idx = tokenHash(token, SPARSE_VOCAB_SIZE);
+    tf.set(idx, (tf.get(idx) ?? 0) + 1);
+  }
+
+  // Convert to sub-linear TF weights: 1 + log(tf)
+  const indices: number[] = [];
+  const values: number[] = [];
+  for (const [idx, count] of tf) {
+    indices.push(idx);
+    values.push(1 + Math.log(count));
+  }
+
+  // L2-normalize the sparse vector so scores are comparable
+  let norm = 0;
+  for (const v of values) norm += v * v;
+  norm = Math.sqrt(norm);
+  if (norm > 0) {
+    for (let i = 0; i < values.length; i++) {
+      values[i] /= norm;
+    }
+  }
+
+  return { indices, values };
 }

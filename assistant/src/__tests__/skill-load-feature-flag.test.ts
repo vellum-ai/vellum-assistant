@@ -61,7 +61,6 @@ mock.module("../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
-  isDebug: () => false,
   truncateForLog: (value: string) => value,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,

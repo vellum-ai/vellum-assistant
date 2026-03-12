@@ -528,7 +528,28 @@ export async function discoverPublicUrl(
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
 
-  // Use the local LAN address.
+  // Discover local and cloud addresses in parallel so the cloud metadata
+  // timeout (1s) doesn't block startup when a local address is immediately
+  // available.
+  const cloudIpPromise = discoverCloudExternalIp();
+
+  // Resolve local address synchronously (no I/O).
+  const localUrl = discoverLocalUrl(effectivePort);
+
+  const cloudIp = await cloudIpPromise;
+  if (cloudIp) {
+    console.log(`   Discovered external IP: ${cloudIp}`);
+    return `http://${cloudIp}:${effectivePort}`;
+  }
+
+  return localUrl;
+}
+
+/**
+ * Resolve a LAN-reachable URL without any async I/O. Returns the best local
+ * address or falls back to localhost.
+ */
+function discoverLocalUrl(effectivePort: number): string {
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
@@ -547,6 +568,58 @@ export async function discoverPublicUrl(
 
   // Final fallback to localhost when no LAN address could be discovered.
   return `http://localhost:${effectivePort}`;
+}
+
+/**
+ * Attempt to discover the VM's external/public IP via cloud metadata services.
+ * Tries GCP and AWS IMDSv2 in parallel with a short timeout. Returns undefined
+ * on non-cloud machines (the metadata endpoint is unreachable).
+ */
+async function discoverCloudExternalIp(): Promise<string | undefined> {
+  const timeoutMs = 1000;
+
+  const gcpPromise = (async (): Promise<string | undefined> => {
+    try {
+      const resp = await fetch(
+        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+        {
+          headers: { "Metadata-Flavor": "Google" },
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      );
+      if (resp.ok) return (await resp.text()).trim() || undefined;
+    } catch {
+      // metadata service not reachable
+    }
+    return undefined;
+  })();
+
+  const awsPromise = (async (): Promise<string | undefined> => {
+    try {
+      const tokenResp = await fetch("http://169.254.169.254/latest/api/token", {
+        method: "PUT",
+        headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (tokenResp.ok) {
+        const token = await tokenResp.text();
+        const ipResp = await fetch(
+          "http://169.254.169.254/latest/meta-data/public-ipv4",
+          {
+            headers: { "X-aws-ec2-metadata-token": token },
+            signal: AbortSignal.timeout(timeoutMs),
+          },
+        );
+        if (ipResp.ok) return (await ipResp.text()).trim() || undefined;
+      }
+    } catch {
+      // metadata service not reachable
+    }
+    return undefined;
+  })();
+
+  const [gcpIp, awsIp] = await Promise.all([gcpPromise, awsPromise]);
+  return gcpIp ?? awsIp;
 }
 
 /**
@@ -843,6 +916,7 @@ export async function startGateway(
   // the gateway process. The gateway reads these at startup from config.json.
   writeGatewayConfig(resources?.instanceDir, {
     runtimeProxyEnabled: true,
+    runtimeProxyRequireAuth: true,
     unmappedPolicy: "default",
     defaultAssistantId: "self",
   });
@@ -973,8 +1047,8 @@ export async function stopLocalProcesses(
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
   // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
-  // isVellumProcess() checks for /vellum|@vellumai|--vellum-gateway/ which
-  // won't match the ngrok binary — resulting in a no-op that leaves ngrok running.
+  // isVellumProcess() won't match the ngrok binary — resulting in a no-op that
+  // leaves ngrok running.
   const ngrokPidFile = join(vellumDir, "ngrok.pid");
   if (existsSync(ngrokPidFile)) {
     try {

@@ -22,6 +22,7 @@ import type { CredentialInjectionTemplate } from "../tools/credentials/policy-ty
 import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 import {
   createConnection,
+  getApp,
   getConnectionByProvider,
   updateConnection,
   upsertApp,
@@ -101,21 +102,28 @@ export async function storeOAuth2Tokens(
 
   // 1. Upsert the oauth_app row (or use the pre-resolved ID).
   const app = params.oauthAppId
-    ? { id: params.oauthAppId }
-    : upsertApp(service, clientId);
+    ? (getApp(params.oauthAppId) ?? {
+        id: params.oauthAppId,
+        clientSecretCredentialPath: `oauth_app/${params.oauthAppId}/client_secret`,
+      })
+    : await upsertApp(
+        service,
+        clientId,
+        clientSecret ? { clientSecretValue: clientSecret } : undefined,
+      );
 
-  // 2. Write client_secret to new key format: oauth_app/{app.id}/client_secret
-  if (clientSecret) {
-    const clientSecretStored = await setSecureKeyAsync(
-      `oauth_app/${app.id}/client_secret`,
+  // When oauthAppId is pre-resolved, still persist clientSecret if provided.
+  if (params.oauthAppId && clientSecret) {
+    const stored = await setSecureKeyAsync(
+      app.clientSecretCredentialPath,
       clientSecret,
     );
-    if (!clientSecretStored) {
+    if (!stored) {
       throw new Error("Failed to store client_secret in secure storage");
     }
   }
 
-  // 3. Upsert oauth_connection — reuse existing active connection for this
+  // 2. Upsert oauth_connection — reuse existing active connection for this
   //    provider, or create a new one.
   const existingConn = getConnectionByProvider(service);
   let connId: string;
@@ -125,6 +133,7 @@ export async function storeOAuth2Tokens(
   if (existingConn) {
     connId = existingConn.id;
     updateConnection(connId, {
+      oauthAppId: app.id,
       accountInfo: resolvedAccountInfo,
       grantedScopes,
       expiresAt,
@@ -144,7 +153,7 @@ export async function storeOAuth2Tokens(
     connId = conn.id;
   }
 
-  // 4. Write access_token: oauth_connection/{conn.id}/access_token
+  // 3. Write access_token: oauth_connection/{conn.id}/access_token
   const tokenStored = await setSecureKeyAsync(
     `oauth_connection/${connId}/access_token`,
     tokens.accessToken,
@@ -153,7 +162,7 @@ export async function storeOAuth2Tokens(
     throw new Error("Failed to store access token in secure storage");
   }
 
-  // 5. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
+  // 4. Write or clear refresh_token: oauth_connection/{conn.id}/refresh_token
   if (tokens.refreshToken) {
     await setSecureKeyAsync(
       `oauth_connection/${connId}/refresh_token`,

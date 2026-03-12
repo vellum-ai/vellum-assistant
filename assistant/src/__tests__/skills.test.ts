@@ -60,7 +60,6 @@ mock.module("../util/logger.js", () => ({
   ...realLogger,
   getLogger: () => noopLogger,
   getCliLogger: () => noopLogger,
-  isDebug: () => false,
   truncateForLog: (v: string) => v,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
@@ -719,15 +718,16 @@ describe("bundled computer-use skill", () => {
     expect(cuSkill!.disableModelInvocation).toBe(true);
   });
 
-  test("computer-use skill has a valid tool manifest with 12 tools", () => {
+  test("computer-use skill has a valid tool manifest with 11 tools", () => {
     const catalog = loadSkillCatalog();
     const cuSkill = catalog.find((s) => s.id === "computer-use");
     expect(cuSkill).toBeDefined();
     expect(cuSkill!.toolManifest).toBeDefined();
     expect(cuSkill!.toolManifest!.present).toBe(true);
     expect(cuSkill!.toolManifest!.valid).toBe(true);
-    expect(cuSkill!.toolManifest!.toolCount).toBe(10);
+    expect(cuSkill!.toolManifest!.toolCount).toBe(11);
     expect(cuSkill!.toolManifest!.toolNames).toEqual([
+      "computer_use_observe",
       "computer_use_click",
       "computer_use_type_text",
       "computer_use_key",

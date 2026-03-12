@@ -17,6 +17,7 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
@@ -449,6 +450,12 @@ function makeHubPublisher(
         conversationId,
         kind: "host_file",
       });
+    } else if (msg.type === "host_cu_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
+      });
     }
 
     // ServerMessage is a large union; sessionId exists on most but not all variants.
@@ -640,9 +647,17 @@ export async function handleSendMessage(
       });
       session.setHostFileProxy(fileProxy);
     }
+    if (!session.isProcessing() || !session.hostCuProxy) {
+      const cuProxy = new HostCuProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      session.setHostCuProxy(cuProxy);
+    }
+    session.addPreactivatedSkillId("computer-use");
   } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
     session.setHostFileProxy(undefined);
+    session.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
@@ -792,6 +807,7 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "unknown") {
     session.processing = true;
+    let cleanupDeferred = false;
     try {
       const provenance = provenanceFromTrustContext(session.trustContext);
       const channelMeta = {
@@ -828,11 +844,12 @@ export async function handleSendMessage(
         sourceInterface,
       );
 
-      // Emit fresh model info before the text delta so the client has
-      // up-to-date configuredProviders when rendering /model, /models,
-      // and provider shortcut commands (/gpt4, /opus, etc.).
-      const shouldEmitModelInfo =
-        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent);
+      // Snapshot model info now so the deferred callback cannot observe
+      // a config change from a concurrent request.
+      const modelInfoEvent =
+        isModelSlashCommand(rawContent) || isProviderShortcut(rawContent)
+          ? buildModelInfoEvent()
+          : null;
 
       const response = Response.json(
         {
@@ -847,23 +864,34 @@ export async function handleSendMessage(
       // client first. This ensures the client's serverToLocalSessionMap is
       // populated before SSE events arrive, preventing dropped events in new
       // desktop threads.
+      //
+      // session.processing and drainQueue are also deferred so the current
+      // slash command's events are emitted before the next queued message
+      // starts processing.
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
-        if (shouldEmitModelInfo) {
-          onEvent(buildModelInfoEvent());
+        if (modelInfoEvent) {
+          onEvent(modelInfoEvent);
         }
         onEvent({ type: "assistant_text_delta", text: message });
         onEvent({
           type: "message_complete",
           sessionId: conversationId,
         });
+        session.processing = false;
+        session.drainQueue().catch(() => {});
       }, 0);
 
+      cleanupDeferred = true;
       return response;
     } finally {
-      session.processing = false;
-      session.drainQueue().catch(() => {});
+      // No-op for the slash-command early-return path (handled inside
+      // setTimeout above), but still needed for error paths.
+      if (!cleanupDeferred && session.processing) {
+        session.processing = false;
+        session.drainQueue().catch(() => {});
+      }
     }
   }
 

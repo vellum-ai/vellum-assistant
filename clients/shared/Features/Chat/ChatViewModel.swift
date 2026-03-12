@@ -355,17 +355,23 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String?
+    private(set) var lastFailedSendError: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    var secretBlockedMessageText: String?
+    var secretBlockedMessageText: String? {
+        didSet { syncRetryStateToErrorManager() }
+    }
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
     var secretBlockedAttachments: [UserMessageAttachment]?
@@ -1993,6 +1999,17 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedMessageText != nil
     }
 
+    /// Forward retry-related state to `errorManager` so `@ObservedObject` views
+    /// (e.g. `ErrorToastOverlay`) receive reactive updates. Called automatically
+    /// via `didSet` on `lastFailedMessageText`, `lastFailedSendError`, and
+    /// `secretBlockedMessageText`.
+    private func syncRetryStateToErrorManager() {
+        errorManager.isConnectionError = isConnectionError
+        errorManager.isSecretBlockError = isSecretBlockError
+        errorManager.isRetryableError = isRetryableError
+        errorManager.hasRetryPayload = hasRetryPayload
+    }
+
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
     public func sendAnyway() {
         guard let text = secretBlockedMessageText, let sessionId else { return }
@@ -2151,6 +2168,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].confirmation?.approvedDecision = decision
             }
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
     }
@@ -2184,6 +2202,7 @@ public final class ChatViewModel: ObservableObject {
             messages[index].confirmation?.state = .approved
             messages[index].confirmation?.approvedDecision = decision
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
     }
@@ -2199,6 +2218,22 @@ public final class ChatViewModel: ObservableObject {
             case "deny":
                 messages[index].confirmation?.state = .denied
             default:
+                break
+            }
+        }
+        clearPendingConfirmation(requestId: requestId)
+    }
+
+    /// Clear `pendingConfirmation` on the matching tool call so the inline bubble
+    /// reflects the submitted decision without waiting for the daemon's
+    /// `confirmation_state_changed` echo.
+    private func clearPendingConfirmation(requestId: String) {
+        for i in messages.indices.reversed() {
+            guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+            if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                $0.pendingConfirmation?.requestId == requestId
+            }) {
+                messages[i].toolCalls[tcIdx].pendingConfirmation = nil
                 break
             }
         }

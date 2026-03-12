@@ -7,6 +7,8 @@ export type CandidateSource =
   | "entity_relation"
   | "item_direct";
 
+export type StalenessLevel = "fresh" | "aging" | "stale" | "very_stale";
+
 export interface Candidate {
   key: string;
   type: CandidateType;
@@ -22,6 +24,8 @@ export interface Candidate {
   semantic: number;
   recency: number;
   finalScore: number;
+  tier?: 1 | 2 | null;
+  staleness?: StalenessLevel;
 }
 
 export interface MemoryRecallCandiateDebug {
@@ -70,6 +74,12 @@ export interface MemoryRecallResult {
   injectedText: string;
   latencyMs: number;
   topCandidates: MemoryRecallCandiateDebug[];
+  /** V2 pipeline: count of tier 1 candidates after demotion. */
+  tier1Count?: number;
+  /** V2 pipeline: count of tier 2 candidates after demotion. */
+  tier2Count?: number;
+  /** V2 pipeline: milliseconds spent in the hybrid search step. */
+  hybridSearchMs?: number;
 }
 
 /**
@@ -139,6 +149,7 @@ export interface ItemMetadata {
   accessCount: number;
   lastUsedAt: number | null;
   verificationState: string;
+  sourceConversationCount?: number;
 }
 
 import type { EntityRelationType, EntityType } from "../entity-extractor.js";

@@ -146,14 +146,23 @@ export interface SkillDefinition extends SkillSummary {
   body: string;
 }
 
+export type SkillLookupErrorCode =
+  | "not_found"
+  | "ambiguous"
+  | "empty_catalog"
+  | "invalid_selector"
+  | "load_failed";
+
 export interface SkillLookupResult {
   skill?: SkillDefinition;
   error?: string;
+  errorCode?: SkillLookupErrorCode;
 }
 
 export interface SkillSelectorResult {
   skill?: SkillSummary;
   error?: string;
+  errorCode?: SkillLookupErrorCode;
 }
 
 // ─── Skill Tool Manifest Types ────────────────────────────────────────────────
@@ -1210,6 +1219,7 @@ export function resolveSkillSelector(
   if (!needle) {
     return {
       error: "Skill selector is required and must be a non-empty string.",
+      errorCode: "invalid_selector",
     };
   }
 
@@ -1218,6 +1228,7 @@ export function resolveSkillSelector(
     return {
       error:
         "No skills are available. Configure ~/.vellum/workspace/skills/SKILLS.md or add skill directories.",
+      errorCode: "empty_catalog",
     };
   }
 
@@ -1236,7 +1247,10 @@ export function resolveSkillSelector(
   }
   if (exactNameMatches.length > 1) {
     const ids = exactNameMatches.map((skill) => skill.id).join(", ");
-    return { error: `Ambiguous skill name "${needle}". Matching IDs: ${ids}` };
+    return {
+      error: `Ambiguous skill name "${needle}". Matching IDs: ${ids}`,
+      errorCode: "ambiguous",
+    };
   }
 
   const idPrefixMatches = catalog.filter((skill) =>
@@ -1249,12 +1263,14 @@ export function resolveSkillSelector(
     const ids = idPrefixMatches.map((skill) => skill.id).join(", ");
     return {
       error: `Ambiguous skill id prefix "${needle}". Matching IDs: ${ids}`,
+      errorCode: "ambiguous",
     };
   }
 
   const knownSkills = catalog.map((skill) => skill.id).join(", ");
   return {
     error: `No skill matched "${needle}". Available skills: ${knownSkills}`,
+    errorCode: "not_found",
   };
 }
 
@@ -1264,7 +1280,10 @@ export function loadSkillBySelector(
 ): SkillLookupResult {
   const resolved = resolveSkillSelector(selector, workspaceSkillsDir);
   if (!resolved.skill) {
-    return { error: resolved.error ?? "Failed to resolve skill selector." };
+    return {
+      error: resolved.error ?? "Failed to resolve skill selector.",
+      errorCode: resolved.errorCode ?? "load_failed",
+    };
   }
   return loadSkillDefinition(resolved.skill);
 }

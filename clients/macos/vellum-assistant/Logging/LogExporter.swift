@@ -26,16 +26,18 @@ private let log = Logger(
 enum LogExporter {
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
-    static func sendLogsToSentry() {
+    /// Includes report metadata (reason, message) from the log report form.
+    static func sendLogsToSentry(formData: LogReportFormData) {
         Task {
             let fileManager = FileManager.default
             let archiveURL = fileManager.temporaryDirectory
                 .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
             do {
-                try await buildArchive(destination: archiveURL)
+                try await buildArchive(destination: archiveURL, formData: formData)
             } catch {
                 log.error("Failed to build log archive for Sentry: \(error.localizedDescription)")
+                NSApp.activate(ignoringOtherApps: true)
                 let alert = NSAlert()
                 alert.messageText = "Send Failed"
                 alert.informativeText = "Could not collect logs: \(error.localizedDescription)"
@@ -47,19 +49,98 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            event.message = SentryMessage(formatted: "Manual log export")
-            event.tags = ["source": "manual_log_export"]
+            let errorTitle = "\(formData.reason.displayName) log report"
+            event.message = SentryMessage(formatted: errorTitle)
+            // Set error so Sentry displays the error message (not "No error message provided").
+            event.error = NSError(
+                domain: "com.vellum.log-report",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: errorTitle]
+            )
+            var tags: [String: String] = [
+                "source": "log_report",
+                "report_reason": formData.reason.rawValue,
+            ]
+            // When routing to the brain project, tag the event so it's clear
+            // it originated from the macOS client (not the daemon itself).
+            if formData.reason == .assistantBehavior {
+                tags["client"] = "macos"
+            }
+
+            // Surface active session state as tags so the Sentry event itself
+            // is useful for triage without downloading the log archive.
+            var extra: [String: Any] = [:]
+            let threadManager = AppDelegate.shared?.mainWindow?.threadManager
+            if let activeThread = threadManager?.activeThread {
+                extra["thread_title"] = activeThread.title
+                if let sessionId = activeThread.sessionId {
+                    tags["session_id"] = sessionId
+                }
+            }
+            var errorCategoryString: String?
+            if let vm = threadManager?.activeViewModel {
+                extra["message_count"] = vm.messages.count
+                if let sessionError = vm.sessionError {
+                    let category = "\(sessionError.category)"
+                    tags["session_error_category"] = category
+                    errorCategoryString = category
+                    if let debugDetails = sessionError.debugDetails {
+                        tags["session_error_debug_details"] = debugDetails
+                    }
+                }
+                if let sessionId = vm.sessionId {
+                    // Prefer the view model's sessionId (most up-to-date)
+                    tags["session_id"] = sessionId
+                }
+            }
+            if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                tags["assistant_id"] = assistantId
+            }
+            if !extra.isEmpty {
+                event.extra = extra
+            }
+
+            event.tags = tags
+            // Group reports by reason and error category so different root
+            // causes (e.g. providerApi vs contextTooLarge) create separate
+            // Sentry issues instead of being mixed into one.
+            let categoryComponent = errorCategoryString ?? "none"
+            event.fingerprint = ["log_report", formData.reason.rawValue, categoryComponent]
+
+            // User-provided context (message, email, category) is sent via
+            // Sentry's UserFeedback API, linked to the event. This keeps PII
+            // out of event tags/extras and lets us use Sentry's built-in
+            // feedback UI for triage.
+            let feedback = MetricKitManager.UserFeedbackData(
+                comments: formData.message.isEmpty ? nil : formData.message,
+                email: formData.email,
+                name: formData.name.isEmpty ? nil : formData.name
+            )
+
+            // Route assistant behavior reports to the brain Sentry project
+            // so they appear alongside daemon issues for triage.
+            let dsn: String? = formData.reason == .assistantBehavior
+                ? MetricKitManager.brainDSN
+                : nil
 
             await withCheckedContinuation { continuation in
-                MetricKitManager.sendManualReport(event, attachments: [attachment]) {
+                MetricKitManager.sendManualReport(
+                    event,
+                    attachments: [attachment],
+                    userFeedback: feedback,
+                    dsn: dsn
+                ) {
                     try? FileManager.default.removeItem(at: archiveURL)
                     continuation.resume()
                 }
             }
 
+            // Re-activate before showing the alert in case the app reverted
+            // to .accessory policy after the log report window was dismissed.
+            NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
-            alert.messageText = "Logs Sent"
-            alert.informativeText = "Log archive has been uploaded to Vellum."
+            alert.messageText = "Log Sent"
+            alert.informativeText = "Your log report has been sent to Vellum."
             alert.alertStyle = .informational
             alert.runModal()
         }
@@ -77,7 +158,7 @@ enum LogExporter {
 
     /// Builds a tar.gz archive containing all discoverable log files.
     /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
-    private nonisolated static func buildArchive(destination: URL) async throws {
+    private nonisolated static func buildArchive(destination: URL, formData: LogReportFormData? = nil) async throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
@@ -152,7 +233,27 @@ enum LogExporter {
             to: tempDir.appendingPathComponent("port-diagnostics.json")
         )
 
-        // 9. Sanitized workspace config — client-side fallback if daemon export didn't include it
+        // 9. Report metadata — reason and message from the log report form.
+        // Email is excluded from the archive since it's already sent via
+        // Sentry's UserFeedback API (linked to the event).
+        if let formData {
+            var metadata: [String: String] = [
+                "reason": formData.reason.rawValue,
+                "message": formData.message,
+                "device_id": SentryDeviceInfo.deviceId,
+            ]
+            if !formData.name.isEmpty {
+                metadata["name"] = formData.name
+            }
+            if let data = try? JSONSerialization.data(
+                withJSONObject: metadata,
+                options: [.prettyPrinted, .sortedKeys]
+            ) {
+                try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
+            }
+        }
+
+        // 10. Sanitized workspace config — client-side fallback if daemon export didn't include it
         let configSnapshotPath = tempDir.appendingPathComponent("config-snapshot.json")
         if !fileManager.fileExists(atPath: configSnapshotPath.path) {
             writeSanitizedWorkspaceConfig(to: configSnapshotPath)
@@ -525,7 +626,13 @@ enum LogExporter {
         try? data.write(to: url)
     }
 
-    /// Reads the workspace config.json and writes a sanitized copy with API key
+    /// Replaces a value with a presence flag: "(set)" if non-empty, "(empty)" otherwise.
+    private nonisolated static func redactValue(_ val: Any?) -> String {
+        if let str = val as? String { return str.isEmpty ? "(empty)" : "(set)" }
+        return val == nil ? "(empty)" : "(set)"
+    }
+
+    /// Reads the workspace config.json and writes a sanitized copy with sensitive
     /// values replaced by presence flags. Falls back silently if unreadable.
     private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
         var config = WorkspaceConfigIO.read()
@@ -534,9 +641,69 @@ enum LogExporter {
         // Strip API key values — preserve which providers have keys configured
         if var apiKeys = config["apiKeys"] as? [String: Any] {
             for key in apiKeys.keys {
-                apiKeys[key] = apiKeys[key] != nil ? "(set)" : "(empty)"
+                apiKeys[key] = redactValue(apiKeys[key])
             }
             config["apiKeys"] = apiKeys
+        }
+
+        // Strip ingress webhook secret
+        if var ingress = config["ingress"] as? [String: Any],
+           var webhook = ingress["webhook"] as? [String: Any] {
+            webhook["secret"] = redactValue(webhook["secret"])
+            ingress["webhook"] = webhook
+            config["ingress"] = ingress
+        }
+
+        // Strip skill-level API keys and env vars
+        if var skills = config["skills"] as? [String: Any],
+           var entries = skills["entries"] as? [String: [String: Any]] {
+            for name in entries.keys {
+                var entry = entries[name]!
+                if entry["apiKey"] != nil {
+                    entry["apiKey"] = redactValue(entry["apiKey"])
+                }
+                if var env = entry["env"] as? [String: Any] {
+                    for envKey in env.keys {
+                        env[envKey] = redactValue(env[envKey])
+                    }
+                    entry["env"] = env
+                }
+                entries[name] = entry
+            }
+            skills["entries"] = entries
+            config["skills"] = skills
+        }
+
+        // Strip Twilio accountSid
+        if var twilio = config["twilio"] as? [String: Any] {
+            twilio["accountSid"] = redactValue(twilio["accountSid"])
+            config["twilio"] = twilio
+        }
+
+        // Strip MCP transport headers (SSE/streamable-http) and env vars (stdio)
+        if var mcp = config["mcp"] as? [String: Any],
+           var servers = mcp["servers"] as? [String: [String: Any]] {
+            for name in servers.keys {
+                var server = servers[name]!
+                if var transport = server["transport"] as? [String: Any] {
+                    if var headers = transport["headers"] as? [String: Any] {
+                        for key in headers.keys {
+                            headers[key] = redactValue(headers[key])
+                        }
+                        transport["headers"] = headers
+                    }
+                    if var env = transport["env"] as? [String: Any] {
+                        for key in env.keys {
+                            env[key] = redactValue(env[key])
+                        }
+                        transport["env"] = env
+                    }
+                    server["transport"] = transport
+                }
+                servers[name] = server
+            }
+            mcp["servers"] = servers
+            config["mcp"] = mcp
         }
 
         guard let data = try? JSONSerialization.data(

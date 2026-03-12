@@ -186,9 +186,10 @@ mock.module("../daemon/session-memory.js", () => ({
       recencyHits: 0,
       injectedTokens: 0,
       latencyMs: 0,
+      tier1Count: 0,
+      tier2Count: 0,
+      hybridSearchMs: 0,
     },
-    dynamicProfile: { text: "" },
-    recallInjectionStrategy: "prepend_user_block" as const,
   }),
 }));
 
@@ -199,7 +200,6 @@ mock.module("../daemon/session-runtime-assembly.js", () => ({
 
 mock.module("../daemon/session-dynamic-profile.js", () => ({
   stripDynamicProfileMessages: (msgs: Message[]) => msgs,
-  injectDynamicProfileIntoUserMessage: (msg: Message) => msg,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -276,6 +276,7 @@ mock.module("../daemon/session-error.js", () => ({
     code: "SESSION_PROCESSING_FAILED",
     userMessage: "Something went wrong processing your message.",
     retryable: false,
+    errorCategory: "processing_failed",
   }),
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
@@ -376,9 +377,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    conflictGate: {
-      evaluate: async () => null,
-    } as unknown as AgentLoopSessionContext["conflictGate"],
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
     currentActiveSurfaceId: undefined,

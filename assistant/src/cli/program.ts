@@ -12,14 +12,13 @@ import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
-import { registerDevCommand } from "./commands/dev.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerEmailCommand } from "./commands/email.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
-import { registerOAuthCommand } from "./commands/oauth.js";
+import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
@@ -35,7 +34,6 @@ export function buildCliProgram(): Command {
   program.name("assistant").description("Local AI assistant").version(version);
 
   registerDefaultAction(program);
-  registerDevCommand(program);
   registerSessionsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);

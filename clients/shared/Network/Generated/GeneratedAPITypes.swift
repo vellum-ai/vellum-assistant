@@ -778,8 +778,10 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let persistentDecisionsAllowed: Bool?
     /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
     public let temporaryOptionsAvailable: [String]?
+    /// The tool_use block ID for client-side correlation with specific tool calls.
+    public let toolUseId: String?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -793,6 +795,7 @@ public struct ConfirmationRequest: Codable, Sendable {
         self.sessionId = sessionId
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.temporaryOptionsAvailable = temporaryOptionsAvailable
+        self.toolUseId = toolUseId
     }
 }
 
@@ -1240,95 +1243,6 @@ public struct CuComplete: Codable, Sendable {
         self.summary = summary
         self.stepCount = stepCount
         self.isResponse = isResponse
-    }
-}
-
-public struct CuError: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let message: String
-
-    public init(type: String, sessionId: String, message: String) {
-        self.type = type
-        self.sessionId = sessionId
-        self.message = message
-    }
-}
-
-public struct CuObservation: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let axTree: String?
-    public let axDiff: String?
-    public let secondaryWindows: String?
-    public let screenshot: String?
-    /// Screenshot image width in pixels (`Px`).
-    public let screenshotWidthPx: Double?
-    /// Screenshot image height in pixels (`Px`).
-    public let screenshotHeightPx: Double?
-    /// Screen width in macOS points (`Pt`) used by native execution.
-    public let screenWidthPt: Double?
-    /// Screen height in macOS points (`Pt`) used by native execution.
-    public let screenHeightPt: Double?
-    /// Coordinate origin convention used by the observation payload.
-    public let coordinateOrigin: String?
-    /// Display ID used by screenshot capture for this observation.
-    public let captureDisplayId: Double?
-    public let executionResult: String?
-    public let executionError: String?
-    public let axTreeBlob: BlobRef?
-    public let screenshotBlob: BlobRef?
-    /// Free-form guidance from the user, injected mid-turn to steer the agent.
-    public let userGuidance: String?
-
-    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: BlobRef? = nil, screenshotBlob: BlobRef? = nil, userGuidance: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.axTree = axTree
-        self.axDiff = axDiff
-        self.secondaryWindows = secondaryWindows
-        self.screenshot = screenshot
-        self.screenshotWidthPx = screenshotWidthPx
-        self.screenshotHeightPx = screenshotHeightPx
-        self.screenWidthPt = screenWidthPt
-        self.screenHeightPt = screenHeightPt
-        self.coordinateOrigin = coordinateOrigin
-        self.captureDisplayId = captureDisplayId
-        self.executionResult = executionResult
-        self.executionError = executionError
-        self.axTreeBlob = axTreeBlob
-        self.screenshotBlob = screenshotBlob
-        self.userGuidance = userGuidance
-    }
-}
-
-public struct CuSessionAbort: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-
-    public init(type: String, sessionId: String) {
-        self.type = type
-        self.sessionId = sessionId
-    }
-}
-
-public struct CuSessionCreate: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let task: String
-    public let screenWidth: Int
-    public let screenHeight: Int
-    public let attachments: [UserMessageAttachment]?
-    public let interactionType: String?
-
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [UserMessageAttachment]? = nil, interactionType: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.interactionType = interactionType
     }
 }
 
@@ -2539,42 +2453,51 @@ public struct MemoryRecalled: Codable, Sendable {
     public let provider: String
     public let model: String
     public let degradation: MemoryRecalledDegradation?
-    public let lexicalHits: Double
     public let semanticHits: Double
     public let recencyHits: Double
-    public let entityHits: Double
+    public let tier1Count: Int?
+    public let tier2Count: Int?
+    public let hybridSearchLatencyMs: Double?
+    public let sparseVectorUsed: Bool?
+    public let mergedCount: Int
+    public let selectedCount: Int
+    public let injectedTokens: Int
+    public let latencyMs: Double
+    public let topCandidates: [MemoryRecalledCandidateDebug]
+    // Deprecated fields — optional for backwards compat during rollout
+    public let lexicalHits: Double?
+    public let entityHits: Double?
     public let relationSeedEntityCount: Int?
     public let relationTraversedEdgeCount: Int?
     public let relationNeighborEntityCount: Int?
     public let relationExpandedItemCount: Int?
     public let earlyTerminated: Bool?
-    public let mergedCount: Int
-    public let selectedCount: Int
-    public let rerankApplied: Bool
-    public let injectedTokens: Int
-    public let latencyMs: Double
-    public let topCandidates: [MemoryRecalledCandidateDebug]
+    public let rerankApplied: Bool?
 
-    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug], lexicalHits: Double? = nil, entityHits: Double? = nil, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, rerankApplied: Bool? = nil) {
         self.type = type
         self.provider = provider
         self.model = model
         self.degradation = degradation
-        self.lexicalHits = lexicalHits
         self.semanticHits = semanticHits
         self.recencyHits = recencyHits
+        self.tier1Count = tier1Count
+        self.tier2Count = tier2Count
+        self.hybridSearchLatencyMs = hybridSearchLatencyMs
+        self.sparseVectorUsed = sparseVectorUsed
+        self.mergedCount = mergedCount
+        self.selectedCount = selectedCount
+        self.injectedTokens = injectedTokens
+        self.latencyMs = latencyMs
+        self.topCandidates = topCandidates
+        self.lexicalHits = lexicalHits
         self.entityHits = entityHits
         self.relationSeedEntityCount = relationSeedEntityCount
         self.relationTraversedEdgeCount = relationTraversedEdgeCount
         self.relationNeighborEntityCount = relationNeighborEntityCount
         self.relationExpandedItemCount = relationExpandedItemCount
         self.earlyTerminated = earlyTerminated
-        self.mergedCount = mergedCount
-        self.selectedCount = selectedCount
         self.rerankApplied = rerankApplied
-        self.injectedTokens = injectedTokens
-        self.latencyMs = latencyMs
-        self.topCandidates = topCandidates
     }
 }
 
@@ -2618,15 +2541,16 @@ public struct MemoryStatus: Codable, Sendable {
     public let reason: String?
     public let provider: String?
     public let model: String?
-    public let conflictsPending: Double
-    public let conflictsResolved: Double
+    // Deprecated fields — optional for backwards compat during rollout
+    public let conflictsPending: Double?
+    public let conflictsResolved: Double?
     public let oldestPendingConflictAgeMs: Double?
-    public let cleanupResolvedJobsPending: Double
-    public let cleanupSupersededJobsPending: Double
-    public let cleanupResolvedJobsCompleted24h: Double
-    public let cleanupSupersededJobsCompleted24h: Double
+    public let cleanupResolvedJobsPending: Double?
+    public let cleanupSupersededJobsPending: Double?
+    public let cleanupResolvedJobsCompleted24h: Double?
+    public let cleanupSupersededJobsCompleted24h: Double?
 
-    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double? = nil, conflictsResolved: Double? = nil, oldestPendingConflictAgeMs: Double? = nil, cleanupResolvedJobsPending: Double? = nil, cleanupSupersededJobsPending: Double? = nil, cleanupResolvedJobsCompleted24h: Double? = nil, cleanupSupersededJobsCompleted24h: Double? = nil) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -4279,24 +4203,6 @@ public struct SurfaceAction: Codable, Sendable {
         self.label = label
         self.style = style
         self.data = data
-    }
-}
-
-public struct TaskRouted: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let interactionType: String
-    /// The task text passed to the escalated session.
-    public let task: String?
-    /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
-    public let escalatedFrom: String?
-
-    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.interactionType = interactionType
-        self.task = task
-        self.escalatedFrom = escalatedFrom
     }
 }
 

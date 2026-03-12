@@ -1,38 +1,14 @@
 import type { Command } from "commander";
 
+import type { CatalogSkill } from "../../skills/catalog-install.js";
 import {
-  type CatalogManifest,
-  type CatalogSkill,
-  extractTarToDir,
-  fetchAndExtractSkill,
   fetchCatalog,
   getRepoSkillsDir,
-  getSkillsIndexPath,
   installSkillLocally,
   readLocalCatalog,
-  removeSkillsIndexEntry,
   uninstallSkillLocally,
-  upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { log } from "../logger.js";
-
-// ---------------------------------------------------------------------------
-// Exported types and functions for testing
-// ---------------------------------------------------------------------------
-
-export type { CatalogManifest, CatalogSkill };
-
-export {
-  extractTarToDir,
-  fetchAndExtractSkill,
-  fetchCatalog,
-  getSkillsIndexPath,
-  installSkillLocally,
-  readLocalCatalog,
-  removeSkillsIndexEntry,
-  uninstallSkillLocally,
-  upsertSkillsIndex,
-};
 
 // ---------------------------------------------------------------------------
 // Command registration

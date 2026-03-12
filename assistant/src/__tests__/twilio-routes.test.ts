@@ -108,13 +108,11 @@ mock.module("../util/logger.js", () => ({
     debug: () => {},
     trace: () => {},
     fatal: () => {},
-    isDebug: () => false,
     child: () => ({
       info: () => {},
       warn: () => {},
       error: () => {},
       debug: () => {},
-      isDebug: () => false,
     }),
   }),
 }));

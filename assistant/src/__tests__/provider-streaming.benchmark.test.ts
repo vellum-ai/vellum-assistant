@@ -15,7 +15,6 @@ import { describe, expect, mock, test } from "bun:test";
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-  isDebug: () => false,
 }));
 
 import { FailoverProvider } from "../providers/failover.js";

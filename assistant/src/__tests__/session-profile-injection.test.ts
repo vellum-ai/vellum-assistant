@@ -50,8 +50,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 100000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -79,6 +80,13 @@ mock.module("../config/loader.js", () => ({
           maxInjectTokens: 10000,
           targetHeadroomTokens: 10000,
         },
+      },
+      embeddings: {
+        provider: "auto",
+        required: true,
+      },
+      entity: {
+        enabled: false,
       },
       conflicts: {
         enabled: false,
@@ -517,7 +525,11 @@ describe("Session dynamic profile injection", () => {
     const session = makeSession(privatePolicy);
     await session.loadFromDb();
 
-    await session.processMessage("What do I prefer?", [], () => {});
+    await session.processMessage(
+      "What do I prefer for databases?",
+      [],
+      () => {},
+    );
 
     // Profile compiler should receive the private scope with fallback enabled
     expect(profileCompilerCalls).toBe(1);

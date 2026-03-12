@@ -63,9 +63,12 @@ import {
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateInviteCodeHashColumn,
+  migrateMemoryItemSupersession,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
+  migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameGuardianVerificationValues,
@@ -343,6 +346,15 @@ export function initializeDb(): void {
 
   // 53. OAuth provider/app/connection tables
   createOAuthTables(database);
+
+  // 54. Add explicit client_secret_credential_path to oauth_apps
+  migrateOAuthAppsClientSecretPath(database);
+
+  // 55. Add ping_url column to oauth_providers
+  migrateOAuthProvidersPingUrl(database);
+
+  // 56. Add supersession tracking columns and override confidence to memory_items
+  migrateMemoryItemSupersession(database);
 
   validateMigrationState(database);
 

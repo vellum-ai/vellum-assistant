@@ -29,6 +29,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Sync feature flag registry for Docker context
+        run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
+
       - name: Build image (no push)
         uses: docker/build-push-action@v6
         with:

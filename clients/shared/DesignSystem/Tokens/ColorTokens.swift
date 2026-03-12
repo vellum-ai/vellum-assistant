@@ -73,17 +73,18 @@ enum Danger {
     static let _100 = Color(hex: 0xFFF3EE)
 }
 
-enum Amber {
-    static let _950 = Color(hex: 0x5E3207)
-    static let _900 = Color(hex: 0x7A4409)
-    static let _800 = Color(hex: 0xA35E0C)
-    static let _700 = Color(hex: 0xC97C10)
-    static let _600 = Color(hex: 0xE8A020)
-    static let _500 = Color(hex: 0xFAC426)
-    static let _400 = Color(hex: 0xFDD94E)
-    static let _300 = Color(hex: 0xFEEC94)
-    static let _200 = Color(hex: 0xFEF7CD)
-    static let _100 = Color(hex: 0xFEFCE8)
+public enum Amber {
+    public static let _950 = Color(hex: 0x5E3207)
+    public static let _900 = Color(hex: 0x7A4409)
+    public static let _800 = Color(hex: 0xA35E0C)
+    public static let _700 = Color(hex: 0xC97C10)
+    public static let _600 = Color(hex: 0xE8A020)
+    public static let _550 = Color(hex: 0xF1B21E)
+    public static let _500 = Color(hex: 0xFAC426)
+    public static let _400 = Color(hex: 0xFDD94E)
+    public static let _300 = Color(hex: 0xFEEC94)
+    public static let _200 = Color(hex: 0xFEF7CD)
+    public static let _100 = Color(hex: 0xFEFCE8)
 }
 
 enum Stone {

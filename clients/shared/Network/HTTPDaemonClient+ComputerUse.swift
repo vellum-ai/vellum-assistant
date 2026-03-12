@@ -3,39 +3,14 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HTTPTransport")
 
-// MARK: - Computer Use & Recording HTTP Dispatchers
+// MARK: - Watch & Recording HTTP Dispatchers
 
-/// Registers domain dispatchers for computer use sessions,
-/// watch observations, and recording lifecycle messages.
+/// Registers domain dispatchers for watch observations and recording lifecycle messages.
 extension HTTPTransport {
 
     func registerComputerUseRoutes() {
         registerDomainDispatcher { [weak self] message in
             guard let self else { return false }
-
-            // --- CU Session Create ---
-            if let msg = message as? CuSessionCreateMessage {
-                Task { await self.sendCuSessionCreate(msg) }
-                return true
-            }
-
-            // --- CU Session Abort ---
-            if let msg = message as? CuSessionAbortMessage {
-                Task { await self.sendCuSessionAbort(msg) }
-                return true
-            }
-
-            // --- CU Observation ---
-            if let msg = message as? CuObservationMessage {
-                Task { await self.sendCuObservation(msg) }
-                return true
-            }
-
-            // --- Task Submit ---
-            if let msg = message as? TaskSubmitMessage {
-                Task { await self.sendTaskSubmit(msg) }
-                return true
-            }
 
             // --- Watch Observation ---
             if let msg = message as? WatchObservationMessage {
@@ -53,109 +28,7 @@ extension HTTPTransport {
         }
     }
 
-    // MARK: - Computer Use Endpoints
-
-    private func sendCuSessionCreate(_ msg: CuSessionCreateMessage) async {
-        guard let url = buildURL(for: .cuSessionCreate) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "sessionId": msg.sessionId,
-            "task": msg.task,
-            "screenWidth": msg.screenWidth,
-            "screenHeight": msg.screenHeight,
-        ]
-        if let interactionType = msg.interactionType {
-            body["interactionType"] = interactionType
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 201 || http.statusCode == 200 {
-                log.info("CU session created via HTTP")
-            } else {
-                log.error("CU session create failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-        } catch {
-            log.error("CU session create error: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendCuSessionAbort(_ msg: CuSessionAbortMessage) async {
-        guard let url = buildURL(for: .cuSessionAbort(sessionId: msg.sessionId)) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                log.info("CU session aborted via HTTP")
-            } else {
-                log.error("CU session abort failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-        } catch {
-            log.error("CU session abort error: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendCuObservation(_ msg: CuObservationMessage) async {
-        guard let url = buildURL(for: .cuObservation) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        do {
-            request.httpBody = try encoder.encode(msg)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                log.debug("CU observation sent via HTTP")
-            } else {
-                log.error("CU observation failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-        } catch {
-            log.error("CU observation error: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendTaskSubmit(_ msg: TaskSubmitMessage) async {
-        guard let url = buildURL(for: .cuTaskSubmit) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-
-        var body: [String: Any] = [
-            "task": msg.task,
-            "screenWidth": msg.screenWidth,
-            "screenHeight": msg.screenHeight,
-        ]
-        if let source = msg.source {
-            body["source"] = source
-        }
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode == 201 || http.statusCode == 200 {
-                log.info("Task submitted via HTTP")
-            } else {
-                log.error("Task submit failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-        } catch {
-            log.error("Task submit error: \(error.localizedDescription)")
-        }
-    }
+    // MARK: - Watch Endpoints
 
     private func sendWatchObservation(_ msg: WatchObservationMessage) async {
         guard let url = buildURL(for: .cuWatch) else { return }

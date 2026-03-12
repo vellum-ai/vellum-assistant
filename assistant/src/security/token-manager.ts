@@ -225,7 +225,7 @@ function resolveRefreshConfig(service: string): RefreshConfig {
     );
   }
 
-  const secret = getSecureKey(`oauth_app/${app.id}/client_secret`);
+  const secret = getSecureKey(app.clientSecretCredentialPath);
 
   const refreshToken = getSecureKey(
     `oauth_connection/${conn.id}/refresh_token`,

@@ -549,6 +549,68 @@ describe("approval cascading", () => {
     expect(approvedIds).not.toContain("req-nomatch");
   });
 
+  test("always_allow does NOT cascade to high-risk pending confirmations", () => {
+    const emitted: ServerMessage[] = [];
+    const session = makeSession((msg) => emitted.push(msg), CONV_ID);
+
+    // Medium-risk pending — should cascade
+    seedPendingConfirmation(session, "req-medium");
+    registerPendingInteraction(
+      session,
+      "req-medium",
+      CONV_ID,
+      makeConfirmationDetails(["asset_materialize:report.pdf"]),
+    );
+
+    // High-risk pending — should NOT cascade via always_allow
+    seedPendingConfirmation(session, "req-high");
+    registerPendingInteraction(session, "req-high", CONV_ID, {
+      toolName: "bash",
+      input: { command: "rm -rf /" },
+      riskLevel: "high",
+      allowlistOptions: [
+        {
+          label: "asset_materialize:dangerous.bin",
+          description: "Allow asset_materialize:dangerous.bin",
+          pattern: "asset_materialize:dangerous.bin",
+        },
+      ],
+      scopeOptions: [{ label: "Everywhere", scope: "everywhere" }],
+    });
+
+    // Primary request
+    seedPendingConfirmation(session, "req-primary");
+    registerPendingInteraction(
+      session,
+      "req-primary",
+      CONV_ID,
+      makeConfirmationDetails(["asset_materialize:image.png"]),
+    );
+
+    session.handleConfirmationResponse(
+      "req-primary",
+      "always_allow",
+      "asset_materialize:**",
+    );
+
+    const approvedMsgs = emitted.filter(
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        (m as unknown as ConfirmationStateChanged).state === "approved",
+    ) as unknown as ConfirmationStateChanged[];
+
+    const approvedIds = approvedMsgs.map((m) => m.requestId).sort();
+    expect(approvedIds).toContain("req-primary");
+    expect(approvedIds).toContain("req-medium");
+    expect(approvedIds).not.toContain("req-high");
+
+    // High-risk should still be pending (not emitted at all)
+    const allResolvedIds = emitted
+      .filter((m) => m.type === "confirmation_state_changed")
+      .map((m) => (m as unknown as ConfirmationStateChanged).requestId);
+    expect(allResolvedIds).not.toContain("req-high");
+  });
+
   test("always_deny cascades deny to pattern-matching pending", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg), CONV_ID);

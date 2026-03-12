@@ -60,7 +60,6 @@ extension AppDelegate {
 
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
-        assistant.writeToWorkspaceConfig()
         return assistant
     }
 
@@ -236,18 +235,6 @@ extension AppDelegate {
             self.handleNotificationThreadCreated(msg)
         }
 
-        // Handle escalation: text_qa -> computer_use via computer_use_request_control
-        daemonClient.onTaskRouted = { [weak self] routed in
-            guard let self else { return }
-            // Only handle escalation messages (those with escalatedFrom set)
-            guard routed.escalatedFrom != nil,
-                  routed.interactionType == "computer_use" else {
-                log.debug("Ignoring non-escalation task_routed: type=\(routed.interactionType), escalatedFrom=\(routed.escalatedFrom ?? "nil")")
-                return
-            }
-            self.handleEscalationToComputerUse(routed: routed)
-        }
-
         // Forward dictation responses from the daemon to VoiceInputManager
         daemonClient.onDictationResponse = { [weak self] msg in
             self?.voiceInput?.onDictationResponse?(msg)
@@ -344,6 +331,15 @@ extension AppDelegate {
             Task { @MainActor in
                 AvatarAppearanceManager.shared.reloadAvatar()
             }
+        }
+
+        // Register host CU handler so incoming host_cu_request messages
+        // execute locally (verify -> execute -> observe -> post result).
+        // The overlay provider lazily creates a session overlay on the first
+        // host_cu_request for each conversation.
+        HostCuExecutor.register(on: daemonClient) { [weak self] sessionId, request in
+            guard let self else { return nil }
+            return self.getOrCreateHostCuOverlay(sessionId: sessionId, request: request)
         }
 
         Task {

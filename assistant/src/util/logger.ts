@@ -219,11 +219,6 @@ function getRootLogger(): pino.Logger {
   return rootLogger;
 }
 
-/** Returns whether debug mode is active. Currently always false. */
-export function isDebug(): boolean {
-  return false;
-}
-
 /**
  * Truncate a string for debug logging. Returns the original if under maxLen,
  * otherwise returns the first maxLen chars with a suffix indicating how much was cut.

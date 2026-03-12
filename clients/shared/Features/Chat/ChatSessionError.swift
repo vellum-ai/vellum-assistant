@@ -6,6 +6,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
     case rateLimit
     case providerApi
     case providerBilling
+    case providerOrdering
+    case providerWebSearch
     case contextTooLarge
     case sessionAborted
     case processingFailed
@@ -23,6 +25,10 @@ public enum SessionErrorCategory: Equatable, Sendable {
             self = .providerApi
         case .providerBilling:
             self = .providerBilling
+        case .providerOrdering:
+            self = .providerOrdering
+        case .providerWebSearch:
+            self = .providerWebSearch
         case .contextTooLarge:
             self = .contextTooLarge
         case .sessionAborted:
@@ -49,6 +55,10 @@ public enum SessionErrorCategory: Equatable, Sendable {
             return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
         case .providerBilling:
             return "Please add credits to your account or update your API key in Settings."
+        case .providerOrdering:
+            return "This is usually temporary — click Retry to continue."
+        case .providerWebSearch:
+            return "This is usually temporary — click Retry to continue."
         case .contextTooLarge:
             return "Start a new thread to reset context, or try a shorter message."
         case .sessionAborted:
@@ -73,6 +83,8 @@ public struct SessionError: Equatable {
     public let recoverySuggestion: String
     public let sessionId: String
     public let debugDetails: String?
+    /// Machine-readable error category for log report metadata and triage.
+    public let errorCategory: String?
 
     public init(from msg: SessionErrorMessage) {
         self.category = SessionErrorCategory(from: msg.code)
@@ -81,14 +93,16 @@ public struct SessionError: Equatable {
         self.recoverySuggestion = self.category.recoverySuggestion
         self.sessionId = msg.sessionId
         self.debugDetails = msg.debugDetails
+        self.errorCategory = msg.errorCategory
     }
 
-    public init(category: SessionErrorCategory, message: String, isRetryable: Bool, sessionId: String, debugDetails: String? = nil) {
+    public init(category: SessionErrorCategory, message: String, isRetryable: Bool, sessionId: String, debugDetails: String? = nil, errorCategory: String? = nil) {
         self.category = category
         self.message = message
         self.isRetryable = isRetryable
         self.recoverySuggestion = category.recoverySuggestion
         self.sessionId = sessionId
         self.debugDetails = debugDetails
+        self.errorCategory = errorCategory
     }
 }

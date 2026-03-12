@@ -203,6 +203,8 @@ function makeSession() {
     hasPendingConfirmation: () => false,
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
+    setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     usageStats: {
       inputTokens: 1000,
       outputTokens: 500,

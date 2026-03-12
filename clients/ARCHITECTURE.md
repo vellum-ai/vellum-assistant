@@ -113,15 +113,16 @@ graph LR
 
 ## Computer Use Session — Detailed Data Flow
 
+Computer use runs through the daemon's main session loop. The daemon decides when to
+invoke CU tools, sends `host_cu_request` messages to the client, which executes them
+locally via `HostCuExecutor` and posts `host_cu_result` back.
+
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as TaskInputView
+    participant Chat as ChatView
     participant AD as AppDelegate
-    participant CLS as Classifier (Haiku)
-    participant TextSess as Session (text_qa)
-    participant TW as TextResponseWindow
-    participant Session as ComputerUseSession
+    participant HCE as HostCuExecutor
     participant AX as AccessibilityTree
     participant SC as ScreenCapture
     participant DC as DaemonClient
@@ -131,87 +132,66 @@ sequenceDiagram
     participant AE as ActionExecutor
     participant macOS as macOS (CGEvents)
 
-    User->>UI: Type task / Voice / Paste
-    UI->>AD: submit(TaskSubmission)
-    Note over AD: TaskSubmission carries<br/>source: 'voice' | 'text' | nil
-    AD->>CLS: classifyInteraction(task, source)
+    User->>Chat: Type task / Voice / Paste
+    Chat->>DC: POST /v1/messages
+    DC->>Daemon: HTTP POST
+    Note over Daemon: Creates conversation in SQLite<br/>Starts agent loop
 
-    alt source === 'voice' → text_qa path
-        Note over CLS: Bypass Haiku API call<br/>Route directly to text_qa
-        CLS-->>AD: InteractionType.textQA
-        AD->>DC: send(SessionCreate + UserMessage)
-        Note over DC: HTTP POST
-        DC->>Daemon: HTTP
-        Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler
-        Daemon-->>DC: task_routed(text_qa)
-        DC-->>AD: route to text_qa UI
-        Note over Daemon: Starts streaming immediately
-        Daemon->>Claude: API call with text prompt
-        Claude-->>Daemon: streaming text response
-        Daemon-->>DC: assistant_text_delta (stream)
-        DC-->>TextSess: text deltas
-        TextSess-->>TW: display streaming response
-        Daemon-->>DC: message_complete
+    Daemon->>Claude: API call with user message
+    Claude-->>Daemon: tool_use (computer use tool)
+    Note over Daemon: Model decides CU is needed
 
-    else source === 'text' or nil → computer_use path
-        Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
-        CLS-->>AD: InteractionType.computerUse
+    loop host_cu_request / host_cu_result
+        Daemon-->>DC: host_cu_request (SSE)
+        Note over DC: Contains: tool name, parameters,<br/>step number, reasoning
 
-        AD->>Session: init(task, daemonClient, ...)
-        Session->>DC: send(CuSessionCreateMessage)
-        Note over DC: HTTP POST
+        DC-->>AD: getOrCreateHostCuOverlay()
+        Note over AD: Creates HostCuSessionProxy<br/>Shows SessionOverlayWindow<br/>Pauses ambient agent
 
-        loop PERCEIVE → INFER → VERIFY → EXECUTE → WAIT
-            par Parallel Capture
-                Session->>AX: enumerate()
-                Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
-                AX-->>Session: axTree + axDiff
-            and
-                Session->>SC: capture()
-                Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
-                SC-->>Session: base64 screenshot
-            end
+        AD->>HCE: execute(request)
 
-            Session->>DC: send(CuObservationMessage)
-            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+        HCE->>AV: verify(action, history)
+        Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
 
-            DC->>Daemon: HTTP POST
-            Daemon->>Claude: API call with observation
-            Note over Daemon: Loads conversation from SQLite<br/>Appends observation as user msg<br/>Stores in messages table
-            Claude-->>Daemon: tool_use response
-            Note over Daemon: Stores assistant msg in SQLite<br/>Logs tool_invocation<br/>Enqueues memory jobs
-            Daemon-->>DC: CuActionMessage
-
-            DC-->>Session: action (tool + input)
-
-            Session->>AV: verify(action, history)
-            Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
-
-            alt allowed
-                AV-->>Session: .allowed
-            else needsConfirmation
-                AV-->>Session: .needsConfirmation(reason)
-                Session->>User: confirmation dialog
-                User-->>Session: approve/block
-            else blocked
-                AV-->>Session: .blocked(reason)
-                Note over Session: 3 consecutive blocks<br/>= session terminated
-            end
-
-            Session->>AE: execute(action)
-            Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
-
-            AE->>macOS: CGEvent injection
-            macOS-->>AE: result
-
-            Session->>Session: waitForUISettle()
-            Note over Session: Min 100ms for CGEvents<br/>Poll AX tree 5x @ 100ms<br/>Return early on tree change<br/>Max 1200ms timeout
+        alt allowed
+            AV-->>HCE: .allowed
+        else needsConfirmation
+            AV-->>HCE: .needsConfirmation(reason)
+            HCE->>User: confirmation dialog
+            User-->>HCE: approve/block
+        else blocked
+            AV-->>HCE: .blocked(reason)
         end
 
-        Daemon-->>DC: CuCompleteMessage
-        DC-->>Session: session complete
-        Session-->>AD: .completed(summary)
+        HCE->>AE: execute(action)
+        Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
+
+        AE->>macOS: CGEvent injection
+        macOS-->>AE: result
+
+        par Parallel Capture
+            HCE->>AX: enumerate()
+            Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
+            AX-->>HCE: axTree + axDiff
+        and
+            HCE->>SC: capture()
+            Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
+            SC-->>HCE: base64 screenshot
+        end
+
+        HCE->>DC: POST host_cu_result
+        Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+
+        DC->>Daemon: HTTP POST
+        Daemon->>Claude: API call with observation
+        Note over Daemon: Appends tool result<br/>Stores in messages table
+        Claude-->>Daemon: next tool_use or end_turn
     end
+
+    Note over Daemon: Agent loop ends (end_turn)
+    Daemon-->>DC: message_complete (SSE)
+    DC-->>AD: dismissHostCuOverlay()
+end
 ```
 
 ---

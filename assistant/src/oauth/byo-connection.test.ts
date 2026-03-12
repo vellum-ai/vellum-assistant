@@ -81,7 +81,12 @@ const mockConnections = new Map<
 >();
 const mockApps = new Map<
   string,
-  { id: string; providerKey: string; clientId: string }
+  {
+    id: string;
+    providerKey: string;
+    clientId: string;
+    clientSecretCredentialPath: string;
+  }
 >();
 const mockProviders = new Map<
   string,
@@ -192,6 +197,7 @@ function setupCredential(
     id: appId,
     providerKey: service,
     clientId: "test-client-id",
+    clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
   });
   mockConnections.set(service, {
     id: connId,
@@ -246,10 +252,10 @@ describe("BYOOAuthConnection", () => {
       expect(url).toBe(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
       );
-      expect((init as RequestInit).headers).toMatchObject({
-        Authorization: "Bearer test-access-token",
-        "Content-Type": "application/json",
-      });
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bearer test-access-token");
+      // GET requests have no body, so Content-Type should not be set
+      expect(headers.has("Content-Type")).toBe(false);
       expect((init as RequestInit).method).toBe("GET");
     });
 
@@ -298,6 +304,9 @@ describe("BYOOAuthConnection", () => {
         JSON.stringify({ raw: "base64-encoded-email" }),
       );
       expect((init as RequestInit).method).toBe("POST");
+      // POST requests with a body should include Content-Type
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/json");
     });
 
     test("retries once on 401 response", async () => {
@@ -397,10 +406,9 @@ describe("BYOOAuthConnection", () => {
       });
 
       const [, init] = mockFetch.mock.calls[0];
-      expect((init as RequestInit).headers).toMatchObject({
-        "X-Custom-Header": "custom-value",
-        Authorization: "Bearer test-access-token",
-      });
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("X-Custom-Header")).toBe("custom-value");
+      expect(headers.get("Authorization")).toBe("Bearer test-access-token");
     });
   });
 
@@ -422,9 +430,10 @@ describe("BYOOAuthConnection", () => {
 
       // The request should use the refreshed token
       const [, init] = mockFetch.mock.calls[0];
-      expect((init as RequestInit).headers).toMatchObject({
-        Authorization: "Bearer refreshed-access-token",
-      });
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Authorization")).toBe(
+        "Bearer refreshed-access-token",
+      );
     });
   });
 
@@ -493,5 +502,43 @@ describe("resolveOAuthConnection", () => {
     expect(() => resolveOAuthConnection("integration:custom-service")).toThrow(
       /No base URL configured for "integration:custom-service"/,
     );
+  });
+
+  test("resolves base URL via app's canonical providerKey for custom credential_service", () => {
+    // Set up a well-known provider with a baseUrl
+    mockProviders.set("github", {
+      key: "github",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      baseUrl: "https://api.github.com",
+    });
+    // The custom credential service has no provider entry of its own
+    // (getProvider("integration:github-work") returns undefined)
+
+    // App points to the canonical "github" provider
+    const appId = "app-github-work";
+    mockApps.set(appId, {
+      id: appId,
+      providerKey: "github",
+      clientId: "test-client-id",
+      clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
+    });
+
+    // Connection uses the custom credential service as its providerKey
+    const connId = "conn-github-work";
+    mockConnections.set("integration:github-work", {
+      id: connId,
+      providerKey: "integration:github-work",
+      oauthAppId: appId,
+      expiresAt: Date.now() + 3600 * 1000,
+      grantedScopes: JSON.stringify(["repo"]),
+      accountInfo: null,
+    });
+    setSecureKey(`oauth_connection/${connId}/access_token`, "ghp-test-token");
+
+    const conn = resolveOAuthConnection("integration:github-work");
+
+    expect(conn).toBeInstanceOf(BYOOAuthConnection);
+    expect(conn.providerKey).toBe("integration:github-work");
+    expect(conn.grantedScopes).toEqual(["repo"]);
   });
 });

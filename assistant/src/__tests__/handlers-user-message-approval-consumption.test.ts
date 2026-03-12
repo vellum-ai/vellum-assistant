@@ -147,7 +147,6 @@ import { handleConfirmationResponse } from "../daemon/handlers/sessions.js";
 
 interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;
-  hasEscalationHandler: () => boolean;
   setChannelCapabilities: (caps: unknown) => void;
   isProcessing: () => boolean;
   hasPendingConfirmation: (requestId: string) => boolean;
@@ -181,8 +180,6 @@ function createContext(session: TestSession): {
   const sent: ServerMessage[] = [];
   const ctx: HandlerContext = {
     sessions: new Map(),
-    cuSessions: new Map(),
-    cuObservationParseSequence: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 100 }),
     suppressConfigReload: false,
@@ -202,7 +199,6 @@ function createContext(session: TestSession): {
 function makeSession(overrides: Partial<TestSession> = {}): TestSession {
   return {
     messages: [],
-    hasEscalationHandler: () => true,
     setChannelCapabilities: () => {},
     isProcessing: () => false,
     hasPendingConfirmation: () => true,
@@ -276,40 +272,5 @@ describe("handleConfirmationResponse canonical status sync", () => {
       },
     );
     expect(resolveMock).toHaveBeenCalledWith("req-confirm-allow");
-  });
-
-  test("syncs canonical status to denied for deny decisions in CU sessions", () => {
-    const cuSession = {
-      hasPendingConfirmation: (requestId: string) =>
-        requestId === "req-confirm-deny",
-      handleConfirmationResponse: mock(() => {}),
-    };
-    const { ctx } = createContext(
-      makeSession({
-        hasPendingConfirmation: () => false,
-      }),
-    );
-    ctx.cuSessions.set("cu-1", cuSession as any);
-
-    const msg: ConfirmationResponse = {
-      type: "confirmation_response",
-      requestId: "req-confirm-deny",
-      decision: "always_deny",
-    };
-
-    handleConfirmationResponse(msg, ctx);
-
-    expect(
-      (cuSession.handleConfirmationResponse as any).mock.calls.length,
-    ).toBe(1);
-    expect((cuSession.handleConfirmationResponse as any).mock.calls[0]).toEqual(
-      ["req-confirm-deny", "always_deny", undefined, undefined],
-    );
-    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
-      "req-confirm-deny",
-      "pending",
-      { status: "denied" },
-    );
-    expect(resolveMock).toHaveBeenCalledWith("req-confirm-deny");
   });
 });

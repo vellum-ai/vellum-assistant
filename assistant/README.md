@@ -73,7 +73,6 @@ For low-level development (e.g., working on the assistant runtime itself):
 ```bash
 bun run src/index.ts daemon start   # start daemon only
 bun run src/index.ts                # interactive CLI session
-bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 ```
 
 ### CLI commands
@@ -84,7 +83,6 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 | `vellum sleep`                                | Stop assistant + gateway processes               |
 | `vellum ps`                                   | List assistants and per-assistant process status |
 | `assistant`                                   | Launch interactive CLI session                   |
-| `assistant dev`                               | Run assistant with auto-restart on file changes  |
 | `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
 | `assistant config set\|get\|list`             | Manage configuration                             |
 | `assistant keys set\|list\|delete`            | Manage API keys in secure storage                |

@@ -30,6 +30,9 @@ struct ContactsListView: View {
         .task {
             cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
         }
+        .onReceive(NotificationCenter.default.publisher(for: .identityChanged)) { _ in
+            cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
+        }
     }
 
     // MARK: - Search Bar

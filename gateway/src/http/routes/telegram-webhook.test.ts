@@ -9,7 +9,7 @@ const callTelegramApiMock = mock(
   (_method: string, _body: Record<string, unknown>, _opts?: unknown) =>
     Promise.resolve({}),
 );
-const sendTelegramReplyMock = mock(() => Promise.resolve({ messageId: 0 }));
+const sendTelegramReplyMock = mock(() => Promise.resolve());
 const handleInboundMock = mock(
   (_config: GatewayConfig, _normalized: unknown, _options?: unknown) =>
     Promise.resolve({ forwarded: true, rejected: false }),

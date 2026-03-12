@@ -40,8 +40,3 @@ enum AssistantStatus {
         return false
     }
 }
-
-enum InteractionType {
-    case computerUse
-    case textQA
-}

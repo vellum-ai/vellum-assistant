@@ -110,7 +110,6 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
-import { computerUseRouteDefinitions } from "./routes/computer-use-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -126,6 +125,7 @@ import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
+import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
@@ -155,6 +155,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
@@ -216,7 +217,7 @@ export class RuntimeHttpServer {
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
+  private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
 
@@ -237,7 +238,7 @@ export class RuntimeHttpServer {
     this.getSkillContext = options.getSkillContext;
     this.sessionManagementDeps = options.sessionManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
-    this.getComputerUseDeps = options.getComputerUseDeps;
+    this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
@@ -946,6 +947,7 @@ export class RuntimeHttpServer {
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
+      ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
       ...(this.getSkillContext
         ? skillRouteDefinitions({
@@ -973,9 +975,9 @@ export class RuntimeHttpServer {
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
-      ...(this.getComputerUseDeps
-        ? computerUseRouteDefinitions({
-            getComputerUseDeps: this.getComputerUseDeps,
+      ...(this.getWatchDeps
+        ? watchRouteDefinitions({
+            getWatchDeps: this.getWatchDeps,
           })
         : []),
       ...(this.getRecordingDeps

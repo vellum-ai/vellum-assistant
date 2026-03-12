@@ -14,7 +14,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { getLogger, isDebug, truncateForLog } from "../util/logger.js";
+import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-loop");
 
@@ -179,7 +179,6 @@ export class AgentLoop {
     let toolUseTurns = 0;
     let nudgedForEmptyResponse = false;
     let lastLlmCallTime = 0;
-    const debug = isDebug();
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Per-run substitution map for sensitive output placeholders.
@@ -191,7 +190,6 @@ export class AgentLoop {
     while (true) {
       if (signal?.aborted) break;
 
-      const turnStart = Date.now();
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
       try {
@@ -227,22 +225,6 @@ export class AgentLoop {
           providerConfig.tool_choice = this.config.toolChoice;
         }
 
-        if (debug) {
-          rlog.debug(
-            {
-              systemPrompt: truncateForLog(turnSystemPrompt, 200),
-              messageCount: history.length,
-              lastMessage:
-                history.length > 0
-                  ? summarizeMessage(history[history.length - 1])
-                  : null,
-              toolCount: currentTools.length,
-              config: providerConfig,
-            },
-            "Sending request to provider",
-          );
-        }
-
         const preLlmResult = await getHookManager().trigger("pre-llm-call", {
           systemPrompt: turnSystemPrompt,
           messages: history,
@@ -275,7 +257,11 @@ export class AgentLoop {
         // screenshots from accumulating in the context window. The LLM
         // already saw each image on the turn it was captured; keeping
         // base64 blobs in history rapidly exhausts the context budget.
-        const providerHistory = stripOldImageBlocks(history);
+        // Also strip old AX tree snapshots to keep TTFT from growing
+        // linearly with step count in computer-use sessions.
+        const providerHistory = compactAxTreeHistory(
+          stripOldImageBlocks(history),
+        );
 
         const response = await this.provider.sendMessage(
           providerHistory,
@@ -327,33 +313,6 @@ export class AgentLoop {
         );
 
         const providerDurationMs = Date.now() - providerStart;
-
-        if (debug) {
-          rlog.debug(
-            {
-              providerDurationMs,
-              model: response.model,
-              stopReason: response.stopReason,
-              inputTokens: response.usage.inputTokens,
-              outputTokens: response.usage.outputTokens,
-              cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
-              cacheReadInputTokens: response.usage.cacheReadInputTokens,
-              contentBlocks: response.content.map((b) => ({
-                type: b.type,
-                ...(b.type === "text"
-                  ? { text: truncateForLog(b.text, 1200) }
-                  : {}),
-                ...(b.type === "tool_use"
-                  ? {
-                      name: b.name,
-                      input: truncateForLog(JSON.stringify(b.input), 1200),
-                    }
-                  : {}),
-              })),
-            },
-            "Provider response received",
-          );
-        }
 
         onEvent({
           type: "usage",
@@ -443,16 +402,6 @@ export class AgentLoop {
             name: toolUse.name,
             input: toolUse.input,
           });
-
-          if (debug) {
-            rlog.debug(
-              {
-                tool: toolUse.name,
-                input: truncateForLog(JSON.stringify(toolUse.input), 300),
-              },
-              "Executing tool",
-            );
-          }
         }
 
         // If already cancelled, synthesize cancelled results and stop
@@ -469,49 +418,11 @@ export class AgentLoop {
           break;
         }
 
-        // Guard against dual-control-mode conflicts in a single turn.
-        // If the model escalates to foreground computer control, browser_* tools
-        // in the same response create competing browser sessions/windows and can
-        // thrash renderer CPU. Reject browser_* calls in that turn.
-        const hasComputerUseEscalation = toolUseBlocks.some(
-          (toolUse) => toolUse.name === "computer_use_request_control",
-        );
-        const blockedBrowserToolIds = hasComputerUseEscalation
-          ? new Set(
-              toolUseBlocks
-                .filter((toolUse) => toolUse.name.startsWith("browser_"))
-                .map((toolUse) => toolUse.id),
-            )
-          : new Set<string>();
-
-        if (blockedBrowserToolIds.size > 0) {
-          log.warn(
-            {
-              blockedBrowserToolCount: blockedBrowserToolIds.size,
-              toolNames: toolUseBlocks.map((toolUse) => toolUse.name),
-            },
-            "Blocking browser_* tools: computer_use_request_control was requested in same turn",
-          );
-        }
-
         // Execute all tools concurrently for reduced latency.
         // Race against the abort signal so cancellation isn't blocked by
         // stuck tools (e.g. a hung browser navigation).
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
-            const toolStart = Date.now();
-
-            if (blockedBrowserToolIds.has(toolUse.id)) {
-              return {
-                toolUse,
-                result: {
-                  content:
-                    "Error: browser_* tools cannot run in the same turn as computer_use_request_control. Continue using the foreground computer-use session only.",
-                  isError: true,
-                },
-              };
-            }
-
             const result = await this.toolExecutor!(
               toolUse.name,
               toolUse.input,
@@ -524,20 +435,6 @@ export class AgentLoop {
               },
               toolUse.id,
             );
-
-            const toolDurationMs = Date.now() - toolStart;
-
-            if (debug) {
-              rlog.debug(
-                {
-                  tool: toolUse.name,
-                  toolDurationMs,
-                  isError: result.isError,
-                  output: truncateForLog(result.content, 300),
-                },
-                "Tool execution complete",
-              );
-            }
 
             return { toolUse, result };
           }),
@@ -658,19 +555,6 @@ export class AgentLoop {
         // Add tool results as a user message and continue the loop
         history.push({ role: "user", content: resultBlocks });
 
-        if (debug) {
-          const turnDurationMs = Date.now() - turnStart;
-          rlog.debug(
-            {
-              turnDurationMs,
-              providerDurationMs,
-              toolCount: toolUseBlocks.length,
-              turn: toolUseTurns,
-            },
-            "Turn complete",
-          );
-        }
-
         // Invoke checkpoint callback after tool results are in history
         if (onCheckpoint) {
           const decision = onCheckpoint({
@@ -715,14 +599,76 @@ export class AgentLoop {
   }
 }
 
-function summarizeMessage(msg: Message): {
-  role: string;
-  blockTypes: string[];
-} {
-  return {
-    role: msg.role,
-    blockTypes: msg.content.map((b) => b.type),
-  };
+/** Number of most-recent AX tree snapshots to keep in conversation history. */
+const MAX_AX_TREES_IN_HISTORY = 2;
+
+/** Regex that matches the `<ax-tree>...</ax-tree>` markers. */
+const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
+const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
+
+/**
+ * Escapes any literal `</ax-tree>` occurrences inside AX tree content so
+ * that the non-greedy compaction regex (`AX_TREE_PATTERN`) does not stop
+ * prematurely when the user happens to be viewing XML/HTML source that
+ * contains the closing tag.  The escaped content does not need to be
+ * unescaped because compaction replaces the entire block with a placeholder.
+ */
+export function escapeAxTreeContent(content: string): string {
+  return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
+}
+
+/**
+ * Returns a shallow copy of `messages` where all but the most recent
+ * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
+ * short placeholder.  This keeps the conversation context small so that
+ * TTFT does not grow linearly with step count in computer-use sessions.
+ */
+export function compactAxTreeHistory(messages: Message[]): Message[] {
+  // Collect indices of user messages that contain an <ax-tree> block
+  const indicesWithAxTree: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    for (const block of msg.content) {
+      if (
+        block.type === "tool_result" &&
+        typeof block.content === "string" &&
+        block.content.includes("<ax-tree>")
+      ) {
+        indicesWithAxTree.push(i);
+        break;
+      }
+    }
+  }
+
+  if (indicesWithAxTree.length <= MAX_AX_TREES_IN_HISTORY) {
+    return messages;
+  }
+
+  const toStrip = new Set(indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY));
+
+  return messages.map((msg, idx) => {
+    if (!toStrip.has(idx)) return msg;
+    return {
+      ...msg,
+      content: msg.content.map((block) => {
+        if (
+          block.type === "tool_result" &&
+          typeof block.content === "string" &&
+          block.content.includes("<ax-tree>")
+        ) {
+          return {
+            ...block,
+            content: block.content.replace(
+              AX_TREE_PATTERN,
+              AX_TREE_PLACEHOLDER,
+            ),
+          };
+        }
+        return block;
+      }),
+    };
+  });
 }
 
 /**

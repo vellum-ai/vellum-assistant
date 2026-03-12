@@ -81,7 +81,12 @@ const mockConnections = new Map<
 >();
 const mockApps = new Map<
   string,
-  { id: string; providerKey: string; clientId: string }
+  {
+    id: string;
+    providerKey: string;
+    clientId: string;
+    clientSecretCredentialPath: string;
+  }
 >();
 const mockProviders = new Map<
   string,
@@ -92,14 +97,30 @@ const mockProviders = new Map<
   }
 >();
 
-mock.module("../oauth/oauth-store.js", () => ({
-  getConnectionByProvider: (service: string) => mockConnections.get(service),
-  getApp: (id: string) => mockApps.get(id),
-  getProvider: (key: string) => mockProviders.get(key),
-  updateConnection: () => {},
-  getMostRecentAppByProvider: () => undefined,
-  listConnections: () => [],
-}));
+let mockDisconnectOAuthProvider: ReturnType<
+  typeof mock<
+    (providerKey: string) => Promise<"disconnected" | "not-found" | "error">
+  >
+>;
+
+mock.module("../oauth/oauth-store.js", () => {
+  mockDisconnectOAuthProvider = mock((providerKey: string) =>
+    Promise.resolve(
+      mockConnections.has(providerKey)
+        ? ("disconnected" as const)
+        : ("not-found" as const),
+    ),
+  );
+  return {
+    disconnectOAuthProvider: mockDisconnectOAuthProvider,
+    getConnectionByProvider: (service: string) => mockConnections.get(service),
+    getApp: (id: string) => mockApps.get(id),
+    getProvider: (key: string) => mockProviders.get(key),
+    updateConnection: () => {},
+    getMostRecentAppByProvider: () => undefined,
+    listConnections: () => [],
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Import the module under test
@@ -249,12 +270,15 @@ describe("credential_store tool", () => {
     }
     _setStorePath(STORE_PATH);
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
+    mockDisconnectOAuthProvider.mockClear();
+    mockConnections.clear();
   });
 
   afterEach(() => {
     _setMetadataPath(null);
     _setStorePath(null);
     _resetBackend();
+    mockConnections.clear();
   });
 
   afterAll(() => {
@@ -698,6 +722,44 @@ describe("credential_store tool", () => {
       });
       expect(result.isError).toBe(true);
       expect(result.content).toContain("field is required");
+    });
+
+    test("delete also disconnects OAuth connection for the service", async () => {
+      // Store a credential via the real tool so metadata exists
+      await credentialStoreTool.execute(
+        {
+          action: "store",
+          service: "integration:gmail",
+          field: "api_key",
+          value: "test-value",
+        },
+        _ctx,
+      );
+
+      // Simulate an active OAuth connection for this service
+      mockConnections.set("integration:gmail", {
+        id: "conn-gmail",
+        providerKey: "integration:gmail",
+        oauthAppId: "app-gmail",
+        expiresAt: Date.now() + 3600_000,
+      });
+
+      const result = await credentialStoreTool.execute(
+        {
+          action: "delete",
+          service: "integration:gmail",
+          field: "api_key",
+        },
+        _ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Deleted credential");
+      // Verify disconnectOAuthProvider was called with the service name
+      expect(mockDisconnectOAuthProvider).toHaveBeenCalledTimes(1);
+      expect(mockDisconnectOAuthProvider).toHaveBeenCalledWith(
+        "integration:gmail",
+      );
     });
   });
 
@@ -1256,6 +1318,7 @@ describe("withValidToken refresh deduplication", () => {
       id: appId,
       providerKey: service,
       clientId: "test-client-id",
+      clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
     });
     mockConnections.set(service, {
       id: connId,

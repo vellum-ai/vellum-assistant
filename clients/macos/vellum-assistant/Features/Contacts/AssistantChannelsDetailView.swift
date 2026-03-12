@@ -85,11 +85,26 @@ struct AssistantChannelsDetailView: View {
                 stopCountdownTimer()
             }
         }
+        .onChange(of: store.channelSetupStatus["telegram"]) { _, status in
+            if status == nil || status == "not_configured" {
+                telegramSetupExpanded = false
+            }
+        }
+        .onChange(of: store.channelSetupStatus["slack"]) { _, status in
+            if status == nil || status == "not_configured" {
+                slackChannelSetupExpanded = false
+            }
+        }
         .onChange(of: store.channelSetupStatus["phone"]) { _, status in
             if status == nil || status == "not_configured" {
                 voiceSetupExpanded = false
             } else if status == "ready" || status == "incomplete" {
                 store.refreshTwilioNumbers()
+            }
+        }
+        .onChange(of: isEmailEnabled) { _, enabled in
+            if enabled {
+                store.refreshAssistantEmail()
             }
         }
     }
@@ -152,7 +167,7 @@ struct AssistantChannelsDetailView: View {
                         store.channelSetupStatus["telegram"] = "not_configured"
                     }
                 }
-            } else if status == "incomplete" || telegramSetupExpanded {
+            } else if (status == "incomplete" && store.telegramHasBotToken) || telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .secondary, size: .medium) {
@@ -260,7 +275,6 @@ struct AssistantChannelsDetailView: View {
                     VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
-                        telegramSetupExpanded = false
                     }
                     VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         telegramSetupExpanded = false
@@ -287,7 +301,7 @@ struct AssistantChannelsDetailView: View {
                         store.channelSetupStatus["slack"] = "not_configured"
                     }
                 }
-            } else if status == "incomplete" || slackChannelSetupExpanded {
+            } else if (status == "incomplete" && (store.slackChannelHasBotToken || store.slackChannelHasAppToken)) || slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .secondary, size: .medium) {
@@ -408,7 +422,6 @@ struct AssistantChannelsDetailView: View {
                         )
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
-                        slackChannelSetupExpanded = false
                     }
                     VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         slackChannelSetupExpanded = false
@@ -433,7 +446,7 @@ struct AssistantChannelsDetailView: View {
                         store.channelSetupStatus["phone"] = "not_configured"
                     }
                 }
-            } else if status == "incomplete" || voiceSetupExpanded {
+            } else if (status == "incomplete" && store.twilioHasCredentials) || voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
                 VButton(label: "Set Up", style: .secondary, size: .medium) {
@@ -441,8 +454,8 @@ struct AssistantChannelsDetailView: View {
                 }
             }
 
-            // Phone number dropdown: show when at least partially configured
-            if status == "ready" || status == "incomplete" {
+            // Phone number dropdown: show when credentials are configured
+            if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
                 SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
@@ -523,7 +536,6 @@ struct AssistantChannelsDetailView: View {
                         )
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
-                        voiceSetupExpanded = false
                     }
                     VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         voiceSetupExpanded = false

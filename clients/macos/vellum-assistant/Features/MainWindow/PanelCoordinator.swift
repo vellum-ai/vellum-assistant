@@ -599,27 +599,15 @@ struct ActiveChatViewWrapper: View {
             hasAPIKey: windowState.hasAPIKey,
             isThinking: viewModel.isThinking,
             isSending: viewModel.isSending,
-            errorText: viewModel.errorText,
-            pendingQueuedCount: viewModel.pendingQueuedCount,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
             isLoadingAttachment: viewModel.isLoadingAttachment,
             isRecording: viewModel.isRecording,
-            onOpenSettings: {
-                windowState.selection = .panel(.settings)
-            },
             onSend: {
                 if viewModel.isRecording { onMicrophoneToggle() }
                 viewModel.sendMessage()
             },
             onStop: viewModel.stopGenerating,
-            onDismissError: viewModel.dismissError,
-            isRetryableError: viewModel.isRetryableError,
-            onRetryError: { viewModel.retryLastMessage() },
-            isConnectionError: viewModel.isConnectionError,
-            hasRetryPayload: viewModel.hasRetryPayload,
-            isSecretBlockError: viewModel.isSecretBlockError,
-            onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
             onAttach: { openFilePicker(viewModel: viewModel) },
             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
@@ -652,10 +640,6 @@ struct ActiveChatViewWrapper: View {
             onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
             onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-            sessionError: viewModel.sessionError,
-            onRetry: { viewModel.retryAfterSessionError() },
-            onDismissSessionError: { viewModel.dismissSessionError() },
-            onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
@@ -699,7 +683,7 @@ struct ActiveChatViewWrapper: View {
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
-            connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
+
             voiceModeManager: voiceModeManager,
             voiceService: voiceService,
             onEndVoiceMode: onEndVoiceMode,

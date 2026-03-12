@@ -8,22 +8,12 @@ struct ChatView: View {
     let hasAPIKey: Bool
     let isThinking: Bool
     let isSending: Bool
-    let errorText: String?
-    let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
     let isRecording: Bool
-    let onOpenSettings: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
-    let onDismissError: () -> Void
-    let isRetryableError: Bool
-    let onRetryError: () -> Void
-    let isConnectionError: Bool
-    var hasRetryPayload: Bool = true
-    let isSecretBlockError: Bool
-    let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
@@ -45,14 +35,7 @@ struct ChatView: View {
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let sessionError: SessionError?
-    let onRetry: () -> Void
-    let onDismissSessionError: () -> Void
-    let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
-    var isLearnMode: Bool = false
-    var networkEntryCount: Int = 0
-    var idleHint: Bool = false
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -73,7 +56,6 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
-    var connectionDiagnosticHint: String? = nil
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
@@ -109,8 +91,20 @@ struct ChatView: View {
     @State private var containerWidth: CGFloat = 0
     @State private var appearance = AvatarAppearanceManager.shared
 
+    // MARK: - In-Chat Search (Cmd+F)
+    @State private var isSearchActive = false
+    @State private var searchText = ""
+    @State private var currentMatchIndex = 0
+
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
+    }
+
+    /// Message IDs whose text contains the search query, ordered chronologically.
+    private var searchMatches: [UUID] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        return messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
 
     var body: some View {
@@ -259,9 +253,6 @@ struct ChatView: View {
                             onMicrophoneToggle: onMicrophoneToggle,
                             watchSession: watchSession,
                             onStopWatch: onStopWatch,
-                            isLearnMode: isLearnMode,
-                            networkEntryCount: networkEntryCount,
-                            idleHint: idleHint,
                             voiceModeManager: voiceModeManager,
                             voiceService: voiceService,
                             onEndVoiceMode: onEndVoiceMode,
@@ -310,52 +301,47 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
-        .overlay(alignment: .top) {
-            VStack(spacing: VSpacing.xs) {
-                if !hasAPIKey {
-                    ChatSessionErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
-                        icon: .keyRound,
-                        accentColor: VColor.systemNegativeHover,
-                        actionLabel: "Open Settings",
-                        onAction: onOpenSettings
-                    )
-                }
-
-                if let sessionError {
-                    ChatSessionErrorToast(
-                        error: sessionError,
-                        onRetry: onRetry,
-                        onCopyDebugInfo: onCopyDebugInfo,
-                        onDismiss: onDismissSessionError
-                    )
-                }
-
-                if let errorText, sessionError == nil {
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
-                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
-                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
-                        onDismiss: onDismissError
-                    )
-                }
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.sm)
-            .animation(VAnimation.fast, value: hasAPIKey)
-            .animation(VAnimation.fast, value: sessionError != nil)
-            .animation(VAnimation.fast, value: errorText != nil)
-        }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
         .onKeyPress(.escape) {
+            if isSearchActive {
+                dismissSearch()
+                return .handled
+            }
             if btwResponse != nil {
                 onDismissBtw?()
                 return .handled
             }
             return .ignored
+        }
+        .onKeyPress("f", modifiers: .command) {
+            activateSearch()
+            return .handled
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSearchActive {
+                ChatSearchBar(
+                    searchText: $searchText,
+                    matchCount: searchMatches.count,
+                    currentMatchIndex: currentMatchIndex,
+                    onPrevious: { navigateMatch(delta: -1) },
+                    onNext: { navigateMatch(delta: 1) },
+                    onDismiss: { dismissSearch() }
+                )
+                .padding(.trailing, VSpacing.xl)
+                .padding(.top, VSpacing.sm)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(VAnimation.fast, value: isSearchActive)
+        .onChange(of: searchText) {
+            // Reset to first match when query changes
+            currentMatchIndex = 0
+            scrollToCurrentMatch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { _ in
+            activateSearch()
         }
     }
 
@@ -480,6 +466,31 @@ struct ChatView: View {
             if !urls.isEmpty { onDropFiles(urls) }
         }
         return true
+    }
+
+    // MARK: - Search Helpers
+
+    private func activateSearch() {
+        isSearchActive = true
+    }
+
+    private func dismissSearch() {
+        isSearchActive = false
+        searchText = ""
+        currentMatchIndex = 0
+    }
+
+    private func navigateMatch(delta: Int) {
+        let matches = searchMatches
+        guard !matches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex + delta + matches.count) % matches.count
+        scrollToCurrentMatch()
+    }
+
+    private func scrollToCurrentMatch() {
+        let matches = searchMatches
+        guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
+        anchorMessageId = matches[currentMatchIndex]
     }
 }
 
@@ -693,20 +704,11 @@ private struct ChatViewPreviewWrapper: View {
                 hasAPIKey: true,
                 isThinking: true,
                 isSending: false,
-                errorText: nil,
-                pendingQueuedCount: 0,
                 suggestion: "That sounds great, thanks!",
                 pendingAttachments: [],
                 isRecording: false,
-                onOpenSettings: {},
                 onSend: {},
                 onStop: {},
-                onDismissError: {},
-                isRetryableError: false,
-                onRetryError: {},
-                isConnectionError: false,
-                isSecretBlockError: false,
-                onSendAnyway: {},
                 onAcceptSuggestion: {},
                 onAttach: {},
                 onRemoveAttachment: { _ in },
@@ -722,10 +724,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                sessionError: nil,
-                onRetry: {},
-                onDismissSessionError: {},
-                onCopyDebugInfo: {},
                 watchSession: nil,
                 onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),

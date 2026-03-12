@@ -26,6 +26,10 @@ import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import {
+  clearSentrySessionContext,
+  setSentrySessionContext,
+} from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles } from "../memory/app-store.js";
 import {
@@ -66,10 +70,7 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "./context-overflow-reducer.js";
-import {
-  buildTemporalContext,
-  extractUserTimeZoneFromDynamicProfile,
-} from "./date-context.js";
+import { buildTemporalContext } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -88,7 +89,6 @@ import {
   formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./session-attachments.js";
-import type { ConflictGate } from "./session-conflict-gate.js";
 import { stripDynamicProfileMessages } from "./session-dynamic-profile.js";
 import {
   buildSessionErrorMessage,
@@ -165,7 +165,6 @@ export interface AgentLoopSessionContext {
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
 
-  readonly conflictGate: ConflictGate;
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
 
   currentActiveSurfaceId?: string;
@@ -350,6 +349,18 @@ export async function runAgentLoopImpl(
   ctx.profiler.startRequest();
   let turnStarted = false;
 
+  // Populate Sentry scope with session-specific tags so any exception
+  // captured during this turn (e.g. inside agent/loop.ts) can be
+  // filtered by conversation, assistant, or user in the dashboard.
+  setSentrySessionContext({
+    assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    conversationId: ctx.conversationId,
+    messageCount: ctx.messages.length,
+    userIdentifier:
+      ctx.trustContext?.guardianPrincipalId ??
+      ctx.trustContext?.requesterExternalUserId,
+  });
+
   try {
     // Auto-complete stale interactive surfaces from previous turns.
     // Only dismiss when the user sends a new message (not a surface action
@@ -528,7 +539,6 @@ export async function runAgentLoopImpl(
         messages: ctx.messages,
         systemPrompt: ctx.systemPrompt,
         provider: ctx.provider,
-        conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         trustClass: resolveTrustClass(ctx.trustContext),
@@ -541,7 +551,7 @@ export async function runAgentLoopImpl(
       onEvent,
     );
 
-    const { recall, dynamicProfile, recallInjectionStrategy } = memoryResult;
+    const { recall } = memoryResult;
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
@@ -576,14 +586,11 @@ export async function runAgentLoopImpl(
     // Absolute "now" is always anchored to assistant host clock, while local
     // date semantics prefer configured user timezone, then profile memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const userTimeZone = extractUserTimeZoneFromDynamicProfile(
-      dynamicProfile.text,
-    );
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
     const temporalContext = buildTemporalContext({
       hostTimeZone,
       configuredUserTimeZone,
-      userTimeZone,
+      userTimeZone: null,
     });
 
     // Use the channel/interface context captured at the top of this function
@@ -1280,10 +1287,9 @@ export async function runAgentLoopImpl(
         stripMemoryRecallMessages(
           msgs,
           recall.injectedText,
-          recallInjectionStrategy,
+          "separate_context_message",
         ),
-      stripDynamicProfile: (msgs) =>
-        stripDynamicProfileMessages(msgs, dynamicProfile.text),
+      stripDynamicProfile: (msgs) => stripDynamicProfileMessages(msgs, ""),
     });
 
     emitUsage(
@@ -1451,12 +1457,17 @@ export async function runAgentLoopImpl(
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Session processing error");
+      const classified = classifySessionError(err, errorCtx);
       ctx.traceEmitter.emit("request_error", truncate(message, 200, ""), {
         requestId: reqId,
         status: "error",
-        attributes: { errorClass, message: truncate(message, 500, "") },
+        attributes: {
+          errorClass,
+          message: truncate(message, 500, ""),
+          errorCategory: classified.errorCategory,
+          errorCode: classified.code,
+        },
       });
-      const classified = classifySessionError(err, errorCtx);
       onEvent({ type: "error", message: classified.userMessage });
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger("on-error", {
@@ -1515,6 +1526,10 @@ export async function runAgentLoopImpl(
     }
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+
+    // Clear session tags so they don't leak into unrelated error captures
+    // (e.g. unhandledRejection from a different async chain).
+    clearSentrySessionContext();
   }
 }
 

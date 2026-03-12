@@ -46,6 +46,20 @@ import os
         }
     }
 
+    /// Data for Sentry's User Feedback API, attached to the captured event.
+    /// Sent via `SentrySDK.capture(userFeedback:)` so it appears in Sentry's
+    /// "User Feedback" section linked to the event.
+    struct UserFeedbackData: Sendable {
+        let comments: String?
+        let email: String?
+        let name: String?
+    }
+
+    /// Default DSN for the macOS app Sentry project.
+    static let macosDSN = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+    /// DSN for the assistant/brain Sentry project.
+    static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
+
     /// Sends a manual problem report unconditionally, even when the user has
     /// opted out of automatic crash reporting.  The SDK is temporarily started
     /// with crash-handler and session-tracking disabled so only the explicit
@@ -57,21 +71,32 @@ import os
     nonisolated static func sendManualReport(
         _ event: Event,
         attachments: [Attachment] = [],
+        userFeedback: UserFeedbackData? = nil,
+        dsn: String? = nil,
         completion: (@Sendable () -> Void)? = nil
     ) {
         sentrySerialQueue.async {
-            let wasDisabled = !SentrySDK.isEnabled
-            if wasDisabled {
+            let targetDSN = dsn ?? macosDSN
+            let needsDSNSwitch = dsn != nil
+            let wasEnabled = SentrySDK.isEnabled
+
+            // When targeting a different DSN (e.g. brain project), close the
+            // current SDK first so we can restart with the alternate DSN.
+            if needsDSNSwitch && wasEnabled {
+                SentrySDK.flush(timeout: 5)
+                SentrySDK.close()
+            }
+
+            let needsStart = !SentrySDK.isEnabled
+            if needsStart {
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
                 let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
                 SentrySDK.start { options in
-                    options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+                    options.dsn = targetDSN
                     options.releaseName = "vellum-macos@\(version)"
                     options.dist = build
                     options.environment = SentryDeviceInfo.sentryEnvironment
                     options.sendDefaultPii = false
-                    // Disable crash capture and session tracking so the temporary
-                    // restart only sends the explicit event, not incidental crashes.
                     options.enableCrashHandler = false
                     options.enableAutoSessionTracking = false
                 }
@@ -87,7 +112,19 @@ import os
                 }
             }
 
-            SentrySDK.capture(event: event)
+            let eventId = SentrySDK.capture(event: event)
+
+            // Send user feedback linked to the event so it appears in Sentry's
+            // User Feedback section. This lets us associate user-provided context
+            // (message, email, category) with the event without embedding PII in
+            // event tags or extras.
+            if let feedbackData = userFeedback {
+                let feedback = Sentry.UserFeedback(eventId: eventId)
+                feedback.comments = feedbackData.comments ?? ""
+                feedback.email = feedbackData.email ?? ""
+                feedback.name = feedbackData.name ?? ""
+                SentrySDK.capture(userFeedback: feedback)
+            }
 
             // Clean up attachments so they don't leak into subsequent events.
             if !attachments.isEmpty {
@@ -100,14 +137,20 @@ import os
             // delivered before the user quits the app. Use a longer timeout
             // when attachments are present since companion archives (e.g.
             // spindump .tar.gz) can be several MB on slow connections.
-            // When Sentry was temporarily started (user opted out), also
-            // close it afterward.
             let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
-            if wasDisabled {
-                SentrySDK.flush(timeout: flushTimeout)
+            SentrySDK.flush(timeout: flushTimeout)
+
+            // Restore SDK state: if we switched DSN, close and restart
+            // synchronously with the original DSN so no queued events are
+            // dropped. If the SDK was originally disabled, just close it.
+            if needsDSNSwitch {
                 SentrySDK.close()
-            } else if !attachments.isEmpty {
-                SentrySDK.flush(timeout: flushTimeout)
+                if wasEnabled {
+                    restartSentryInline()
+                }
+            } else if needsStart {
+                // SDK was disabled before we started it — close the temp session.
+                SentrySDK.close()
             }
             completion?()
         }
@@ -131,29 +174,33 @@ import os
     /// `nonisolated` so Settings code can call it without crossing @MainActor.
     nonisolated static func startSentry() {
         sentrySerialQueue.async {
-            guard !SentrySDK.isEnabled else { return }
-            // Defense-in-depth: respect the primary usage-data opt-out even if
-            // the caller forgot to check. Prevents re-enabling Sentry after a
-            // rapid toggle sequence (collectUsageData off → sendPerformanceReports change).
-            let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
-            guard collectUsageData else { return }
-            let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
-            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-            SentrySDK.start { options in
-                options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
-                options.releaseName = "vellum-macos@\(version)"
-                options.dist = build
-                options.environment = SentryDeviceInfo.sentryEnvironment
-                options.debug = false
-                options.tracesSampleRate = 0.1
-                options.configureProfiling = { profilingOptions in
-                    profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
-                }
-                options.sendDefaultPii = false
-            }
-            SentryDeviceInfo.configureSentryScope()
+            restartSentryInline()
         }
+    }
+
+    /// Synchronous Sentry restart — must be called from `sentrySerialQueue`.
+    /// Shared by `startSentry()` and inline DSN restoration in `sendManualReport`
+    /// so no queued events are dropped between close and restart.
+    private nonisolated static func restartSentryInline() {
+        guard !SentrySDK.isEnabled else { return }
+        let collectUsageData = UserDefaults.standard.object(forKey: "collectUsageDataEnabled") as? Bool ?? true
+        guard collectUsageData else { return }
+        let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        SentrySDK.start { options in
+            options.dsn = macosDSN
+            options.releaseName = "vellum-macos@\(version)"
+            options.dist = build
+            options.environment = SentryDeviceInfo.sentryEnvironment
+            options.debug = false
+            options.tracesSampleRate = 0.1
+            options.configureProfiling = { profilingOptions in
+                profilingOptions.sessionSampleRate = perfOptIn ? 1.0 : 0
+            }
+            options.sendDefaultPii = false
+        }
+        SentryDeviceInfo.configureSentryScope()
     }
 }
 

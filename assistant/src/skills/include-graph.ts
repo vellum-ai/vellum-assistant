@@ -151,3 +151,35 @@ export function traverseIncludes(
   dfs(rootId);
   return { visited };
 }
+
+/**
+ * Collect all missing skill IDs reachable from the root's include graph.
+ * DFS traversal that tracks visited nodes to prevent infinite loops on cycles.
+ * The root itself is never reported as missing (it's already loaded by the caller).
+ */
+export function collectAllMissing(
+  rootId: string,
+  catalogIndex: Map<string, SkillSummary>,
+): Set<string> {
+  const missing = new Set<string>();
+  const visited = new Set<string>();
+
+  function dfs(id: string): void {
+    if (visited.has(id)) return;
+    visited.add(id);
+
+    const skill = catalogIndex.get(id);
+    if (!skill?.includes) return;
+
+    for (const childId of skill.includes) {
+      if (!catalogIndex.has(childId)) {
+        missing.add(childId);
+      } else if (!visited.has(childId)) {
+        dfs(childId);
+      }
+    }
+  }
+
+  dfs(rootId);
+  return missing;
+}

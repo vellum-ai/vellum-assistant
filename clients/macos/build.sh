@@ -541,7 +541,7 @@ if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
 fi
 # Always refresh feature flag registry for the bundled gateway.
 # The compiled gateway resolves this from Contents/Resources in app layouts.
-FEATURE_FLAG_REGISTRY="$GATEWAY_SRC_DIR/src/feature-flag-registry.json"
+FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registry.json"
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi

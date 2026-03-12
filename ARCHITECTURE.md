@@ -343,8 +343,8 @@ subgraph "Text Q&A Session"
     CLS -->|"computerUse"| PERCEIVE
     CLS -->|"textQA"| TEXT_SESS
 
-    %% Text Q&A → CU escalation
-    TEXT_SESS -.->|"computer_use_request_control<br/>(explicit user request)"| PERCEIVE
+    %% Text Q&A → CU via HostCuProxy
+    TEXT_SESS -.->|"computer_use_* actions<br/>forwarded via HostCuProxy"| PERCEIVE
 
     %% Computer Use loop
     PERCEIVE -->|"CuObservationMessage<br/>(HTTP POST)"| HTTP_RT
@@ -416,7 +416,7 @@ subgraph "Text Q&A Session"
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    %% replyCallbackUrl is built from gatewayInternalBaseUrl (hardcoded default, overridable via workspace config)
+    %% replyCallbackUrl is built from gatewayInternalBaseUrl (derived from GATEWAY_PORT)
     HTTP_RT -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
     GW_TG_DELIVER --> GW_REPLY
     GW_TG_DELIVER --> GW_ATTACH

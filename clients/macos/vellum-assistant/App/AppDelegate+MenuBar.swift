@@ -5,6 +5,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
 
+extension Notification.Name {
+    /// Posted when the user triggers Edit > Find (Cmd+F) from the menu bar.
+    static let activateChatSearch = Notification.Name("activateChatSearch")
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar
@@ -68,6 +73,27 @@ extension AppDelegate {
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
+
+        // Edit menu — provides Cmd+F "Find" so the shortcut works regardless of focus state.
+        if mainMenu.indexOfItem(withTitle: "Edit") < 0 {
+            let editMenu = NSMenu(title: "Edit")
+
+            // Standard edit actions so Cmd+C/V/X/A work in text fields
+            editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+            editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+            editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+            editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+            editMenu.addItem(NSMenuItem.separator())
+
+            let findItem = NSMenuItem(title: "Find...", action: #selector(activateChatSearch), keyEquivalent: "f")
+            findItem.keyEquivalentModifierMask = .command
+            findItem.target = self
+            editMenu.addItem(findItem)
+
+            let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+            editMenuItem.submenu = editMenu
+            mainMenu.insertItem(editMenuItem, at: 2)
+        }
     }
 
     // MARK: - Menu Item Validation
@@ -372,6 +398,10 @@ extension AppDelegate {
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
+    @objc func activateChatSearch() {
+        NotificationCenter.default.post(name: .activateChatSearch, object: nil)
+    }
+
     @objc func openAppCollection() {
         guard !isBootstrapping else { return }
         showMainWindow()
@@ -443,7 +473,94 @@ extension AppDelegate {
     }
 
     @objc public func sendLogsToSentry() {
-        LogExporter.sendLogsToSentry()
+        // If the window is already showing, just bring it forward.
+        if let existing = logReportWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        // Defer window creation until after the status menu finishes dismissing,
+        // otherwise macOS can swallow the makeKeyAndOrderFront during menu teardown.
+        DispatchQueue.main.async { [weak self] in
+            self?.showLogReportWindow()
+        }
+    }
+
+    private func showLogReportWindow() {
+        let dismiss: () -> Void = { [weak self] in
+            self?.dismissLogReportWindow()
+        }
+
+        let view = LogReportFormView(
+            onSend: { [weak self] formData in
+                self?.dismissLogReportWindow()
+                LogExporter.sendLogsToSentry(formData: formData)
+            },
+            onCancel: dismiss
+        )
+
+        let hostingController = NSHostingController(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 680),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.title = "Send Logs to Vellum"
+        window.backgroundColor = NSColor(VColor.backgroundSubtle)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        logReportWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleLogReportWindowWillClose()
+            }
+        }
+
+        logReportWindow = window
+
+        // Switch to .regular activation policy first so the app can own key focus,
+        // then order the window front and activate. The second async ensures the
+        // policy change has taken effect before we try to grab focus.
+        NSApp.activateAsDockAppIfNeeded()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Belt-and-suspenders: re-activate after a run-loop tick so macOS respects
+        // the policy switch that just happened above. Check logReportWindow to
+        // avoid resurrecting a window that was closed during the async gap.
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.logReportWindow, window.isVisible else { return }
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func dismissLogReportWindow() {
+        if let observer = logReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            logReportWindowObserver = nil
+        }
+        let closingWindow = logReportWindow
+        logReportWindow?.close()
+        logReportWindow = nil
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
+    }
+
+    private func handleLogReportWindowWillClose() {
+        if let observer = logReportWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            logReportWindowObserver = nil
+        }
+        let closingWindow = logReportWindow
+        logReportWindow = nil
+        revertActivationPolicyIfNoWindows(excluding: closingWindow)
     }
 
     func refreshSkillsCache() {

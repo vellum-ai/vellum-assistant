@@ -37,7 +37,6 @@ const ALLOWLIST = new Set([
   // --- Documentation and comments that mention the port for explanatory purposes ---
   "AGENTS.md", // documents the gateway-only rule itself
   "ARCHITECTURE.md", // architecture overview with port references
-  "assistant/docs/runbook-trusted-contacts.md", // operator runbook targeting runtime-only /v1/contacts endpoints
   "assistant/src/runtime/middleware/twilio-validation.ts", // comment explaining proxy URL rewriting
 ]);
 

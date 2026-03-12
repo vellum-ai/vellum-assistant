@@ -266,7 +266,8 @@ function normalizeFollowingUserContent(
     if (
       isToolResultBlock(block) &&
       pendingIds.has(block.tool_use_id) &&
-      !matchedById.has(block.tool_use_id)
+      !matchedById.has(block.tool_use_id) &&
+      !serverToolIds.has(block.tool_use_id)
     ) {
       matchedById.set(block.tool_use_id, block);
       continue;
@@ -274,7 +275,8 @@ function normalizeFollowingUserContent(
     if (
       isWebSearchToolResultBlock(block) &&
       pendingIds.has(block.tool_use_id) &&
-      !matchedById.has(block.tool_use_id)
+      !matchedById.has(block.tool_use_id) &&
+      serverToolIds.has(block.tool_use_id)
     ) {
       matchedById.set(
         block.tool_use_id,

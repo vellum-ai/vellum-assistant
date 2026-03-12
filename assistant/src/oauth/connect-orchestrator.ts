@@ -104,15 +104,6 @@ export interface OAuthConnectOptions {
     accountInfo?: string;
     error?: string;
   }) => void;
-
-  // Optional overrides — when provided, these take precedence over the
-  // provider profile. This lets callers connect custom / unknown providers.
-  authUrl?: string;
-  tokenUrl?: string;
-  scopes?: string[];
-  extraParams?: Record<string, string>;
-  userinfoUrl?: string;
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,47 +154,37 @@ export async function orchestrateOAuthConnect(
     undefined,
   );
 
-  // Merge explicit overrides with DB values
-  const authUrl = options.authUrl ?? providerRow.authUrl;
-  const tokenUrl = options.tokenUrl ?? providerRow.tokenUrl;
-  const extraParams = options.extraParams ?? dbExtraParams;
-  const userinfoUrl =
-    options.userinfoUrl ?? providerRow.userinfoUrl ?? undefined;
-  const tokenEndpointAuthMethod =
-    options.tokenEndpointAuthMethod ??
-    (providerRow.tokenEndpointAuthMethod as
-      | TokenEndpointAuthMethod
-      | undefined);
+  // Resolve all protocol-level config from the DB
+  const authUrl = providerRow.authUrl;
+  const tokenUrl = providerRow.tokenUrl;
+  const extraParams = dbExtraParams;
+  const userinfoUrl = providerRow.userinfoUrl ?? undefined;
+  const tokenEndpointAuthMethod = providerRow.tokenEndpointAuthMethod as
+    | TokenEndpointAuthMethod
+    | undefined;
   const callbackTransport =
     (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
     "gateway";
   const loopbackPort = providerRow.loopbackPort;
 
-  // Scopes: use explicit override, then try scope policy resolution, then DB defaults
-  let finalScopes: string[];
-  if (options.scopes) {
-    // Explicit scopes override — bypass policy (caller takes responsibility)
-    finalScopes = options.scopes;
-  } else {
-    // Build a scope-resolver-compatible object from the DB row
-    const scopeProfile = {
-      service: resolvedService,
-      defaultScopes: dbDefaultScopes,
-      scopePolicy: dbScopePolicy,
+  // Resolve scopes via the scope policy engine
+  const scopeProfile = {
+    service: resolvedService,
+    defaultScopes: dbDefaultScopes,
+    scopePolicy: dbScopePolicy,
+  };
+  const scopeResult = resolveScopes(scopeProfile, options.requestedScopes);
+  if (!scopeResult.ok) {
+    const guidance = scopeResult.allowedScopes
+      ? ` Allowed scopes: ${scopeResult.allowedScopes.join(", ")}`
+      : "";
+    return {
+      success: false,
+      error: `${scopeResult.error}${guidance}`,
+      safeError: true,
     };
-    const scopeResult = resolveScopes(scopeProfile, options.requestedScopes);
-    if (!scopeResult.ok) {
-      const guidance = scopeResult.allowedScopes
-        ? ` Allowed scopes: ${scopeResult.allowedScopes.join(", ")}`
-        : "";
-      return {
-        success: false,
-        error: `${scopeResult.error}${guidance}`,
-        safeError: true,
-      };
-    }
-    finalScopes = scopeResult.scopes;
   }
+  const finalScopes = scopeResult.scopes;
 
   if (!authUrl) {
     return {

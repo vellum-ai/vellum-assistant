@@ -27,8 +27,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
-    var currentSession: ComputerUseSession?
+    var currentSession: (any SessionOverlayProviding)?
     var currentTextSession: TextSession?
+    /// Proxy state tracker for host CU overlay (proxy-based computer use sessions).
+    var activeHostCuProxy: HostCuSessionProxy?
+    /// Conversation/session ID of the active host CU overlay.
+    var activeOverlayConversationId: String?
+    /// Cleanup task for dismissing the host CU overlay after completion.
+    var hostCuOverlayCleanupTask: Task<Void, Never>?
+    /// Combine subscriptions for host CU overlay state observation.
+    var hostCuOverlayCancellables = Set<AnyCancellable>()
     /// text_qa session IDs that should auto-enable CU auto-approve if they escalate.
     var autoApproveEscalationSessionIds: Set<String> = []
     var isStartingSession = false
@@ -76,6 +84,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapInterstitialWindow: NSWindow?
     var crashReportWindow: NSWindow?
     var crashReportWindowObserver: NSObjectProtocol?
+    var logReportWindow: NSWindow?
+    var logReportWindowObserver: NSObjectProtocol?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     var bootstrapRetryTask: Task<Void, Never>?
     /// Tracks the most recent failure kind during bootstrap retries so that
@@ -203,7 +213,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         SentrySDK.start { options in
-            options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
+            options.dsn = MetricKitManager.macosDSN
             options.releaseName = "vellum-macos@\(appVersion)"
             options.dist = buildNumber
             options.environment = SentryDeviceInfo.sentryEnvironment

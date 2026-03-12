@@ -101,8 +101,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 100000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
       overflowRecovery: {
         enabled: true,
         safetyMarginRatio: 0.05,
@@ -130,6 +131,13 @@ mock.module("../config/loader.js", () => ({
           maxInjectTokens: 10000,
           targetHeadroomTokens: 10000,
         },
+      },
+      embeddings: {
+        provider: "auto",
+        required: true,
+      },
+      entity: {
+        enabled: false,
       },
       conflicts: {
         enabled: true,
@@ -547,9 +555,9 @@ describe("Session conflict soft gate (non-interruptive)", () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    // "use MySQL" is a clarification reply (action cue "use") with topical
-    // relevance to the conflict statements.
-    await session.processMessage("use MySQL", [], () => {});
+    // "use MySQL for our database" is a clarification reply (action cue "use")
+    // with topical relevance to the conflict statements.
+    await session.processMessage("use MySQL for our database", [], () => {});
 
     expect(resolverCallCount).toBe(1);
     // Agent loop still runs — no blocking
@@ -655,7 +663,11 @@ describe("Session conflict soft gate (non-interruptive)", () => {
     });
     await session.loadFromDb();
 
-    await session.processMessage("tabs or spaces?", [], () => {});
+    await session.processMessage(
+      "should we use tabs or spaces for indentation?",
+      [],
+      () => {},
+    );
 
     // Every call to listPendingConflictDetails should use the session's scopeId
     expect(conflictScopeCalls.length).toBeGreaterThan(0);
@@ -746,8 +758,10 @@ describe("Session conflict soft gate (non-interruptive)", () => {
     await session.loadFromDb();
 
     const events: ServerMessage[] = [];
-    await session.processMessage("Check latest PRs", [], (event) =>
-      events.push(event),
+    await session.processMessage(
+      "Check the latest PRs for review",
+      [],
+      (event) => events.push(event),
     );
 
     // Should run normal agent loop

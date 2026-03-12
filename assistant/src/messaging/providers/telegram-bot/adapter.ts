@@ -6,14 +6,16 @@
  * with OAuth tokens, Telegram delivery is proxied through the gateway which
  * owns the bot token and handles Telegram API retries.
  *
- * The `token` parameter in MessagingProvider methods is unused for Telegram
- * because delivery is authenticated via the gateway's bearer token, not
- * a per-user OAuth token.
+ * The `connectionOrToken` parameter in MessagingProvider methods is unused
+ * for Telegram because delivery is authenticated via the gateway's bearer
+ * token, not a per-user OAuth token.
  */
 
 import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import type { OAuthConnection } from "../../../oauth/connection.js";
+import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKey } from "../../../security/secure-keys.js";
@@ -53,23 +55,21 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   capabilities: new Set(["send"]),
 
   /**
-   * Custom connectivity check. The standard registry check looks for
-   * credential/telegram/access_token, but the Telegram bot token is
-   * stored as credential/telegram/bot_token. This method lets the
-   * registry detect that Telegram credentials exist.
+   * Custom connectivity check using the oauth_connection record as the
+   * single source of truth, consistent with integration-status.ts.
    *
    * Both bot_token and webhook_secret are required — the gateway's
    * /deliver/telegram endpoint rejects requests without the webhook
    * secret, so partial credentials would cause every send to fail.
    */
   isConnected(): boolean {
-    return (
-      getBotToken() !== undefined &&
-      !!getSecureKey(credentialKey("telegram", "webhook_secret"))
-    );
+    const conn = getConnectionByProvider("telegram");
+    return !!(conn && conn.status === "active");
   },
 
-  async testConnection(_token: string): Promise<ConnectionInfo> {
+  async testConnection(
+    _connectionOrToken: OAuthConnection | string,
+  ): Promise<ConnectionInfo> {
     const botToken = getBotToken();
     if (!botToken) {
       return {
@@ -114,7 +114,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     conversationId: string,
     text: string,
     _options?: SendOptions,
@@ -152,7 +152,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   // interact with chats where users have initiated contact or the bot
   // has been added to a group.
   async listConversations(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _options?: ListOptions,
   ): Promise<Conversation[]> {
     return [];
@@ -160,7 +160,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not provide message history retrieval.
   async getHistory(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _conversationId: string,
     _options?: HistoryOptions,
   ): Promise<Message[]> {
@@ -169,7 +169,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not support message search.
   async search(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _query: string,
     _options?: SearchOptions,
   ): Promise<SearchResult> {

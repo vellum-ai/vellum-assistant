@@ -53,7 +53,14 @@ export class BYOOAuthConnection implements OAuthConnection {
       let fullUrl = `${effectiveBaseUrl}${req.path}`;
 
       if (req.query && Object.keys(req.query).length > 0) {
-        const params = new URLSearchParams(req.query);
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(req.query)) {
+          if (Array.isArray(value)) {
+            for (const v of value) params.append(key, v);
+          } else {
+            params.append(key, value);
+          }
+        }
         fullUrl += `?${params.toString()}`;
       }
 
@@ -62,13 +69,22 @@ export class BYOOAuthConnection implements OAuthConnection {
         "Making authenticated request",
       );
 
+      // Use the Headers API for case-insensitive merging. Set defaults
+      // first so caller-supplied headers (in any casing) override them.
+      const headers = new Headers();
+      if (req.body) {
+        headers.set("Content-Type", "application/json");
+      }
+      if (req.headers) {
+        for (const [key, value] of Object.entries(req.headers)) {
+          headers.set(key, value);
+        }
+      }
+      headers.set("Authorization", `Bearer ${token}`);
+
       const resp = await fetch(fullUrl, {
         method: req.method,
-        headers: {
-          ...(req.body ? { "Content-Type": "application/json" } : {}),
-          ...req.headers,
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: req.body ? JSON.stringify(req.body) : undefined,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });

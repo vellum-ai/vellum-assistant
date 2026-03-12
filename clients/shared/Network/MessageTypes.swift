@@ -45,6 +45,10 @@ import Foundation
 // │                                 │ generated contract                      │
 // │ SubagentEventMessage            │ Contains recursive ServerMessage ref;   │
 // │                                 │ codegen skips ServerMessage              │
+// │ HostCuRequest                   │ Uses AnyCodable for `input` field;      │
+// │                                 │ code generator cannot express it        │
+// │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
+// │                                 │ alongside HostCuRequest                 │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -139,61 +143,6 @@ public typealias Attachment = UserMessageAttachment
 extension UserMessageAttachment {
     public init(filename: String, mimeType: String, data: String, extractedText: String?) {
         self.init(id: nil, filename: filename, mimeType: mimeType, data: data, extractedText: extractedText, sizeBytes: nil, thumbnailData: nil)
-    }
-}
-
-/// Sent to create a new computer-use session.
-/// Backed by generated `CuSessionCreate`.
-public typealias CuSessionCreateMessage = CuSessionCreate
-
-extension CuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [Attachment]?, interactionType: String?) {
-        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
-    }
-}
-
-/// Sent after each perceive step with AX tree, screenshot, and execution results.
-/// Backed by generated `CuObservation`.
-public typealias CuObservationMessage = CuObservation
-
-extension CuObservation {
-    public init(
-        sessionId: String,
-        axTree: String?,
-        axDiff: String?,
-        secondaryWindows: String?,
-        screenshot: String?,
-        screenshotWidthPx: Double? = nil,
-        screenshotHeightPx: Double? = nil,
-        screenWidthPt: Double? = nil,
-        screenHeightPt: Double? = nil,
-        coordinateOrigin: String? = nil,
-        captureDisplayId: Double? = nil,
-        executionResult: String?,
-        executionError: String?,
-        axTreeBlob: BlobRef? = nil,
-        screenshotBlob: BlobRef? = nil,
-        userGuidance: String? = nil
-    ) {
-        self.init(
-            type: "cu_observation",
-            sessionId: sessionId,
-            axTree: axTree,
-            axDiff: axDiff,
-            secondaryWindows: secondaryWindows,
-            screenshot: screenshot,
-            screenshotWidthPx: screenshotWidthPx,
-            screenshotHeightPx: screenshotHeightPx,
-            screenWidthPt: screenWidthPt,
-            screenHeightPt: screenHeightPt,
-            coordinateOrigin: coordinateOrigin,
-            captureDisplayId: captureDisplayId,
-            executionResult: executionResult,
-            executionError: executionError,
-            axTreeBlob: axTreeBlob,
-            screenshotBlob: screenshotBlob,
-            userGuidance: userGuidance
-        )
     }
 }
 
@@ -309,16 +258,6 @@ extension UserMessage {
     }
 }
 
-/// Sent to request daemon-side classification and session creation.
-/// Backed by generated `TaskSubmit`.
-public typealias TaskSubmitMessage = TaskSubmit
-
-extension TaskSubmit {
-    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [Attachment]?, source: String?) {
-        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
-    }
-}
-
 /// Sent to cancel the active generation.
 /// Backed by generated `CancelRequest`.
 public typealias CancelMessage = CancelRequest
@@ -328,17 +267,6 @@ extension CancelRequest {
         self.init(type: "cancel", sessionId: sessionId)
     }
 }
-
-/// Sent to abort a running computer-use session.
-/// Backed by generated `CuSessionAbort`.
-public typealias CuSessionAbortMessage = CuSessionAbort
-
-extension CuSessionAbort {
-    public init(sessionId: String) {
-        self.init(type: "cu_session_abort", sessionId: sessionId)
-    }
-}
-
 
 extension AuthMessage {
     public init(token: String) {
@@ -717,33 +645,6 @@ extension GetSigningIdentityResponse {
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
-/// Action to execute from the inference server.
-public typealias CuActionMessage = CuAction
-
-extension CuAction {
-    public init(sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String?, stepNumber: Int) {
-        self.init(type: "cu_action", sessionId: sessionId, toolName: toolName, input: input, reasoning: reasoning, stepNumber: stepNumber)
-    }
-}
-
-/// Session completed successfully.
-public typealias CuCompleteMessage = CuComplete
-
-extension CuComplete {
-    public init(sessionId: String, summary: String, stepCount: Int, isResponse: Bool?) {
-        self.init(type: "cu_complete", sessionId: sessionId, summary: summary, stepCount: stepCount, isResponse: isResponse)
-    }
-}
-
-/// Session-level error from the server.
-public typealias CuErrorMessage = CuError
-
-extension CuError {
-    public init(sessionId: String, message: String) {
-        self.init(type: "cu_error", sessionId: sessionId, message: message)
-    }
-}
-
 /// Echoes a user message back to the client (e.g. relay_prompt from a surface action).
 /// Backed by generated `UserMessageEcho`.
 public typealias UserMessageEchoMessage = UserMessageEcho
@@ -805,18 +706,14 @@ extension MemoryRecalled {
     public init(
         provider: String,
         model: String,
-        lexicalHits: Double,
         semanticHits: Double,
         recencyHits: Double,
-        entityHits: Double,
-        relationSeedEntityCount: Int? = nil,
-        relationTraversedEdgeCount: Int? = nil,
-        relationNeighborEntityCount: Int? = nil,
-        relationExpandedItemCount: Int? = nil,
-        earlyTerminated: Bool? = nil,
+        tier1Count: Int? = nil,
+        tier2Count: Int? = nil,
+        hybridSearchLatencyMs: Double? = nil,
+        sparseVectorUsed: Bool? = nil,
         mergedCount: Int,
         selectedCount: Int,
-        rerankApplied: Bool,
         injectedTokens: Int,
         latencyMs: Double,
         topCandidates: [MemoryRecalledCandidateDebug]
@@ -825,18 +722,14 @@ extension MemoryRecalled {
             type: "memory_recalled",
             provider: provider,
             model: model,
-            lexicalHits: lexicalHits,
             semanticHits: semanticHits,
             recencyHits: recencyHits,
-            entityHits: entityHits,
-            relationSeedEntityCount: relationSeedEntityCount,
-            relationTraversedEdgeCount: relationTraversedEdgeCount,
-            relationNeighborEntityCount: relationNeighborEntityCount,
-            relationExpandedItemCount: relationExpandedItemCount,
-            earlyTerminated: earlyTerminated,
+            tier1Count: tier1Count,
+            tier2Count: tier2Count,
+            hybridSearchLatencyMs: hybridSearchLatencyMs,
+            sparseVectorUsed: sparseVectorUsed,
             mergedCount: mergedCount,
             selectedCount: selectedCount,
-            rerankApplied: rerankApplied,
             injectedTokens: injectedTokens,
             latencyMs: latencyMs,
             topCandidates: topCandidates
@@ -847,9 +740,6 @@ extension MemoryRecalled {
 /// Memory availability/degradation status event.
 /// Backed by generated `MemoryStatus`.
 public typealias MemoryStatusMessage = MemoryStatus
-
-/// Daemon response after classifying and routing a task_submit.
-public typealias TaskRoutedMessage = TaskRouted
 
 /// Daemon response to a dictation_request with cleaned text and mode classification.
 public typealias DictationResponseMessage = DictationResponse
@@ -1357,6 +1247,8 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
     case providerApi = "PROVIDER_API"
     case providerBilling = "PROVIDER_BILLING"
+    case providerOrdering = "PROVIDER_ORDERING"
+    case providerWebSearch = "PROVIDER_WEB_SEARCH"
     case contextTooLarge = "CONTEXT_TOO_LARGE"
     case sessionAborted = "SESSION_ABORTED"
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
@@ -1381,17 +1273,20 @@ public struct SessionErrorMessage: Decodable, Sendable {
     public let userMessage: String
     public let retryable: Bool
     public let debugDetails: String?
+    /// Machine-readable error category for log report metadata and triage.
+    public let errorCategory: String?
     /// Non-nil when the error is a client-side HTTP send failure.
     /// Contains the message content that failed to send, used to mark
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
 
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, failedMessageContent: String? = nil) {
+    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
         self.sessionId = sessionId
         self.code = code
         self.userMessage = userMessage
         self.retryable = retryable
         self.debugDetails = debugDetails
+        self.errorCategory = errorCategory
         self.failedMessageContent = failedMessageContent
     }
 }
@@ -1551,6 +1446,90 @@ public struct HostFileResultPayload: Codable, Sendable {
         self.requestId = requestId
         self.content = content
         self.isError = isError
+    }
+}
+
+// MARK: - Host CU Proxy
+
+/// Request from the daemon to execute a computer-use action on the host machine.
+/// The desktop client receives this via SSE, executes the action locally
+/// (verify → execute → observe), and POSTs the result back to `/v1/host-cu-result`.
+public struct HostCuRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let sessionId: String
+    public let toolName: String
+    public let input: [String: AnyCodable]
+    public let stepNumber: Int
+    public let reasoning: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case sessionId
+        case toolName
+        case input
+        case stepNumber
+        case reasoning
+    }
+}
+
+/// Payload posted back to the daemon with the result of a host CU action execution.
+public struct HostCuResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let axTree: String?
+    public let axDiff: String?
+    public let screenshot: String?
+    public let screenshotWidthPx: Int?
+    public let screenshotHeightPx: Int?
+    public let screenWidthPt: Int?
+    public let screenHeightPt: Int?
+    public let executionResult: String?
+    public let executionError: String?
+    public let secondaryWindows: String?
+    public let userGuidance: String?
+
+    public init(
+        requestId: String,
+        axTree: String?,
+        axDiff: String?,
+        screenshot: String?,
+        screenshotWidthPx: Int?,
+        screenshotHeightPx: Int?,
+        screenWidthPt: Int?,
+        screenHeightPt: Int?,
+        executionResult: String?,
+        executionError: String?,
+        secondaryWindows: String?,
+        userGuidance: String?
+    ) {
+        self.requestId = requestId
+        self.axTree = axTree
+        self.axDiff = axDiff
+        self.screenshot = screenshot
+        self.screenshotWidthPx = screenshotWidthPx
+        self.screenshotHeightPx = screenshotHeightPx
+        self.screenWidthPt = screenWidthPt
+        self.screenHeightPt = screenHeightPt
+        self.executionResult = executionResult
+        self.executionError = executionError
+        self.secondaryWindows = secondaryWindows
+        self.userGuidance = userGuidance
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case requestId
+        case axTree
+        case axDiff
+        case screenshot
+        case screenshotWidthPx
+        case screenshotHeightPx
+        case screenWidthPt
+        case screenHeightPt
+        case executionResult
+        case executionError
+        case secondaryWindows
+        case userGuidance
     }
 }
 
@@ -2095,9 +2074,6 @@ public struct SubagentEventMessage: Decodable, Sendable {
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
     case authResult(AuthResultMessage)
-    case cuAction(CuActionMessage)
-    case cuComplete(CuCompleteMessage)
-    case cuError(CuErrorMessage)
     case sessionError(SessionErrorMessage)
     case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
@@ -2109,7 +2085,6 @@ public enum ServerMessage: Decodable, Sendable {
     case sessionListResponse(SessionListResponseMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
-    case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2234,6 +2209,7 @@ public enum ServerMessage: Decodable, Sendable {
     case identityChanged(IdentityChanged)
     case hostBashRequest(HostBashRequest)
     case hostFileRequest(HostFileRequest)
+    case hostCuRequest(HostCuRequest)
     case pong
     case unknown(String)
 
@@ -2249,15 +2225,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "auth_result":
             let message = try AuthResultMessage(from: decoder)
             self = .authResult(message)
-        case "cu_action":
-            let message = try CuActionMessage(from: decoder)
-            self = .cuAction(message)
-        case "cu_complete":
-            let message = try CuCompleteMessage(from: decoder)
-            self = .cuComplete(message)
-        case "cu_error":
-            let message = try CuErrorMessage(from: decoder)
-            self = .cuError(message)
         case "session_error":
             let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
@@ -2291,9 +2258,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "memory_status":
             let message = try MemoryStatusMessage(from: decoder)
             self = .memoryStatus(message)
-        case "task_routed":
-            let message = try TaskRoutedMessage(from: decoder)
-            self = .taskRouted(message)
         case "dictation_response":
             let message = try DictationResponseMessage(from: decoder)
             self = .dictationResponse(message)
@@ -2666,6 +2630,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_file_request":
             let message = try HostFileRequest(from: decoder)
             self = .hostFileRequest(message)
+        case "host_cu_request":
+            let message = try HostCuRequest(from: decoder)
+            self = .hostCuRequest(message)
         case "pong":
             self = .pong
         default:
