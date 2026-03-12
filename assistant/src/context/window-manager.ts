@@ -671,7 +671,10 @@ function countPersistedMessages(messages: Message[]): number {
 function isToolResultOnly(message: Message): boolean {
   return (
     message.content.length > 0 &&
-    message.content.every((block) => block.type === "tool_result")
+    message.content.every(
+      (block) =>
+        block.type === "tool_result" || block.type === "web_search_tool_result",
+    )
   );
 }
 
