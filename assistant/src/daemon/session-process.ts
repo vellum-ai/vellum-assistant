@@ -140,7 +140,8 @@ export interface ProcessSessionContext {
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal"
-      | "preview_start",
+      | "preview_start"
+      | "context_compacting",
     anchor?: "assistant_turn" | "user_turn" | "global",
     requestId?: string,
     statusText?: string,

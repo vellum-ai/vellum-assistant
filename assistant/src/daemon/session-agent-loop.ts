@@ -859,6 +859,7 @@ export async function runAgentLoopImpl(
         const estimated = estimatePromptTokens(
           checkpoint.history,
           ctx.systemPrompt,
+          { providerName: ctx.provider.name },
         );
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -891,11 +892,14 @@ export async function runAgentLoopImpl(
     // accumulated history and re-enter the agent loop. This is distinct
     // from the reactive convergence loop below that fires after a
     // provider rejection — here we compact *before* hitting the limit.
+    let midLoopCompactAttempts = 0;
     while (
       yieldedForBudget &&
+      midLoopCompactAttempts < overflowRecovery.maxAttempts &&
       !state.contextTooLargeDetected &&
       !abortController.signal.aborted
     ) {
+      midLoopCompactAttempts++;
       yieldedForBudget = false;
 
       rlog.info(
@@ -917,7 +921,7 @@ export async function runAgentLoopImpl(
 
       ctx.emitActivityState(
         "thinking",
-        "thinking_delta",
+        "context_compacting",
         "assistant_turn",
         reqId,
         "Compacting context",
