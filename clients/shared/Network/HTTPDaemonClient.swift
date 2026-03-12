@@ -96,7 +96,7 @@ public struct WorkspaceFileResponse: Codable, Sendable {
 ///
 /// Responsibilities:
 /// - Periodic health check via `GET /healthz` to drive connection status
-/// - SSE stream connection to `GET /v1/events?conversationKey=...` (on demand)
+/// - SSE stream connection to `GET /v1/events` (unfiltered, on demand)
 /// - Translating message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
 @MainActor
@@ -104,7 +104,6 @@ public final class HTTPTransport {
 
     public let baseURL: String
     public private(set) var bearerToken: String?
-    private let conversationKey: String
     private let sourceChannel: String
     let transportMetadata: TransportMetadata
 
@@ -203,7 +202,9 @@ public final class HTTPTransport {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
-        self.conversationKey = conversationKey
+        // conversationKey is accepted for DaemonConfig API compatibility but no longer stored;
+        // the SSE stream subscribes to all events without a conversationKey filter.
+        _ = conversationKey
         self.sourceChannel = Self.defaultSourceChannel
         self.transportMetadata = transportMetadata
 
@@ -246,8 +247,7 @@ public final class HTTPTransport {
     /// identity are modelled as associated values.
     enum Endpoint {
         case healthz
-        case events(conversationKey: String)
-        case eventsAll  // SSE subscription without conversationKey filter
+        case eventsAll  // SSE subscription for all events
         case sendMessage
         case getMessages(conversationId: String?)
         case conversations(limit: Int, offset: Int)
@@ -456,9 +456,6 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("/healthz", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("/v1/events", "conversationKey=\(encoded)")
         case .eventsAll:
             return ("/v1/events", nil)
         case .sendMessage:
@@ -840,9 +837,6 @@ public final class HTTPTransport {
         switch endpoint {
         case .healthz:
             return ("\(prefix)/healthz/", nil)
-        case .events(let conversationKey):
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            return ("\(prefix)/events/", "conversationKey=\(encoded)")
         case .eventsAll:
             return ("\(prefix)/events/", nil)
         case .sendMessage:
