@@ -29,7 +29,7 @@ export interface SessionManagementDeps {
   renameSession: (sessionId: string, name: string) => boolean;
   clearAllSessions: () => number;
   cancelGeneration: (sessionId: string) => boolean;
-  undoLastMessage: (sessionId: string) => { removedCount: number } | null;
+  undoLastMessage: (sessionId: string) => Promise<{ removedCount: number } | null>;
   regenerateResponse: (
     sessionId: string,
   ) => Promise<{ requestId: string } | null>;
@@ -115,8 +115,8 @@ export function sessionManagementRouteDefinitions(
       endpoint: "conversations/:id/undo",
       method: "POST",
       policyKey: "conversations/undo",
-      handler: ({ params }) => {
-        const result = deps.undoLastMessage(params.id);
+      handler: async ({ params }) => {
+        const result = await deps.undoLastMessage(params.id);
         if (!result) {
           return httpError(
             "NOT_FOUND",

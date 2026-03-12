@@ -578,23 +578,24 @@ export function handleCancel(msg: CancelRequest, ctx: HandlerContext): void {
 }
 
 /**
- * Undo the last message in a session. Returns the removed count, or null if session not found.
+ * Undo the last message in a session. Returns the removed count, or null if
+ * the conversation does not exist. Restores evicted sessions from the database.
  */
-export function undoLastMessage(
+export async function undoLastMessage(
   sessionId: string,
   ctx: HandlerContext,
-): { removedCount: number } | null {
-  const session = ctx.sessions.get(sessionId);
-  if (!session) {
+): Promise<{ removedCount: number } | null> {
+  if (!getConversation(sessionId)) {
     return null;
   }
+  const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   const removedCount = session.undo();
   return { removedCount };
 }
 
-export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
-  const result = undoLastMessage(msg.sessionId, ctx);
+export async function handleUndo(msg: UndoRequest, ctx: HandlerContext): Promise<void> {
+  const result = await undoLastMessage(msg.sessionId, ctx);
   if (!result) {
     ctx.send({ type: "error", message: "No active session" });
     return;
@@ -609,17 +610,18 @@ export function handleUndo(msg: UndoRequest, ctx: HandlerContext): void {
 /**
  * Regenerate the last assistant response for a session. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the session is not found. Throws on regeneration errors.
+ * Returns null if the conversation does not exist. Restores evicted sessions
+ * from the database when needed. Throws on regeneration errors.
  */
 export async function regenerateResponse(
   sessionId: string,
   ctx: HandlerContext,
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
-  const session = ctx.sessions.get(sessionId);
-  if (!session) {
+  if (!getConversation(sessionId)) {
     return null;
   }
+  const session = await ctx.getOrCreateSession(sessionId);
   ctx.touchSession(sessionId);
   session.updateClient(sendEvent, false);
   const requestId = uuid();
@@ -650,11 +652,11 @@ export async function handleRegenerate(
   msg: RegenerateRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const session = ctx.sessions.get(msg.sessionId);
-  if (!session) {
+  if (!getConversation(msg.sessionId)) {
     ctx.send({ type: "error", message: "No active session" });
     return;
   }
+  const session = await ctx.getOrCreateSession(msg.sessionId);
 
   const regenerateChannel =
     parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
