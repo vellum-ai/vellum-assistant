@@ -41,7 +41,7 @@ You open pages in the user's default browser using the `/tmp/vellum-nav.sh` help
 6. **Keep instructions short per step.** One action per message when possible.
 7. **Don't assume any browser.** Screenshots work at the screen level. Focus on the GCP page content, not browser-specific UI (bookmark bars, tab layouts, etc.).
 8. Never use `computer_use_*` tools, `browser_*` tools, or CDP for navigation.
-9. Use `credential_store prompt` for both Client ID and Client Secret — never ask the user to type credentials in chat.
+9. Use `credential_store prompt` for the Client Secret — never ask the user to type secrets in chat. The Client ID is not secret and can be collected conversationally.
 
 ## Opening URLs
 
@@ -98,9 +98,27 @@ Every step follows this rhythm:
 
 ## Pre-Flow
 
-**First**, create the navigation helper script (see "Opening URLs" above). Do this silently before saying anything to the user.
+### Internal OAuth Provider Setup
 
-Then tell the user:
+Before beginning, look up information about the google oauth app, which we'll need later.
+
+Find the gmail or google oauth provider
+```
+bash:
+  command: assistant oauth providers list --provider-key "gmail, google" --json
+```
+
+If one doesn't yet exist, then register a new one with a provider key of "integration:google"
+```
+bash:
+  command: assistant oauth providers register --help
+```
+
+In either case, take mental note of the **provider key**, **base url**, and, if available, the **ping url** for later.
+
+### User Guidance
+
+Before beginning, tell the user:
 
 > We're going to set up Google OAuth together — 9 steps, about 3–5 minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
 >
@@ -325,33 +343,41 @@ Wait for the user to confirm the dialog is showing.
 
 ---
 
-## Step 7: Store Credentials Securely
+## Step 7: Store Client ID and Client Secret
 
 ### 7a: Client ID
 
-```
-credential_store prompt:
-  service: "integration:gmail"
-  field: "client_id"
-  label: "Google OAuth Client ID"
-  description: "Copy the Client ID from the Google Cloud dialog and paste it here."
-  placeholder: "123456789-xxxxx.apps.googleusercontent.com"
-```
+This value is not secret and can safely be provided conversationally.
+
+> Copy the Client ID from the Google Cloud dialog and paste it here in the chat. This is not a secret value and can be safely provided here.
+
 
 ### 7b: Client Secret
 
 **Always use a secure prompt.** Never read secrets from screen.
 
+Use the provider key from the "Internal OAuth Provider Setup" step above as the service name.
+
 ```
 credential_store prompt:
-  service: "integration:gmail"
+  service: "<provider-key>"
   field: "client_secret"
   label: "Google OAuth Client Secret"
   description: "Copy the Client Secret from the Google Cloud dialog and paste it here."
   placeholder: "GOCSPX-..."
 ```
 
-Do not navigate away from the credential dialog until both values are stored. After both are stored, tell the user they can close the dialog.
+### 7c: Register OAuth App
+
+Now register the OAuth app with the collected Client ID and Client Secret.
+
+```
+bash:
+  command: |
+    assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path <provider-key>
+```
+
+Do not navigate away from the credential dialog until both values are provided. After both are stored and the app is registered, tell the user they can close the dialog.
 
 **Milestone acknowledgment (7 of 9):**
 
@@ -370,20 +396,23 @@ Tell the user:
 > Review the permissions and click **Allow**.
 
 ```
-credential_store:
-  action: "oauth2_connect"
-  service: "integration:gmail"
+bash:
+  command: |
+    assistant oauth connections connect <provider-key> --client-id <client-id> --url-only
 ```
 
-If the tool returns an auth URL instead of auto-completing, send the URL to the user.
+The command prints an authorization URL. Send it to the user and encourage them to open it. Wait for the user to complete authorization in the browser. The token exchange completes in the background.
 
 ---
 
 ## Step 9: Verify Connection
 
+If there is a ping url available, make a request to it.
+
 ```
-messaging_auth_test:
-  platform: "gmail"
+bash:
+  command: |
+    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id <client-id>)" "<provider-base-url>/<provider-ping-url>"
 ```
 
 **On success:**
