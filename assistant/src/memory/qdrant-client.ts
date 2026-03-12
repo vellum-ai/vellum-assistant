@@ -86,8 +86,10 @@ export class VellumQdrantClient {
     this.sparseModel = config.sparseModel;
   }
 
-  async ensureCollection(): Promise<void> {
-    if (this.collectionReady) return;
+  async ensureCollection(): Promise<{ migrated: boolean }> {
+    if (this.collectionReady) return { migrated: false };
+
+    let migrated = false;
 
     try {
       const exists = await this.client.collectionExists(this.collection);
@@ -129,6 +131,7 @@ export class VellumQdrantClient {
               "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed.",
             );
             await this.client.deleteCollection(this.collection);
+            migrated = true;
             // Fall through to collection creation below
           } else if (dimMismatch || modelMismatch) {
             log.warn(
@@ -141,12 +144,13 @@ export class VellumQdrantClient {
               "Qdrant collection incompatible (dimension or model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
             await this.client.deleteCollection(this.collection);
+            migrated = true;
             // Fall through to collection creation below
           } else {
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
-            return;
+            return { migrated: false };
           }
         } catch (err) {
           log.warn(
@@ -156,7 +160,7 @@ export class VellumQdrantClient {
           if (await this.ensurePayloadIndexesSafe()) {
             this.collectionReady = true;
           }
-          return;
+          return { migrated: false };
         }
       }
     } catch {
@@ -207,7 +211,7 @@ export class VellumQdrantClient {
         if (await this.ensurePayloadIndexesSafe()) {
           this.collectionReady = true;
         }
-        return;
+        return { migrated };
       }
       throw err;
     }
@@ -224,6 +228,8 @@ export class VellumQdrantClient {
         "Qdrant collection created with payload indexes",
       );
     }
+
+    return { migrated };
   }
 
   async upsert(

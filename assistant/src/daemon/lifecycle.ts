@@ -34,6 +34,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
@@ -320,7 +321,7 @@ export async function runDaemon(): Promise<void> {
       const embeddingModel = embeddingSelection.backend
         ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
         : undefined;
-      initQdrantClient({
+      const qdrantClient = initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
         vectorSize: config.memory.qdrant.vectorSize,
@@ -328,6 +329,19 @@ export async function runDaemon(): Promise<void> {
         quantization: config.memory.qdrant.quantization,
         embeddingModel,
       });
+
+      // Eagerly ensure the collection exists so we detect migrations
+      // (unnamed→named vectors, dimension/model changes) at startup.
+      // If a destructive migration occurred, enqueue a rebuild_index job
+      // to re-embed all memory items from the SQLite cache.
+      const { migrated } = await qdrantClient.ensureCollection();
+      if (migrated) {
+        enqueueMemoryJob("rebuild_index", {});
+        log.info(
+          "Qdrant collection was migrated — enqueued rebuild_index job",
+        );
+      }
+
       log.info("Qdrant vector store initialized");
     } catch (err) {
       log.warn(

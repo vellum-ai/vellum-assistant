@@ -118,10 +118,11 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.deleteCollection).toBe(1);
     expect(callLog.createCollection).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("deletes and recreates collection on model-only mismatch", async () => {
@@ -142,12 +143,13 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview", // New model
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.deleteCollection).toBe(1);
     expect(callLog.createCollection).toBe(1);
     // Sentinel should be written for the new model
     expect(callLog.upsert).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("leaves collection untouched when dimensions and model match", async () => {
@@ -168,10 +170,11 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.deleteCollection).toBe(0);
     expect(callLog.createCollection).toBe(0);
+    expect(result.migrated).toBe(false);
   });
 
   test("does not rebuild pre-existing collection without sentinel (graceful upgrade)", async () => {
@@ -189,11 +192,12 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     // No sentinel found → no model mismatch → collection kept
     expect(callLog.deleteCollection).toBe(0);
     expect(callLog.createCollection).toBe(0);
+    expect(result.migrated).toBe(false);
   });
 
   test("writes sentinel point when creating a new collection", async () => {
@@ -208,11 +212,13 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.createCollection).toBe(1);
     // Sentinel upsert should be called
     expect(callLog.upsert).toBe(1);
+    // Fresh collection, not a migration
+    expect(result.migrated).toBe(false);
   });
 
   test("deletes and recreates collection when migrating from unnamed to named vectors", async () => {
@@ -229,13 +235,14 @@ describe("Qdrant collection migration", () => {
       embeddingModel: "gemini:gemini-embedding-2-preview",
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     // Unnamed vectors should trigger delete + recreate with named vectors
     expect(callLog.deleteCollection).toBe(1);
     expect(callLog.createCollection).toBe(1);
     // Sentinel should be written for the new collection
     expect(callLog.upsert).toBe(1);
+    expect(result.migrated).toBe(true);
   });
 
   test("does not write sentinel when embeddingModel is not provided", async () => {
@@ -250,10 +257,12 @@ describe("Qdrant collection migration", () => {
       // No embeddingModel
     });
 
-    await client.ensureCollection();
+    const result = await client.ensureCollection();
 
     expect(callLog.createCollection).toBe(1);
     // No sentinel should be written
     expect(callLog.upsert).toBe(0);
+    // Fresh collection, not a migration
+    expect(result.migrated).toBe(false);
   });
 });
