@@ -95,6 +95,7 @@ const STANDARD_HOOK_NAMES = new Set([
   "pre-applypatch",
   "post-applypatch",
   "pre-commit",
+  "pre-merge-commit",
   "prepare-commit-msg",
   "commit-msg",
   "post-commit",
@@ -109,6 +110,7 @@ const STANDARD_HOOK_NAMES = new Set([
   "push-to-checkout",
   "pre-auto-gc",
   "post-rewrite",
+  "reference-transaction",
   "sendemail-validate",
   "fsmonitor-watchman",
   "p4-changelist",
@@ -146,7 +148,25 @@ export async function detectConfiguredHooks(
   gitService: GitServiceLike,
 ): Promise<DetectedHooks> {
   // 1. Resolve the effective hooks directory.
-  let hooksDir = join(workspaceDir, ".git", "hooks");
+  //    Use `git rev-parse --git-path hooks` so the path is correct in both
+  //    main repos and linked git worktrees (where `.git` is a pointer file,
+  //    not a directory, and the actual hooks dir lives elsewhere).
+  let hooksDir: string;
+  try {
+    const { stdout: gitPathStdout } = await gitService.runReadOnlyGit([
+      "rev-parse",
+      "--git-path",
+      "hooks",
+    ]);
+    const resolvedPath = gitPathStdout.trim();
+    hooksDir = resolvedPath.startsWith("/")
+      ? resolvedPath
+      : join(workspaceDir, resolvedPath);
+  } catch {
+    // Fallback for environments where git is unavailable or the command fails.
+    hooksDir = join(workspaceDir, ".git", "hooks");
+  }
+
   try {
     const { stdout } = await gitService.runReadOnlyGit([
       "config",
@@ -161,7 +181,7 @@ export async function detectConfiguredHooks(
         : join(workspaceDir, customPath);
     }
   } catch {
-    // core.hooksPath not set — fall back to the default .git/hooks directory.
+    // core.hooksPath not set — use the directory resolved above.
   }
 
   // 2. Scan the hooks directory for active (non-sample) hook files.
@@ -181,7 +201,10 @@ export async function detectConfiguredHooks(
       const fullPath = join(hooksDir, entry);
       try {
         const stat = statSync(fullPath);
-        if (stat.isFile()) {
+        // Only count the hook if it is a regular file AND executable.
+        // Git silently ignores non-executable hook files, so a non-executable
+        // file named `pre-commit` should not trigger a trust prompt.
+        if (stat.isFile() && (stat.mode & 0o111) !== 0) {
           hookFiles.push(fullPath);
         }
       } catch {
