@@ -11,6 +11,7 @@ import type { CredentialMetadata } from "../tools/credentials/metadata-store.js"
 
 let secureKeyStore = new Map<string, string>();
 let metadataStore: CredentialMetadata[] = [];
+let oauthConnectedProviders = new Set<string>();
 let idCounter = 0;
 
 function nextUUID(): string {
@@ -165,6 +166,23 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock oauth-store
+// ---------------------------------------------------------------------------
+
+mock.module("../oauth/oauth-store.js", () => ({
+  disconnectOAuthProvider: async (providerKey: string): Promise<boolean> => {
+    if (oauthConnectedProviders.has(providerKey)) {
+      oauthConnectedProviders.delete(providerKey);
+      return true;
+    }
+    return false;
+  },
+  getConnectionByProvider: (): undefined => undefined,
+  listConnections: (): [] => [],
+  deleteConnection: (): boolean => false,
+}));
+
+// ---------------------------------------------------------------------------
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
@@ -274,6 +292,7 @@ describe("assistant credentials CLI", () => {
   beforeEach(() => {
     secureKeyStore = new Map();
     metadataStore = [];
+    oauthConnectedProviders = new Set();
     idCounter = 0;
     _getSecureKeyCalls = 0;
     _setSecureKeyCalls = 0;
@@ -610,6 +629,124 @@ describe("assistant credentials CLI", () => {
           (m) => m.service === "twilio" && m.field === "auth_token",
         ),
       ).toBeUndefined();
+    });
+  });
+
+  // =========================================================================
+  // disconnect
+  // =========================================================================
+
+  describe("disconnect", () => {
+    test("succeeds when an OAuth connection exists", async () => {
+      oauthConnectedProviders.add("integration:gmail");
+
+      const result = await runCli([
+        "disconnect",
+        "integration:gmail",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.service).toBe("integration:gmail");
+
+      // OAuth connection should be removed
+      expect(oauthConnectedProviders.has("integration:gmail")).toBe(false);
+    });
+
+    test("reports not-found when nothing exists", async () => {
+      const result = await runCli([
+        "disconnect",
+        "integration:gmail",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("No OAuth connection or credentials");
+      expect(parsed.error).toContain("integration:gmail");
+    });
+
+    test("cleans up legacy credential keys if present", async () => {
+      // Seed legacy credential keys (no OAuth connection)
+      const legacyFields = [
+        "access_token",
+        "refresh_token",
+        "client_id",
+        "client_secret",
+      ];
+      for (const field of legacyFields) {
+        secureKeyStore.set(
+          credentialKey("integration:gmail", field),
+          `legacy_${field}_value`,
+        );
+        metadataStore.push({
+          credentialId: nextUUID(),
+          service: "integration:gmail",
+          field,
+          allowedTools: [],
+          allowedDomains: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+
+      const result = await runCli([
+        "disconnect",
+        "integration:gmail",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.service).toBe("integration:gmail");
+
+      // All legacy keys should be removed
+      for (const field of legacyFields) {
+        expect(
+          secureKeyStore.has(credentialKey("integration:gmail", field)),
+        ).toBe(false);
+        expect(
+          metadataStore.find(
+            (m) => m.service === "integration:gmail" && m.field === field,
+          ),
+        ).toBeUndefined();
+      }
+    });
+
+    test("cleans up both OAuth connection and legacy keys when both exist", async () => {
+      // Seed OAuth connection
+      oauthConnectedProviders.add("integration:gmail");
+
+      // Seed a legacy credential key
+      secureKeyStore.set(
+        credentialKey("integration:gmail", "access_token"),
+        "legacy_token",
+      );
+      metadataStore.push({
+        credentialId: nextUUID(),
+        service: "integration:gmail",
+        field: "access_token",
+        allowedTools: [],
+        allowedDomains: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const result = await runCli([
+        "disconnect",
+        "integration:gmail",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+
+      // Both should be cleaned up
+      expect(oauthConnectedProviders.has("integration:gmail")).toBe(false);
+      expect(
+        secureKeyStore.has(credentialKey("integration:gmail", "access_token")),
+      ).toBe(false);
     });
   });
 
