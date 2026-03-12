@@ -48,7 +48,9 @@ export async function semanticSearch(
   // When a sparse vector is available, use hybrid search (dense + sparse RRF fusion)
   // for better recall; otherwise fall back to dense-only search.
   let results: QdrantSearchResult[];
+  let isHybrid = false;
   if (sparseVector && sparseVector.indices.length > 0) {
+    isHybrid = true;
     const filter = buildHybridFilter(excludedMessageIds, scopeIds);
     results = await withQdrantBreaker(() =>
       qdrant.hybridSearch({
@@ -152,13 +154,27 @@ export async function semanticSearch(
     for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
 
+  // For hybrid search (RRF fusion), Qdrant returns Reciprocal Rank Fusion
+  // scores (typically 0.01-0.033) which are incompatible with tier
+  // classification thresholds. Normalize relative to the batch maximum so the
+  // top result gets 1.0 and others are proportional.
+  // For dense-only search, scores are cosine similarities in [-1, 1] and
+  // mapCosineToUnit correctly maps them to [0, 1].
+  const maxRrfScore =
+    isHybrid && results.length > 0
+      ? Math.max(...results.map((r) => r.score))
+      : 0;
+
   const excludedSet =
     excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
 
   const candidates: Candidate[] = [];
   for (const result of results) {
     const { payload, score } = result;
-    const semantic = mapCosineToUnit(score);
+    const semantic =
+      isHybrid && maxRrfScore > 0
+        ? score / maxRrfScore
+        : mapCosineToUnit(score);
     const createdAt = payload.created_at ?? Date.now();
 
     if (payload.target_type === "item") {
