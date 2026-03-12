@@ -242,7 +242,7 @@ export class VellumQdrantClient {
     const existing = await this.findByTarget(targetType, targetId);
     const pointId = existing ?? uuid();
 
-    const namedVector: Record<string, unknown> = {
+    const namedVector: Record<string, number[] | { indices: number[]; values: number[] }> = {
       dense: vector,
     };
     if (sparseVector) {

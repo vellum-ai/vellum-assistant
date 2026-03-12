@@ -24,7 +24,7 @@ export interface Candidate {
   semantic: number;
   recency: number;
   finalScore: number;
-  tier?: 1 | 2;
+  tier?: 1 | 2 | null;
   staleness?: StalenessLevel;
 }
 
