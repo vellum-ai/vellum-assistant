@@ -30,6 +30,7 @@ export const oauthApps = sqliteTable(
       .notNull()
       .references(() => oauthProviders.providerKey),
     clientId: text("client_id").notNull(),
+    clientSecretCredentialPath: text("client_secret_credential_path").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

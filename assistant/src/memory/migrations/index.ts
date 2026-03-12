@@ -91,6 +91,7 @@ export { migrateScheduleOneShotRouting } from "./146-schedule-oneshot-routing.js
 export { migrateRemindersToSchedules } from "./147-migrate-reminders-to-schedules.js";
 export { migrateDropRemindersTable } from "./148-drop-reminders-table.js";
 export { createOAuthTables } from "./149-oauth-tables.js";
+export { migrateOAuthAppsClientSecretPath } from "./150-oauth-apps-client-secret-path.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
