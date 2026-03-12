@@ -35,8 +35,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var startSessionTask: Task<Void, Never>?
     var textResponseWindow: TextResponseWindow?
     var voiceInput: VoiceInputManager?
-    var wakeWordCoordinator: WakeWordCoordinator?
-    var wakeWordErrorCancellable: AnyCancellable?
     var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
     var quickInputWindow: QuickInputWindow?
@@ -377,7 +375,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         } else {
             showMainWindow()
-            setupWakeWordCoordinator()
             debugStateWriter.start(appDelegate: self)
         }
     }

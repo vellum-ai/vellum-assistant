@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "voice_config_update",
-      "description": "Update a voice configuration setting (TTS voice ID, PTT activation key, wake word enabled/keyword/timeout). Changes take effect immediately.",
+      "description": "Update a voice configuration setting (TTS voice ID, PTT activation key, conversation timeout). Changes take effect immediately.",
       "category": "system",
       "risk": "low",
       "input_schema": {
@@ -11,13 +11,7 @@
         "properties": {
           "setting": {
             "type": "string",
-            "enum": [
-              "activation_key",
-              "wake_word_enabled",
-              "wake_word_keyword",
-              "wake_word_timeout",
-              "tts_voice_id"
-            ],
+            "enum": ["activation_key", "conversation_timeout", "tts_voice_id"],
             "description": "The voice setting to change"
           },
           "value": {

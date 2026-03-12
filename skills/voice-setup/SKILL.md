@@ -1,6 +1,6 @@
 ---
 name: voice-setup
-description: Complete voice configuration in chat — PTT key, wake word, microphone permissions, ElevenLabs TTS, and troubleshooting
+description: Complete voice configuration in chat — PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎙️"
@@ -11,11 +11,11 @@ metadata:
     includes: ["elevenlabs-voice"]
 ---
 
-You are helping the user set up and troubleshoot voice features (push-to-talk, wake word, text-to-speech) entirely within this conversation. Do NOT direct the user to the Settings page for initial setup — handle everything in-chat using the tools below.
+You are helping the user set up and troubleshoot voice features (push-to-talk, text-to-speech) entirely within this conversation. Do NOT direct the user to the Settings page for initial setup — handle everything in-chat using the tools below.
 
 ## Available Tools
 
-- `voice_config_update` — Change any voice setting (PTT key, wake word enabled/keyword/timeout, TTS voice ID)
+- `voice_config_update` — Change any voice setting (PTT key, conversation timeout, TTS voice ID)
 - `open_system_settings` — Open macOS System Settings to a specific privacy pane
 - `navigate_settings_tab` — Open the Vellum settings panel to the Voice tab
 - `credential_store` — Collect API keys securely (for ElevenLabs TTS)
@@ -53,21 +53,7 @@ Ask which key they prefer, then use `voice_config_update` with `setting: "activa
 - If they pick a key that conflicts with their emoji picker (Fn or Globe on newer Macs), warn them and suggest an alternative.
 - If they use a terminal app heavily, warn that some keys may be captured by the terminal.
 
-### 3. Wake Word (Optional)
-
-Ask if they want to enable wake word detection (hands-free activation by saying a keyword).
-
-**If yes:**
-
-1. Use `voice_config_update` with `setting: "wake_word_enabled"`, `value: true`.
-2. Ask what wake word they want. Common choices: "Hey Vellum", "Computer", "Jarvis", their assistant's name.
-3. Use `voice_config_update` with `setting: "wake_word_keyword"` and their chosen word.
-4. Ask about timeout (how long the mic stays active after wake word). Options: 5s, 10s (default), 15s, 30s, 60s.
-5. Use `voice_config_update` with `setting: "wake_word_timeout"` and their chosen value.
-
-**Speech Recognition permission:** Wake word requires Speech Recognition access. Check capabilities — if not granted, use `open_system_settings` with `pane: "speech_recognition"`.
-
-### 4. Text-to-Speech / ElevenLabs (Optional)
+### 3. Text-to-Speech / ElevenLabs (Optional)
 
 Ask if they want high-quality text-to-speech voices via ElevenLabs (optional — standard TTS works without it).
 
@@ -75,12 +61,12 @@ If yes, the included **ElevenLabs Voice** skill (automatically appended below vi
 
 Note: The shared config key `elevenlabs.voiceId` controls the voice for both in-app TTS and phone calls. If the user sets up phone calls later, they will automatically use the same voice for a consistent experience.
 
-### 5. Verification
+### 4. Verification
 
 After setup is complete:
 
 1. Summarize what was configured.
-2. Suggest they test by pressing their PTT key (or saying their wake word) and speaking.
+2. Suggest they test by pressing their PTT key and speaking.
 3. Offer to open the Voice settings tab if they want to review: use `navigate_settings_tab` with `tab: "Voice"`.
 
 ## Troubleshooting Decision Trees
@@ -102,14 +88,6 @@ When the user reports a problem, follow the appropriate decision tree:
 3. **Locale/language** — Speech recognition works best with the system language. Ask if they're speaking in a different language.
 4. **Background noise** — Excessive noise can prevent transcription. Suggest a quieter environment or a closer microphone.
 
-### "Wake word not detecting"
-
-1. **Enabled check** — Confirm wake word is enabled in their settings.
-2. **Keyword** — Confirm what keyword they're using. Shorter or common words may have lower accuracy.
-3. **Ambient noise** — Wake word detection is sensitive to background noise.
-4. **Permissions** — Both Microphone and Speech Recognition permissions are required.
-5. **Timeout** — If wake word activates but cuts off too quickly, increase the timeout.
-
 ### "Changed a setting but it didn't work"
 
 1. **Event broadcast** — The setting should take effect immediately. If it didn't, suggest restarting the assistant.
@@ -126,7 +104,6 @@ log stream --predicate 'subsystem == "com.vellum.assistant"' --level debug
 Key log categories:
 
 - `voice` — PTT activation, recording state
-- `wake-word` — Wake word detection events
 - `speech` — Speech recognition results
 
 ## Rules

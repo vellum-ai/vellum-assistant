@@ -5,7 +5,7 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-// MARK: - Voice Input & Wake Word
+// MARK: - Voice Input
 
 extension AppDelegate {
 
@@ -21,8 +21,7 @@ extension AppDelegate {
 
             // PTT uses priority-based routing because it's a one-shot dictation: the user
             // speaks a single utterance and expects it to go to whatever surface is currently
-            // focused. This differs from wake word, which binds to a specific ChatViewModel at
-            // activation time for continuous conversational mode (see VoiceModeManager.handleSilenceDetected).
+            // focused.
             // Priority 0: Route to quick input bar if visible
             if let quickInput = self?.quickInputWindow, quickInput.isVisible {
                 quickInput.setVoiceText(text)
@@ -146,49 +145,6 @@ extension AppDelegate {
                 self?.voiceInput?.restartKeyMonitors()
             }
         }
-    }
-
-    // MARK: - Wake Word Coordinator
-
-    func setupWakeWordCoordinator() {
-        guard let mainWindow else {
-            log.warning("Cannot set up wake word coordinator — main window not available")
-            return
-        }
-
-        let keyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
-        let engine = SpeechWakeWordEngine(keyword: keyword)
-        let audioMonitor = AlwaysOnAudioMonitor(engine: engine)
-
-        let coordinator = WakeWordCoordinator(
-            audioMonitor: audioMonitor,
-            voiceModeManager: mainWindow.voiceModeManager,
-            threadManager: mainWindow.threadManager,
-            voiceInputManager: voiceInput
-        )
-
-        // Show a toast when the wake word engine hits a persistent error
-        // (e.g. Dictation disabled at the OS level).
-        wakeWordErrorCancellable = audioMonitor.$persistentErrorMessage
-            .compactMap { $0 }
-            .sink { [weak self] message in
-                self?.mainWindow?.windowState.showToast(
-                    message: message,
-                    style: .warning,
-                    primaryAction: VToastAction(label: "Open Settings") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard?Dictation") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                )
-            }
-
-        if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
-            audioMonitor.startMonitoring()
-        }
-
-        coordinator.markReady()
-        wakeWordCoordinator = coordinator
     }
 
     // MARK: - Ambient Agent

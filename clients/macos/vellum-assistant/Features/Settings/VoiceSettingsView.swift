@@ -2,23 +2,18 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Voice settings tab — configure push-to-talk activation key,
-/// enable/disable wake word listening, configure keyword phrase,
-/// and conversation timeout.
+/// conversation timeout, and text-to-speech.
 struct VoiceSettingsView: View {
     @ObservedObject var store: SettingsStore
 
     @AppStorage("activationKey") private var activationKey: String = "fn"
-    @AppStorage("wakeWordEnabled") private var wakeWordEnabled: Bool = false
-    @AppStorage("wakeWordTimeoutSeconds") private var wakeWordTimeoutSeconds: Int = 30
-    @AppStorage("wakeWordKeyword") private var wakeWordKeyword: String = "computer"
+    @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
 
     @State private var elevenLabsKeyText: String = ""
     @State private var ttsSetupExpanded: Bool = false
     @State private var isRecordingCustomKey: Bool = false
     @State private var recordingMonitors: [Any] = []
     @State private var modifierHoldTimer: Timer? = nil
-
-    private let suggestedKeywords = ["computer", "jarvis", "hey vellum", "assistant"]
 
     private var currentActivator: PTTActivator {
         // Read activationKey to establish SwiftUI dependency tracking —
@@ -42,7 +37,7 @@ struct VoiceSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             pttCard
-            wakeWordCard
+            conversationTimeoutCard
             ttsCard
         }
         .onDisappear {
@@ -253,98 +248,17 @@ struct VoiceSettingsView: View {
         return true
     }
 
-    // MARK: - Wake Word Card
+    // MARK: - Conversation Timeout Card
 
-    private var wakeWordCard: some View {
-        SettingsCard(title: "Talk to Vellum, hands free", subtitle: "Wake word lets you start a conversation by speaking a keyword aloud \u{2014} no need to click or press anything. It uses on-device speech recognition, so nothing you say ever leaves your Mac.") {
-            VToggle(
-                isOn: $wakeWordEnabled,
-                label: "Enable Wake Word Listening",
-                helperText: "Activate the assistant by speaking instead of using a keyboard shortcut."
+    private var conversationTimeoutCard: some View {
+        SettingsCard(title: "Conversation Timeout", subtitle: "How long to wait for follow-up speech before ending a voice conversation.") {
+            VDropdown(
+                placeholder: "Select timeout\u{2026}",
+                selection: $conversationTimeoutSeconds,
+                options: timeoutOptions
             )
-
-            if wakeWordEnabled {
-                // How it works steps
-                HStack(alignment: .top, spacing: VSpacing.md) {
-                    wakeWordStepCard(number: "1", title: "Say the keyword", description: "Speak your wake word when you\u{2019}re ready to talk.")
-                    wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
-                    wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
-                }
-                .fixedSize(horizontal: false, vertical: true)
-
-                // Keyword + Conversation timeout side by side
-                HStack(alignment: .top, spacing: VSpacing.lg) {
-                    // Keyword
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Keyword")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-
-                        TextField("Enter wake word or phrase", text: $wakeWordKeyword)
-                            .vInputStyle()
-                            .accessibilityLabel("Wake word keyword")
-
-                        HStack(spacing: VSpacing.sm) {
-                            ForEach(suggestedKeywords, id: \.self) { suggestion in
-                                Button(suggestion) {
-                                    wakeWordKeyword = suggestion
-                                }
-                                .buttonStyle(.plain)
-                                .font(VFont.caption)
-                                .foregroundColor(wakeWordKeyword == suggestion ? .white : VColor.textMuted)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xs)
-                                .background(Capsule().fill(wakeWordKeyword == suggestion ? VColor.radioSelectedFill : VColor.surface))
-                                .overlay(Capsule().strokeBorder(wakeWordKeyword == suggestion ? Color.clear : VColor.surfaceBorder, lineWidth: 1))
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // Conversation timeout
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Conversation timeout")
-                            .font(VFont.inputLabel)
-                            .foregroundColor(VColor.textSecondary)
-                        VDropdown(
-                            placeholder: "Select timeout\u{2026}",
-                            selection: $wakeWordTimeoutSeconds,
-                            options: timeoutOptions
-                        )
-                        .accessibilityLabel("Conversation timeout duration")
-                        Text("How long to wait for follow-up speech before ending the conversation.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
+            .accessibilityLabel("Conversation timeout duration")
         }
-    }
-
-    private func wakeWordStepCard(number: String, title: String, description: String) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text(number)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(VColor.success)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(VColor.success.opacity(0.15)))
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(title)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-                Text(description)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .lineSpacing(1)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     private let timeoutOptions: [(label: String, value: Int)] = [

@@ -136,9 +136,6 @@ extension AppDelegate {
             }
             voiceInput?.stop()
             voiceInput = nil
-            wakeWordErrorCancellable?.cancel()
-            wakeWordErrorCancellable = nil
-            wakeWordCoordinator = nil
             ambientAgent.teardown()
 
             if let observer = windowObserver {
@@ -476,9 +473,6 @@ extension AppDelegate {
         }
         voiceInput?.stop()
         voiceInput = nil
-        wakeWordErrorCancellable?.cancel()
-        wakeWordErrorCancellable = nil
-        wakeWordCoordinator = nil
         ambientAgent.teardown()
 
         if let observer = windowObserver {

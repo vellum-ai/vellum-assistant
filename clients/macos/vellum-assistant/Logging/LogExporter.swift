@@ -412,8 +412,6 @@ enum LogExporter {
             "lastActivePanel",
             "gateway_base_url",
             "conversation_key",
-            "wakeWordEnabled",
-            "wakeWordKeyword",
             "sidebarExpanded",
             "windowZoomLevel",
             "conversationTextZoomLevel",

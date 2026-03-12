@@ -352,7 +352,6 @@ extension AppDelegate {
             self.transitionBootstrap(to: .pendingFirstReply)
             self.wireBootstrapFirstReplyCallback()
         }
-        setupWakeWordCoordinator()
         debugStateWriter.start(appDelegate: self)
     }
 
