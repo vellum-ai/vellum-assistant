@@ -38,7 +38,9 @@ describe("buildCliReferenceSection", () => {
       "prefer real `assistant` CLI workflows over any legacy account-record abstraction",
     );
     expect(result).toContain("assistant credentials");
-    expect(result).toContain("assistant oauth connections token <service>");
+    expect(result).toContain(
+      "assistant oauth connections token <provider-key>",
+    );
     expect(result).toContain("assistant mcp auth <name>");
     expect(result).toContain("assistant platform status");
   });
