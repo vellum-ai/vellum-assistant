@@ -58,6 +58,7 @@ import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
+import { reloadMcpServers } from "./mcp-reload-service.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
   DEFAULT_MEMORY_POLICY,
@@ -392,6 +393,11 @@ export class DaemonServer {
     this.configWatcher.start(
       () => this.evictSessionsForReload(),
       () => this.broadcastIdentityChanged(),
+      () => {
+        reloadMcpServers().catch((err: unknown) => {
+          log.error({ err }, "MCP reload triggered by config change failed");
+        });
+      },
     );
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.

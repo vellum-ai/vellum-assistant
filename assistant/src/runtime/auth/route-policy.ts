@@ -378,9 +378,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Delivery ack
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
 
-  // MCP
-  { endpoint: "mcp/reload", scopes: ["settings.write"] },
-
   // Migrations
   { endpoint: "migrations/validate", scopes: ["settings.write"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },

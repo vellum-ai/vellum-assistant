@@ -3,7 +3,13 @@
  * Watches workspace files (config, prompts), protected directory
  * (trust rules, secret allowlist), and skills directories for changes.
  */
-import { existsSync, type FSWatcher, readdirSync, watch } from "node:fs";
+import {
+  existsSync,
+  type FSWatcher,
+  mkdirSync,
+  readdirSync,
+  watch,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
@@ -98,8 +104,14 @@ export class ConfigWatcher {
    * Start all file watchers. `onSessionEvict` is called when watched
    * files change and sessions need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
+   * `onMcpReload` is called when the MCP section of config.json changes
+   * or when a signal file appears in the workspace `signals/` directory.
    */
-  start(onSessionEvict: () => void, onIdentityChanged?: () => void): void {
+  start(
+    onSessionEvict: () => void,
+    onIdentityChanged?: () => void,
+    onMcpReload?: () => void,
+  ): void {
     const workspaceDir = getWorkspaceDir();
     const protectedDir = join(getRootDir(), "protected");
 
@@ -107,8 +119,17 @@ export class ConfigWatcher {
       "config.json": () => {
         if (this.suppressReload) return;
         try {
+          const prevConfig = getConfig();
+          const prevMcpFingerprint = JSON.stringify(prevConfig.mcp ?? {});
           const changed = this.refreshConfigFromSources();
-          if (changed) onSessionEvict();
+          if (changed) {
+            onSessionEvict();
+            const newConfig = getConfig();
+            const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
+            if (newMcpFingerprint !== prevMcpFingerprint) {
+              onMcpReload?.();
+            }
+          }
         } catch (err) {
           log.error(
             { err, configPath: join(workspaceDir, "config.json") },
@@ -185,6 +206,7 @@ export class ConfigWatcher {
       );
     }
 
+    this.startSignalsWatcher(onMcpReload);
     this.startSkillsWatchers(onSessionEvict);
   }
 
@@ -194,6 +216,42 @@ export class ConfigWatcher {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private startSignalsWatcher(onMcpReload?: () => void): void {
+    const signalsDir = join(getWorkspaceDir(), "signals");
+    try {
+      if (!existsSync(signalsDir)) {
+        mkdirSync(signalsDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    const signalHandlers: Record<string, () => void> = {
+      "mcp-reload": () => {
+        onMcpReload?.();
+      },
+    };
+
+    try {
+      const watcher = watch(signalsDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+        if (!signalHandlers[file]) return;
+        this.debounceTimers.schedule(`signal:${file}`, () => {
+          log.info({ file }, "Signal file detected");
+          signalHandlers[file]();
+        });
+      });
+      this.watchers.push(watcher);
+      log.info({ dir: signalsDir }, "Watching signals directory");
+    } catch (err) {
+      log.warn(
+        { err, dir: signalsDir },
+        "Failed to watch signals directory. Signal-based reload will be unavailable.",
+      );
+    }
   }
 
   private startSkillsWatchers(onSessionEvict: () => void): void {

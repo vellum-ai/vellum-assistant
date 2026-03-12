@@ -135,7 +135,6 @@ import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
-import { mcpRouteDefinitions } from "./routes/mcp-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
@@ -723,7 +722,6 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
-      ...mcpRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
       ...settingsRouteDefinitions(),
