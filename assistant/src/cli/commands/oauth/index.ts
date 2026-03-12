@@ -24,7 +24,7 @@ are created during the OAuth authorization flow or can be managed manually via
 their respective subcommands.
 
 Examples:
-  $ assistant oauth connections token twitter
+  $ assistant oauth connections token integration:twitter
   $ assistant oauth connections list
   $ assistant oauth connections get --provider integration:gmail
   $ assistant oauth providers list
