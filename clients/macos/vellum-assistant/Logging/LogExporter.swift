@@ -26,7 +26,7 @@ private let log = Logger(
 enum LogExporter {
 
     /// Collects logs, archives them, and sends to Sentry as an attachment for developer debugging.
-    /// Includes report metadata (reason, message, email) from the log report form.
+    /// Includes report metadata (reason, message) from the log report form.
     static func sendLogsToSentry(formData: LogReportFormData) {
         Task {
             let fileManager = FileManager.default
@@ -71,10 +71,17 @@ enum LogExporter {
             // Sentry's UserFeedback API, linked to the event. This keeps PII
             // out of event tags/extras and lets us use Sentry's built-in
             // feedback UI for triage.
+            // Compose feedback comments with the reason as topic heading.
+            let feedbackComments: String = {
+                if formData.message.isEmpty {
+                    return formData.reason.displayName
+                }
+                return "\(formData.reason.displayName): \(formData.message)"
+            }()
             let feedback = MetricKitManager.UserFeedbackData(
-                comments: formData.message.isEmpty ? nil : formData.message,
+                comments: feedbackComments,
                 email: formData.email,
-                name: formData.name.isEmpty ? formData.reason.displayName : formData.name
+                name: formData.name.isEmpty ? nil : formData.name
             )
 
             // Route assistant behavior reports to the brain Sentry project
