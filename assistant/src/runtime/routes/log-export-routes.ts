@@ -116,7 +116,14 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
 }
 
 /**
- * Reads the workspace config.json and strips sensitive fields (API keys).
+ * Replaces a string value with a presence flag: "(set)" if truthy, "(empty)" otherwise.
+ */
+function redactStringValue(val: unknown): string {
+  return val ? "(set)" : "(empty)";
+}
+
+/**
+ * Reads the workspace config.json and strips sensitive fields.
  * Returns undefined if the file is missing or unreadable.
  */
 function readSanitizedConfig(): Record<string, unknown> | undefined {
@@ -131,8 +138,47 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
     if (config.apiKeys && typeof config.apiKeys === "object") {
       const keys = config.apiKeys as Record<string, unknown>;
       config.apiKeys = Object.fromEntries(
-        Object.keys(keys).map((k) => [k, keys[k] ? "(set)" : "(empty)"]),
+        Object.keys(keys).map((k) => [k, redactStringValue(keys[k])]),
       );
+    }
+
+    // Strip ingress webhook secret
+    if (config.ingress && typeof config.ingress === "object") {
+      const ingress = config.ingress as Record<string, unknown>;
+      if (ingress.webhook && typeof ingress.webhook === "object") {
+        const webhook = ingress.webhook as Record<string, unknown>;
+        webhook.secret = redactStringValue(webhook.secret);
+        ingress.webhook = webhook;
+      }
+      config.ingress = ingress;
+    }
+
+    // Strip skill-level API keys and env vars
+    if (config.skills && typeof config.skills === "object") {
+      const skills = config.skills as Record<string, unknown>;
+      if (skills.entries && typeof skills.entries === "object") {
+        const entries = skills.entries as Record<string, unknown>;
+        for (const name of Object.keys(entries)) {
+          const entry = entries[name];
+          if (entry && typeof entry === "object") {
+            const e = entry as Record<string, unknown>;
+            if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
+            if (e.env && typeof e.env === "object") {
+              const env = e.env as Record<string, unknown>;
+              e.env = Object.fromEntries(
+                Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Strip Twilio accountSid
+    if (config.twilio && typeof config.twilio === "object") {
+      const twilio = config.twilio as Record<string, unknown>;
+      twilio.accountSid = redactStringValue(twilio.accountSid);
+      config.twilio = twilio;
     }
 
     return config;
