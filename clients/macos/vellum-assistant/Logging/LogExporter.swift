@@ -52,10 +52,16 @@ enum LogExporter {
                 ? "\(formData.reason.displayName) log report"
                 : "\(formData.reason.displayName) log report: \(formData.message)"
             event.message = SentryMessage(formatted: messageText)
-            event.tags = [
+            var tags: [String: String] = [
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
             ]
+            // When routing to the brain project, tag the event so it's clear
+            // it originated from the macOS client (not the daemon itself).
+            if formData.reason == .assistantBehavior {
+                tags["client"] = "macos"
+            }
+            event.tags = tags
             // Group all reports by reason so different user messages don't
             // fragment into separate Sentry issues.
             event.fingerprint = ["log_report", formData.reason.rawValue]
@@ -88,6 +94,9 @@ enum LogExporter {
                 }
             }
 
+            // Re-activate before showing the alert in case the app reverted
+            // to .accessory policy after the log report window was dismissed.
+            NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.messageText = "Log Sent"
             alert.informativeText = "Your log report has been sent to Vellum."
