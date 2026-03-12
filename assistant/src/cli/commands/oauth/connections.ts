@@ -461,7 +461,7 @@ Examples:
               if (!clientId) clientId = dbApp.clientId;
               if (!clientSecret) {
                 const storedSecret = getSecureKey(
-                  `oauth_app/${dbApp.id}/client_secret`,
+                  dbApp.clientSecretCredentialPath,
                 );
                 if (storedSecret) clientSecret = storedSecret;
               }

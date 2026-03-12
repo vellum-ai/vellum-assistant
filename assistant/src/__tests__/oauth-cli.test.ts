@@ -772,6 +772,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     mockGetMostRecentAppByProvider = () => ({
       id: "app-1",
       clientId: "db-client-id",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
       providerKey: "integration:gmail",
       createdAt: 0,
       updatedAt: 0,
@@ -795,6 +796,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     mockGetMostRecentAppByProvider = () => ({
       id: "app-1",
       clientId: "db-client-id",
+      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
       providerKey: "integration:gmail",
       createdAt: 0,
       updatedAt: 0,
