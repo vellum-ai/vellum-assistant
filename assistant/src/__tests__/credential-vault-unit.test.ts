@@ -562,55 +562,38 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("service is required");
   });
 
-  test("requires auth_url for unknown service", async () => {
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "custom-svc",
-        token_url: "https://t",
-        scopes: ["read"],
-      },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("auth_url is required");
-  });
-
-  test("requires token_url for unknown service", async () => {
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "custom-svc",
-        auth_url: "https://a",
-        scopes: ["read"],
-      },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("token_url is required");
-  });
-
-  test("requires scopes for unknown service", async () => {
+  test("rejects unknown service without registered provider", async () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
         service: "custom-svc",
         auth_url: "https://a",
         token_url: "https://t",
+        scopes: ["read"],
       },
       _ctx,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("scopes is required");
+    expect(result.content).toContain("no OAuth provider registered");
   });
 
   test("requires client_id", async () => {
+    mockGetProvider.mockImplementation((key: string) => {
+      if (key === "custom-svc") {
+        return {
+          key: "custom-svc",
+          authUrl: "https://auth.example.com",
+          tokenUrl: "https://token.example.com",
+          defaultScopes: JSON.stringify(["read"]),
+          scopePolicy: JSON.stringify({}),
+        };
+      }
+      return wellKnownProviders[key] ?? undefined;
+    });
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
         service: "custom-svc",
-        auth_url: "https://auth.example.com",
-        token_url: "https://token.example.com",
         scopes: ["read"],
       },
       _ctx,
