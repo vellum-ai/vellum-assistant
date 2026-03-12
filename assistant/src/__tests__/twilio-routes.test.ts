@@ -77,7 +77,6 @@ function resolveIngressBaseUrlFromConfig(ingressConfig: unknown): string {
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
-  getCallWelcomeGreeting: () => process.env.CALL_WELCOME_GREETING || undefined,
   getGatewayInternalBaseUrl: () => "http://gateway.internal:7830",
   getIngressPublicBaseUrl: () => mockIngressPublicBaseUrl,
   setIngressPublicBaseUrl: (value: string | undefined) => {
@@ -438,7 +437,6 @@ describe("twilio webhook routes", () => {
     updatePhoneNumberWebhookCalls = [];
     mockTwilioApiValidationStatus = 200;
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
-    delete process.env.CALL_WELCOME_GREETING;
 
     globalThis.fetch = (async (
       url: string | URL | Request,
@@ -818,18 +816,6 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).not.toContain("welcomeGreeting=");
-    });
-
-    test("TwiML includes explicit welcome greeting override when configured", async () => {
-      process.env.CALL_WELCOME_GREETING = "Custom transport greeting";
-      const session = createTestSession("conv-twiml-4", "CA_twiml_4");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_4" });
-
-      const res = await handleVoiceWebhook(req);
-
-      expect(res.status).toBe(200);
-      const twiml = await res.text();
-      expect(twiml).toContain('welcomeGreeting="Custom transport greeting"');
     });
   });
 

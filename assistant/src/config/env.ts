@@ -113,35 +113,10 @@ export function hasUngatedHttpAuthDisabled(): boolean {
   return str("VELLUM_UNSAFE_AUTH_BYPASS")?.trim() !== "1";
 }
 
-// ── Twilio ───────────────────────────────────────────────────────────────────
-
-export function getTwilioPhoneNumberEnv(): string | undefined {
-  return str("TWILIO_PHONE_NUMBER");
-}
-
-export function getTwilioUserPhoneNumber(): string | undefined {
-  return str("TWILIO_USER_PHONE_NUMBER");
-}
-
-export function isTwilioWebhookValidationDisabled(): boolean {
-  // Intentionally strict: only exact "true" disables validation (not "1").
-  // This is a security-sensitive bypass — we don't want environments that
-  // template booleans as "1" to silently skip webhook signature checks.
-  return process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === "true";
-}
-
-export function getCallWelcomeGreeting(): string | undefined {
-  return str("CALL_WELCOME_GREETING");
-}
-
 // ── Monitoring ───────────────────────────────────────────────────────────────
 
 export function getLogfireToken(): string | undefined {
   return str("LOGFIRE_TOKEN");
-}
-
-export function isMonitoringEnabled(): boolean {
-  return false;
 }
 
 const DEFAULT_SENTRY_DSN =

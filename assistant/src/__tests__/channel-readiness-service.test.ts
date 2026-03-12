@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-let mockTwilioPhoneNumberEnv: string | undefined;
+let mockTwilioPhoneNumber: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
@@ -27,16 +27,17 @@ mock.module("../channels/config.js", () => ({
   }),
 }));
 
-mock.module("../config/env.js", () => ({
-  getTwilioPhoneNumberEnv: () => mockTwilioPhoneNumberEnv,
-}));
+mock.module("../config/env.js", () => ({}));
 
 mock.module("../config/loader.js", () => ({
   loadRawConfig: () => mockRawConfig,
+  loadConfig: () => ({
+    twilio: { phoneNumber: mockTwilioPhoneNumber ?? "" },
+    whatsapp: { phoneNumber: "" },
+  }),
   getConfig: () => ({
-    whatsapp: {
-      phoneNumber: "",
-    },
+    twilio: { phoneNumber: mockTwilioPhoneNumber ?? "" },
+    whatsapp: { phoneNumber: "" },
   }),
 }));
 
@@ -100,7 +101,7 @@ describe("ChannelReadinessService", () => {
 
   beforeEach(() => {
     service = new ChannelReadinessService();
-    mockTwilioPhoneNumberEnv = undefined;
+    mockTwilioPhoneNumber = undefined;
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
@@ -406,7 +407,7 @@ describe("ChannelReadinessService", () => {
 
   test("voice readiness includes gateway_health when ingress is configured", async () => {
     mockHasTwilioCredentials = true;
-    mockTwilioPhoneNumberEnv = "+15550001111";
+    mockTwilioPhoneNumber = "+15550001111";
     mockRawConfig = {
       ingress: {
         enabled: true,

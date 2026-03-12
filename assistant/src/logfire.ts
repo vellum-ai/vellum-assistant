@@ -1,4 +1,4 @@
-import { getLogfireToken, isMonitoringEnabled } from "./config/env.js";
+import { getLogfireToken } from "./config/env.js";
 import type {
   Message,
   Provider,
@@ -13,7 +13,7 @@ const log = getLogger("logfire");
 
 type LogfireModule = typeof import("@pydantic/logfire-node");
 
-const LOGFIRE_ENABLED: boolean = !!getLogfireToken() && isMonitoringEnabled();
+const LOGFIRE_ENABLED: boolean = !!getLogfireToken();
 
 let logfireInstance: LogfireModule | null = null;
 

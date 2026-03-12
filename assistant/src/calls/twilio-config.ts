@@ -1,4 +1,3 @@
-import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getPublicBaseUrl,
@@ -25,14 +24,10 @@ export interface TwilioConfig {
  * agree on the same number.
  *
  * Resolution order:
- *   1. TWILIO_PHONE_NUMBER env var
- *   2. config.twilio?.phoneNumber
- *   3. ""
+ *   1. config.twilio?.phoneNumber
+ *   2. ""
  */
 export function resolveTwilioPhoneNumber(): string {
-  const fromEnv = getTwilioPhoneNumberEnv();
-  if (fromEnv) return fromEnv;
-
   try {
     const config = loadConfig();
     if (config.twilio?.phoneNumber) return config.twilio.phoneNumber;
