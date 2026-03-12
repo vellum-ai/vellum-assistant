@@ -50,9 +50,6 @@ struct ChatView: View {
     let onDismissSessionError: () -> Void
     let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
-    var isLearnMode: Bool = false
-    var networkEntryCount: Int = 0
-    var idleHint: Bool = false
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -259,9 +256,6 @@ struct ChatView: View {
                             onMicrophoneToggle: onMicrophoneToggle,
                             watchSession: watchSession,
                             onStopWatch: onStopWatch,
-                            isLearnMode: isLearnMode,
-                            networkEntryCount: networkEntryCount,
-                            idleHint: idleHint,
                             voiceModeManager: voiceModeManager,
                             voiceService: voiceService,
                             onEndVoiceMode: onEndVoiceMode,

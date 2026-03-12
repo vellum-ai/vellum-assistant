@@ -22,9 +22,6 @@ struct ComposerSection: View {
     let onMicrophoneToggle: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
-    var isLearnMode: Bool = false
-    var networkEntryCount: Int = 0
-    var idleHint: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
@@ -36,7 +33,7 @@ struct ComposerSection: View {
     var body: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
-                WatchProgressView(session: watchSession, onStop: onStopWatch, isLearnMode: isLearnMode, networkEntryCount: networkEntryCount, idleHint: idleHint)
+                WatchProgressView(session: watchSession, onStop: onStopWatch)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.sm)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
