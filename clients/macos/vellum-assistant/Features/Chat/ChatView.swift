@@ -304,43 +304,6 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
-        .overlay(alignment: .top) {
-            VStack(spacing: VSpacing.xs) {
-                if !hasAPIKey {
-                    ChatSessionErrorToast(
-                        message: "API key not set. Add one in Settings to start chatting.",
-                        icon: .keyRound,
-                        accentColor: VColor.warning,
-                        actionLabel: "Open Settings",
-                        onAction: onOpenSettings
-                    )
-                }
-
-                if let sessionError {
-                    ChatSessionErrorToast(
-                        error: sessionError,
-                        onRetry: onRetry,
-                        onCopyDebugInfo: onCopyDebugInfo,
-                        onDismiss: onDismissSessionError
-                    )
-                }
-
-                if let errorText, sessionError == nil {
-                    ChatSessionErrorToast(
-                        message: errorText,
-                        subtitle: isConnectionError ? connectionDiagnosticHint : nil,
-                        actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
-                        onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryError : nil,
-                        onDismiss: onDismissError
-                    )
-                }
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.sm)
-            .animation(VAnimation.fast, value: hasAPIKey)
-            .animation(VAnimation.fast, value: sessionError != nil)
-            .animation(VAnimation.fast, value: errorText != nil)
-        }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }

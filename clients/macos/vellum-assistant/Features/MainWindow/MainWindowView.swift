@@ -583,6 +583,45 @@ struct MainWindowView: View {
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+        .overlay(alignment: .top) {
+            VStack(spacing: VSpacing.xs) {
+                if !windowState.hasAPIKey {
+                    ChatSessionErrorToast(
+                        message: "API key not set. Add one in Settings to start chatting.",
+                        icon: .keyRound,
+                        accentColor: VColor.warning,
+                        actionLabel: "Open Settings",
+                        onAction: { windowState.selection = .panel(.settings) }
+                    )
+                }
+
+                if let sessionError = threadManager.activeViewModel?.sessionError {
+                    ChatSessionErrorToast(
+                        error: sessionError,
+                        onRetry: { threadManager.activeViewModel?.retryAfterSessionError() },
+                        onCopyDebugInfo: { threadManager.activeViewModel?.copySessionErrorDebugDetails() },
+                        onDismiss: { threadManager.activeViewModel?.dismissSessionError() }
+                    )
+                }
+
+                if let errorText = threadManager.activeViewModel?.errorText,
+                   threadManager.activeViewModel?.sessionError == nil {
+                    let vm = threadManager.activeViewModel!
+                    ChatSessionErrorToast(
+                        message: errorText,
+                        subtitle: vm.isConnectionError ? vm.connectionDiagnosticHint : nil,
+                        actionLabel: vm.isSecretBlockError ? "Send Anyway" : (vm.isRetryableError || (vm.isConnectionError && vm.hasRetryPayload)) ? "Retry" : nil,
+                        onAction: vm.isSecretBlockError ? { vm.sendAnyway() } : (vm.isRetryableError || (vm.isConnectionError && vm.hasRetryPayload)) ? { vm.retryLastMessage() } : nil,
+                        onDismiss: { vm.dismissError() }
+                    )
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.top, VSpacing.sm)
+            .animation(VAnimation.fast, value: windowState.hasAPIKey)
+            .animation(VAnimation.fast, value: threadManager.activeViewModel?.sessionError != nil)
+            .animation(VAnimation.fast, value: threadManager.activeViewModel?.errorText != nil)
+        }
         .overlay(alignment: .bottom) {
             if let toast = windowState.toastInfo {
                 VToast(
