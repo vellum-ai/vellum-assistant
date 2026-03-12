@@ -584,17 +584,27 @@ struct SettingsDeveloperTab: View {
             subtitle: "Open a terminal session to the assistant's host machine."
         ) {
             VButton(label: "Open Terminal", style: .secondary, size: .medium) {
-                openTerminalInBrowser()
+                openTerminalWindow()
             }
         }
     }
 
-    private func openTerminalInBrowser() {
-        let baseURL = store.platformBaseUrl.isEmpty
-            ? AuthService.shared.baseURL
-            : store.platformBaseUrl
-        guard let url = URL(string: "\(baseURL)/settings?panel=assistant-terminal") else { return }
-        NSWorkspace.shared.open(url)
+    private static let terminalWindow = SSHTerminalWindow()
+
+    private func openTerminalWindow() {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+              assistant.isManaged else { return }
+        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
+
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
+        Self.terminalWindow.open(
+            assistant: assistant,
+            baseURL: baseURL,
+            token: token,
+            organizationId: orgId
+        )
     }
 
     // MARK: - Retire Assistant
