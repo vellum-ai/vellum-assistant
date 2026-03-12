@@ -8,22 +8,12 @@ struct ChatView: View {
     let hasAPIKey: Bool
     let isThinking: Bool
     let isSending: Bool
-    let errorText: String?
-    let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
     let isRecording: Bool
-    let onOpenSettings: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
-    let onDismissError: () -> Void
-    let isRetryableError: Bool
-    let onRetryError: () -> Void
-    let isConnectionError: Bool
-    var hasRetryPayload: Bool = true
-    let isSecretBlockError: Bool
-    let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
@@ -45,10 +35,6 @@ struct ChatView: View {
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let sessionError: SessionError?
-    let onRetry: () -> Void
-    let onDismissSessionError: () -> Void
-    let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
@@ -70,7 +56,6 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
-    var connectionDiagnosticHint: String? = nil
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
@@ -650,20 +635,11 @@ private struct ChatViewPreviewWrapper: View {
                 hasAPIKey: true,
                 isThinking: true,
                 isSending: false,
-                errorText: nil,
-                pendingQueuedCount: 0,
                 suggestion: "That sounds great, thanks!",
                 pendingAttachments: [],
                 isRecording: false,
-                onOpenSettings: {},
                 onSend: {},
                 onStop: {},
-                onDismissError: {},
-                isRetryableError: false,
-                onRetryError: {},
-                isConnectionError: false,
-                isSecretBlockError: false,
-                onSendAnyway: {},
                 onAcceptSuggestion: {},
                 onAttach: {},
                 onRemoveAttachment: { _ in },
@@ -679,10 +655,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                sessionError: nil,
-                onRetry: {},
-                onDismissSessionError: {},
-                onCopyDebugInfo: {},
                 watchSession: nil,
                 onStopWatch: {},
                 subagentDetailStore: SubagentDetailStore(),
