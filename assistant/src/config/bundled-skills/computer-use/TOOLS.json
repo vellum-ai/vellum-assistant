@@ -21,7 +21,7 @@
     },
     {
       "name": "computer_use_click",
-      "description": "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback. Supports single click, double-click, and right-click via the click_type parameter.",
+      "description": "Click an element on screen. Prefer element_id (from the accessibility tree) over x/y coordinates.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
