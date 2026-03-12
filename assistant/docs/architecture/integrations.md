@@ -28,7 +28,7 @@ graph TB
         DRAFT["messaging_draft"]
         SENDER_DIGEST["messaging_sender_digest"]
         ARCHIVE_BY_SENDER["messaging_archive_by_sender"]
-        SHARED["shared.ts<br/>resolveProvider + withProviderToken"]
+        SHARED["shared.ts<br/>resolveProvider + getProviderConnection"]
     end
 
     subgraph "Gmail Skill (bundled-skills/gmail/)"
