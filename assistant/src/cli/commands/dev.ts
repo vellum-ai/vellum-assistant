@@ -22,8 +22,6 @@ existing assistant is running, it is stopped first (waits up to 5 seconds
 for an unresponsive assistant before force-killing it).
 
 Behavioral notes:
-  - Sets VELLUM_DEBUG=1 for DEBUG-level logging
-  - Sets VELLUM_LOG_STDERR=1 so logs stream to stderr (visible in terminal)
   - Sets BASE_DATA_DIR to the repository root
   - The assistant runs in the foreground; press Ctrl+C to stop
 
@@ -111,8 +109,6 @@ Examples:
         env: {
           ...process.env,
           BASE_DATA_DIR: repoRoot,
-          VELLUM_LOG_STDERR: "1",
-          VELLUM_DEBUG: "1",
         },
       });
 

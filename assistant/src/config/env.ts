@@ -8,17 +8,13 @@
  * - Fail-fast validation via validateEnv() at startup
  * - Shared derived values (e.g. gateway base URL) instead of duplicated logic
  *
- * Bootstrap-level env vars (BASE_DATA_DIR, VELLUM_DAEMON_*, VELLUM_DEBUG,
- * VELLUM_LOG_STDERR, DEBUG_STDOUT_LOGS) are defined in config/env-registry.ts
- * which has no internal dependencies and can be imported from platform/logger
- * without circular imports.
+ * Bootstrap-level env vars (BASE_DATA_DIR, DEBUG_STDOUT_LOGS) are defined
+ * in config/env-registry.ts which has no internal dependencies and can be
+ * imported from platform/logger without circular imports.
  */
 
 import { getLogger } from "../util/logger.js";
-import {
-  checkUnrecognizedEnvVars,
-  getEnableMonitoring,
-} from "./env-registry.js";
+import { checkUnrecognizedEnvVars } from "./env-registry.js";
 
 const log = getLogger("env");
 
@@ -145,7 +141,7 @@ export function getLogfireToken(): string | undefined {
 }
 
 export function isMonitoringEnabled(): boolean {
-  return getEnableMonitoring();
+  return false;
 }
 
 const DEFAULT_SENTRY_DSN =
