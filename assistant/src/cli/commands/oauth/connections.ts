@@ -395,12 +395,11 @@ Examples:
             const providerRow = getProvider(resolvedServiceKey);
             const behavior = getProviderBehavior(resolvedServiceKey);
 
-            const requiresSecret = behavior?.setup?.requiresClientSecret
-              ? true
-              : !!(
-                  providerRow?.tokenEndpointAuthMethod ||
-                  providerRow?.extraParams
-                );
+            const requiresSecret =
+              behavior?.setup?.requiresClientSecret ??
+              !!(
+                providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams
+              );
 
             if (requiresSecret) {
               writeOutput(cmd, {
