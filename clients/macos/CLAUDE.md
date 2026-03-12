@@ -168,7 +168,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 <summary><strong>Token reference</strong></summary>
 
 **VColor** — Semantic color tokens mapped to Tailwind-style scales (Slate, Violet, Emerald, Rose, Amber, Indigo):
-- Backgrounds: `background` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
+- Backgrounds: `surfaceBase` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
 - Text: `textPrimary` (Slate._50), `textSecondary` (Slate._400), `textMuted` (Slate._500)
 - Accent: `accent` (Violet._600), `accentSubtle` (Violet._100)
 - Status: `success` (Emerald._600), `error` (Rose._600), `warning` (Amber._600)
