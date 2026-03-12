@@ -170,14 +170,16 @@ function clearIngressUrl(): void {
 }
 
 /**
- * Check whether any webhook-based integrations (e.g. Telegram) are configured
- * that require a public ingress URL.
+ * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
+ * configured that require a public ingress URL.
  */
 function hasWebhookIntegrationsConfigured(): boolean {
   try {
     const config = loadRawConfig();
     const telegram = config.telegram as Record<string, unknown> | undefined;
     if (telegram?.botUsername) return true;
+    const twilio = config.twilio as Record<string, unknown> | undefined;
+    if (twilio?.accountSid || twilio?.phoneNumber) return true;
     return false;
   } catch {
     return false;
@@ -243,11 +245,11 @@ export async function maybeStartNgrokTunnel(
     console.log(`   Tunnel established: ${publicUrl}`);
 
     // Detach the ngrok process so the CLI (hatch/wake) can exit without
-    // keeping it alive. Remove stdout/stderr listeners and unref all handles.
+    // keeping it alive. Only remove listeners and unref — do NOT destroy
+    // the streams, as closing the read end of the pipe sends SIGPIPE to
+    // ngrok and causes it to exit.
     ngrokProcess.stdout?.removeAllListeners("data");
     ngrokProcess.stderr?.removeAllListeners("data");
-    ngrokProcess.stdout?.destroy();
-    ngrokProcess.stderr?.destroy();
     ngrokProcess.unref();
 
     return ngrokProcess;
