@@ -18,7 +18,7 @@ export interface TerminalCapabilities {
   columns: number;
   /** Current terminal rows (falls back to 24) */
   rows: number;
-  /** True when TERM=dumb or NO_COLOR is set — disables all decoration */
+  /** True when TERM=dumb — indicates a terminal with no cursor addressing */
   isDumb: boolean;
 }
 
@@ -77,7 +77,7 @@ export function detectCapabilities(
   env: NodeJS.ProcessEnv = process.env,
 ): TerminalCapabilities {
   const term = (env.TERM ?? "").toLowerCase();
-  const isDumb = term === "dumb" || env.NO_COLOR !== undefined;
+  const isDumb = term === "dumb";
   const colorLevel = detectColorLevel(env);
   const unicodeSupported = detectUnicode(env, isDumb);
 

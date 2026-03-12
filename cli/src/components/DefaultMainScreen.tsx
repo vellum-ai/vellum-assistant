@@ -806,7 +806,7 @@ function DefaultMainScreen({
           })}
         </Box>
       </Box>
-      <Text dimColor>{"─".repeat(totalWidth)}</Text>
+      <Text dimColor>{headerSep.repeat(totalWidth)}</Text>
       <Text> </Text>
     </Box>
   );
@@ -2277,7 +2277,9 @@ function ChatApp({
 
       {!selection && !secretInput ? (
         <Box flexDirection="column" flexShrink={0}>
-          <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
+          <Text dimColor>
+            {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
+          </Text>
           <Box paddingLeft={1} height={1} flexShrink={0}>
             <Text color="green" bold>
               you{">"}
@@ -2292,7 +2294,9 @@ function ChatApp({
               focus={inputFocused}
             />
           </Box>
-          <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
+          <Text dimColor>
+            {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
+          </Text>
           <Text dimColor> ? for shortcuts</Text>
         </Box>
       ) : null}
