@@ -9,6 +9,7 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
+import { GIT_HOOKS_TRUST_TOOL_NAME } from "../daemon/git-hooks-approval.js";
 import { addRule } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getTool } from "../tools/registry.js";
@@ -87,8 +88,12 @@ export function getApprovalInfoByConversation(
 function buildPromptFromApprovalInfo(
   info: PendingApprovalInfo,
 ): ChannelApprovalPrompt {
+  const scenario =
+    info.toolName === GIT_HOOKS_TRUST_TOOL_NAME
+      ? "git_hooks_trust_prompt"
+      : "standard_prompt";
   const promptText = composeApprovalMessage({
-    scenario: "standard_prompt",
+    scenario,
     toolName: info.toolName,
   });
 
