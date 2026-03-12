@@ -34,14 +34,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "messaging-gmail",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.gmail.enabled",
-      "label": "Messaging: Gmail",
-      "description": "Allow messaging tools to operate on the Gmail platform",
-      "defaultEnabled": true
-    },
-    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
