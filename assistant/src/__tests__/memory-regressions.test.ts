@@ -170,7 +170,7 @@ describe("Memory regressions", () => {
     db.run("DELETE FROM memory_embeddings");
     db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM memory_items");
-    db.run("DELETE FROM memory_segment_fts");
+
     db.run("DELETE FROM memory_segments");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
@@ -2670,7 +2670,7 @@ describe("Memory regressions", () => {
       config,
     );
 
-    // Both items should be found (directItemSearch matches on "dark" and "mode")
+    // Both items should be found via retrieval
     const confirmed = recall.topCandidates.find(
       (c) => c.key === "item:item-trust-confirmed",
     );
@@ -3198,18 +3198,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-scope-a', 'msg-scope-filter', '${convId}', 'user', 0, 'The quick brown fox jumps over the lazy dog in project alpha', 12, 'project-a', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-scope-a', 'The quick brown fox jumps over the lazy dog in project alpha')`,
-    );
 
     // Insert segment in scope "project-b"
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-scope-b', 'msg-scope-filter', '${convId}', 'user', 1, 'The quick brown fox jumps over the lazy dog in project beta', 12, 'project-b', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-scope-b', 'The quick brown fox jumps over the lazy dog in project beta')`,
-    );
 
     // Insert item in scope "project-a"
     db.insert(memoryItems)
@@ -3303,18 +3297,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-default-scope', 'msg-scope-fallback', '${convId}', 'user', 0, 'Universal knowledge about programming languages and paradigms', 10, 'default', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-default-scope', 'Universal knowledge about programming languages and paradigms')`,
-    );
 
     // Insert segment in custom scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-custom-scope', 'msg-scope-fallback', '${convId}', 'user', 1, 'Project-specific knowledge about programming languages and paradigms', 10, 'my-project', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-custom-scope', 'Project-specific knowledge about programming languages and paradigms')`,
-    );
 
     // With allow_global_fallback (the default), querying with scopeId "my-project"
     // should include both "my-project" and "default" scope items
@@ -3372,18 +3360,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-strict-default', 'msg-scope-strict', '${convId}', 'user', 0, 'Global memory about database optimization techniques', 8, 'default', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-strict-default', 'Global memory about database optimization techniques')`,
-    );
 
     // Insert segment in custom scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-strict-custom', 'msg-scope-strict', '${convId}', 'user', 1, 'Project-specific memory about database optimization techniques', 8, 'strict-project', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-strict-custom', 'Project-specific memory about database optimization techniques')`,
-    );
 
     // With strict policy, querying with scopeId should only include that scope
     const strictConfig = {
@@ -4029,18 +4011,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-default', 'msg-override-fallback', '${convId}', 'user', 0, 'Global memory about microservices architecture patterns', 10, 'default', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-default', 'Global memory about microservices architecture patterns')`,
-    );
 
     // Insert segment in private thread scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-private', 'msg-override-fallback', '${convId}', 'user', 1, 'Private thread memory about microservices architecture patterns', 10, 'private-thread-42', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-private', 'Private thread memory about microservices architecture patterns')`,
-    );
 
     // Global policy is strict, but override requests fallback to default
     const strictConfig = {
@@ -4109,18 +4085,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-nf-default', 'msg-override-nofallback', '${convId}', 'user', 0, 'Global memory about container orchestration strategies', 10, 'default', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-nf-default', 'Global memory about container orchestration strategies')`,
-    );
 
     // Insert segment in isolated scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-nf-isolated', 'msg-override-nofallback', '${convId}', 'user', 1, 'Isolated memory about container orchestration strategies', 10, 'isolated-scope', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-nf-isolated', 'Isolated memory about container orchestration strategies')`,
-    );
 
     // Global policy allows fallback, but override says no fallback
     const fallbackConfig = {
@@ -4187,18 +4157,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-prec-a', 'msg-override-precedence', '${convId}', 'user', 0, 'Scope A memory about distributed caching patterns', 10, 'scope-a', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-prec-a', 'Scope A memory about distributed caching patterns')`,
-    );
 
     // Insert segment in scope-b (what the override targets)
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-prec-b', 'msg-override-precedence', '${convId}', 'user', 1, 'Scope B memory about distributed caching patterns', 10, 'scope-b', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-prec-b', 'Scope B memory about distributed caching patterns')`,
-    );
 
     const config = {
       ...TEST_CONFIG,
@@ -4265,18 +4229,12 @@ describe("Memory regressions", () => {
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-dp-default', 'msg-override-default-primary', '${convId}', 'user', 0, 'Default scope memory about event driven design', 10, 'default', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-dp-default', 'Default scope memory about event driven design')`,
-    );
 
     // Insert segment in other scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
       VALUES ('seg-ovr-dp-other', 'msg-override-default-primary', '${convId}', 'user', 1, 'Other scope memory about event driven design', 10, 'other-scope', ${now}, ${now})
     `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-dp-other', 'Other scope memory about event driven design')`,
-    );
 
     const config = {
       ...TEST_CONFIG,

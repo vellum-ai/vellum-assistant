@@ -28,19 +28,13 @@ import {
   MEMORY_CONTEXT_ACK,
   PREFERENCE_KINDS,
 } from "./search/formatting.js";
-import {
-  directItemSearch,
-  lexicalSearch,
-  recencySearch,
-} from "./search/lexical.js";
-import { buildFTSQuery, expandQueryForFTS } from "./search/query-expansion.js";
+import { recencySearch } from "./search/lexical.js";
 import {
   applySourceCaps,
   mergeCandidates,
-  rerankWithLLM,
 } from "./search/ranking.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
-import { computeStaleness, applyStaleDemotion } from "./search/staleness.js";
+import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
 import { classifyTiers } from "./search/tier-classifier.js";
 import type {
   Candidate,
@@ -171,33 +165,13 @@ export async function collectAndMergeCandidates(
   let semanticSearchFailed = false;
   let semanticSearchError: unknown;
 
-  // Detect when semantic search won't be available so we can compensate
-  // by boosting lexical/recency/direct item limits.
+  // Detect when semantic search won't be available.
   const semanticUnavailable = !queryVector || isQdrantBreakerOpen();
   if (semanticUnavailable) {
-    log.debug("Semantic search unavailable — boosting lexical limits");
+    log.debug("Semantic search unavailable — recency + entity only");
   }
 
-  // -- Phase 1: cheap local searches (always run) --
-  const lexicalTopK = semanticUnavailable
-    ? config.memory.retrieval.lexicalTopK * 2
-    : config.memory.retrieval.lexicalTopK;
-
-  // When semantic search is unavailable, expand the conversational query
-  // into meaningful keywords for better FTS recall. This compensates for
-  // the lack of vector-based semantic matching.
-  const expandedFtsQuery = semanticUnavailable
-    ? buildFTSQuery(expandQueryForFTS(query))
-    : undefined;
-
-  const lexical = lexicalSearch(
-    query,
-    lexicalTopK,
-    excludeMessageIds,
-    scopeIds,
-    expandedFtsQuery,
-  );
-
+  // -- Phase 1: recency search (conversation-scoped supplementary query) --
   const baseRecencyLimit = Math.max(
     10,
     Math.floor(config.memory.retrieval.semanticTopK / 2),
@@ -214,130 +188,7 @@ export async function collectAndMergeCandidates(
       )
     : [];
 
-  // Direct item search supplements FTS with LIKE-based matching.
-  // When exclusions are present, adaptively increase the fetch size until
-  // we collect directLimit valid (non-excluded) items or exhaust the DB.
-  const baseDirectLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
-  const directLimit = semanticUnavailable
-    ? baseDirectLimit * 2
-    : baseDirectLimit;
-
-  // Helper: filter fetched direct items to those with at least one non-excluded source.
-  const filterDirectItems = (items: Candidate[]): Candidate[] => {
-    if (items.length === 0) return items;
-    const db = getDb();
-    const excludedSet = new Set(excludeMessageIds);
-    const allSources = db
-      .select({
-        memoryItemId: memoryItemSources.memoryItemId,
-        messageId: memoryItemSources.messageId,
-      })
-      .from(memoryItemSources)
-      .where(
-        inArray(
-          memoryItemSources.memoryItemId,
-          items.map((c) => c.id),
-        ),
-      )
-      .all();
-    const hasNonExcluded = new Set<string>();
-    const hasSources = new Set<string>();
-    for (const s of allSources) {
-      hasSources.add(s.memoryItemId);
-      if (!excludedSet.has(s.messageId)) {
-        hasNonExcluded.add(s.memoryItemId);
-      }
-    }
-    return items.filter(
-      (c) => !hasSources.has(c.id) || hasNonExcluded.has(c.id),
-    );
-  };
-
-  let directItems: Candidate[];
-  if (excludeMessageIds.length > 0) {
-    const MAX_FETCH = directLimit * 8;
-
-    // Probe: fetch directLimit items and measure how many survive filtering.
-    const probe = directItemSearch(query, directLimit, scopeIds);
-    const probeFiltered = filterDirectItems(probe);
-    const probeExhausted = probe.length < directLimit;
-
-    if (probeFiltered.length >= directLimit || probeExhausted) {
-      directItems = probeFiltered.slice(0, directLimit);
-    } else {
-      // Compute exclusion ratio from probe and extrapolate the fetch size
-      // needed to yield directLimit surviving items in a single query.
-      const exclusionRatio =
-        probe.length > 0 ? 1 - probeFiltered.length / probe.length : 0;
-      // Fetch enough to compensate for the observed exclusion rate, with
-      // a 1.5x safety margin to avoid a second round in most cases.
-      const estimatedFetch =
-        exclusionRatio < 1
-          ? Math.ceil((directLimit / (1 - exclusionRatio)) * 1.5)
-          : MAX_FETCH;
-      let fetchSize = Math.min(
-        Math.max(estimatedFetch, directLimit + 24),
-        MAX_FETCH,
-      );
-
-      let fetched = directItemSearch(query, fetchSize, scopeIds);
-      directItems = filterDirectItems(fetched).slice(0, directLimit);
-
-      // Retry loop: when the estimate under-fetched (uneven exclusion
-      // distribution), keep increasing fetchSize until quota is met or
-      // the DB is exhausted.
-      while (
-        directItems.length < directLimit &&
-        fetched.length === fetchSize &&
-        fetchSize < MAX_FETCH
-      ) {
-        fetchSize = Math.min(fetchSize * 2, MAX_FETCH);
-        fetched = directItemSearch(query, fetchSize, scopeIds);
-        directItems = filterDirectItems(fetched).slice(0, directLimit);
-      }
-    }
-  } else {
-    directItems = directItemSearch(query, directLimit, scopeIds);
-  }
-
-  // -- Early termination check --
-  // If cheap sources already produced enough high-relevance candidates,
-  // skip semantic and entity search entirely.
-  //
-  // Deduplicate before counting: lexical and recency can return the same
-  // segment (common when recent messages match the query), so checking raw
-  // counts would inflate the total and trigger early termination prematurely.
-  const etConfig = config.memory.retrieval.earlyTermination;
-  const cheapCandidateMap = new Map<string, Candidate>();
-  for (const c of [...lexical, ...recency, ...directItems]) {
-    const existing = cheapCandidateMap.get(c.key);
-    // Keep the candidate with higher query relevance (lexical score is the
-    // best proxy we have at this stage; confidence reflects extraction
-    // certainty, not query-match strength).
-    if (!existing || c.lexical > existing.lexical) {
-      cheapCandidateMap.set(c.key, c);
-    }
-  }
-  const cheapCandidates = [...cheapCandidateMap.values()];
-
-  // Gate on relevance instead of confidence: for direct item candidates,
-  // c.confidence reflects extraction certainty (memory_items.confidence),
-  // not query-match relevance. Common tokens can produce many high-confidence
-  // but weakly relevant items that would skip semantic search exactly when
-  // it's needed most. Instead, check lexical score (query-match relevance).
-  //
-  // Disable early termination when semantic search is unavailable: boosted
-  // limits inflate cheap candidate counts, making this gate trigger more
-  // easily. Skipping entity retrieval on top of losing semantic search
-  // would reduce recall quality further.
-  const canTerminateEarly =
-    etConfig.enabled &&
-    !semanticUnavailable &&
-    cheapCandidates.length >= etConfig.minCandidates &&
-    cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold)
-      .length >= etConfig.minHighConfidence;
-
-  // -- Phase 2: entity search + await semantic (skipped on early termination) --
+  // -- Phase 2: semantic + entity search --
   let semantic: Candidate[] = [];
   let entity: Candidate[] = [];
   let candidateDepths: Map<string, number> | undefined;
@@ -346,70 +197,57 @@ export async function collectAndMergeCandidates(
   let relationNeighborEntityCount = 0;
   let relationExpandedItemCount = 0;
 
-  if (!canTerminateEarly) {
-    // Start semantic search now that we know early termination won't apply.
-    // The network round-trip overlaps with entity search below.
-    const semanticPromise = queryVector
-      ? semanticSearch(
-          queryVector,
-          opts?.provider ?? "unknown",
-          opts?.model ?? "unknown",
-          config.memory.retrieval.semanticTopK,
-          excludeMessageIds,
-          scopeIds,
-        ).catch((err): Candidate[] => {
-          semanticSearchFailed = true;
-          semanticSearchError = err;
-          if (isQdrantConnectionError(err)) {
-            log.warn(
-              { err },
-              "Qdrant is unavailable — semantic search disabled, memory recall will be degraded",
-            );
-          } else {
-            log.warn(
-              { err },
-              "Semantic search failed, continuing with other retrieval methods",
-            );
-          }
-          return [];
-        })
-      : null;
-
-    // Entity search is synchronous — run it while the semantic promise
-    // is in flight.
-    if (config.memory.entity.enabled) {
-      const entitySearchResult = entitySearch(
-        query,
-        config.memory.entity,
-        scopeIds,
+  // Start semantic search — the network round-trip overlaps with entity search.
+  const semanticPromise = queryVector
+    ? semanticSearch(
+        queryVector,
+        opts?.provider ?? "unknown",
+        opts?.model ?? "unknown",
+        config.memory.retrieval.semanticTopK,
         excludeMessageIds,
-      );
-      entity = entitySearchResult.candidates;
-      candidateDepths = entitySearchResult.candidateDepths;
-      relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
-      relationTraversedEdgeCount =
-        entitySearchResult.relationTraversedEdgeCount;
-      relationNeighborEntityCount =
-        entitySearchResult.relationNeighborEntityCount;
-      relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
-    }
+        scopeIds,
+      ).catch((err): Candidate[] => {
+        semanticSearchFailed = true;
+        semanticSearchError = err;
+        if (isQdrantConnectionError(err)) {
+          log.warn(
+            { err },
+            "Qdrant is unavailable — semantic search disabled, memory recall will be degraded",
+          );
+        } else {
+          log.warn(
+            { err },
+            "Semantic search failed, continuing with other retrieval methods",
+          );
+        }
+        return [];
+      })
+    : null;
 
-    if (semanticPromise) {
-      semantic = await semanticPromise;
-    }
-  }
-
-  if (canTerminateEarly) {
-    log.debug(
-      {
-        cheapCandidateCount: cheapCandidates.length,
-        highRelevanceCount: cheapCandidates.filter(
-          (c) => c.lexical >= etConfig.confidenceThreshold,
-        ).length,
-      },
-      "Early termination: skipping semantic and entity search — sufficient high-relevance candidates from cheap sources",
+  // Entity search is synchronous — run it while the semantic promise
+  // is in flight.
+  if (config.memory.entity.enabled) {
+    const entitySearchResult = entitySearch(
+      query,
+      config.memory.entity,
+      scopeIds,
+      excludeMessageIds,
     );
+    entity = entitySearchResult.candidates;
+    candidateDepths = entitySearchResult.candidateDepths;
+    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
+    relationTraversedEdgeCount =
+      entitySearchResult.relationTraversedEdgeCount;
+    relationNeighborEntityCount =
+      entitySearchResult.relationNeighborEntityCount;
+    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
   }
+
+  if (semanticPromise) {
+    semantic = await semanticPromise;
+  }
+
+  const lexical: Candidate[] = [];
 
   const relationScoreMultiplier =
     config.memory.entity.enabled &&
@@ -425,7 +263,7 @@ export async function collectAndMergeCandidates(
     lexical,
     semantic,
     recency,
-    [...entity, ...directItems],
+    entity,
     config.memory.retrieval.freshness,
     relationScoreMultiplier,
     depthMap,
@@ -440,7 +278,7 @@ export async function collectAndMergeCandidates(
     relationTraversedEdgeCount,
     relationNeighborEntityCount,
     relationExpandedItemCount,
-    earlyTerminated: canTerminateEarly,
+    earlyTerminated: false,
     semanticSearchFailed,
     semanticUnavailable,
     semanticSearchError,
@@ -456,11 +294,7 @@ function buildDegradationStatus(
   reason: DegradationReason,
   config: AssistantConfig,
 ): DegradationStatus {
-  const fallbackSources: FallbackSource[] = [
-    "lexical",
-    "recency",
-    "direct_item",
-  ];
+  const fallbackSources: FallbackSource[] = ["recency"];
   if (config.memory.entity.enabled) {
     fallbackSources.push("entity");
   }
@@ -570,62 +404,14 @@ interface RerankResult {
 }
 
 /**
- * Apply source caps and optionally LLM re-rank the merged candidates.
- * Returns `null` when the caller should return an early-exit `emptyResult`
- * (abort during re-ranking).
+ * Apply source caps to the merged candidates.
  */
-async function rerankMergedCandidates(
-  query: string,
+function rerankMergedCandidates(
   candidates: Candidate[],
   config: AssistantConfig,
-  signal: AbortSignal | undefined,
-  start: number,
-  provider: string | undefined,
-  model: string | undefined,
-): Promise<RerankResult | { earlyExit: MemoryRecallResult }> {
-  let merged = applySourceCaps(candidates, config);
-  let rerankApplied = false;
-
-  const rerankingConfig = config.memory.retrieval.reranking;
-  if (rerankingConfig.enabled && merged.length >= 5) {
-    const rerankStart = Date.now();
-    const topCandidates = merged.slice(0, rerankingConfig.topK);
-    try {
-      const reranked = await rerankWithLLM(
-        query,
-        topCandidates,
-        rerankingConfig,
-      );
-      merged = [...reranked, ...merged.slice(rerankingConfig.topK)];
-      rerankApplied = true;
-      log.debug(
-        {
-          rerankLatencyMs: Date.now() - rerankStart,
-          rerankedCount: reranked.length,
-        },
-        "LLM re-ranking completed",
-      );
-    } catch (err) {
-      if (signal?.aborted || isAbortError(err)) {
-        return {
-          earlyExit: emptyResult({
-            enabled: true,
-            degraded: false,
-            reason: "memory.aborted",
-            provider,
-            model,
-            latencyMs: Date.now() - start,
-          }),
-        };
-      }
-      log.warn(
-        { err, rerankLatencyMs: Date.now() - rerankStart },
-        "LLM re-ranking failed, using RRF order",
-      );
-    }
-  }
-
-  return { merged, rerankApplied };
+): RerankResult {
+  const merged = applySourceCaps(candidates, config);
+  return { merged, rerankApplied: false };
 }
 
 /**
@@ -829,17 +615,8 @@ export async function buildMemoryRecall(
     }
   }
 
-  // Stage 3: Source caps + LLM re-ranking
-  const rerankResult = await rerankMergedCandidates(
-    query,
-    collected.merged,
-    config,
-    signal,
-    start,
-    embeddingResult.provider,
-    embeddingResult.model,
-  );
-  if ("earlyExit" in rerankResult) return rerankResult.earlyExit;
+  // Stage 3: Source caps
+  const rerankResult = rerankMergedCandidates(collected.merged, config);
 
   // Stage 4: Token budget trimming and result formatting
   const result = formatRecallResult(

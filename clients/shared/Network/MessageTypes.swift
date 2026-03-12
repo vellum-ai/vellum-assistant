@@ -706,18 +706,14 @@ extension MemoryRecalled {
     public init(
         provider: String,
         model: String,
-        lexicalHits: Double,
         semanticHits: Double,
         recencyHits: Double,
-        entityHits: Double,
-        relationSeedEntityCount: Int? = nil,
-        relationTraversedEdgeCount: Int? = nil,
-        relationNeighborEntityCount: Int? = nil,
-        relationExpandedItemCount: Int? = nil,
-        earlyTerminated: Bool? = nil,
+        tier1Count: Int? = nil,
+        tier2Count: Int? = nil,
+        hybridSearchLatencyMs: Double? = nil,
+        sparseVectorUsed: Bool? = nil,
         mergedCount: Int,
         selectedCount: Int,
-        rerankApplied: Bool,
         injectedTokens: Int,
         latencyMs: Double,
         topCandidates: [MemoryRecalledCandidateDebug]
@@ -726,18 +722,14 @@ extension MemoryRecalled {
             type: "memory_recalled",
             provider: provider,
             model: model,
-            lexicalHits: lexicalHits,
             semanticHits: semanticHits,
             recencyHits: recencyHits,
-            entityHits: entityHits,
-            relationSeedEntityCount: relationSeedEntityCount,
-            relationTraversedEdgeCount: relationTraversedEdgeCount,
-            relationNeighborEntityCount: relationNeighborEntityCount,
-            relationExpandedItemCount: relationExpandedItemCount,
-            earlyTerminated: earlyTerminated,
+            tier1Count: tier1Count,
+            tier2Count: tier2Count,
+            hybridSearchLatencyMs: hybridSearchLatencyMs,
+            sparseVectorUsed: sparseVectorUsed,
             mergedCount: mergedCount,
             selectedCount: selectedCount,
-            rerankApplied: rerankApplied,
             injectedTokens: injectedTokens,
             latencyMs: latencyMs,
             topCandidates: topCandidates
@@ -1255,6 +1247,8 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
     case providerApi = "PROVIDER_API"
     case providerBilling = "PROVIDER_BILLING"
+    case providerOrdering = "PROVIDER_ORDERING"
+    case providerWebSearch = "PROVIDER_WEB_SEARCH"
     case contextTooLarge = "CONTEXT_TOO_LARGE"
     case sessionAborted = "SESSION_ABORTED"
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
@@ -1279,17 +1273,20 @@ public struct SessionErrorMessage: Decodable, Sendable {
     public let userMessage: String
     public let retryable: Bool
     public let debugDetails: String?
+    /// Machine-readable error category for log report metadata and triage.
+    public let errorCategory: String?
     /// Non-nil when the error is a client-side HTTP send failure.
     /// Contains the message content that failed to send, used to mark
     /// the specific user message as `.sendFailed` in the chat.
     public let failedMessageContent: String?
 
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, failedMessageContent: String? = nil) {
+    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil, errorCategory: String? = nil, failedMessageContent: String? = nil) {
         self.sessionId = sessionId
         self.code = code
         self.userMessage = userMessage
         self.retryable = retryable
         self.debugDetails = debugDetails
+        self.errorCategory = errorCategory
         self.failedMessageContent = failedMessageContent
     }
 }

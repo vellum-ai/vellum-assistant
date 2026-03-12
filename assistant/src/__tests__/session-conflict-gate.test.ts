@@ -131,6 +131,13 @@ mock.module("../config/loader.js", () => ({
           targetHeadroomTokens: 10000,
         },
       },
+      embeddings: {
+        provider: "auto",
+        required: true,
+      },
+      entity: {
+        enabled: false,
+      },
       conflicts: {
         enabled: true,
         gateMode: "soft",

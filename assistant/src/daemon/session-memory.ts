@@ -1,6 +1,5 @@
 import { getConfig } from "../config/loader.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
-import { getMemoryConflictAndCleanupStats } from "../memory/admin.js";
 import { buildMemoryQuery } from "../memory/query-builder.js";
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import {
@@ -156,8 +155,6 @@ export async function prepareMemoryContext(
       scopePolicyOverride,
     },
   );
-  const memoryStatus = getMemoryConflictAndCleanupStats();
-
   onEvent({
     type: "memory_status",
     enabled: recall.enabled,
@@ -172,11 +169,6 @@ export async function prepareMemoryContext(
     reason: recall.reason,
     provider: recall.provider,
     model: recall.model,
-    cleanupResolvedJobsPending: memoryStatus.cleanup.resolvedBacklog,
-    cleanupSupersededJobsPending: memoryStatus.cleanup.supersededBacklog,
-    cleanupResolvedJobsCompleted24h: memoryStatus.cleanup.resolvedCompleted24h,
-    cleanupSupersededJobsCompleted24h:
-      memoryStatus.cleanup.supersededCompleted24h,
   });
 
   // Inject recall into messages using separate_context_message strategy.
@@ -204,7 +196,8 @@ export async function prepareMemoryContext(
         recencyHits: recall.recencyHits,
         tier1Count: recall.tier1Count ?? 0,
         tier2Count: recall.tier2Count ?? 0,
-        hybridSearchMs: recall.hybridSearchMs ?? 0,
+        hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
+        sparseVectorUsed: (recall as { sparseVectorUsed?: boolean }).sparseVectorUsed ?? false,
         mergedCount: recall.mergedCount,
         selectedCount: recall.selectedCount,
         injectedTokens: recall.injectedTokens,

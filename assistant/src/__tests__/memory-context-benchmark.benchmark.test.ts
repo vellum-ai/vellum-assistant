@@ -167,7 +167,7 @@ describe("Memory context benchmark", () => {
     db.run("DELETE FROM memory_embeddings");
     db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM memory_items");
-    db.run("DELETE FROM memory_segment_fts");
+
     db.run("DELETE FROM memory_segments");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");

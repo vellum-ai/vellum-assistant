@@ -1,15 +1,7 @@
 import { inArray, sql } from "drizzle-orm";
 
-import type {
-  AssistantConfig,
-  MemoryRerankingConfig,
-} from "../../config/types.js";
+import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
-import {
-  extractText,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db.js";
 import { memoryItems } from "../schema.js";
@@ -336,101 +328,6 @@ export function computeRecencyScore(createdAt: number): number {
   return 1 / (1 + Math.log2(1 + ageDays));
 }
 
-/**
- * LLM re-ranking: send candidate memories to Haiku for relevance scoring.
- * Returns candidates re-sorted by LLM-assigned relevance score.
- */
-export async function rerankWithLLM(
-  query: string,
-  candidates: Candidate[],
-  rerankingConfig: MemoryRerankingConfig,
-): Promise<Candidate[]> {
-  const provider = getConfiguredProvider();
-  if (!provider) {
-    log.debug("Configured provider unavailable for LLM re-ranking, skipping");
-    return candidates;
-  }
-
-  const candidateList = candidates.map((c, i) => ({
-    index: i,
-    id: c.key,
-    text: truncate(c.text, 200),
-  }));
-
-  const response = await provider.sendMessage(
-    [
-      userMessage(
-        `Query: ${truncate(query, 200)}\n\nCandidates:\n${candidateList
-          .map((c) => `[${c.index}] ${c.text}`)
-          .join("\n")}`,
-      ),
-    ],
-    undefined,
-    'You are a relevance scoring assistant. Given a query and a list of memory candidates, rate each candidate\'s relevance to the query on a scale of 0-10. Return ONLY a JSON array of objects with "index" (the candidate index) and "score" (0-10 integer). No explanation.',
-    {
-      config: {
-        modelIntent: rerankingConfig.modelIntent,
-        max_tokens: 1024,
-      },
-    },
-  );
-
-  // Extract text from the response
-  const responseText = extractText(response);
-  if (!responseText) {
-    log.warn("LLM re-ranking returned no text block, skipping");
-    return candidates;
-  }
-
-  // Parse the JSON array from the response
-  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    log.warn("LLM re-ranking response did not contain JSON array, skipping");
-    return candidates;
-  }
-
-  let scores: Array<{ index: number; score: number }>;
-  try {
-    scores = JSON.parse(jsonMatch[0]) as Array<{
-      index: number;
-      score: number;
-    }>;
-  } catch {
-    log.warn("Failed to parse LLM re-ranking JSON response, skipping");
-    return candidates;
-  }
-
-  // Build a score map from LLM results
-  const scoreMap = new Map<number, number>();
-  for (const entry of scores) {
-    if (typeof entry.index === "number" && typeof entry.score === "number") {
-      scoreMap.set(entry.index, Math.max(0, Math.min(10, entry.score)));
-    }
-  }
-
-  // Re-sort candidates by LLM score (desc); unscored candidates keep original order after scored ones
-  const reranked = candidates.map((c, i) => ({
-    candidate: c,
-    llmScore: scoreMap.has(i) ? scoreMap.get(i)! : null,
-    originalIndex: i,
-  }));
-
-  reranked.sort((a, b) => {
-    // Scored items come before unscored items
-    if (a.llmScore != null && b.llmScore == null) return -1;
-    if (a.llmScore == null && b.llmScore != null) return 1;
-    // Both scored: sort by score descending
-    if (a.llmScore != null && b.llmScore != null) {
-      const scoreDelta = b.llmScore - a.llmScore;
-      if (scoreDelta !== 0) return scoreDelta;
-    }
-    // Both unscored or tie: preserve original RRF order
-    return a.originalIndex - b.originalIndex;
-  });
-
-  return reranked.map((r) => r.candidate);
-}
-
 export function trimToTokenBudget(
   candidates: Candidate[],
   maxTokens: number,
@@ -462,9 +359,4 @@ export function markItemUsage(candidates: Candidate[]): void {
     })
     .where(inArray(memoryItems.id, itemIds))
     .run();
-}
-
-function truncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 3)}...`;
 }
