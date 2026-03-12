@@ -31,8 +31,6 @@ export interface ChannelReplyPayload {
   ephemeral?: boolean;
   /** Slack user ID — required when `ephemeral` is true. */
   user?: string;
-  /** Telegram message_id for editing an existing message instead of sending a new one. */
-  messageId?: number;
   /** When provided, instructs the delivery endpoint to update an existing message instead of posting a new one. */
   messageTs?: string;
   /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */

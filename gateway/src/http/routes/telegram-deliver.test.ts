@@ -16,7 +16,6 @@ let sendTypingIndicatorCalls: Array<unknown[]> = [];
 mock.module("../../telegram/send.js", () => ({
   sendTelegramReply: async (...args: unknown[]) => {
     sendTelegramReplyCalls.push(args);
-    return { messageId: 42 };
   },
   sendTelegramAttachments: async () => {},
   sendTypingIndicator: async (...args: unknown[]) => {
@@ -226,7 +225,6 @@ describe("telegram-deliver endpoint basics", () => {
     mock.module("../../telegram/send.js", () => ({
       sendTelegramReply: async (...args: unknown[]) => {
         sendTelegramReplyCalls.push(args);
-        return { messageId: 42 };
       },
       sendTelegramAttachments: async () => {},
       sendTypingIndicator: async (...args: unknown[]) => {
