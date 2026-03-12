@@ -133,7 +133,7 @@ private struct SSHTerminalContentView: View {
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
-        .background(VColor.bgSecondary)
+        .background(VColor.backgroundSubtle)
     }
 
     @ViewBuilder
