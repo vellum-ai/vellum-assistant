@@ -669,6 +669,7 @@ export class DaemonServer {
           }),
         );
       }
+      session.addPreactivatedSkillId("computer-use");
     } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);
       session.setHostFileProxy(undefined);

@@ -822,6 +822,18 @@ export class Session {
     this.preactivatedSkillIds = ids;
   }
 
+  /**
+   * Add a skill ID to the preactivated set without replacing existing entries.
+   * No-op if the ID is already present.
+   */
+  addPreactivatedSkillId(id: string): void {
+    if (!this.preactivatedSkillIds) {
+      this.preactivatedSkillIds = [id];
+    } else if (!this.preactivatedSkillIds.includes(id)) {
+      this.preactivatedSkillIds.push(id);
+    }
+  }
+
   setTurnChannelContext(ctx: TurnChannelContext): void {
     this.currentTurnChannelContext = ctx;
   }

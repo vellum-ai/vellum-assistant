@@ -425,6 +425,7 @@ export async function handleSessionCreate(
         pendingInteractions.resolve(requestId);
       });
       session.setHostCuProxy(cuProxy);
+      session.addPreactivatedSkillId("computer-use");
     }
     session.updateClient(sendEvent, false);
     session

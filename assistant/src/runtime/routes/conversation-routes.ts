@@ -653,6 +653,7 @@ export async function handleSendMessage(
       });
       session.setHostCuProxy(cuProxy);
     }
+    session.addPreactivatedSkillId("computer-use");
   } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
     session.setHostFileProxy(undefined);
