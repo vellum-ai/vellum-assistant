@@ -2052,6 +2052,7 @@ function ChatApp({
   }, [inputValue]);
 
   const handleHistoryDown = useCallback(() => {
+    if (historyIndexRef.current === -1) return;
     if (historyIndexRef.current <= 0) {
       historyIndexRef.current = -1;
       setInputValue(savedInputRef.current);

@@ -34,13 +34,15 @@ function TextInput({
 
   useInput(
     (input, key) => {
-      if (key.upArrow) {
+      if (key.upArrow && !key.shift && !key.meta) {
         onHistoryUp?.();
+        cursorOffsetRef.current = Infinity;
         setRenderTick((t) => t + 1);
         return;
       }
-      if (key.downArrow) {
+      if (key.downArrow && !key.shift && !key.meta) {
         onHistoryDown?.();
+        cursorOffsetRef.current = Infinity;
         setRenderTick((t) => t + 1);
         return;
       }
