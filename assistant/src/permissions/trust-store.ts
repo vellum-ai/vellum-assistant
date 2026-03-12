@@ -585,6 +585,11 @@ export function getAllRules(): TrustRule[] {
   return getRules().filter((r) => !r.tool.startsWith("__internal:"));
 }
 
+/** @internal For use by pseudo-rule consumers only. Do not use in user-facing routes or CLI. */
+export function getAllRulesIncludingInternal(): TrustRule[] {
+  return getRules();
+}
+
 export function clearAllRules(): void {
   // Reset the starter bundle flag so the bundle can be re-accepted after clear.
   cachedStarterBundleAccepted = false;

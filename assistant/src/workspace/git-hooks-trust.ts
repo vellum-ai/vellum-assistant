@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  getAllRules,
+  getAllRulesIncludingInternal,
   removePseudoRule,
   upsertPseudoRule,
 } from "../permissions/trust-store.js";
@@ -34,7 +34,7 @@ export function getGitHooksTrustDecision(
   workspaceDir: string,
 ): "allow" | "deny" | "ask" {
   const pattern = patternForWorkspace(workspaceDir);
-  const rules = getAllRules();
+  const rules = getAllRulesIncludingInternal();
   for (const rule of rules) {
     if (
       rule.tool === GIT_HOOKS_TRUST_PSEUDO_TOOL &&
