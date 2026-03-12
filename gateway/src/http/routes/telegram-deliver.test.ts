@@ -18,7 +18,6 @@ mock.module("../../telegram/send.js", () => ({
     sendTelegramReplyCalls.push(args);
     return { messageId: 42 };
   },
-  editTelegramMessage: async () => {},
   sendTelegramAttachments: async () => {},
   sendTypingIndicator: async (...args: unknown[]) => {
     sendTypingIndicatorCalls.push(args);
@@ -210,7 +209,6 @@ describe("telegram-deliver endpoint basics", () => {
       sendTelegramReply: async () => {
         throw new Error("Telegram API failure");
       },
-      editTelegramMessage: async () => {},
       sendTelegramAttachments: async () => {},
       sendTypingIndicator: async () => true,
     }));
@@ -230,7 +228,6 @@ describe("telegram-deliver endpoint basics", () => {
         sendTelegramReplyCalls.push(args);
         return { messageId: 42 };
       },
-      editTelegramMessage: async () => {},
       sendTelegramAttachments: async () => {},
       sendTypingIndicator: async (...args: unknown[]) => {
         sendTypingIndicatorCalls.push(args);
