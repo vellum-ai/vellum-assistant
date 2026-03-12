@@ -3456,11 +3456,13 @@ public final class HTTPTransport {
                 }
             } else {
                 log.error("Regenerate failed (HTTP \(http.statusCode))")
+                let body = String(data: data, encoding: .utf8) ?? "(non-UTF8 body)"
                 onMessage?(.sessionError(SessionErrorMessage(
                     sessionId: sessionId,
                     code: .regenerateFailed,
                     userMessage: "Unable to regenerate response. Try sending your message again.",
-                    retryable: true
+                    retryable: true,
+                    debugDetails: "HTTP \(http.statusCode): \(body)"
                 )))
             }
         } catch {
@@ -3469,7 +3471,8 @@ public final class HTTPTransport {
                 sessionId: sessionId,
                 code: .regenerateFailed,
                 userMessage: "Unable to regenerate response. Try sending your message again.",
-                retryable: true
+                retryable: true,
+                debugDetails: error.localizedDescription
             )))
         }
     }
