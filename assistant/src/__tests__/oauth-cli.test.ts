@@ -44,6 +44,9 @@ let mockGetMostRecentAppByProvider: (
 let mockGetProvider: (
   providerKey: string,
 ) => Record<string, unknown> | undefined = () => undefined;
+let mockGetProviderBehavior: (
+  providerKey: string,
+) => Record<string, unknown> | undefined = () => undefined;
 let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
 
 function nextUUID(): string {
@@ -162,7 +165,8 @@ mock.module("../oauth/connect-orchestrator.js", () => ({
 
 mock.module("../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => service,
-  getProviderBehavior: () => undefined,
+  getProviderBehavior: (providerKey: string) =>
+    mockGetProviderBehavior(providerKey),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -649,6 +653,7 @@ describe("assistant oauth connections connect <provider-key>", () => {
     mockGetAppByProviderAndClientId = () => undefined;
     mockGetMostRecentAppByProvider = () => undefined;
     mockGetProvider = () => undefined;
+    mockGetProviderBehavior = () => undefined;
     mockGetSecureKey = () => undefined;
   });
 
@@ -780,5 +785,30 @@ describe("assistant oauth connections connect <provider-key>", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toBe("Something went wrong");
+  });
+
+  test("fails when client_secret is required but missing", async () => {
+    mockGetProviderBehavior = () => ({
+      setup: {
+        requiresClientSecret: true,
+        displayName: "Test",
+        dashboardUrl: "https://example.com",
+        appType: "app",
+      },
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:gmail",
+      "--client-id",
+      "test-id",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("client_secret");
+    expect(parsed.error).toContain("apps upsert");
   });
 });
