@@ -275,6 +275,40 @@ describe("app operations", () => {
       expect(second.id).toBe(first.id);
       expect(second.createdAt).toBe(first.createdAt);
     });
+
+    test("stores clientSecret in secure storage on new app creation", async () => {
+      seedTestProvider("github");
+      const app = await upsertApp("github", "client-abc", "my-secret");
+
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledTimes(1);
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledWith(
+        `oauth_app/${app.id}/client_secret`,
+        "my-secret",
+      );
+    });
+
+    test("stores clientSecret in secure storage when upserting an existing app", async () => {
+      seedTestProvider("github");
+      const first = await upsertApp("github", "client-abc");
+      mockSetSecureKeyAsync.mockClear();
+
+      await upsertApp("github", "client-abc", "updated-secret");
+
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledTimes(1);
+      expect(mockSetSecureKeyAsync).toHaveBeenCalledWith(
+        `oauth_app/${first.id}/client_secret`,
+        "updated-secret",
+      );
+    });
+
+    test("throws when setSecureKeyAsync returns false", async () => {
+      seedTestProvider("github");
+      mockSetSecureKeyAsync.mockResolvedValueOnce(false);
+
+      await expect(
+        upsertApp("github", "client-abc", "bad-secret"),
+      ).rejects.toThrow("Failed to store client_secret in secure storage");
+    });
   });
 
   describe("getApp", () => {
