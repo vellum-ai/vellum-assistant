@@ -18,13 +18,40 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 
 const log = getCliLogger("cli");
 
+/**
+ * Keys that may contain secrets in an OAuth token endpoint response.
+ * These are stripped from the `metadata` field before CLI output to prevent
+ * token leakage via shell history, logs, or agent transcript capture.
+ */
+const REDACTED_METADATA_KEYS = new Set([
+  "access_token",
+  "refresh_token",
+  "id_token",
+]);
+
+/** Recursively strip secret-bearing keys from a parsed metadata object. */
+function redactMetadata(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (REDACTED_METADATA_KEYS.has(key)) {
+      result[key] = "[REDACTED]";
+    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+      result[key] = redactMetadata(value as Record<string, unknown>);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /** Parse stored JSON string fields and convert timestamps for a connection row. */
 function formatConnectionRow(row: ReturnType<typeof getConnection>) {
   if (!row) return row;
+  const parsed = row.metadata ? JSON.parse(row.metadata) : null;
   return {
     ...row,
     grantedScopes: row.grantedScopes ? JSON.parse(row.grantedScopes) : [],
-    metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    metadata: parsed ? redactMetadata(parsed) : null,
     hasRefreshToken: row.hasRefreshToken === 1,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
