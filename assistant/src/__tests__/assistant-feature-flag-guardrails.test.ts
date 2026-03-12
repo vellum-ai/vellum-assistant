@@ -222,7 +222,7 @@ describe("assistant feature flag indirect key coverage guard", () => {
     let grepOutput = "";
     try {
       grepOutput = execSync(
-        `git grep -nE "feature_flags\\.[a-z0-9_-]+\\.enabled" -- 'assistant/src/**/*.ts' 'gateway/src/**/*.ts'`,
+        `git grep -nE "feature_flags\\.[a-z0-9_-]+\\.enabled\\b" -- 'assistant/src/**/*.ts' 'gateway/src/**/*.ts'`,
         { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
@@ -233,7 +233,7 @@ describe("assistant feature flag indirect key coverage guard", () => {
       throw err;
     }
 
-    const keyPattern = /feature_flags\.[a-z0-9_-]+\.enabled/g;
+    const keyPattern = /feature_flags\.[a-z0-9_-]+\.enabled\b/g;
     const undeclared: string[] = [];
 
     for (const line of grepOutput.split("\n")) {
