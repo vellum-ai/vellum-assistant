@@ -279,7 +279,7 @@
     },
     {
       "name": "computer_use_done",
-      "description": "Task is complete",
+      "description": "Signal that the computer use task is complete. Provide a summary of what was accomplished. This ends the computer use session.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {

@@ -118,6 +118,7 @@ function makeIdleSession(opts?: {
     updateClient: () => {},
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
+    setHostCuProxy: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (
@@ -181,6 +182,7 @@ function makeConfirmationEmittingSession(opts?: {
     updateClient: () => {},
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
+    setHostCuProxy: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     runAgentLoop: async (
