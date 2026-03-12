@@ -30,6 +30,21 @@ let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
   "not-found";
 let idCounter = 0;
 
+// Connect mock state
+let mockOrchestrateOAuthConnect: (
+  opts: Record<string, unknown>,
+) => Promise<Record<string, unknown>>;
+let mockGetAppByProviderAndClientId: (
+  providerKey: string,
+  clientId: string,
+) => Record<string, unknown> | undefined = () => undefined;
+let mockGetMostRecentAppByProvider: (
+  providerKey: string,
+) => Record<string, unknown> | undefined = () => undefined;
+let mockGetProvider: (
+  providerKey: string,
+) => Record<string, unknown> | undefined = () => undefined;
+
 function nextUUID(): string {
   idCounter += 1;
   return `00000000-0000-0000-0000-${String(idCounter).padStart(12, "0")}`;
@@ -74,11 +89,13 @@ mock.module("../oauth/oauth-store.js", () => ({
   // Stubs required by apps.ts and providers.ts (transitively loaded via oauth/index.ts)
   upsertApp: async () => ({}),
   getApp: () => undefined,
-  getAppByProviderAndClientId: () => undefined,
-  getMostRecentAppByProvider: () => undefined,
+  getAppByProviderAndClientId: (providerKey: string, clientId: string) =>
+    mockGetAppByProviderAndClientId(providerKey, clientId),
+  getMostRecentAppByProvider: (providerKey: string) =>
+    mockGetMostRecentAppByProvider(providerKey),
   listApps: () => [],
   deleteApp: async () => false,
-  getProvider: () => undefined,
+  getProvider: (providerKey: string) => mockGetProvider(providerKey),
   listProviders: () => mockListProviders(),
   registerProvider: () => ({}),
   seedProviders: () => {},
@@ -127,6 +144,24 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
     metadataStore.splice(idx, 1);
     return true;
   },
+}));
+
+// ---------------------------------------------------------------------------
+// Mock connect-orchestrator
+// ---------------------------------------------------------------------------
+
+mock.module("../oauth/connect-orchestrator.js", () => ({
+  orchestrateOAuthConnect: (opts: Record<string, unknown>) =>
+    mockOrchestrateOAuthConnect(opts),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock provider-behaviors
+// ---------------------------------------------------------------------------
+
+mock.module("../oauth/provider-behaviors.js", () => ({
+  resolveService: (service: string) => service,
+  getProviderBehavior: () => undefined,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -590,5 +625,130 @@ describe("assistant oauth providers list", () => {
     const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
     expect(keys).toContain("integration:gmail");
     expect(keys).toContain("integration:google-calendar");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// connect
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth connections connect <provider-key>", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    secureKeyStore = new Map();
+    metadataStore = [];
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = "not-found";
+    idCounter = 0;
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: false,
+      grantedScopes: [],
+    });
+    mockGetAppByProviderAndClientId = () => undefined;
+    mockGetMostRecentAppByProvider = () => undefined;
+    mockGetProvider = () => undefined;
+  });
+
+  test("completes interactive flow and prints success (human mode)", async () => {
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: false,
+      grantedScopes: ["read"],
+      accountInfo: "user@example.com",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:gmail",
+      "--client-id",
+      "test-id",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Connected");
+  });
+
+  test("returns auth URL in url-only mode (JSON)", async () => {
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: true,
+      authUrl: "https://example.com/auth",
+      state: "abc",
+      service: "integration:gmail",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:gmail",
+      "--client-id",
+      "test-id",
+      "--url-only",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.deferred).toBe(true);
+    expect(parsed.authUrl).toBe("https://example.com/auth");
+  });
+
+  test("fails when no client_id available", async () => {
+    mockGetMostRecentAppByProvider = () => undefined;
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:gmail",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("client_id");
+  });
+
+  test("resolves client_id from DB when not provided", async () => {
+    mockGetMostRecentAppByProvider = () => ({
+      id: "app-1",
+      clientId: "db-client-id",
+      providerKey: "integration:gmail",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    let capturedClientId: string | undefined;
+    mockOrchestrateOAuthConnect = async (opts) => {
+      capturedClientId = opts.clientId as string;
+      return {
+        success: true,
+        deferred: false,
+        grantedScopes: [],
+      };
+    };
+
+    await runCli(["connections", "connect", "integration:gmail"]);
+    expect(capturedClientId).toBe("db-client-id");
+  });
+
+  test("outputs error from orchestrator", async () => {
+    mockOrchestrateOAuthConnect = async () => ({
+      success: false,
+      error: "Something went wrong",
+    });
+
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "connect",
+      "integration:gmail",
+      "--client-id",
+      "x",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe("Something went wrong");
   });
 });

@@ -1,13 +1,24 @@
 import type { Command } from "commander";
 
+import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
 import {
   disconnectOAuthProvider,
+  getAppByProviderAndClientId,
   getConnection,
   getConnectionByProvider,
+  getMostRecentAppByProvider,
+  getProvider,
   listConnections,
 } from "../../../oauth/oauth-store.js";
+import {
+  getProviderBehavior,
+  resolveService,
+} from "../../../oauth/provider-behaviors.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import { deleteSecureKeyAsync } from "../../../security/secure-keys.js";
+import {
+  deleteSecureKeyAsync,
+  getSecureKey,
+} from "../../../security/secure-keys.js";
 import { withValidToken } from "../../../security/token-manager.js";
 import {
   assertMetadataWritable,
@@ -296,4 +307,167 @@ Examples:
         process.exitCode = 1;
       }
     });
+
+  // ---------------------------------------------------------------------------
+  // connections connect <provider-key>
+  // ---------------------------------------------------------------------------
+
+  connections
+    .command("connect <provider-key>")
+    .description("Initiate an OAuth2 authorization flow for a provider")
+    .option("--client-id <id>", "Override the OAuth client ID")
+    .option("--client-secret <secret>", "Override the OAuth client secret")
+    .option(
+      "--scopes <scopes...>",
+      "Additional scopes beyond the provider's defaults",
+    )
+    .option("--url-only", "Print the auth URL instead of opening the browser")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider-key   Provider key (e.g. integration:gmail) or alias (e.g. gmail)
+
+Initiates an OAuth2 authorization flow for the given provider. By default,
+opens the authorization URL in your browser and waits for completion.
+
+With --url-only, prints the auth URL instead — useful for headless/remote
+sessions. The token exchange completes in the background when the user
+authorizes.
+
+Client credentials are resolved from the OAuth app store unless overridden
+with --client-id and --client-secret.
+
+Examples:
+  $ assistant oauth connections connect integration:gmail
+  $ assistant oauth connections connect gmail --url-only
+  $ assistant oauth connections connect integration:slack --client-id abc --client-secret s3cret
+  $ assistant oauth connections connect integration:gmail --scopes calendar.readonly --json`,
+    )
+    .action(
+      async (
+        providerKey: string,
+        opts: {
+          clientId?: string;
+          clientSecret?: string;
+          scopes?: string[];
+          urlOnly?: boolean;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          // a. Resolve service alias
+          const resolvedServiceKey = resolveService(providerKey);
+
+          // b. Resolve client credentials
+          let clientId = opts.clientId;
+          let clientSecret = opts.clientSecret;
+
+          if (!clientId || !clientSecret) {
+            const dbApp = clientId
+              ? getAppByProviderAndClientId(resolvedServiceKey, clientId)
+              : getMostRecentAppByProvider(resolvedServiceKey);
+
+            if (dbApp) {
+              if (!clientId) clientId = dbApp.clientId;
+              if (!clientSecret) {
+                const storedSecret = getSecureKey(
+                  `oauth_app/${dbApp.id}/client_secret`,
+                );
+                if (storedSecret) clientSecret = storedSecret;
+              }
+            }
+          }
+
+          // c. Validate client_id
+          if (!clientId) {
+            writeOutput(cmd, {
+              ok: false,
+              error:
+                "No client_id found. Provide --client-id or register an app first with 'assistant oauth apps upsert'.",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          // d. Check if client_secret is required but missing
+          if (clientSecret === undefined) {
+            const providerRow = getProvider(resolvedServiceKey);
+            const behavior = getProviderBehavior(resolvedServiceKey);
+
+            const requiresSecret = behavior?.setup?.requiresClientSecret
+              ? true
+              : !!(
+                  providerRow?.tokenEndpointAuthMethod ||
+                  providerRow?.extraParams
+                );
+
+            if (requiresSecret) {
+              writeOutput(cmd, {
+                ok: false,
+                error: `client_secret is required for ${resolvedServiceKey} but not found. Provide --client-secret or store it first with 'assistant oauth apps upsert --client-secret'.`,
+              });
+              process.exitCode = 1;
+              return;
+            }
+          }
+
+          // e. Call the orchestrator
+          const result = await orchestrateOAuthConnect({
+            service: providerKey,
+            clientId,
+            clientSecret,
+            isInteractive: !opts.urlOnly,
+            openUrl: !opts.urlOnly
+              ? (url) => {
+                  Bun.spawn(["open", url], {
+                    stdout: "ignore",
+                    stderr: "ignore",
+                  });
+                }
+              : undefined,
+            ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
+          });
+
+          // f. Handle results
+          if (!result.success) {
+            writeOutput(cmd, { ok: false, error: result.error });
+            process.exitCode = 1;
+            return;
+          }
+
+          if (result.deferred) {
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                ok: true,
+                deferred: true,
+                authUrl: result.authUrl,
+                service: result.service,
+              });
+            } else {
+              process.stdout.write(
+                `Open this URL to authorize:\n\n${result.authUrl}\n\nThe connection will complete automatically once you authorize.\n`,
+              );
+            }
+            return;
+          }
+
+          // Interactive mode completed
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              ok: true,
+              grantedScopes: result.grantedScopes,
+              accountInfo: result.accountInfo,
+            });
+          } else {
+            const msg = `Connected to ${resolvedServiceKey}${result.accountInfo ? ` as ${result.accountInfo}` : ""}`;
+            process.stdout.write(msg + "\n");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
 }
