@@ -30,6 +30,13 @@ struct AssistantProgressView: View {
     let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
+    // Confirmation action callbacks (threaded from MessageListView)
+    var onConfirmationAllow: ((String) -> Void)? = nil   // requestId
+    var onConfirmationDeny: ((String) -> Void)? = nil     // requestId
+    var onAlwaysAllow: ((String, String, String, String) -> Void)? = nil
+    var onTemporaryAllow: ((String, String) -> Void)? = nil
+    var activeConfirmationRequestId: String? = nil  // For keyboard focus
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
@@ -103,6 +110,11 @@ struct AssistantProgressView: View {
     /// `decidedConfirmations`) because only tool calls carry a `toolUseId` for dedup.
     private var deniedCount: Int {
         toolCalls.filter { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }.count
+    }
+
+    /// Whether any tool call in this group has an unresolved pending confirmation.
+    private var hasPendingConfirmation: Bool {
+        toolCalls.contains { $0.pendingConfirmation != nil }
     }
 
     private var isActive: Bool {
@@ -208,6 +220,13 @@ struct AssistantProgressView: View {
                 }
                 if hasStrippedToolCall {
                     onRehydrate?()
+                }
+            }
+        }
+        .onChange(of: hasPendingConfirmation) { _, pending in
+            if pending && !isExpanded {
+                withAnimation(VAnimation.fast) {
+                    isExpanded = true
                 }
             }
         }
@@ -386,6 +405,20 @@ struct AssistantProgressView: View {
                         .padding(.horizontal, VSpacing.lg)
                 } else {
                     StepDetailRow(toolCall: toolCall, phase: phase, onRehydrate: onRehydrate)
+                }
+
+                // Inline confirmation bubble for tool calls awaiting approval
+                if let confirmation = toolCall.pendingConfirmation {
+                    ToolConfirmationBubble(
+                        confirmation: confirmation,
+                        isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
+                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
+                        onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
+                        onTemporaryAllow: onTemporaryAllow
+                    )
+                    .padding(.leading, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
                 }
             }
         }
