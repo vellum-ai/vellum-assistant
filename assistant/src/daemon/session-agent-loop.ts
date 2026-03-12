@@ -66,10 +66,7 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "./context-overflow-reducer.js";
-import {
-  buildTemporalContext,
-  extractUserTimeZoneFromDynamicProfile,
-} from "./date-context.js";
+import { buildTemporalContext } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
@@ -88,7 +85,6 @@ import {
   formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from "./session-attachments.js";
-import type { ConflictGate } from "./session-conflict-gate.js";
 import { stripDynamicProfileMessages } from "./session-dynamic-profile.js";
 import {
   buildSessionErrorMessage,
@@ -165,7 +161,6 @@ export interface AgentLoopSessionContext {
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
 
-  readonly conflictGate: ConflictGate;
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
 
   currentActiveSurfaceId?: string;
@@ -528,7 +523,6 @@ export async function runAgentLoopImpl(
         messages: ctx.messages,
         systemPrompt: ctx.systemPrompt,
         provider: ctx.provider,
-        conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         trustClass: resolveTrustClass(ctx.trustContext),
@@ -541,7 +535,7 @@ export async function runAgentLoopImpl(
       onEvent,
     );
 
-    const { recall, dynamicProfile, recallInjectionStrategy } = memoryResult;
+    const { recall } = memoryResult;
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
@@ -576,14 +570,11 @@ export async function runAgentLoopImpl(
     // Absolute "now" is always anchored to assistant host clock, while local
     // date semantics prefer configured user timezone, then profile memory.
     const hostTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const userTimeZone = extractUserTimeZoneFromDynamicProfile(
-      dynamicProfile.text,
-    );
     const configuredUserTimeZone = getConfig().ui.userTimezone ?? null;
     const temporalContext = buildTemporalContext({
       hostTimeZone,
       configuredUserTimeZone,
-      userTimeZone,
+      userTimeZone: null,
     });
 
     // Use the channel/interface context captured at the top of this function
@@ -1280,10 +1271,10 @@ export async function runAgentLoopImpl(
         stripMemoryRecallMessages(
           msgs,
           recall.injectedText,
-          recallInjectionStrategy,
+          "separate_context_message",
         ),
       stripDynamicProfile: (msgs) =>
-        stripDynamicProfileMessages(msgs, dynamicProfile.text),
+        stripDynamicProfileMessages(msgs, ""),
     });
 
     emitUsage(

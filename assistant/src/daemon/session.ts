@@ -65,7 +65,6 @@ import type {
   ConfirmationStateChanged,
 } from "./message-types/messages.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
-import { ConflictGate } from "./session-conflict-gate.js";
 import type { HistorySessionContext } from "./session-history.js";
 import {
   regenerate as regenerateImpl,
@@ -159,7 +158,6 @@ export class Session {
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /** @internal */ currentRequestId?: string;
-  /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
   /** @internal */ hasAttachments = false;
   /** @internal */ headlessLock = false;

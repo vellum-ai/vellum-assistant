@@ -74,6 +74,12 @@ export interface MemoryRecallResult {
   injectedText: string;
   latencyMs: number;
   topCandidates: MemoryRecallCandiateDebug[];
+  /** V2 pipeline: count of tier 1 candidates after demotion. */
+  tier1Count?: number;
+  /** V2 pipeline: count of tier 2 candidates after demotion. */
+  tier2Count?: number;
+  /** V2 pipeline: milliseconds spent in the hybrid search step. */
+  hybridSearchMs?: number;
 }
 
 /**

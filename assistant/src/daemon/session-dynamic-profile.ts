@@ -1,12 +1,19 @@
 /**
- * Dynamic-profile injection and stripping helpers extracted from Session.
+ * Dynamic-profile injection and stripping helpers.
  *
- * These are pure functions with no state — they wrap profile text into user
- * messages at runtime and strip it back out before persistence.
+ * The injection function is no longer used in the main code path — the V2
+ * memory pipeline includes preferences directly in the tiered
+ * `<memory_context>` injection. It is retained here for backwards
+ * compatibility with in-flight messages that may still contain
+ * `<dynamic-profile-context>` tags, and for test helpers.
  */
 
 import type { Message } from "../providers/types.js";
 
+/**
+ * @deprecated No longer injected in the V2 pipeline. Retained for test
+ * helpers and backwards-compat stripping only.
+ */
 export function injectDynamicProfileIntoUserMessage(
   message: Message,
   profileText: string,
