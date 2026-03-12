@@ -5,4 +5,5 @@ export * from "./guardian.js";
 export * from "./infrastructure.js";
 export * from "./memory-core.js";
 export * from "./notifications.js";
+export * from "./oauth.js";
 export * from "./tasks.js";
