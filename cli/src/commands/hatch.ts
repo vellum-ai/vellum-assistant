@@ -103,7 +103,7 @@ export async function buildStartupScript(
   cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl =
-    process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
+    process.env.VELLUM_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const logPath =
     cloud === "custom"
       ? "/tmp/vellum-startup.log"
@@ -743,7 +743,10 @@ async function hatchLocal(
         `🧹 Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"} — cleaning up...`,
       );
       for (const orphan of orphans) {
-        await stopProcess(parseInt(orphan.pid, 10), `${orphan.name} (PID ${orphan.pid})`);
+        await stopProcess(
+          parseInt(orphan.pid, 10),
+          `${orphan.name} (PID ${orphan.pid})`,
+        );
       }
     }
   }

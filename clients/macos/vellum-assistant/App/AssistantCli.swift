@@ -370,11 +370,11 @@ final class AssistantCli {
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
         env["VELLUM_DESKTOP_APP"] = "1"
 
-        if env["VELLUM_ASSISTANT_PLATFORM_URL"] == nil {
+        if env["VELLUM_PLATFORM_URL"] == nil {
             #if DEBUG
-            env["VELLUM_ASSISTANT_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
+            env["VELLUM_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
             #else
-            env["VELLUM_ASSISTANT_PLATFORM_URL"] = "https://assistant.vellum.ai"
+            env["VELLUM_PLATFORM_URL"] = "https://assistant.vellum.ai"
             #endif
         }
 
@@ -662,7 +662,7 @@ final class AssistantCli {
             ]
             // Forward optional config vars the CLI or daemon may need
             for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
-                        "VELLUM_ASSISTANT_PLATFORM_URL",
+                        "VELLUM_PLATFORM_URL",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
                 if let val = fullEnv[key] {
                     env[key] = val

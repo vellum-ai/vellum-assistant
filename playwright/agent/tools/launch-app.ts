@@ -41,8 +41,8 @@ export async function execute(
 
   try {
     const envArgs = [`--env "E2E_STATUS_FILE=${statusFile}"`];
-    if (process.env.VELLUM_ASSISTANT_PLATFORM_URL) {
-      envArgs.push(`--env "VELLUM_ASSISTANT_PLATFORM_URL=${process.env.VELLUM_ASSISTANT_PLATFORM_URL}"`);
+    if (process.env.VELLUM_PLATFORM_URL) {
+      envArgs.push(`--env "VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}"`);
     }
     if (process.env.BASE_DATA_DIR) {
       envArgs.push(`--env "BASE_DATA_DIR=${process.env.BASE_DATA_DIR}"`);
