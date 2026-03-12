@@ -194,23 +194,35 @@ export class SkillLoadTool implements Tool {
       catalogIndex = indexCatalogById(catalog);
 
       // Auto-install missing includes before validation (max 5 rounds for transitive deps)
-      // Pre-fetch catalog once to avoid redundant network requests per dependency
+      // Defer catalog resolution until we confirm there are missing includes,
+      // then cache the result to avoid redundant network requests per dependency.
       let remoteCatalog: Awaited<ReturnType<typeof resolveCatalog>> | undefined;
-      try {
-        remoteCatalog = await resolveCatalog();
-      } catch (err) {
-        log.warn({ err, skillId: skill.id }, "Failed to resolve catalog for include auto-install");
-      }
 
       const MAX_INSTALL_ROUNDS = 5;
       for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
         const missing = collectAllMissing(skill.id, catalogIndex);
         if (missing.size === 0) break;
 
+        // Lazily resolve catalog on first round with missing includes
+        if (!remoteCatalog) {
+          try {
+            remoteCatalog = await resolveCatalog();
+          } catch (err) {
+            log.warn(
+              { err, skillId: skill.id },
+              "Failed to resolve catalog for include auto-install",
+            );
+            break;
+          }
+        }
+
         let installedAny = false;
         for (const missingId of missing) {
           try {
-            const installed = await autoInstallFromCatalog(missingId, remoteCatalog);
+            const installed = await autoInstallFromCatalog(
+              missingId,
+              remoteCatalog,
+            );
             if (installed) {
               log.info(
                 { skillId: missingId, parentSkillId: skill.id },
