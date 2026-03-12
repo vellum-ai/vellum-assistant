@@ -113,7 +113,6 @@ mock.module("../memory/attachments-store.js", () => ({
 
 mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => null,
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   injectMemoryRecallAsSeparateMessage: (msgs: Message[]) => msgs,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));

@@ -131,7 +131,6 @@ mock.module("../memory/retriever.js", () => ({
     injectedTokens: 0,
     latencyMs: 0,
   }),
-  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 

@@ -3,17 +3,9 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db.js";
-import {
-  getMemoryBackendStatus,
-  logMemoryEmbeddingWarning,
-} from "../../memory/embedding-backend.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
-import { formatRecallText } from "../../memory/format-recall.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import {
-  collectAndMergeCandidates,
-  embedWithRetry,
-} from "../../memory/retriever.js";
+import { buildMemoryRecall } from "../../memory/retriever.js";
 import { memoryItems } from "../../memory/schema.js";
 import type { ScopePolicyOverride } from "../../memory/search/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -276,11 +268,6 @@ export async function handleMemoryRecall(
     };
   }
 
-  const maxResults =
-    typeof args.max_results === "number" && args.max_results > 0
-      ? Math.min(args.max_results, 50)
-      : 10;
-
   const scope =
     typeof args.scope === "string" && args.scope.trim().length > 0
       ? args.scope.trim()
@@ -298,54 +285,30 @@ export async function handleMemoryRecall(
   try {
     const trimmedQuery = query.trim();
 
-    // Generate embedding vector (graceful degradation if unavailable)
-    let queryVector: number[] | null = null;
-    let provider: string | undefined;
-    let model: string | undefined;
-    let degraded = false;
+    // Use the unified recall pipeline
+    const recall = await buildMemoryRecall(
+      trimmedQuery,
+      conversationId ?? "",
+      config,
+      {
+        scopeId,
+        scopePolicyOverride,
+      },
+    );
 
-    const backendStatus = getMemoryBackendStatus(config);
-    if (backendStatus.provider) {
-      try {
-        const embedded = await embedWithRetry(config, [trimmedQuery]);
-        queryVector = embedded.vectors[0] ?? null;
-        provider = embedded.provider;
-        model = embedded.model;
-      } catch (err) {
-        logMemoryEmbeddingWarning(err, "query");
-        degraded = !!config.memory.embeddings.required;
-      }
-    } else {
-      degraded = backendStatus.degraded;
-    }
+    const degraded = recall.degraded;
 
-    // Run the full retrieval pipeline with all sources enabled
-    const collected = await collectAndMergeCandidates(trimmedQuery, config, {
-      queryVector,
-      provider,
-      model,
-      conversationId,
-      scopeId,
-      scopePolicyOverride,
-    });
-
-    if (collected.semanticSearchFailed || collected.semanticUnavailable) {
-      degraded = true;
-    }
-
-    const candidates = collected.merged.slice(0, maxResults);
-
-    if (candidates.length === 0) {
+    if (recall.selectedCount === 0 || recall.injectedText.length === 0) {
       const result: MemoryRecallToolResult = {
         text: "No matching memories found.",
         resultCount: 0,
         degraded,
         items: [],
         sources: {
-          lexical: 0,
-          semantic: 0,
-          recency: 0,
-          entity: 0,
+          lexical: recall.lexicalHits,
+          semantic: recall.semanticHits,
+          recency: recall.recencyHits,
+          entity: recall.entityHits,
         },
       };
       return {
@@ -354,28 +317,20 @@ export async function handleMemoryRecall(
       };
     }
 
-    // Format candidates into readable text using the shared formatter
-    const formatted = formatRecallText(candidates, {
-      format: config.memory.retrieval.injectionFormat,
-      maxTokens: config.memory.retrieval.maxInjectTokens,
-    });
-
-    const items = formatted.selected.map((c) => ({
-      id: c.id,
-      type: c.type,
-      kind: c.kind,
-    }));
-
     const result: MemoryRecallToolResult = {
-      text: formatted.text,
-      resultCount: formatted.selected.length,
+      text: recall.injectedText,
+      resultCount: recall.selectedCount,
       degraded,
-      items,
+      items: recall.topCandidates.map((c) => ({
+        id: c.key,
+        type: c.type,
+        kind: c.kind,
+      })),
       sources: {
-        lexical: collected.lexical.length,
-        semantic: collected.semantic.length,
-        recency: collected.recency.length,
-        entity: collected.entity.length,
+        lexical: recall.lexicalHits,
+        semantic: recall.semanticHits,
+        recency: recall.recencyHits,
+        entity: recall.entityHits,
       },
     };
 

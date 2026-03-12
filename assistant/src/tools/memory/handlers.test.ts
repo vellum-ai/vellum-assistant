@@ -505,7 +505,7 @@ describe("handleMemoryRecall", () => {
 
   test("retrieval failure returns error message, does not throw", async () => {
     // Create a config that will cause the retrieval pipeline to throw
-    // by making memory disabled in a way that collectAndMergeCandidates breaks.
+    // by making memory disabled in a way that buildMemoryRecall breaks.
     // We mock the retriever to throw an error.
     const badConfig: AssistantConfig = {
       ...TEST_CONFIG,

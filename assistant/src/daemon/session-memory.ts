@@ -3,7 +3,7 @@ import { estimatePromptTokens } from "../context/token-estimator.js";
 import { buildMemoryQuery } from "../memory/query-builder.js";
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import {
-  buildMemoryRecallV2,
+  buildMemoryRecall,
   injectMemoryRecallAsSeparateMessage,
 } from "../memory/retriever.js";
 import type { ScopePolicyOverride } from "../memory/search/types.js";
@@ -13,7 +13,7 @@ import type { ServerMessage } from "./message-protocol.js";
 
 export interface MemoryRecallResult {
   runMessages: Message[];
-  recall: Awaited<ReturnType<typeof buildMemoryRecallV2>>;
+  recall: Awaited<ReturnType<typeof buildMemoryRecall>>;
 }
 
 export interface MemoryPrepareContext {
@@ -106,7 +106,7 @@ export async function prepareMemoryContext(
       tier2Count: 0,
       hybridSearchLatencyMs: 0,
       sparseVectorUsed: false,
-    } as Awaited<ReturnType<typeof buildMemoryRecallV2>>,
+    } as Awaited<ReturnType<typeof buildMemoryRecall>>,
   });
 
   if (!isTrustedActor) {
@@ -144,7 +144,7 @@ export async function prepareMemoryContext(
       ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }
       : undefined;
 
-  const recall = await buildMemoryRecallV2(
+  const recall = await buildMemoryRecall(
     recallQuery,
     ctx.conversationId,
     runtimeConfig,

@@ -120,7 +120,6 @@ import {
   formatAbsoluteTime,
   formatRelativeTime,
   injectMemoryRecallAsSeparateMessage,
-  injectMemoryRecallIntoUserMessage,
   stripMemoryRecallMessages,
 } from "../memory/retriever.js";
 import {
@@ -308,63 +307,30 @@ describe("Memory regressions", () => {
     expect(recall.injectedText).not.toContain("What is my timezone again?");
   });
 
-  test("memory recall injection remains user-role and is stripped from runtime history", () => {
+  test("memory recall injection via separate message and stripped from runtime history", () => {
     const memoryRecallText =
-      "[Memory Recall v1]\n- [item:abc] user prefers concise answers";
-    const originalUserMessage = {
-      role: "user" as const,
-      content: [{ type: "text", text: "Actual user request" }],
-    };
-    const injected = injectMemoryRecallIntoUserMessage(
-      originalUserMessage,
+      "<memory_context>\n\n<relevant_context>\nuser prefers concise answers\n</relevant_context>\n\n</memory_context>";
+    const originalMessages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text", text: "Actual user request" }],
+      },
+    ];
+    const injected = injectMemoryRecallAsSeparateMessage(
+      originalMessages,
       memoryRecallText,
     );
 
-    expect(injected.role).toBe("user");
-    expect(injected.content[0]).toEqual({
-      type: "text",
-      text: memoryRecallText,
-    });
+    expect(injected).toHaveLength(3);
+    expect(injected[0].role).toBe("user");
+    expect(injected[0].content[0].text).toBe(memoryRecallText);
+    expect(injected[1].role as string).toBe("assistant");
+    expect(injected[2].role).toBe("user");
+    expect(injected[2].content[0].text).toBe("Actual user request");
 
-    const cleaned = stripMemoryRecallMessages([injected], memoryRecallText);
+    const cleaned = stripMemoryRecallMessages(injected, memoryRecallText);
     expect(cleaned).toHaveLength(1);
-    expect(cleaned[0]).toEqual(originalUserMessage);
-  });
-
-  test("memory recall stripping preserves literal marker text outside the injected block", () => {
-    const memoryRecallText =
-      "[Memory Recall v1]\n- [item:abc] user prefers concise answers";
-    const literalUserMessage = {
-      role: "user" as const,
-      content: [
-        {
-          type: "text",
-          text: "[Memory Recall v1] this is user-authored content",
-        },
-      ],
-    };
-    const literalAssistantMessage = {
-      role: "assistant" as const,
-      content: [{ type: "text", text: memoryRecallText }],
-    };
-    const originalUserTail = {
-      role: "user" as const,
-      content: [{ type: "text", text: "Actual user request" }],
-    };
-    const injectedTail = injectMemoryRecallIntoUserMessage(
-      originalUserTail,
-      memoryRecallText,
-    );
-
-    const cleaned = stripMemoryRecallMessages(
-      [literalUserMessage, literalAssistantMessage, injectedTail],
-      memoryRecallText,
-    );
-
-    expect(cleaned).toHaveLength(3);
-    expect(cleaned[0]).toEqual(literalUserMessage);
-    expect(cleaned[1]).toEqual(literalAssistantMessage);
-    expect(cleaned[2]).toEqual(originalUserTail);
+    expect(cleaned[0].content[0].text).toBe("Actual user request");
   });
 
   test("recall stripping removes last matching block in merged content after deep-repair", () => {

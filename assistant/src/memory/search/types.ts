@@ -56,17 +56,19 @@ export interface MemoryRecallResult {
   reason?: string;
   provider?: string;
   model?: string;
+  /** Always 0 — lexical-only search removed. Kept for log format compat. */
   lexicalHits: number;
   semanticHits: number;
   recencyHits: number;
+  /** Always 0 — entity search removed. Kept for log format compat. */
   entityHits: number;
-  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
+  /** Always 0 — entity search removed. Kept for log format compat. */
   relationSeedEntityCount: number;
-  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
+  /** Always 0 — entity search removed. Kept for log format compat. */
   relationTraversedEdgeCount: number;
-  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
+  /** Always 0 — entity search removed. Kept for log format compat. */
   relationNeighborEntityCount: number;
-  /** @deprecated Entity search removed — always 0. Kept for log format compat. */
+  /** Always 0 — entity search removed. Kept for log format compat. */
   relationExpandedItemCount: number;
   earlyTerminated: boolean;
   mergedCount: number;
@@ -76,11 +78,11 @@ export interface MemoryRecallResult {
   injectedText: string;
   latencyMs: number;
   topCandidates: MemoryRecallCandiateDebug[];
-  /** V2 pipeline: count of tier 1 candidates after demotion. */
+  /** Count of tier 1 candidates after demotion. */
   tier1Count?: number;
-  /** V2 pipeline: count of tier 2 candidates after demotion. */
+  /** Count of tier 2 candidates after demotion. */
   tier2Count?: number;
-  /** V2 pipeline: milliseconds spent in the hybrid search step. */
+  /** Milliseconds spent in the hybrid search step. */
   hybridSearchMs?: number;
 }
 
@@ -109,21 +111,6 @@ export interface MemoryRecallOptions {
    */
   scopePolicyOverride?: ScopePolicyOverride;
   maxInjectTokensOverride?: number;
-}
-
-export interface CollectedCandidates {
-  lexical: Candidate[];
-  recency: Candidate[];
-  semantic: Candidate[];
-  entity: Candidate[];
-  earlyTerminated: boolean;
-  /** True when semantic search was attempted but threw an error. */
-  semanticSearchFailed: boolean;
-  /** True when semantic search was known to be unavailable before retrieval (no vector or breaker open). */
-  semanticUnavailable: boolean;
-  /** The error that caused semantic search to fail, if any. */
-  semanticSearchError?: unknown;
-  merged: Candidate[];
 }
 
 export interface ItemMetadata {
