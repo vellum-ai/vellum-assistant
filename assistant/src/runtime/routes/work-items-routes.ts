@@ -24,6 +24,7 @@ import {
   getWorkItem,
   listWorkItems,
   updateWorkItem,
+  type WorkItem,
   type WorkItemStatus,
 } from "../../work-items/work-item-store.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -61,6 +62,30 @@ function broadcastWorkItemStatus(id: string): void {
       },
     });
   }
+}
+
+/**
+ * Resolve the effective required tools for a work item.
+ *
+ * When the work-item snapshot is null/undefined, fall back to the task
+ * template's tools. When the snapshot exists but is empty, also fall back
+ * — an empty snapshot must not suppress the task's actual requirements,
+ * as that would bypass the preflight permission dialog.
+ */
+function resolveRequiredTools(
+  workItem: WorkItem,
+  taskRequiredTools: string[],
+): string[] {
+  if (workItem.requiredTools == null) {
+    return taskRequiredTools;
+  }
+
+  const snapshotTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  if (snapshotTools.length > 0) {
+    return snapshotTools;
+  }
+
+  return taskRequiredTools;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,21 +346,18 @@ export async function preflightWorkItem(
     return { success: false, error: "Work item not found" };
   }
 
-  let requiredTools: string[];
-  if (workItem.requiredTools != null) {
-    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-  } else {
-    const task = getTask(workItem.taskId);
-    if (!task) {
-      return {
-        success: false,
-        error: `Associated task not found: ${workItem.taskId}`,
-      };
-    }
-    requiredTools = task.requiredTools
-      ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : getRegisteredToolNames();
+  const task = getTask(workItem.taskId);
+  if (!task) {
+    return {
+      success: false,
+      error: `Associated task not found: ${workItem.taskId}`,
+    };
   }
+
+  const taskRequiredTools = task.requiredTools
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
+    : getRegisteredToolNames();
+  let requiredTools = resolveRequiredTools(workItem, taskRequiredTools);
 
   if (requiredTools.length === 0) {
     return { success: true, permissions: [] };
@@ -648,15 +670,10 @@ export function workItemRouteDefinitions(
           );
         }
 
-        // Compute required tools
-        let requiredTools: string[];
-        if (workItem.requiredTools != null) {
-          requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
-        } else {
-          requiredTools = task.requiredTools
-            ? sanitizeToolList(JSON.parse(task.requiredTools))
-            : getRegisteredToolNames();
-        }
+        const taskRequiredTools = task.requiredTools
+          ? sanitizeToolList(JSON.parse(task.requiredTools))
+          : getRegisteredToolNames();
+        const requiredTools = resolveRequiredTools(workItem, taskRequiredTools);
 
         // Permission checkpoint
         let approvedTools: string[] | undefined;
