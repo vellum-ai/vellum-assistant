@@ -1240,7 +1240,7 @@ function ChatApp({
   const headerHeight = calculateHeaderHeight(species, terminalColumns);
 
   const isCompact = terminalColumns < COMPACT_THRESHOLD;
-  const compactInputAreaHeight = 2; // separator + input row only
+  const compactInputAreaHeight = 1; // input row only, no separators
   const inputAreaHeight = isCompact
     ? compactInputAreaHeight
     : INPUT_AREA_HEIGHT;
@@ -2274,8 +2274,9 @@ function ChatApp({
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {visibleWindow.hiddenAbove > 0 ? (
           <Text dimColor>
-            {"\u2191"} {visibleWindow.hiddenAbove} more above
-            (Shift+\u2191/Cmd+\u2191)
+            {isCompact
+              ? `\u2191 ${visibleWindow.hiddenAbove} more above`
+              : `\u2191 ${visibleWindow.hiddenAbove} more above (Shift+\u2191/Cmd+\u2191)`}
           </Text>
         ) : null}
 
@@ -2341,12 +2342,14 @@ function ChatApp({
 
       {!selection && !secretInput ? (
         <Box flexDirection="column" flexShrink={0}>
-          <Text dimColor>
-            {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
-          </Text>
-          <Box paddingLeft={1} height={1} flexShrink={0}>
+          {isCompact ? null : (
+            <Text dimColor>
+              {unicodeOrFallback("\u2500", "-").repeat(terminalColumns)}
+            </Text>
+          )}
+          <Box paddingLeft={isCompact ? 0 : 1} height={1} flexShrink={0}>
             <Text color="green" bold>
-              you{">"}
+              {isCompact ? ">" : "you>"}
               {" "}
             </Text>
             <TextInput
