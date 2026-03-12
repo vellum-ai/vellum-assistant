@@ -994,6 +994,7 @@ export async function buildMemoryRecallV2(
 
   let hybridCandidates: Candidate[] = [];
   let semanticSearchFailed = false;
+  const hybridSearchStart = Date.now();
 
   if (queryVector && !isQdrantBreakerOpen()) {
     try {
@@ -1021,6 +1022,7 @@ export async function buildMemoryRecallV2(
       }
     }
   }
+  const hybridSearchMs = Date.now() - hybridSearchStart;
 
   // ── Step 4: Recency supplement (DB only, conversation-scoped) ───
   const recencyLimit = 5;
@@ -1199,6 +1201,9 @@ export async function buildMemoryRecallV2(
     injectedText,
     latencyMs,
     topCandidates,
+    tier1Count,
+    tier2Count,
+    hybridSearchMs,
   };
 
   // Only cache non-degraded results
