@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { Minimatch } from "minimatch";
+
 import type {
   AgentEvent,
   CheckpointDecision,
@@ -108,19 +110,19 @@ mock.module("../skills/slash-commands.js", () => ({
   parseSlashCandidate: () => ({ kind: "not_slash" }),
 }));
 
-// Trust store mock — includes patternMatchesCandidate for cascade logic
+// Trust store mock — uses real minimatch for patternMatchesCandidate so the
+// mock doesn't break trust-store-pattern-matches.test.ts when both files run
+// in the same Bun process (mock.module leaks across test files).
 mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
   clearCache: () => {},
   patternMatchesCandidate: (pattern: string, candidate: string): boolean => {
-    // Simple glob matching: "tool:**" matches "tool:anything"
-    if (pattern.endsWith(":**")) {
-      const prefix = pattern.slice(0, -3);
-      return candidate.startsWith(prefix + ":");
+    try {
+      return new Minimatch(pattern).match(candidate);
+    } catch {
+      return false;
     }
-    if (pattern === "**") return true;
-    return pattern === candidate;
   },
 }));
 
