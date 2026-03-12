@@ -66,6 +66,42 @@ mock.module("../security/oauth2.js", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Mock oauth-store — token-manager reads refresh config from SQLite
+// ---------------------------------------------------------------------------
+
+/** Mutable per-test map of provider connections for getConnectionByProvider */
+const mockConnections = new Map<
+  string,
+  {
+    id: string;
+    providerKey: string;
+    oauthAppId: string;
+    expiresAt: number | null;
+  }
+>();
+const mockApps = new Map<
+  string,
+  { id: string; providerKey: string; clientId: string }
+>();
+const mockProviders = new Map<
+  string,
+  {
+    key: string;
+    tokenUrl: string;
+    tokenEndpointAuthMethod?: string;
+  }
+>();
+
+mock.module("../oauth/oauth-store.js", () => ({
+  getConnectionByProvider: (service: string) => mockConnections.get(service),
+  getApp: (id: string) => mockApps.get(id),
+  getProvider: (key: string) => mockProviders.get(key),
+  updateConnection: () => {},
+  getMostRecentAppByProvider: () => undefined,
+  listConnections: () => [],
+}));
+
+// ---------------------------------------------------------------------------
 // Import the module under test
 // ---------------------------------------------------------------------------
 
@@ -1172,6 +1208,10 @@ describe("withValidToken refresh deduplication", () => {
     _resetRefreshBreakers();
     _resetInflightRefreshes();
     mockRefreshOAuth2Token.mockClear();
+    // Clear mock oauth-store maps
+    mockConnections.clear();
+    mockApps.clear();
+    mockProviders.clear();
   });
 
   afterEach(() => {
@@ -1180,6 +1220,9 @@ describe("withValidToken refresh deduplication", () => {
     _resetBackend();
     _resetRefreshBreakers();
     _resetInflightRefreshes();
+    mockConnections.clear();
+    mockApps.clear();
+    mockProviders.clear();
   });
 
   afterAll(() => {
@@ -1187,8 +1230,11 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   /**
-   * Helper: set up a service with an access token, refresh token, and OAuth2
-   * metadata so that token refresh can proceed through doRefresh().
+   * Helper: set up a service with an access token, refresh token, and
+   * mock DB data so that token refresh can proceed through doRefresh().
+   *
+   * OAuth-specific fields (tokenUrl, clientId, expiresAt) are now stored
+   * in the SQLite oauth-store. The mock maps simulate the DB layer.
    */
   function setupService(
     service: string,
@@ -1196,17 +1242,34 @@ describe("withValidToken refresh deduplication", () => {
   ) {
     const accessToken = opts?.accessToken ?? "old-access-token";
     setSecureKey(credentialKey(service, "access_token"), accessToken);
+
+    // Seed mock oauth-store maps so token-manager can resolve refresh config
+    const appId = `app-${service}`;
+    const connId = `conn-${service}`;
+    mockProviders.set(service, {
+      key: service,
+      tokenUrl: "https://oauth.example.com/token",
+    });
+    mockApps.set(appId, {
+      id: appId,
+      providerKey: service,
+      clientId: "test-client-id",
+    });
+    mockConnections.set(service, {
+      id: connId,
+      providerKey: service,
+      oauthAppId: appId,
+      expiresAt: opts?.expired
+        ? Date.now() - 60_000 // expired 1 minute ago
+        : Date.now() + 3600_000, // expires in 1 hour
+    });
+    // Store refresh token and client_secret in secure keys (token-manager reads them)
     setSecureKey(
-      credentialKey(service, "refresh_token"),
+      `oauth_connection/${connId}/refresh_token`,
       "valid-refresh-token",
     );
-    upsertCredentialMetadata(service, "access_token", {
-      oauth2TokenUrl: "https://oauth.example.com/token",
-      oauth2ClientId: "test-client-id",
-      ...(opts?.expired
-        ? { expiresAt: Date.now() - 60_000 } // expired 1 minute ago
-        : { expiresAt: Date.now() + 3600_000 }), // expires in 1 hour
-    });
+    setSecureKey(`oauth_app/${appId}/client_secret`, "test-client-secret");
+    upsertCredentialMetadata(service, "access_token", {});
   }
 
   test("3 concurrent 401 refreshes for the same service call doRefresh exactly once", async () => {

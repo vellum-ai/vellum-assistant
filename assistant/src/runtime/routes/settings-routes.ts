@@ -17,11 +17,12 @@ import {
   getApp,
   getConnectionByProvider,
   getMostRecentAppByProvider,
+  getProvider,
 } from "../../oauth/oauth-store.js";
 import {
-  getProviderProfile,
+  getProviderBehavior,
   resolveService,
-} from "../../oauth/provider-profiles.js";
+} from "../../oauth/provider-behaviors.js";
 import {
   check,
   classifyRisk,
@@ -201,10 +202,11 @@ async function handleOAuthConnectStart(body: {
     clientSecret = getClientSecret(resolvedService, body.service);
   }
 
-  const profile = getProviderProfile(resolvedService);
+  const behavior = getProviderBehavior(resolvedService);
+  const providerRow = getProvider(resolvedService);
   const requiresSecret =
-    profile?.setup?.requiresClientSecret ??
-    !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
+    behavior?.setup?.requiresClientSecret ??
+    !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
   if (requiresSecret && !clientSecret) {
     return httpError(
       "BAD_REQUEST",

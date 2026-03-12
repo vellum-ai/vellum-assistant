@@ -14,7 +14,7 @@ import {
   updateConnection,
 } from "../oauth/oauth-store.js";
 import { getLogger } from "../util/logger.js";
-import { credentialKey, migrateKeys } from "./credential-key.js";
+import { credentialKey } from "./credential-key.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
 import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
 
@@ -363,14 +363,13 @@ async function doRefresh(service: string): Promise<string> {
  * 2. If the token is expired or near-expiry, refreshes it before calling the callback.
  * 3. If the callback throws with a 401 status, attempts one refresh-and-retry cycle.
  *
- * @deprecated Use `resolveOAuthConnection(service).request()` instead.
- * Retained only for BYO connection internals.
+ * Retained only for BYO connection internals — prefer
+ * `resolveOAuthConnection(service).request()` for new code.
  */
 export async function withValidToken<T>(
   service: string,
   callback: (token: string) => Promise<T>,
 ): Promise<T> {
-  migrateKeys();
 
   let token = getSecureKey(credentialKey(service, "access_token"));
   if (!token) {

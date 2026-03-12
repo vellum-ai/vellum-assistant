@@ -13,7 +13,8 @@ import {
 import type { CalendarEvent } from "../../config/bundled-skills/google-calendar/types.js";
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
-import { GOOGLE_CALENDAR_BASE_URL } from "../../oauth/provider-base-urls.js";
+
+const GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,

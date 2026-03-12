@@ -4,7 +4,8 @@
  */
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import { GOOGLE_PEOPLE_BASE_URL } from "../../../oauth/provider-base-urls.js";
+
+const GOOGLE_PEOPLE_BASE_URL = "https://people.googleapis.com/v1";
 import { GmailApiError } from "./client.js";
 import type {
   PeopleConnectionsResponse,

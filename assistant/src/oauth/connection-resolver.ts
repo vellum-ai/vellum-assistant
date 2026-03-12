@@ -2,7 +2,6 @@ import { getSecureKey } from "../security/secure-keys.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import { getConnectionByProvider, getProvider } from "./oauth-store.js";
-import { getProviderBaseUrl } from "./provider-base-urls.js";
 
 /**
  * Resolve an OAuthConnection for a given credential service.
@@ -30,9 +29,8 @@ export function resolveOAuthConnection(
     );
   }
 
-  // Resolve base URL: prefer provider row, fall back to static map.
   const provider = getProvider(credentialService);
-  const baseUrl = provider?.baseUrl ?? getProviderBaseUrl(credentialService);
+  const baseUrl = provider?.baseUrl;
 
   if (!baseUrl) {
     throw new Error(`No base URL configured for "${credentialService}".`);

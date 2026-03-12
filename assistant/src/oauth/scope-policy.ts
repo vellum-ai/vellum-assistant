@@ -5,7 +5,7 @@
  * scopes for an OAuth flow based on the provider profile's scope policy.
  */
 
-import type { OAuthProviderProfile } from "./connect-types.js";
+import type { OAuthScopePolicy } from "./connect-types.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -28,8 +28,15 @@ export type ScopeResolutionResult =
  *   requested scope against the provider's `scopePolicy`.
  * - Returns a deduplicated union of default + approved requested scopes.
  */
+/** Minimal shape needed by the scope resolver. */
+export interface ScopeResolverInput {
+  service: string;
+  defaultScopes: string[];
+  scopePolicy: OAuthScopePolicy;
+}
+
 export function resolveScopes(
-  profile: OAuthProviderProfile,
+  profile: ScopeResolverInput,
   requestedScopes?: string[],
 ): ScopeResolutionResult {
   const { defaultScopes, scopePolicy, service } = profile;

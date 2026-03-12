@@ -498,16 +498,17 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  test("upsertCredentialMetadata does not accept oauth2ClientSecret", () => {
+  test("upsertCredentialMetadata does not accept oauth2ClientSecret or other OAuth fields", () => {
     const record = upsertCredentialMetadata(
       "integration:gmail",
       "access_token",
       {
-        oauth2TokenUrl: "https://oauth2.googleapis.com/token",
-        oauth2ClientId: "test-client-id",
+        allowedTools: ["api_request"],
       },
     );
     expect("oauth2ClientSecret" in record).toBe(false);
+    expect("oauth2TokenUrl" in record).toBe(false);
+    expect("oauth2ClientId" in record).toBe(false);
   });
 
   test("client secret is read from secure store, not metadata", () => {
@@ -516,13 +517,15 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       "my-secret",
     );
     upsertCredentialMetadata("integration:gmail", "access_token", {
-      oauth2TokenUrl: "https://oauth2.googleapis.com/token",
-      oauth2ClientId: "test-client-id",
+      allowedTools: ["api_request"],
     });
 
     const meta = getCredentialMetadata("integration:gmail", "access_token");
     expect(meta).toBeDefined();
     expect("oauth2ClientSecret" in meta!).toBe(false);
+    // OAuth-specific fields are no longer in metadata (v5)
+    expect("oauth2TokenUrl" in meta!).toBe(false);
+    expect("oauth2ClientId" in meta!).toBe(false);
 
     // Secret is in secure store
     expect(
@@ -563,7 +566,7 @@ describe("Invariant 6: oauth2ClientSecret not in metadata, only in secure store"
       readFileSync(join(TEST_DIR, "metadata.json"), "utf-8"),
     );
     expect(raw.credentials[0]).not.toHaveProperty("oauth2ClientSecret");
-    expect(raw.version).toBe(4);
+    expect(raw.version).toBe(5);
   });
 });
 

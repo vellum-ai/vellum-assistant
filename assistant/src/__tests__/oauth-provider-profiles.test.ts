@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  getProviderProfile,
+  getProviderBehavior,
   resolveService,
-} from "../oauth/provider-profiles.js";
+} from "../oauth/provider-behaviors.js";
 
-describe("oauth provider profiles", () => {
-  test("gmail profile defines bearer injection templates for Google API hosts", () => {
+describe("oauth provider behaviors", () => {
+  test("gmail behavior defines bearer injection templates for Google API hosts", () => {
     const service = resolveService("gmail");
-    const profile = getProviderProfile(service);
+    const behavior = getProviderBehavior(service);
 
     expect(service).toBe("integration:gmail");
-    expect(profile).toBeDefined();
-    expect(profile?.injectionTemplates).toBeDefined();
-    expect(profile?.injectionTemplates).toHaveLength(3);
+    expect(behavior).toBeDefined();
+    expect(behavior?.injectionTemplates).toBeDefined();
+    expect(behavior?.injectionTemplates).toHaveLength(3);
 
     const byHost = new Map(
-      (profile?.injectionTemplates ?? []).map((t) => [t.hostPattern, t]),
+      (behavior?.injectionTemplates ?? []).map((t) => [t.hostPattern, t]),
     );
 
     for (const host of [

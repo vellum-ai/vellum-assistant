@@ -114,10 +114,6 @@ function buildCredentialOutput(
     usageDescription: metadata.usageDescription ?? null,
     allowedTools: metadata.allowedTools,
     allowedDomains: metadata.allowedDomains,
-    grantedScopes: metadata.grantedScopes ?? null,
-    expiresAt: metadata.expiresAt
-      ? new Date(metadata.expiresAt).toISOString()
-      : null,
     createdAt: new Date(metadata.createdAt).toISOString(),
     updatedAt: new Date(metadata.updatedAt).toISOString(),
     injectionTemplateCount: metadata.injectionTemplates?.length ?? 0,
@@ -158,11 +154,6 @@ function printCredentialHuman(output: Record<string, unknown>): void {
     log.info(
       `    Domains:     ${(output.allowedDomains as string[]).join(", ")}`,
     );
-  if (output.grantedScopes)
-    log.info(
-      `    Scopes:      ${(output.grantedScopes as string[]).join(", ")}`,
-    );
-  if (output.expiresAt) log.info(`    Expires:     ${output.expiresAt}`);
   log.info(`    Created:     ${output.createdAt}`);
   log.info(`    Updated:     ${output.updatedAt}`);
   if ((output.injectionTemplateCount as number) > 0)
@@ -550,8 +541,6 @@ Examples:
             usageDescription: null,
             allowedTools: [],
             allowedDomains: [],
-            grantedScopes: null,
-            expiresAt: null,
             createdAt: null,
             updatedAt: null,
             injectionTemplateCount: 0,

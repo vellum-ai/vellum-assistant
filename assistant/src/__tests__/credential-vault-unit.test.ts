@@ -45,6 +45,23 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock oauth-store to avoid SQLite dependency in unit tests
+// ---------------------------------------------------------------------------
+
+let mockGetMostRecentAppByProvider: ReturnType<typeof mock<() => unknown>>;
+let mockGetProvider: ReturnType<typeof mock<() => unknown>>;
+
+mock.module("../oauth/oauth-store.js", () => {
+  mockGetMostRecentAppByProvider = mock(() => undefined);
+  mockGetProvider = mock(() => undefined);
+  return {
+    getMostRecentAppByProvider: mockGetMostRecentAppByProvider,
+    getProvider: mockGetProvider,
+    listConnections: mock(() => []),
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Imports under test
 // ---------------------------------------------------------------------------
 
@@ -596,16 +613,23 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("client_id is required");
   });
 
-  test("uses stored client_id from metadata", async () => {
-    // Store client_id in metadata (the canonical source) and client_secret
-    // in the secure store — the requiresClientSecret guardrail will
-    // short-circuit if client_secret is missing, so we need both to
-    // validate that stored client_id is resolved correctly.
-    upsertCredentialMetadata("integration:gmail", "access_token", {
-      oauth2ClientId: "stored-client-id-123",
-    });
+  test("uses stored client_id from oauth-store DB", async () => {
+    // Mock getMostRecentAppByProvider to return an app with a client_id
+    // and store client_secret in the secure store.
+    mockGetMostRecentAppByProvider.mockImplementation(() => ({
+      id: "test-app-id",
+      providerKey: "integration:gmail",
+      clientId: "stored-client-id-123",
+      createdAt: Date.now(),
+    }));
+    mockGetProvider.mockImplementation(() => ({
+      key: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+    }));
     setSecureKey(
-      credentialKey("integration:gmail", "client_secret"),
+      "oauth_app/test-app-id/client_secret",
       "test-secret",
     );
 
@@ -624,14 +648,28 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("To connect gmail, open this link");
     expect(result.content).not.toContain("client_id is required");
     expect(result.content).not.toContain("client_secret is required");
+
+    // Reset mocks
+    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetProvider.mockImplementation(() => undefined);
   });
 
   test("rejects when client_secret is missing for service that requires it", async () => {
-    // Store only client_id in metadata — client_secret is intentionally
-    // absent to validate the requiresClientSecret guardrail.
-    upsertCredentialMetadata("integration:gmail", "access_token", {
-      oauth2ClientId: "stored-client-id-456",
-    });
+    // Mock getMostRecentAppByProvider to return an app with client_id but
+    // no client_secret in secure storage — validates the requiresClientSecret
+    // guardrail.
+    mockGetMostRecentAppByProvider.mockImplementation(() => ({
+      id: "test-app-id-no-secret",
+      providerKey: "integration:gmail",
+      clientId: "stored-client-id-456",
+      createdAt: Date.now(),
+    }));
+    mockGetProvider.mockImplementation(() => ({
+      key: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+    }));
 
     const result = await credentialStoreTool.execute(
       {
@@ -643,6 +681,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("client_secret is required for gmail");
+
+    // Reset mocks
+    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetProvider.mockImplementation(() => undefined);
   });
 });
 

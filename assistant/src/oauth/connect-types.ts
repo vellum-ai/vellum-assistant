@@ -1,11 +1,15 @@
 /**
  * Shared types for the OAuth provider extensibility layer.
  *
- * These types are consumed by the provider profile registry, the token
+ * These types are consumed by the provider behavior registry, the token
  * persistence module, and the credential vault orchestrator.
+ *
+ * Protocol-level OAuth config (authUrl, tokenUrl, scopes, etc.) is now
+ * stored exclusively in the `oauth_providers` SQLite table. This file
+ * only defines code-side behavioral types that cannot be serialised to
+ * a DB row (functions, templates, UI metadata).
  */
 
-import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 
 // ---------------------------------------------------------------------------
@@ -23,31 +27,21 @@ export interface OAuthScopePolicy {
 }
 
 // ---------------------------------------------------------------------------
-// Provider profile
+// Provider behavior
 // ---------------------------------------------------------------------------
 
-/** Full configuration profile for a well-known OAuth provider. */
-export interface OAuthProviderProfile {
+/**
+ * Code-side behavioral configuration for a well-known OAuth provider.
+ *
+ * Protocol-level fields (authUrl, tokenUrl, defaultScopes, scopePolicy,
+ * tokenEndpointAuthMethod, callbackTransport, loopbackPort, userinfoUrl,
+ * extraParams) are stored in the `oauth_providers` DB table. This
+ * interface contains only fields that require code references (functions,
+ * templates, skill IDs) and cannot be serialised to a DB row.
+ */
+export interface OAuthProviderBehavior {
   /** Canonical service key (e.g. "integration:twitter"). */
   service: string;
-  /** OAuth2 authorization endpoint. */
-  authUrl: string;
-  /** OAuth2 token endpoint. */
-  tokenUrl: string;
-  /** Default scopes requested during authorization. */
-  defaultScopes: string[];
-  /** Policy governing additional/forbidden scopes. */
-  scopePolicy: OAuthScopePolicy;
-  /** How to send client credentials at the token endpoint. */
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
-  /** Force a specific callback transport. */
-  callbackTransport?: "loopback" | "gateway";
-  /** Fixed port for loopback transport (e.g. Slack). */
-  loopbackPort?: number;
-  /** Endpoint to fetch user identity info after authorization. */
-  userinfoUrl?: string;
-  /** Extra query parameters appended to the authorization URL. */
-  extraParams?: Record<string, string>;
   /**
    * Async function that verifies the user's identity after a successful
    * token exchange. Returns a human-readable account identifier (e.g.
