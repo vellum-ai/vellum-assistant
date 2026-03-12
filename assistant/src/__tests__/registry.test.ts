@@ -510,7 +510,7 @@ describe("computer-use registration split", () => {
   // Start each test from a completely empty registry so assertions are
   // non-vacuous — the split functions must actually register tools.
 
-  test("registerComputerUseActionTools registers all 10 CU action tools and nothing else", async () => {
+  test("registerComputerUseActionTools registers all 11 CU action tools and nothing else", async () => {
     const { registerComputerUseActionTools } =
       await import("../tools/computer-use/registry.js");
 
@@ -520,7 +520,7 @@ describe("computer-use registration split", () => {
     registerComputerUseActionTools();
 
     const registered = getAllTools();
-    expect(registered).toHaveLength(10);
+    expect(registered).toHaveLength(11);
     expect(registered.every((t) => t.name.startsWith("computer_use_"))).toBe(
       true,
     );

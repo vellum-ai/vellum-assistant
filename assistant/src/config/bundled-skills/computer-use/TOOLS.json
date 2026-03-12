@@ -2,6 +2,24 @@
   "version": 1,
   "tools": [
     {
+      "name": "computer_use_observe",
+      "description": "Capture the current screen state. Returns the accessibility tree (with [ID] element references for targeting) and a screenshot. Call this before your first computer use action to see what's on screen, or any time you need to check the current state without performing an action.",
+      "category": "computer-use",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["reason"]
+      },
+      "executor": "tools/computer-use-observe.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "computer_use_click",
       "description": "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback. Supports single click, double-click, and right-click via the click_type parameter.",
       "category": "computer-use",

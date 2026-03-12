@@ -40,8 +40,8 @@ const ctx: ToolContext = {
 // ── Tool definitions ────────────────────────────────────────────────
 
 describe("computer-use tool definitions", () => {
-  test("allComputerUseTools contains 10 tools", () => {
-    expect(allComputerUseTools.length).toBe(10);
+  test("allComputerUseTools contains 11 tools", () => {
+    expect(allComputerUseTools.length).toBe(11);
   });
 
   test("all tools have proxy execution mode", () => {
