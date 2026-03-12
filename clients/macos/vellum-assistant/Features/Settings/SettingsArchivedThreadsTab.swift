@@ -71,10 +71,3 @@ private struct ArchivedThreadRow: View {
 
 // MARK: - Preview
 
-#Preview("Archived Threads - Empty") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        SettingsArchivedThreadsTab(threadManager: ThreadManager(daemonClient: DaemonClient()))
-    }
-    .frame(width: 600, height: 400)
-}

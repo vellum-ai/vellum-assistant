@@ -526,11 +526,3 @@ private struct ShortcutRow: View {
     }
 }
 
-#Preview("Appearance Tab") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        SettingsAppearanceTab(store: SettingsStore())
-            .padding()
-    }
-    .frame(width: 500, height: 600)
-}

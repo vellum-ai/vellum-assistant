@@ -72,17 +72,4 @@ struct DocumentReopenWidget: View {
 }
 
 #if DEBUG
-#Preview("Document Reopen Widget") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-
-        DocumentReopenWidget(
-            documentTitle: "NYC Pizza: A Love Letter",
-            onReopen: { print("Reopen tapped") },
-            onDismiss: { print("Dismiss tapped") }
-        )
-        .padding(VSpacing.xl)
-        .frame(width: 400)
-    }
-}
 #endif

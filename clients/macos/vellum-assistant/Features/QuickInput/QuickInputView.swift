@@ -298,23 +298,3 @@ struct VisualEffectBlur: NSViewRepresentable {
     }
 }
 
-#Preview("QuickInputView") {
-    ZStack {
-        VColor.auxBlack.opacity(0.5).ignoresSafeArea()
-        QuickInputView(
-            textModel: QuickInputTextModel(),
-            onSubmit: { message in
-                print("Submitted: \(message)")
-            },
-            onDismiss: {
-                print("Dismissed")
-            },
-            recentThreads: [
-                QuickInputThread(id: UUID(), title: "Help me debug this crash"),
-                QuickInputThread(id: UUID(), title: "Write a Python script"),
-                QuickInputThread(id: UUID(), title: "Explain SwiftUI layout"),
-            ]
-        )
-    }
-    .frame(width: 800, height: 200)
-}

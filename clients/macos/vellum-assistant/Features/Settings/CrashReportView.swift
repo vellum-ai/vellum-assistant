@@ -236,20 +236,3 @@ extension AppDelegate {
     }
 }
 
-#Preview("CrashReportView") {
-    CrashReportView(
-        crashURL: URL(fileURLWithPath: "/tmp/vellum-assistant_2026-03-05.crash"),
-        crashLog: """
-        Process:         vellum-assistant [1234]
-        Path:            /Applications/Vellum.app/Contents/MacOS/vellum-assistant
-        Identifier:      com.vellum.vellum-assistant
-        Version:         1.0.0
-
-        Thread 0 Crashed:
-        0   vellum-assistant    0x0000000100abc123 main + 0
-        1   dyld                0x00007fff6bc123ab start + 1
-        """,
-        companionFiles: [],
-        onDismiss: {}
-    )
-}

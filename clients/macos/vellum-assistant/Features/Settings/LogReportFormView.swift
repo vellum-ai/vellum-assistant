@@ -169,14 +169,4 @@ private struct ReasonRow: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("LogReportFormView") {
-    ZStack {
-        VColor.surfaceBase.ignoresSafeArea()
-        LogReportFormView(
-            onSend: { _ in },
-            onCancel: {}
-        )
-    }
-    .frame(width: 480, height: 620)
-}
 #endif

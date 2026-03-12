@@ -54,21 +54,4 @@ struct BootstrapInterstitialView: View {
     }
 }
 
-#Preview("BootstrapInterstitialView - Loading") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        BootstrapInterstitialView(isRetrying: true)
-    }
-    .frame(width: 380, height: 300)
-}
 
-#Preview("BootstrapInterstitialView - Error") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        BootstrapInterstitialView(
-            errorMessage: "Could not connect after 5 attempts. Please try again.",
-            isRetrying: false
-        )
-    }
-    .frame(width: 380, height: 300)
-}

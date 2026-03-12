@@ -19,14 +19,3 @@ struct ChatBubbleToggle: View {
     }
 }
 
-#Preview("ChatBubbleToggle") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 16) {
-            ChatBubbleToggle(isActive: false, onToggle: {})
-            ChatBubbleToggle(isActive: true, onToggle: {})
-        }
-        .padding()
-    }
-    .frame(width: 200, height: 80)
-}

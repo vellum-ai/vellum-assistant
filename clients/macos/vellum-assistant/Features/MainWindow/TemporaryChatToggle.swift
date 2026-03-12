@@ -19,14 +19,3 @@ struct TemporaryChatToggle: View {
     }
 }
 
-#Preview("TemporaryChatToggle") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        HStack(spacing: 16) {
-            TemporaryChatToggle(isActive: false, onToggle: {})
-            TemporaryChatToggle(isActive: true, onToggle: {})
-        }
-        .padding()
-    }
-    .frame(width: 200, height: 80)
-}

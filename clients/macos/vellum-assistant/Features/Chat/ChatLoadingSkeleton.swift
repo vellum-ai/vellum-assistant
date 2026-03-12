@@ -69,12 +69,4 @@ struct ChatLoadingSkeleton: View {
 }
 
 #if DEBUG
-#Preview("ChatLoadingSkeleton") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ChatLoadingSkeleton()
-            .padding(VSpacing.lg)
-    }
-    .frame(width: 700, height: 400)
-}
 #endif

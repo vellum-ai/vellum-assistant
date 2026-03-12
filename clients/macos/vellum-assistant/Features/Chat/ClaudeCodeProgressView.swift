@@ -153,34 +153,4 @@ private struct PulsingModifier: ViewModifier {
     }
 }
 
-#Preview("Running") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ClaudeCodeProgressView(
-            steps: [
-                ClaudeCodeSubStep(toolName: "Read", inputSummary: "/src/main.ts", isComplete: true),
-                ClaudeCodeSubStep(toolName: "Edit", inputSummary: "/src/main.ts", isComplete: true),
-                ClaudeCodeSubStep(toolName: "Bash", inputSummary: "npm test", isComplete: false),
-            ],
-            isRunning: true
-        )
-        .frame(width: 400)
-        .padding()
-    }
-}
 
-#Preview("Completed") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ClaudeCodeProgressView(
-            steps: [
-                ClaudeCodeSubStep(toolName: "Read", inputSummary: "/src/main.ts", isComplete: true),
-                ClaudeCodeSubStep(toolName: "Edit", inputSummary: "/src/main.ts", isComplete: true),
-                ClaudeCodeSubStep(toolName: "Bash", inputSummary: "npm test", isComplete: true),
-            ],
-            isRunning: false
-        )
-        .frame(width: 400)
-        .padding()
-    }
-}

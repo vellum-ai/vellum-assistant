@@ -144,11 +144,3 @@ struct SettingsPrivacyTab: View {
     }
 }
 
-#Preview("SettingsPrivacyTab") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        SettingsPrivacyTab(daemonClient: nil, store: SettingsStore())
-            .frame(width: 480)
-            .padding()
-    }
-}

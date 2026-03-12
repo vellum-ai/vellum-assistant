@@ -34,20 +34,5 @@ struct DaemonLoadingThreadsSkeleton: View {
 }
 
 #if DEBUG
-#Preview("DaemonLoadingChatSkeleton") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        DaemonLoadingChatSkeleton()
-            .padding(VSpacing.lg)
-    }
-    .frame(width: 600, height: 500)
-}
 
-#Preview("DaemonLoadingThreadsSkeleton") {
-    ZStack {
-        VColor.surfaceBase.ignoresSafeArea()
-        DaemonLoadingThreadsSkeleton()
-    }
-    .frame(width: 240, height: 300)
-}
 #endif

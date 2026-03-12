@@ -249,11 +249,4 @@ private struct SlackChannelPickerPreviewWrapper: View {
     }
 }
 
-#Preview("SlackChannelPicker") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        SlackChannelPickerPreviewWrapper()
-    }
-    .frame(width: 300, height: 400)
-}
 #endif

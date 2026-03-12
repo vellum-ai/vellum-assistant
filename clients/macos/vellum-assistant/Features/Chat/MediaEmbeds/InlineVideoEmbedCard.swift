@@ -129,28 +129,4 @@ struct InlineVideoEmbedCard: View {
 }
 
 #if DEBUG
-#Preview("InlineVideoEmbedCard") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: VSpacing.lg) {
-            InlineVideoEmbedCard(
-                provider: "youtube",
-                videoID: "dQw4w9WgXcQ",
-                embedURL: URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ")!
-            )
-            InlineVideoEmbedCard(
-                provider: "vimeo",
-                videoID: "76979871",
-                embedURL: URL(string: "https://player.vimeo.com/video/76979871")!
-            )
-            InlineVideoEmbedCard(
-                provider: "loom",
-                videoID: "abc123def456",
-                embedURL: URL(string: "https://www.loom.com/embed/abc123def456")!
-            )
-        }
-        .padding()
-    }
-    .frame(width: 400, height: 640)
-}
 #endif

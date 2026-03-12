@@ -215,11 +215,4 @@ struct ErrorBannerGalleryView: View {
 
 // MARK: - Previews
 
-#Preview("Error Banner Gallery") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ErrorBannerGalleryView()
-    }
-    .frame(width: 600, height: 900)
-}
 #endif
