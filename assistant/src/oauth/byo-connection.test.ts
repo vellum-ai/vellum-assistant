@@ -81,7 +81,12 @@ const mockConnections = new Map<
 >();
 const mockApps = new Map<
   string,
-  { id: string; providerKey: string; clientId: string }
+  {
+    id: string;
+    providerKey: string;
+    clientId: string;
+    clientSecretCredentialPath: string;
+  }
 >();
 const mockProviders = new Map<
   string,
@@ -192,6 +197,7 @@ function setupCredential(
     id: appId,
     providerKey: service,
     clientId: "test-client-id",
+    clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
   });
   mockConnections.set(service, {
     id: connId,
@@ -514,6 +520,7 @@ describe("resolveOAuthConnection", () => {
       id: appId,
       providerKey: "github",
       clientId: "test-client-id",
+      clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
     });
 
     // Connection uses the custom credential service as its providerKey

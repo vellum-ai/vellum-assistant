@@ -81,7 +81,12 @@ const mockConnections = new Map<
 >();
 const mockApps = new Map<
   string,
-  { id: string; providerKey: string; clientId: string }
+  {
+    id: string;
+    providerKey: string;
+    clientId: string;
+    clientSecretCredentialPath: string;
+  }
 >();
 const mockProviders = new Map<
   string,
@@ -1313,6 +1318,7 @@ describe("withValidToken refresh deduplication", () => {
       id: appId,
       providerKey: service,
       clientId: "test-client-id",
+      clientSecretCredentialPath: `oauth_app/${appId}/client_secret`,
     });
     mockConnections.set(service, {
       id: connId,
