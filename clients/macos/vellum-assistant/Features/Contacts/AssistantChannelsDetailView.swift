@@ -454,8 +454,8 @@ struct AssistantChannelsDetailView: View {
                 }
             }
 
-            // Phone number dropdown: show when at least partially configured
-            if status == "ready" || status == "incomplete" {
+            // Phone number dropdown: show when credentials are configured
+            if (status == "ready" || status == "incomplete") && store.twilioHasCredentials {
                 SettingsDivider()
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")

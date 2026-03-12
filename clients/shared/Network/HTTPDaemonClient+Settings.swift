@@ -158,11 +158,11 @@ extension HTTPTransport {
                 return true
             }
             if let msg = message as? TelegramConfigRequestMessage {
-                Task { await self.sendEncodablePost(.integrationsTelegramConfig, body: msg, label: "telegram_config") }
+                Task { await self.sendEncodablePostAndDispatch(.integrationsTelegramConfig, body: msg, messageType: "telegram_config_response", label: "telegram_config") }
                 return true
             }
             if let msg = message as? ChannelVerificationSessionRequestMessage {
-                Task { await self.sendEncodablePost(.channelVerificationSessions, body: msg, label: "channel_verification_session") }
+                Task { await self.sendEncodablePostAndDispatch(.channelVerificationSessions, body: msg, messageType: "channel_verification_session_response", label: "channel_verification_session") }
                 return true
             }
             // --- Publishing ---
@@ -324,6 +324,54 @@ extension HTTPTransport {
             } else {
                 log.error("\(label) failed: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
             }
+        } catch {
+            log.error("\(label) error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Send an HTTP request with an Encodable body and dispatch the response
+    /// as a `ServerMessage` through the SSE message handler chain.
+    ///
+    /// HTTP route handlers return plain JSON without the `type` discriminant
+    /// that `ServerMessage` decoding requires. This method injects the
+    /// `messageType` string before decoding so the existing callback handlers
+    /// (e.g. `onChannelVerificationSessionResponse`, `onTelegramConfigResponse`)
+    /// fire as expected.
+    func sendEncodablePostAndDispatch<T: Encodable>(
+        _ endpoint: Endpoint,
+        body: T,
+        method: String = "POST",
+        messageType: String,
+        label: String
+    ) async {
+        guard let url = buildURL(for: endpoint) else {
+            log.error("Failed to build URL for \(label)")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        do {
+            request.httpBody = try encoder.encode(body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if !(200...299).contains(http.statusCode) {
+                log.error("\(label) failed: \(http.statusCode)")
+            }
+
+            // Inject the `type` discriminant so ServerMessage can decode it.
+            guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                log.error("\(label): failed to parse response JSON")
+                return
+            }
+            json["type"] = messageType
+            let enriched = try JSONSerialization.data(withJSONObject: json)
+            let serverMessage = try decoder.decode(ServerMessage.self, from: enriched)
+            onMessage?(serverMessage)
         } catch {
             log.error("\(label) error: \(error.localizedDescription)")
         }
