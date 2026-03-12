@@ -257,6 +257,9 @@ struct AssistantProgressView: View {
                 return
             }
             guard hasChevron else { return }
+            // Prevent collapsing while a confirmation is pending — the inline
+            // bubble is the only visible approval UI when the standalone is suppressed.
+            if isExpanded && hasPendingConfirmation { return }
             suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
