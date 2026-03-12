@@ -114,8 +114,10 @@ export function repairHistory(messages: Message[]): RepairResult {
             block.type === "web_search_tool_result"
           ) {
             const tr = block as ToolResultContent | WebSearchToolResultContent;
-            const isTypeMatch = pendingToolUseIds.has(tr.tool_use_id) &&
-              (block.type === "web_search_tool_result") === serverToolUseIds.has(tr.tool_use_id);
+            const isTypeMatch =
+              pendingToolUseIds.has(tr.tool_use_id) &&
+              (block.type === "web_search_tool_result") ===
+                serverToolUseIds.has(tr.tool_use_id);
             if (isTypeMatch) {
               matchedIds.add(tr.tool_use_id);
               newContent.push(block);
@@ -132,7 +134,11 @@ export function repairHistory(messages: Message[]): RepairResult {
         for (const id of pendingToolUseIds) {
           if (!matchedIds.has(id)) {
             const recovered = recoveredResults.get(id);
-            if (recovered) {
+            const isRecoveredTypeMatch =
+              recovered &&
+              (recovered.type === "web_search_tool_result") ===
+                serverToolUseIds.has(id);
+            if (isRecoveredTypeMatch) {
               newContent.push(recovered);
               // Already counted in assistantToolResultsMigrated
             } else {
@@ -221,7 +227,9 @@ function buildResultMessage(
     role: "user",
     content: Array.from(ids).map((id) => {
       const rec = recovered.get(id);
-      if (rec) {
+      const isRecTypeMatch =
+        rec && (rec.type === "web_search_tool_result") === serverIds.has(id);
+      if (isRecTypeMatch) {
         // Already counted in assistantToolResultsMigrated
         return rec;
       }
