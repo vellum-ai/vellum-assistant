@@ -72,7 +72,7 @@ struct ChatSessionErrorToast: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(message)
-                    .font(VFont.caption)
+                    .font(VFont.body)
                     .lineLimit(4)
                     .textSelection(.enabled)
 
