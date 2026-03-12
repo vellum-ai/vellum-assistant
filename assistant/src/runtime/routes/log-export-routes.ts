@@ -14,7 +14,11 @@ import { desc } from "drizzle-orm";
 import { getDb } from "../../memory/db.js";
 import { toolInvocations } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir, getRootDir } from "../../util/platform.js";
+import {
+  getDataDir,
+  getRootDir,
+  getWorkspaceConfigPath,
+} from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -31,6 +35,7 @@ interface ExportResponse {
   success: true;
   auditRows: Array<Record<string, unknown>>;
   logFiles: Record<string, string>;
+  configSnapshot?: Record<string, unknown>;
 }
 
 /**
@@ -83,21 +88,56 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       }
     }
 
+    // --- Sanitized config snapshot ---
+    const configSnapshot = readSanitizedConfig();
+
     log.info(
-      { auditCount: auditRows.length, logFileCount: Object.keys(logFiles).length, totalBytes },
+      {
+        auditCount: auditRows.length,
+        logFileCount: Object.keys(logFiles).length,
+        totalBytes,
+        hasConfig: configSnapshot !== undefined,
+      },
       "Export completed",
     );
 
-    const payload: ExportResponse = { success: true, auditRows, logFiles };
+    const payload: ExportResponse = {
+      success: true,
+      auditRows,
+      logFiles,
+      configSnapshot,
+    };
     return Response.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to export");
-    return httpError(
-      "INTERNAL_ERROR",
-      `Failed to export: ${message}`,
-      500,
-    );
+    return httpError("INTERNAL_ERROR", `Failed to export: ${message}`, 500);
+  }
+}
+
+/**
+ * Reads the workspace config.json and strips sensitive fields (API keys).
+ * Returns undefined if the file is missing or unreadable.
+ */
+function readSanitizedConfig(): Record<string, unknown> | undefined {
+  const configPath = getWorkspaceConfigPath();
+  if (!existsSync(configPath)) return undefined;
+
+  try {
+    const raw = readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+
+    // Strip API key values — preserve which providers have keys configured
+    if (config.apiKeys && typeof config.apiKeys === "object") {
+      const keys = config.apiKeys as Record<string, unknown>;
+      config.apiKeys = Object.fromEntries(
+        Object.keys(keys).map((k) => [k, keys[k] ? "(set)" : "(empty)"]),
+      );
+    }
+
+    return config;
+  } catch {
+    return undefined;
   }
 }
 
