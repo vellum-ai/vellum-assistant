@@ -134,6 +134,11 @@ export class PermissionPrompter {
     return this.pending.has(requestId);
   }
 
+  /** Returns all currently pending request IDs. */
+  getPendingRequestIds(): string[] {
+    return [...this.pending.keys()];
+  }
+
   /** Returns the toolUseId associated with a pending request, if any. */
   getToolUseId(requestId: string): string | undefined {
     return this.pending.get(requestId)?.toolUseId;
