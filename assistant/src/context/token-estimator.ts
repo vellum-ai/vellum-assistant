@@ -1,4 +1,5 @@
 import type { ContentBlock, Message } from "../providers/types.js";
+import { parseImageDimensions } from "./image-dimensions.js";
 
 const CHARS_PER_TOKEN = 4;
 const MESSAGE_OVERHEAD_TOKENS = 4;
@@ -11,6 +12,16 @@ const WEB_SEARCH_RESULT_TOKENS = 800;
 const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
 const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
+
+// Anthropic scales images to fit within 1568x1568 maintaining aspect ratio,
+// then charges ~(width * height) / 750 tokens.
+const ANTHROPIC_IMAGE_MAX_DIMENSION = 1568;
+const ANTHROPIC_IMAGE_TOKENS_PER_PIXEL = 1 / 750;
+const ANTHROPIC_IMAGE_MAX_TOKENS = Math.ceil(
+  ANTHROPIC_IMAGE_MAX_DIMENSION *
+    ANTHROPIC_IMAGE_MAX_DIMENSION *
+    ANTHROPIC_IMAGE_TOKENS_PER_PIXEL,
+); // ~3,277 tokens
 
 // Anthropic renders each PDF page as an image (~1,568 tokens at standard
 // resolution) plus any extracted text. Typical PDF pages are 50-150 KB.
@@ -60,11 +71,36 @@ function estimateFileDataTokens(
   return 0;
 }
 
-function estimateImageSourceDataTokens(
+function estimateAnthropicImageTokens(width: number, height: number): number {
+  // Scale down to fit within 1568x1568 bounding box, maintaining aspect ratio
+  const scale = Math.min(
+    1,
+    ANTHROPIC_IMAGE_MAX_DIMENSION / Math.max(width, height),
+  );
+  const scaledWidth = Math.round(width * scale);
+  const scaledHeight = Math.round(height * scale);
+  return Math.max(
+    IMAGE_BLOCK_TOKENS, // minimum 1024
+    Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL),
+  );
+}
+
+function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
+  options?: TokenEstimatorOptions,
 ): number {
-  // Image payloads are carried inline as base64 for all currently supported
-  // providers, so estimator must scale with payload size (not fixed per image).
+  if (options?.providerName === "anthropic") {
+    const dims = parseImageDimensions(
+      block.source.data,
+      block.source.media_type,
+    );
+    if (dims) {
+      return estimateAnthropicImageTokens(dims.width, dims.height);
+    }
+    // Fallback: if dimensions can't be parsed, use Anthropic's max
+    return ANTHROPIC_IMAGE_MAX_TOKENS;
+  }
+  // Non-Anthropic: keep existing base64-size heuristic
   return estimateTextTokens(block.source.data);
 }
 
@@ -98,7 +134,7 @@ export function estimateContentBlockTokens(
         IMAGE_BLOCK_TOKENS,
         IMAGE_BLOCK_OVERHEAD_TOKENS +
           estimateTextTokens(block.source.media_type) +
-          estimateImageSourceDataTokens(block),
+          estimateImageTokens(block, options),
       );
     case "file":
       return (

@@ -197,21 +197,163 @@ describe("token estimator", () => {
     expect(largeFileTokens).toBe(smallFileTokens);
   });
 
-  test("scales image token estimate with base64 payload size", () => {
-    const smallImageTokens = estimateContentBlockTokens({
-      type: "image",
-      source: { type: "base64", media_type: "image/png", data: "a".repeat(64) },
-    });
-    const largeImageTokens = estimateContentBlockTokens({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: "image/png",
-        data: "a".repeat(60_000),
+  // Non-Anthropic providers use base64 payload size for image estimation
+  test("scales image token estimate with base64 payload size (non-Anthropic)", () => {
+    const smallImageTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: "a".repeat(64),
+        },
       },
-    });
+      { providerName: "openai" },
+    );
+    const largeImageTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: "a".repeat(60_000),
+        },
+      },
+      { providerName: "openai" },
+    );
 
     expect(largeImageTokens).toBeGreaterThan(smallImageTokens);
     expect(largeImageTokens - smallImageTokens).toBeGreaterThan(1000);
+  });
+
+  test("estimates Anthropic image tokens from dimensions, not base64 size", () => {
+    // Build a minimal valid PNG header encoding 1920x1080 dimensions.
+    // PNG header: 8-byte signature + 4-byte IHDR length + 4-byte "IHDR" + 4-byte width + 4-byte height = 24 bytes minimum
+    const pngHeader = Buffer.alloc(24);
+    // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+    pngHeader[0] = 0x89;
+    pngHeader[1] = 0x50;
+    pngHeader[2] = 0x4e;
+    pngHeader[3] = 0x47;
+    pngHeader[4] = 0x0d;
+    pngHeader[5] = 0x0a;
+    pngHeader[6] = 0x1a;
+    pngHeader[7] = 0x0a;
+    // IHDR chunk length (13 bytes)
+    pngHeader.writeUInt32BE(13, 8);
+    // "IHDR"
+    pngHeader[12] = 0x49;
+    pngHeader[13] = 0x48;
+    pngHeader[14] = 0x44;
+    pngHeader[15] = 0x52;
+    // Width: 1920
+    pngHeader.writeUInt32BE(1920, 16);
+    // Height: 1080
+    pngHeader.writeUInt32BE(1080, 20);
+
+    // Pad with ~200 KB of data to simulate a real screenshot payload
+    const padding = Buffer.alloc(200_000, 0x42);
+    const fullPayload = Buffer.concat([pngHeader, padding]);
+    const base64Data = fullPayload.toString("base64");
+
+    const anthropicTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: base64Data },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // 1920x1080 scaled to fit 1568x1568: scale = 1568/1920 = 0.8167
+    // scaledWidth = round(1920 * 0.8167) = 1568, scaledHeight = round(1080 * 0.8167) = 882
+    // tokens = ceil(1568 * 882 / 750) = ceil(1843.968) = ~1844
+    // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000
+    expect(anthropicTokens).toBeLessThan(5_000);
+
+    // Verify it's NOT using base64 size (which would be ~50,000+ tokens)
+    const nonAnthropicTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: base64Data },
+      },
+      { providerName: "openai" },
+    );
+    expect(nonAnthropicTokens).toBeGreaterThan(50_000);
+  });
+
+  test("falls back to max tokens when Anthropic image dimensions can't be parsed", () => {
+    // Corrupted base64 that won't parse as a valid image header
+    const corruptedData = Buffer.from(
+      "not-a-valid-image-header-at-all",
+    ).toString("base64");
+
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: corruptedData,
+        },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // Should fall back to ANTHROPIC_IMAGE_MAX_TOKENS (~3,277)
+    // The total will include IMAGE_BLOCK_OVERHEAD_TOKENS + media_type overhead,
+    // but the max is applied at the outer Math.max(IMAGE_BLOCK_TOKENS, ...) level
+    // ANTHROPIC_IMAGE_MAX_TOKENS = ceil(1568*1568/750) = 3277
+    // Total = max(1024, 16 + ceil(9/4) + 3277) = max(1024, 3296) = 3296
+    expect(tokens).toBeGreaterThanOrEqual(3_277);
+    expect(tokens).toBeLessThan(4_000);
+  });
+
+  test("Anthropic image tokens are the same for same-dimension images regardless of payload size", () => {
+    // Build two PNG headers with the same dimensions (800x600) but different payload sizes
+    function makePng(
+      width: number,
+      height: number,
+      paddingSize: number,
+    ): string {
+      const header = Buffer.alloc(24);
+      header[0] = 0x89;
+      header[1] = 0x50;
+      header[2] = 0x4e;
+      header[3] = 0x47;
+      header[4] = 0x0d;
+      header[5] = 0x0a;
+      header[6] = 0x1a;
+      header[7] = 0x0a;
+      header.writeUInt32BE(13, 8);
+      header[12] = 0x49;
+      header[13] = 0x48;
+      header[14] = 0x44;
+      header[15] = 0x52;
+      header.writeUInt32BE(width, 16);
+      header.writeUInt32BE(height, 20);
+      const padding = Buffer.alloc(paddingSize, 0x42);
+      return Buffer.concat([header, padding]).toString("base64");
+    }
+
+    const smallPayload = makePng(800, 600, 1_000);
+    const largePayload = makePng(800, 600, 200_000);
+
+    const smallTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: smallPayload },
+      },
+      { providerName: "anthropic" },
+    );
+    const largeTokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: largePayload },
+      },
+      { providerName: "anthropic" },
+    );
+
+    // For Anthropic, same dimensions should produce the same estimate
+    expect(largeTokens).toBe(smallTokens);
   });
 });
