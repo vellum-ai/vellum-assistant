@@ -46,15 +46,6 @@ import os
         }
     }
 
-    /// Sends a manual problem report unconditionally, even when the user has
-    /// opted out of automatic crash reporting.  The SDK is temporarily started
-    /// with crash-handler and session-tracking disabled so only the explicit
-    /// event is sent during the window — no automatic captures occur.
-    /// All operations run on `sentrySerialQueue` to prevent races.
-    /// `completion` is called on `sentrySerialQueue` after the flush finishes
-    /// (or immediately if Sentry was already enabled and no flush is needed).
-    /// `nonisolated` so the Settings sheet can call it from a detached Task.
-
     /// Data for Sentry's User Feedback API, attached to the captured event.
     /// Sent via `SentrySDK.capture(userFeedback:)` so it appears in Sentry's
     /// "User Feedback" section linked to the event.
@@ -69,6 +60,14 @@ import os
     /// DSN for the assistant/brain Sentry project.
     static let brainDSN = "https://db2d38a082e4ee35eeaea08c44b376ec@o4504590528675840.ingest.us.sentry.io/4510874712276992"
 
+    /// Sends a manual problem report unconditionally, even when the user has
+    /// opted out of automatic crash reporting.  The SDK is temporarily started
+    /// with crash-handler and session-tracking disabled so only the explicit
+    /// event is sent during the window — no automatic captures occur.
+    /// All operations run on `sentrySerialQueue` to prevent races.
+    /// `completion` is called on `sentrySerialQueue` after the flush finishes
+    /// (or immediately if Sentry was already enabled and no flush is needed).
+    /// `nonisolated` so the Settings sheet can call it from a detached Task.
     nonisolated static func sendManualReport(
         _ event: Event,
         attachments: [Attachment] = [],
