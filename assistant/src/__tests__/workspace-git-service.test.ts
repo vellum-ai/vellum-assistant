@@ -8,7 +8,23 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ─── Trust decision mock (must be declared before the git-service import) ─────
+// Controls what getGitHooksTrustDecision returns in hook-trust policy tests.
+// Default is "ask" (fail-closed) which matches the existing suppression tests.
+let mockTrustDecision: "allow" | "deny" | "ask" = "ask";
+
+mock.module("../workspace/git-hooks-trust.js", () => ({
+  getGitHooksTrustDecision: (_workspaceDir: string) => mockTrustDecision,
+  setGitHooksTrustDecision: () => {},
+  detectConfiguredHooks: async () => ({
+    hookFiles: [],
+    hooksDir: "",
+    hasHooks: false,
+  }),
+  GIT_HOOKS_TRUST_PSEUDO_TOOL: "__internal:git-hooks-trust",
+}));
 
 import {
   _getConsecutiveFailures,
@@ -32,6 +48,9 @@ describe("WorkspaceGitService", () => {
     );
     mkdirSync(testDir, { recursive: true });
     _resetGitServiceRegistry();
+    // Reset trust decision to "ask" (fail-closed default) before each test so
+    // existing suppression tests continue to work correctly.
+    mockTrustDecision = "ask";
   });
 
   afterEach(() => {
@@ -1308,6 +1327,38 @@ describe("WorkspaceGitService", () => {
       }));
 
       expect(result.committed).toBe(true);
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    // ── Explicit trust-decision tests ──────────────────────────────────────
+
+    test('trust decision "allow" — commitChanges runs pre-commit hook', async () => {
+      mockTrustDecision = "allow";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "pre-commit-ran.marker");
+      installHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "file.txt"), "content");
+      await service.commitChanges("test: allow enables pre-commit hook");
+
+      expect(existsSync(sentinel)).toBe(true);
+    });
+
+    test('trust decision "deny" — commitChanges does not run pre-commit hook', async () => {
+      mockTrustDecision = "deny";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "pre-commit-ran.marker");
+      installHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "file.txt"), "content");
+      await service.commitChanges("test: deny suppresses pre-commit hook");
+
       expect(existsSync(sentinel)).toBe(false);
     });
   });
