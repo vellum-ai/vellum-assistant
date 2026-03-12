@@ -330,8 +330,8 @@ struct ChatView: View {
             currentMatchIndex = 0
             scrollToCurrentMatch()
         }
-        .onChange(of: messages.count) {
-            // Clamp currentMatchIndex when messages change (e.g. streaming, deletion)
+        .onChange(of: searchMatches.count) {
+            // Clamp currentMatchIndex when matches change (e.g. streaming, deletion)
             // to avoid "4 of 2" display or broken navigation.
             let count = searchMatches.count
             if currentMatchIndex >= count {
