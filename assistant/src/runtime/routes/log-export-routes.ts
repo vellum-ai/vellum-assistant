@@ -181,6 +181,38 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       config.twilio = twilio;
     }
 
+    // Strip MCP transport headers (SSE/streamable-http) and env vars (stdio)
+    if (config.mcp && typeof config.mcp === "object") {
+      const mcp = config.mcp as Record<string, unknown>;
+      if (mcp.servers && typeof mcp.servers === "object") {
+        const servers = mcp.servers as Record<string, unknown>;
+        for (const name of Object.keys(servers)) {
+          const server = servers[name];
+          if (server && typeof server === "object") {
+            const s = server as Record<string, unknown>;
+            if (s.transport && typeof s.transport === "object") {
+              const transport = s.transport as Record<string, unknown>;
+              if (transport.headers && typeof transport.headers === "object") {
+                const headers = transport.headers as Record<string, unknown>;
+                transport.headers = Object.fromEntries(
+                  Object.keys(headers).map((k) => [
+                    k,
+                    redactStringValue(headers[k]),
+                  ]),
+                );
+              }
+              if (transport.env && typeof transport.env === "object") {
+                const env = transport.env as Record<string, unknown>;
+                transport.env = Object.fromEntries(
+                  Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
     return config;
   } catch {
     return undefined;
