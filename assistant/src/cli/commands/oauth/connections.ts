@@ -1,11 +1,18 @@
 import type { Command } from "commander";
 
 import {
+  disconnectOAuthProvider,
   getConnection,
   getConnectionByProvider,
   listConnections,
 } from "../../../oauth/oauth-store.js";
+import { credentialKey } from "../../../security/credential-key.js";
+import { deleteSecureKeyAsync } from "../../../security/secure-keys.js";
 import { withValidToken } from "../../../security/token-manager.js";
+import {
+  assertMetadataWritable,
+  deleteCredentialMetadata,
+} from "../../../tools/credentials/metadata-store.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -174,6 +181,79 @@ Examples:
           writeOutput(cmd, { ok: true, token });
         } else {
           process.stdout.write(token + "\n");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // connections disconnect <provider-key>
+  // ---------------------------------------------------------------------------
+
+  connections
+    .command("disconnect <provider-key>")
+    .description(
+      "Disconnect an OAuth integration and remove all associated credentials",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider-key   The full provider key (e.g. integration:gmail, integration:slack)
+
+Removes the OAuth connection, tokens, and any legacy credential metadata for
+the provider. The <provider-key> argument is the full provider key as-is — it
+is not parsed through service:field splitting.
+
+Legacy credential keys for common fields (access_token, refresh_token,
+client_id, client_secret) are also cleaned up if present.
+
+Examples:
+  $ assistant oauth connections disconnect integration:gmail
+  $ assistant oauth connections disconnect integration:slack`,
+    )
+    .action(async (providerKey: string, _opts: unknown, cmd: Command) => {
+      try {
+        assertMetadataWritable();
+
+        let cleanedUp = false;
+
+        // 1. Disconnect the OAuth connection (new-format keys + connection row)
+        const oauthDisconnected = await disconnectOAuthProvider(providerKey);
+        if (oauthDisconnected) cleanedUp = true;
+
+        // 2. Clean up legacy credential keys for common fields
+        const legacyFields = [
+          "access_token",
+          "refresh_token",
+          "client_id",
+          "client_secret",
+        ];
+        for (const field of legacyFields) {
+          const key = credentialKey(providerKey, field);
+          const result = await deleteSecureKeyAsync(key);
+          if (result === "deleted") cleanedUp = true;
+
+          const metaDeleted = deleteCredentialMetadata(providerKey, field);
+          if (metaDeleted) cleanedUp = true;
+        }
+
+        if (!cleanedUp) {
+          writeOutput(cmd, {
+            ok: false,
+            error: `No OAuth connection or credentials found for "${providerKey}"`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        writeOutput(cmd, { ok: true, service: providerKey });
+
+        if (!shouldOutputJson(cmd)) {
+          log.info(`Disconnected ${providerKey}`);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

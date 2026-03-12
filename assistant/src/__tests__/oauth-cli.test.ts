@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { credentialKey } from "../security/credential-key.js";
+
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -10,6 +12,26 @@ let mockWithValidToken: <T>(
   service: string,
   cb: (token: string) => Promise<T>,
 ) => Promise<T>;
+
+// Disconnect mock state
+let secureKeyStore = new Map<string, string>();
+let metadataStore: Array<{
+  credentialId: string;
+  service: string;
+  field: string;
+  allowedTools: string[];
+  allowedDomains: string[];
+  createdAt: number;
+  updatedAt: number;
+}> = [];
+let disconnectOAuthProviderCalls: string[] = [];
+let disconnectOAuthProviderResult = false;
+let idCounter = 0;
+
+function nextUUID(): string {
+  idCounter += 1;
+  return `00000000-0000-0000-0000-${String(idCounter).padStart(12, "0")}`;
+}
 
 // ---------------------------------------------------------------------------
 // Mock token-manager
@@ -32,15 +54,56 @@ mock.module("../security/token-manager.js", () => ({
   },
 }));
 
+// ---------------------------------------------------------------------------
+// Mock oauth-store (stateful for disconnect tests)
+// ---------------------------------------------------------------------------
+
+mock.module("../oauth/oauth-store.js", () => ({
+  disconnectOAuthProvider: async (providerKey: string): Promise<boolean> => {
+    disconnectOAuthProviderCalls.push(providerKey);
+    return disconnectOAuthProviderResult;
+  },
+  getConnection: () => undefined,
+  getConnectionByProvider: () => undefined,
+  listConnections: () => [],
+  deleteConnection: () => false,
+  // Stubs required by apps.ts and providers.ts (transitively loaded via oauth/index.ts)
+  upsertApp: async () => ({}),
+  getApp: () => undefined,
+  getAppByProviderAndClientId: () => undefined,
+  getMostRecentAppByProvider: () => undefined,
+  listApps: () => [],
+  deleteApp: async () => false,
+  getProvider: () => undefined,
+  listProviders: () => [],
+  registerProvider: () => ({}),
+  seedProviders: () => {},
+  createConnection: () => ({}),
+  isProviderConnected: () => false,
+  updateConnection: () => ({}),
+}));
+
 // Stub out transitive dependencies that token-manager would normally pull in
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => undefined,
   setSecureKey: () => true,
   getSecureKeyAsync: async () => undefined,
   setSecureKeyAsync: async () => true,
-  deleteSecureKey: () => "not-found",
-  deleteSecureKeyAsync: async () => "not-found" as const,
-  listSecureKeys: () => [],
+  deleteSecureKey: (account: string) => {
+    if (secureKeyStore.has(account)) {
+      secureKeyStore.delete(account);
+      return "deleted" as const;
+    }
+    return "not-found" as const;
+  },
+  deleteSecureKeyAsync: async (account: string) => {
+    if (secureKeyStore.has(account)) {
+      secureKeyStore.delete(account);
+      return "deleted" as const;
+    }
+    return "not-found" as const;
+  },
+  listSecureKeys: () => [...secureKeyStore.keys()],
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,
   _resetBackend: () => {},
@@ -48,9 +111,18 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
+  assertMetadataWritable: () => {},
   getCredentialMetadata: () => undefined,
   upsertCredentialMetadata: () => ({}),
   listCredentialMetadata: () => [],
+  deleteCredentialMetadata: (service: string, field: string): boolean => {
+    const idx = metadataStore.findIndex(
+      (c) => c.service === service && c.field === field,
+    );
+    if (idx === -1) return false;
+    metadataStore.splice(idx, 1);
+    return true;
+  },
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -126,6 +198,11 @@ async function runCli(
 describe("assistant oauth connections token <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    secureKeyStore = new Map();
+    metadataStore = [];
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = false;
+    idCounter = 0;
   });
 
   test("prints bare token in human mode", async () => {
@@ -232,5 +309,136 @@ describe("assistant oauth connections token <provider-key>", () => {
   test("missing provider-key argument exits non-zero", async () => {
     const { exitCode } = await runCli(["connections", "token"]);
     expect(exitCode).not.toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// disconnect
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth connections disconnect <provider-key>", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    secureKeyStore = new Map();
+    metadataStore = [];
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = false;
+    idCounter = 0;
+  });
+
+  test("succeeds when an OAuth connection exists", async () => {
+    disconnectOAuthProviderResult = true;
+
+    const result = await runCli([
+      "connections",
+      "disconnect",
+      "integration:gmail",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.service).toBe("integration:gmail");
+
+    // disconnectOAuthProvider should have been called with the full provider key
+    expect(disconnectOAuthProviderCalls).toEqual(["integration:gmail"]);
+  });
+
+  test("reports not-found when nothing exists", async () => {
+    const result = await runCli([
+      "connections",
+      "disconnect",
+      "integration:gmail",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("No OAuth connection or credentials");
+    expect(parsed.error).toContain("integration:gmail");
+  });
+
+  test("cleans up legacy credential keys if present", async () => {
+    // Seed legacy credential keys (no OAuth connection)
+    const legacyFields = [
+      "access_token",
+      "refresh_token",
+      "client_id",
+      "client_secret",
+    ];
+    for (const field of legacyFields) {
+      secureKeyStore.set(
+        credentialKey("integration:gmail", field),
+        `legacy_${field}_value`,
+      );
+      metadataStore.push({
+        credentialId: nextUUID(),
+        service: "integration:gmail",
+        field,
+        allowedTools: [],
+        allowedDomains: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    }
+
+    const result = await runCli([
+      "connections",
+      "disconnect",
+      "integration:gmail",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.service).toBe("integration:gmail");
+
+    // All legacy keys should be removed
+    for (const field of legacyFields) {
+      expect(
+        secureKeyStore.has(credentialKey("integration:gmail", field)),
+      ).toBe(false);
+      expect(
+        metadataStore.find(
+          (m) => m.service === "integration:gmail" && m.field === field,
+        ),
+      ).toBeUndefined();
+    }
+  });
+
+  test("cleans up both OAuth connection and legacy keys when both exist", async () => {
+    // Seed OAuth connection
+    disconnectOAuthProviderResult = true;
+
+    // Seed a legacy credential key
+    secureKeyStore.set(
+      credentialKey("integration:gmail", "access_token"),
+      "legacy_token",
+    );
+    metadataStore.push({
+      credentialId: nextUUID(),
+      service: "integration:gmail",
+      field: "access_token",
+      allowedTools: [],
+      allowedDomains: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const result = await runCli([
+      "connections",
+      "disconnect",
+      "integration:gmail",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(true);
+
+    // Both should be cleaned up
+    expect(disconnectOAuthProviderCalls).toEqual(["integration:gmail"]);
+    expect(
+      secureKeyStore.has(credentialKey("integration:gmail", "access_token")),
+    ).toBe(false);
   });
 });
