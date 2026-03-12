@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "dev:proxy": "GATEWAY_RUNTIME_PROXY_ENABLED=true GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false bun run --watch src/index.ts",
+    "dev:proxy": "bun run src/cli/enable-proxy.ts && bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "schema": "bun run src/cli/schema.ts",
     "start": "bun run src/index.ts",

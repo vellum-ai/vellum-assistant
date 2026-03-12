@@ -4,7 +4,7 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 
 > **Note:** The `/v1/contacts` endpoints are served by the assistant runtime, not
 > the gateway. If you prefer to route through the gateway (`localhost:7830`), set
-> `GATEWAY_RUNTIME_PROXY_ENABLED=true` in the gateway environment — the proxy is
+> `"gateway": { "runtimeProxyEnabled": true }` in workspace config — the proxy is
 > disabled by default and these routes will 404 without it.
 
 ## Prerequisites

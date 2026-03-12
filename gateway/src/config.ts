@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { getLogger, type LogFileConfig } from "./logger.js";
+import { getRootDir } from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -29,6 +33,44 @@ type RoutingEntry = {
   assistantId: string;
 };
 
+/**
+ * Read the workspace config file at startup to populate gateway operational
+ * settings. The CLI writes these values before starting the gateway.
+ */
+function readWorkspaceConfig(): Record<string, unknown> {
+  try {
+    const configPath = join(getRootDir(), "workspace", "config.json");
+    if (!existsSync(configPath)) return {};
+    const raw = readFileSync(configPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+    return data as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function parseRoutingEntries(raw: unknown): RoutingEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const entries: RoutingEntry[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item === "object" &&
+      (item.type === "conversation_id" || item.type === "actor_id") &&
+      typeof item.key === "string" &&
+      typeof item.assistantId === "string"
+    ) {
+      entries.push({
+        type: item.type,
+        key: item.key,
+        assistantId: item.assistantId,
+      });
+    }
+  }
+  return entries;
+}
+
 export function loadConfig(): GatewayConfig {
   const portRaw = process.env.GATEWAY_PORT || "7830";
   const port = Number(portRaw);
@@ -45,6 +87,23 @@ export function loadConfig(): GatewayConfig {
 
   const gatewayInternalBaseUrl = `http://127.0.0.1:${port}`;
 
+  // Read operational settings from workspace config. The CLI writes these
+  // before spawning the gateway (see cli/src/lib/local.ts writeGatewayConfig).
+  const wsConfig = readWorkspaceConfig();
+  const gw = (wsConfig.gateway ?? {}) as Record<string, unknown>;
+
+  const runtimeProxyEnabled =
+    gw.runtimeProxyEnabled === true || gw.runtimeProxyEnabled === "true";
+  const runtimeProxyRequireAuth =
+    gw.runtimeProxyRequireAuth !== false &&
+    gw.runtimeProxyRequireAuth !== "false";
+  const unmappedPolicy = gw.unmappedPolicy === "default" ? "default" : "reject";
+  const defaultAssistantId =
+    typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
+      ? gw.defaultAssistantId
+      : undefined;
+  const routingEntries = parseRoutingEntries(gw.routingEntries);
+
   const logFile: LogFileConfig = {
     dir: undefined,
     retentionDays: 30,
@@ -54,12 +113,12 @@ export function loadConfig(): GatewayConfig {
     {
       assistantRuntimeBaseUrl,
       gatewayInternalBaseUrl,
-      routingEntryCount: 0,
-      unmappedPolicy: "reject",
-      hasDefaultAssistant: false,
+      routingEntryCount: routingEntries.length,
+      unmappedPolicy,
+      hasDefaultAssistant: !!defaultAssistantId,
       port,
-      runtimeProxyEnabled: false,
-      runtimeProxyRequireAuth: true,
+      runtimeProxyEnabled,
+      runtimeProxyRequireAuth,
       trustProxy: false,
     },
     "Configuration loaded",
@@ -67,21 +126,21 @@ export function loadConfig(): GatewayConfig {
 
   return {
     assistantRuntimeBaseUrl,
-    defaultAssistantId: undefined,
+    defaultAssistantId,
     gatewayInternalBaseUrl,
     logFile,
     maxAttachmentBytes: 20 * 1024 * 1024,
     maxAttachmentConcurrency: 3,
     maxWebhookPayloadBytes: 1024 * 1024,
     port,
-    routingEntries: [],
+    routingEntries,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyEnabled: false,
-    runtimeProxyRequireAuth: true,
+    runtimeProxyEnabled,
+    runtimeProxyRequireAuth,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "reject",
+    unmappedPolicy,
     trustProxy: false,
   };
 }

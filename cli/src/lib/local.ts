@@ -379,6 +379,79 @@ function normalizeIngressUrl(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+// ── Workspace config helpers ──
+
+function getWorkspaceConfigPath(instanceDir?: string): string {
+  const baseDataDir =
+    instanceDir ??
+    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
+  return join(baseDataDir, ".vellum", "workspace", "config.json");
+}
+
+function loadWorkspaceConfig(instanceDir?: string): Record<string, unknown> {
+  const configPath = getWorkspaceConfigPath(instanceDir);
+  try {
+    if (!existsSync(configPath)) return {};
+    return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return {};
+  }
+}
+
+function saveWorkspaceConfig(
+  config: Record<string, unknown>,
+  instanceDir?: string,
+): void {
+  const configPath = getWorkspaceConfigPath(instanceDir);
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+}
+
+/**
+ * Write gateway operational settings to the workspace config file so the
+ * gateway reads them at startup via its config.ts readWorkspaceConfig().
+ */
+function writeGatewayConfig(
+  instanceDir?: string,
+  opts?: {
+    runtimeProxyEnabled?: boolean;
+    runtimeProxyRequireAuth?: boolean;
+    unmappedPolicy?: "reject" | "default";
+    defaultAssistantId?: string;
+    routingEntries?: Array<{
+      type: "conversation_id" | "actor_id";
+      key: string;
+      assistantId: string;
+    }>;
+  },
+): void {
+  const config = loadWorkspaceConfig(instanceDir);
+  const gateway = (config.gateway ?? {}) as Record<string, unknown>;
+
+  if (opts?.runtimeProxyEnabled !== undefined) {
+    gateway.runtimeProxyEnabled = opts.runtimeProxyEnabled;
+  }
+  if (opts?.runtimeProxyRequireAuth !== undefined) {
+    gateway.runtimeProxyRequireAuth = opts.runtimeProxyRequireAuth;
+  }
+  if (opts?.unmappedPolicy !== undefined) {
+    gateway.unmappedPolicy = opts.unmappedPolicy;
+  }
+  if (opts?.defaultAssistantId !== undefined) {
+    gateway.defaultAssistantId = opts.defaultAssistantId;
+  }
+  if (opts?.routingEntries !== undefined) {
+    gateway.routingEntries = opts.routingEntries;
+  }
+
+  config.gateway = gateway;
+  saveWorkspaceConfig(config, instanceDir);
+}
+
 function readWorkspaceIngressPublicBaseUrl(
   instanceDir?: string,
 ): string | undefined {
@@ -766,6 +839,14 @@ export async function startGateway(
 
   const effectiveDaemonPort =
     resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
+
+  // Write gateway operational settings to workspace config before starting
+  // the gateway process. The gateway reads these at startup from config.json.
+  writeGatewayConfig(resources?.instanceDir, {
+    runtimeProxyEnabled: true,
+    unmappedPolicy: "default",
+    defaultAssistantId: assistantId ?? "self",
+  });
 
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),

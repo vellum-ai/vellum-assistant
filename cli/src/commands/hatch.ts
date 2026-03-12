@@ -133,13 +133,11 @@ ${timestampRedirect}
 trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > ${errorPath}; echo "Last 20 log lines:" >> ${errorPath}; tail -20 ${logPath} >> ${errorPath} 2>/dev/null || true; fi' EXIT
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
-GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
 ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
-GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 RUNTIME_HTTP_PORT=7821
 DOTENV_EOF
@@ -149,6 +147,11 @@ cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
 {
   "logFile": {
     "dir": "\$HOME/.vellum/workspace/data/logs"
+  },
+  "gateway": {
+    "runtimeProxyEnabled": true,
+    "unmappedPolicy": "default",
+    "defaultAssistantId": "self"
   }
 }
 CONFIG_EOF

@@ -251,12 +251,7 @@ export async function hatchDocker(
   ];
 
   // Pass through environment variables the assistant needs
-  for (const envVar of [
-    "ANTHROPIC_API_KEY",
-    "GATEWAY_RUNTIME_PROXY_ENABLED",
-    "RUNTIME_PROXY_BEARER_TOKEN",
-    "VELLUM_PLATFORM_URL",
-  ]) {
+  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
     if (process.env[envVar]) {
       runArgs.push("-e", `${envVar}=${process.env[envVar]}`);
     }
