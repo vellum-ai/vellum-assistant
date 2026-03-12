@@ -18,7 +18,11 @@ const testDir = join(
 const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
-const defaultsPath = join(testDir, "feature-flag-registry.json");
+
+// Place the test registry file adjacent to the gateway source so
+// getRegistryCandidates() finds it via the bundled-copy candidate.
+const gatewaySrcDir = join(import.meta.dirname, "..");
+const defaultsPath = join(gatewaySrcDir, "feature-flag-registry.json");
 
 const TEST_REGISTRY = {
   version: 1,
@@ -59,11 +63,9 @@ const TEST_REGISTRY = {
 };
 
 const savedBaseDataDir = process.env.BASE_DATA_DIR;
-const savedFeatureFlagDefaultsPath = process.env.FEATURE_FLAG_DEFAULTS_PATH;
 
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
-  process.env.FEATURE_FLAG_DEFAULTS_PATH = defaultsPath;
   mkdirSync(workspaceDir, { recursive: true });
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
   resetFeatureFlagDefaultsCache();
@@ -75,13 +77,14 @@ afterEach(() => {
   } else {
     process.env.BASE_DATA_DIR = savedBaseDataDir;
   }
-  if (savedFeatureFlagDefaultsPath === undefined) {
-    delete process.env.FEATURE_FLAG_DEFAULTS_PATH;
-  } else {
-    process.env.FEATURE_FLAG_DEFAULTS_PATH = savedFeatureFlagDefaultsPath;
-  }
   try {
     rmSync(testDir, { recursive: true, force: true });
+  } catch {
+    // best effort cleanup
+  }
+  // Clean up the test registry file placed next to gateway source
+  try {
+    rmSync(defaultsPath, { force: true });
   } catch {
     // best effort cleanup
   }
