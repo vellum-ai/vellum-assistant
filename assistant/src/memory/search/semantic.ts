@@ -154,27 +154,14 @@ export async function semanticSearch(
     for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
 
-  // For hybrid search (RRF fusion), Qdrant returns Reciprocal Rank Fusion
-  // scores (typically 0.01-0.033) which are incompatible with tier
-  // classification thresholds. Normalize relative to the batch maximum so the
-  // top result gets 1.0 and others are proportional.
-  // For dense-only search, scores are cosine similarities in [-1, 1] and
-  // mapCosineToUnit correctly maps them to [0, 1].
-  const maxRrfScore =
-    isHybrid && results.length > 0
-      ? Math.max(...results.map((r) => r.score))
-      : 0;
-
   const excludedSet =
     excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
 
   const candidates: Candidate[] = [];
   for (const result of results) {
     const { payload, score } = result;
-    const semantic =
-      isHybrid && maxRrfScore > 0
-        ? score / maxRrfScore
-        : mapCosineToUnit(score);
+    // Store raw score; hybrid RRF normalization happens after filtering
+    const semantic = isHybrid ? score : mapCosineToUnit(score);
     const createdAt = payload.created_at ?? Date.now();
 
     if (payload.target_type === "item") {
@@ -275,6 +262,19 @@ export async function semanticSearch(
     }
     if (candidates.length >= limit) break;
   }
+
+  // For hybrid search (RRF fusion), normalize semantic scores relative to
+  // the surviving candidates' maximum — not the raw Qdrant batch. Filtered-out
+  // high-scoring hits must not anchor normalization and deflate survivors.
+  if (isHybrid && candidates.length > 0) {
+    const maxScore = Math.max(...candidates.map((c) => c.semantic));
+    if (maxScore > 0) {
+      for (const c of candidates) {
+        c.semantic = c.semantic / maxScore;
+      }
+    }
+  }
+
   return candidates;
 }
 
