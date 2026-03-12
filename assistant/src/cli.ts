@@ -637,7 +637,7 @@ export async function startCli(): Promise<void> {
       case "memory_recalled":
         spinner.stop();
         process.stdout.write(
-          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | entity ${msg.entityHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.rerankApplied ? " (reranked)" : ""} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
+          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | tier1 ${msg.tier1Count} | tier2 ${msg.tier2Count} | merged ${msg.mergedCount} → selected ${msg.selectedCount} | hybrid ${msg.hybridSearchMs}ms | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
         );
         spinner.start("Thinking...");
         break;
