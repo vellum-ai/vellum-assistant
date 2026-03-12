@@ -528,6 +528,14 @@ export async function discoverPublicUrl(
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
 
+  // On cloud VMs, try the instance metadata service to discover the external
+  // IP. Uses a short timeout so non-cloud machines don't block.
+  const cloudIp = await discoverCloudExternalIp();
+  if (cloudIp) {
+    console.log(`   Discovered external IP: ${cloudIp}`);
+    return `http://${cloudIp}:${effectivePort}`;
+  }
+
   // Use the local LAN address.
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
@@ -547,6 +555,58 @@ export async function discoverPublicUrl(
 
   // Final fallback to localhost when no LAN address could be discovered.
   return `http://localhost:${effectivePort}`;
+}
+
+/**
+ * Attempt to discover the VM's external/public IP via cloud metadata services.
+ * Tries GCP and AWS IMDSv2 in parallel with a short timeout. Returns undefined
+ * on non-cloud machines (the metadata endpoint is unreachable).
+ */
+async function discoverCloudExternalIp(): Promise<string | undefined> {
+  const timeoutMs = 1000;
+
+  const gcpPromise = (async (): Promise<string | undefined> => {
+    try {
+      const resp = await fetch(
+        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+        {
+          headers: { "Metadata-Flavor": "Google" },
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      );
+      if (resp.ok) return (await resp.text()).trim() || undefined;
+    } catch {
+      // metadata service not reachable
+    }
+    return undefined;
+  })();
+
+  const awsPromise = (async (): Promise<string | undefined> => {
+    try {
+      const tokenResp = await fetch("http://169.254.169.254/latest/api/token", {
+        method: "PUT",
+        headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (tokenResp.ok) {
+        const token = await tokenResp.text();
+        const ipResp = await fetch(
+          "http://169.254.169.254/latest/meta-data/public-ipv4",
+          {
+            headers: { "X-aws-ec2-metadata-token": token },
+            signal: AbortSignal.timeout(timeoutMs),
+          },
+        );
+        if (ipResp.ok) return (await ipResp.text()).trim() || undefined;
+      }
+    } catch {
+      // metadata service not reachable
+    }
+    return undefined;
+  })();
+
+  const [gcpIp, awsIp] = await Promise.all([gcpPromise, awsPromise]);
+  return gcpIp ?? awsIp;
 }
 
 /**
