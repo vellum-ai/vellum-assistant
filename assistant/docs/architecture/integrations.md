@@ -250,7 +250,7 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 1. **Resolve service** — alias expansion via `resolveService()`.
 2. **Load behavior** — `getProviderBehavior()` from the registry; load protocol fields from the `oauth_providers` DB table.
 3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
-4. **Build OAuth config** — merge profile defaults with caller overrides.
+4. **Build OAuth config** — assemble protocol-level config from the DB provider row.
 5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
 6. **Verify identity** — runs the profile's `identityVerifier` if defined.
 7. **Store tokens** — `storeOAuth2Tokens()` persists access/refresh tokens, client credentials, and metadata.
