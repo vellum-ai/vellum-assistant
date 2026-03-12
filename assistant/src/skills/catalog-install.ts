@@ -328,7 +328,18 @@ export async function resolveCatalog(): Promise<CatalogSkill[]> {
   const repoSkillsDir = getRepoSkillsDir();
   if (repoSkillsDir) {
     const local = readLocalCatalog(repoSkillsDir);
-    if (local.length > 0) return local;
+    if (local.length > 0) {
+      // Merge with remote catalog so skills not in local catalog.json
+      // can still be found. Local entries take precedence by id.
+      try {
+        const remote = await fetchCatalog();
+        const localIds = new Set(local.map((s) => s.id));
+        return [...local, ...remote.filter((s) => !localIds.has(s.id))];
+      } catch {
+        // If remote fetch fails, fall back to local-only
+        return local;
+      }
+    }
   }
 
   return fetchCatalog();
