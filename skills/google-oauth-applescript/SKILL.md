@@ -29,7 +29,7 @@ Determine which path applies before taking action:
 
 # Path A: Collaborative Browser Setup (macOS Desktop App)
 
-You open pages via the `open` command (launches in the user's default browser — no Chrome dependency). The user does the clicking and form-filling. You tell them exactly what to look for and click at each step.
+You open pages in the user's default browser using the `/tmp/vellum-nav.sh` helper (see "Opening URLs" below). The user does the clicking and form-filling. You tell them exactly what to look for and click at each step.
 
 ## Path A Rules
 
@@ -55,7 +55,7 @@ host_bash:
     cat > /tmp/vellum-nav.sh << 'NAVSCRIPT'
     #!/bin/bash
     URL="$1"
-    BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h['LSHandlerRoleAll']) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
+    BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h.get('LSHandlerRoleAll','')) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
     case "$BROWSER" in
       com.google.chrome)
         osascript -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
@@ -434,7 +434,7 @@ When the user reports something doesn't look right, offer to take a screenshot t
 
 ## Guardrails
 
-- **No browser automation tools.** Path A uses `host_bash` + `open` for navigation. No `browser_*`, no CDP, no `computer_use_*` for navigation.
+- **No browser automation tools.** Path A uses `host_bash` + `/tmp/vellum-nav.sh` for navigation. No `browser_*`, no CDP, no `computer_use_*` for navigation.
 - **Browser-aware tab reuse.** Every URL navigation uses the self-contained detect-and-navigate snippet from the "Opening URLs" section. The assistant does not need to remember the browser — the snippet detects it each time. Falls back to `open` for unknown browsers or when no window exists. Use `pbcopy` for clipboard operations.
 - **Do not delete and recreate OAuth clients.** That orphans stored credentials.
 - **Do not leave the credential dialog early.** The Client Secret is shown only once.
