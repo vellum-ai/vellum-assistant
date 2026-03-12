@@ -5,21 +5,42 @@
  * Patterns are adapted from `cli/src/lib/http-client.ts` (external CLI).
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { getRuntimeHttpPort } from "../config/env.js";
-import { CLI_EDGE_TOKEN_STORE_KEY } from "../security/credential-key.js";
+import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
 import { getSecureKey } from "../security/secure-keys.js";
+import { getRootDir } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Token
 // ---------------------------------------------------------------------------
 
 /**
- * Read the HTTP bearer token from the encrypted credential store.
+ * Read the bootstrapped actor HTTP token from the encrypted credential store.
  * Returns undefined if the token has not been persisted yet.
  */
-export function readHttpToken(): string | undefined {
-  const token = getSecureKey(CLI_EDGE_TOKEN_STORE_KEY);
+export function readActorHttpToken(): string | undefined {
+  const token = getSecureKey(BOOTSTRAPPED_ACTOR_HTTP_TOKEN);
   return token || undefined;
+}
+
+/**
+ * Read the HTTP bearer token from `<rootDir>/http-token`.
+ * Returns undefined if the token file doesn't exist or is empty.
+ *
+ * @deprecated Use {@link readActorHttpToken} instead, which reads from the
+ * encrypted credential store rather than the flat file.
+ */
+export function readHttpToken(): string | undefined {
+  const tokenPath = join(getRootDir(), "http-token");
+  try {
+    const token = readFileSync(tokenPath, "utf-8").trim();
+    return token || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -46,7 +67,7 @@ export async function httpSend(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const token = readHttpToken();
+  const token = readActorHttpToken();
   const url = `${getHttpBaseUrl()}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

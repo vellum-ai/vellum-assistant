@@ -47,7 +47,7 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintCredentialPair } from "../runtime/auth/credential-service.js";
-import { CLI_EDGE_TOKEN_STORE_KEY } from "../security/credential-key.js";
+import { BOOTSTRAPPED_ACTOR_HTTP_TOKEN } from "../security/credential-key.js";
 import { setSecureKey } from "../security/secure-keys.js";
 import {
   initAuthSigningKey,
@@ -191,7 +191,7 @@ export async function runDaemon(): Promise<void> {
       // that in-process readers (built-in CLI, etc.) can retrieve it
       // without touching the filesystem.
       const stored = setSecureKey(
-        CLI_EDGE_TOKEN_STORE_KEY,
+        BOOTSTRAPPED_ACTOR_HTTP_TOKEN,
         credentials.accessToken,
       );
       if (!stored) {
