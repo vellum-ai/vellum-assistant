@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getLogger } from "../util/logger.js";
@@ -160,16 +160,35 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
 
     // Skip directories and empty names
     if (name && typeFlag !== 53 /* '5' */) {
-      // Prevent path traversal
-      const normalizedName = name.replace(/^\.\//, "");
-      if (!normalizedName.startsWith("..") && !normalizedName.includes("/..")) {
-        const destPath = join(destDir, normalizedName);
+      // Prevent path traversal and absolute path writes
+      const normalizedName = name.replace(/\\/g, "/").replace(/^\.\/+/, "");
+      const normalizedPath = posix.normalize(normalizedName);
+      const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
+      const isTraversal =
+        normalizedPath === ".." || normalizedPath.startsWith("../");
+
+      if (
+        normalizedPath &&
+        normalizedPath !== "." &&
+        !normalizedPath.startsWith("/") &&
+        !hasWindowsDrivePrefix &&
+        !isTraversal
+      ) {
+        const destRoot = resolve(destDir);
+        const destPath = resolve(destRoot, normalizedPath);
+        const insideDestination =
+          destPath === destRoot || destPath.startsWith(destRoot + sep);
+        if (!insideDestination) {
+          offset += Math.ceil(size / 512) * 512;
+          continue;
+        }
+
         mkdirSync(dirname(destPath), { recursive: true });
         writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
 
         if (
-          normalizedName === "SKILL.md" ||
-          normalizedName.endsWith("/SKILL.md")
+          normalizedPath === "SKILL.md" ||
+          normalizedPath.endsWith("/SKILL.md")
         ) {
           foundSkillMd = true;
         }
