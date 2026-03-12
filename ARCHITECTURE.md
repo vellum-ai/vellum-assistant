@@ -416,7 +416,7 @@ subgraph "Text Q&A Session"
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    %% replyCallbackUrl is built from gatewayInternalBaseUrl (hardcoded default, overridable via workspace config)
+    %% replyCallbackUrl is built from gatewayInternalBaseUrl (derived from GATEWAY_PORT)
     HTTP_RT -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
     GW_TG_DELIVER --> GW_REPLY
     GW_TG_DELIVER --> GW_ATTACH

@@ -291,7 +291,7 @@ docker run --rm -p 7830:7830 \
 
 The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
 
-The runtime base URL is resolved from hardcoded defaults. The gateway internal base URL is always derived from `GATEWAY_PORT` (default `7830`). When the runtime and gateway run in separate containers or hosts, set `GATEWAY_PORT` appropriately so the runtime can reach the gateway for callbacks (e.g., Telegram reply delivery).
+The runtime base URL is derived from `RUNTIME_HTTP_PORT` as `http://localhost:${RUNTIME_HTTP_PORT}` (default port `7821`). The gateway internal base URL is always derived from `GATEWAY_PORT` as `http://127.0.0.1:${GATEWAY_PORT}` (default `7830`). This Docker example assumes the gateway and runtime are co-located (e.g., via `--network host` or Docker Compose). When running in separate containers, `localhost` inside the gateway container will not reach the host runtime.
 
 ## Development
 
