@@ -195,6 +195,23 @@ export function getAppByProviderAndClientId(
     .get();
 }
 
+/**
+ * Get the most recently created app for a provider.
+ * Returns undefined if no app exists for this provider.
+ */
+export function getMostRecentAppByProvider(
+  providerKey: string,
+): OAuthAppRow | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(oauthApps)
+    .where(eq(oauthApps.providerKey, providerKey))
+    .orderBy(desc(oauthApps.createdAt))
+    .limit(1)
+    .get();
+}
+
 /** Delete an app by ID. Returns true if a row was deleted. */
 export function deleteApp(id: string): boolean {
   const db = getDb();

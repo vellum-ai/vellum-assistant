@@ -1,5 +1,6 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
+import { getMostRecentAppByProvider } from "../../oauth/oauth-store.js";
 import {
   getProviderProfile,
   resolveService,
@@ -780,13 +781,39 @@ class CredentialStoreTool implements Tool {
         // Fill missing params from provider profile
         const profile = getProviderProfile(service);
 
-        // Look up client_id from metadata and client_secret from secure store
-        const clientId =
-          (input.client_id as string | undefined) ??
-          findStoredOAuthClientId(service);
-        const clientSecret =
-          (input.client_secret as string | undefined) ??
-          findStoredOAuthSecret(service, "client_secret");
+        // Resolve client_id and client_secret.
+        // Priority:
+        //   1. Explicit input from the caller
+        //   2. oauth-store DB (most recent app for this provider)
+        //   3. Legacy metadata-store / secure key store
+        let clientId = input.client_id as string | undefined;
+        let clientSecret = input.client_secret as string | undefined;
+
+        if (!clientId || !clientSecret) {
+          // Try the oauth-store DB first
+          try {
+            const dbApp = getMostRecentAppByProvider(service);
+            if (dbApp) {
+              if (!clientId) clientId = dbApp.clientId;
+              if (!clientSecret) {
+                clientSecret = getSecureKey(
+                  `oauth_app/${dbApp.id}/client_secret`,
+                );
+              }
+            }
+          } catch (err) {
+            // DB may not be initialized yet — fall through to legacy lookup
+            log.debug(
+              { err, service },
+              "oauth-store lookup failed, falling back to metadata store",
+            );
+          }
+
+          // Fall back to legacy metadata-store / secure key store
+          if (!clientId) clientId = findStoredOAuthClientId(service);
+          if (!clientSecret)
+            clientSecret = findStoredOAuthSecret(service, "client_secret");
+        }
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;
