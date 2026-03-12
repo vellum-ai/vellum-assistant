@@ -31,6 +31,7 @@ import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationChat,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
+  listPendingRequestsByConversationScope,
   resolveCanonicalGuardianRequest,
   updateCanonicalGuardianDelivery,
   updateCanonicalGuardianRequest,
@@ -716,5 +717,44 @@ describe("canonical-guardian-store", () => {
       "different-chat-id",
     );
     expect(pending).toHaveLength(0);
+  });
+
+  // ── listPendingRequestsByConversationScope expiry filtering ─────────
+
+  test("listPendingRequestsByConversationScope excludes expired requests", () => {
+    // Create a pending request that has already expired
+    createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-scope-1",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: new Date(Date.now() - 10_000).toISOString(),
+    });
+
+    // Create a pending request that has not expired
+    const unexpired = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-scope-1",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const results = listPendingRequestsByConversationScope("conv-scope-1");
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(unexpired.id);
+  });
+
+  test("listPendingRequestsByConversationScope includes requests with no expiresAt", () => {
+    const noExpiry = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      conversationId: "conv-scope-2",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+
+    const results = listPendingRequestsByConversationScope("conv-scope-2");
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(noExpiry.id);
   });
 });

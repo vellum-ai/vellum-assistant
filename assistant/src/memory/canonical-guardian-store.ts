@@ -18,6 +18,21 @@ import {
 } from "./schema.js";
 
 // ---------------------------------------------------------------------------
+// Expiry helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when a canonical request has passed its `expiresAt` deadline.
+ * Requests without an `expiresAt` are never considered expired by this check.
+ */
+export function isRequestExpired(
+  request: Pick<CanonicalGuardianRequest, "expiresAt">,
+): boolean {
+  if (!request.expiresAt) return false;
+  return new Date(request.expiresAt).getTime() < Date.now();
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -624,14 +639,14 @@ export function listPendingRequestsByConversationScope(
   const result: CanonicalGuardianRequest[] = [];
 
   for (const req of bySource) {
-    if (!seen.has(req.id)) {
+    if (!seen.has(req.id) && !isRequestExpired(req)) {
       seen.add(req.id);
       result.push(req);
     }
   }
 
   for (const req of byDestination) {
-    if (!seen.has(req.id)) {
+    if (!seen.has(req.id) && !isRequestExpired(req)) {
       seen.add(req.id);
       result.push(req);
     }

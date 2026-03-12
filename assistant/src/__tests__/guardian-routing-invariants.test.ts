@@ -1427,3 +1427,96 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     expect(resolved!.status).toBe("approved");
   });
 });
+
+// ===========================================================================
+// SECTION 11: Expired requests are excluded from routing
+// ===========================================================================
+
+describe("routing invariant: expired requests are excluded from pending discovery", () => {
+  beforeEach(() => resetTables());
+
+  test("expired request with hinted IDs is excluded from disambiguation", async () => {
+    const expired = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "EXP001",
+      toolName: "shell",
+      expiresAt: new Date(Date.now() - 10_000).toISOString(),
+    });
+
+    const active = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "ACT001",
+      toolName: "file_write",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    registerPendingToolApprovalInteraction(active.id, "conv-1", "file_write");
+
+    // Both IDs are hinted but only the active one should be considered
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "approve",
+        conversationId: "conv-guardian-thread",
+        pendingRequestIds: [expired.id, active.id],
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    // Single active request — should apply directly, no disambiguation
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolvedActive = getCanonicalGuardianRequest(active.id);
+    expect(resolvedActive!.status).toBe("approved");
+
+    // Expired request untouched
+    const resolvedExpired = getCanonicalGuardianRequest(expired.id);
+    expect(resolvedExpired!.status).toBe("pending");
+  });
+
+  test("all expired hinted requests means no pending found — not consumed", async () => {
+    const expired1 = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "EXP002",
+      toolName: "shell",
+      expiresAt: new Date(Date.now() - 10_000).toISOString(),
+    });
+
+    const expired2 = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "EXP003",
+      toolName: "file_write",
+      expiresAt: new Date(Date.now() - 5_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "approve",
+        conversationId: "conv-guardian-thread",
+        pendingRequestIds: [expired1.id, expired2.id],
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    // No active pending requests — falls through
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe("not_consumed");
+    expect(result.decisionApplied).toBe(false);
+  });
+});
