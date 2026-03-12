@@ -142,7 +142,7 @@ describe("ComputerUseSession lifecycle", () => {
     expect(session.getState()).toBe("error");
   });
 
-  test("CU session passes exactly 10 computer_use_* tools to the agent loop", async () => {
+  test("CU session passes exactly 11 computer_use_* tools to the agent loop", async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
       name: "mock",
@@ -181,10 +181,11 @@ describe("ComputerUseSession lifecycle", () => {
     });
 
     const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
-    expect(cuTools).toHaveLength(10);
+    expect(cuTools).toHaveLength(11);
 
     // Assert exact set of expected CU tool names
     const expectedCuTools = [
+      "computer_use_observe",
       "computer_use_click",
       "computer_use_type_text",
       "computer_use_key",
@@ -250,7 +251,7 @@ describe("ComputerUseSession lifecycle", () => {
     expect(completes[0].isResponse).toBe(true);
   });
 
-  test("default construction preactivates computer-use skill and provides 10 CU tools", async () => {
+  test("default construction preactivates computer-use skill and provides 11 CU tools", async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
       name: "mock",
@@ -291,7 +292,7 @@ describe("ComputerUseSession lifecycle", () => {
     });
 
     const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
-    expect(cuTools).toHaveLength(10);
+    expect(cuTools).toHaveLength(11);
   });
 
   test("constructor accepts preactivatedSkillIds parameter", () => {
