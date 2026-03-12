@@ -1,6 +1,10 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
-import { getMostRecentAppByProvider } from "../../oauth/oauth-store.js";
+import {
+  getMostRecentAppByProvider,
+  getProvider,
+  seedProviders,
+} from "../../oauth/oauth-store.js";
 import {
   getProviderProfile,
   resolveService,
@@ -741,6 +745,7 @@ class CredentialStoreTool implements Tool {
         // Priority:
         //   1. Explicit input from the caller
         //   2. oauth-store DB (most recent app for this provider)
+        //   3. Credential metadata fallback (pre-migration credentials)
         let clientId = input.client_id as string | undefined;
         let clientSecret = input.client_secret as string | undefined;
 
@@ -754,6 +759,22 @@ class CredentialStoreTool implements Tool {
               );
             }
           }
+        }
+
+        // Credential metadata fallback — pre-migration credentials store
+        // oauth2ClientId in metadata and client_secret in the secure store
+        // under the credential key path.
+        if (!clientId) {
+          const meta = getCredentialMetadata(service, "access_token");
+          if (meta?.oauth2ClientId) {
+            clientId = meta.oauth2ClientId as string;
+          }
+        }
+        if (!clientSecret) {
+          const storedSecret = getSecureKey(
+            credentialKey(service, "client_secret"),
+          );
+          if (storedSecret) clientSecret = storedSecret;
         }
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
@@ -818,6 +839,31 @@ class CredentialStoreTool implements Tool {
           (input.token_endpoint_auth_method as
             | TokenEndpointAuthMethod
             | undefined) ?? profile?.tokenEndpointAuthMethod;
+
+        // Ensure custom providers have a DB row so the orchestrator can
+        // resolve callback transport and scope policy. Uses INSERT OR IGNORE
+        // so existing rows are never overwritten.
+        if (!profile && authUrl && tokenUrl) {
+          const existingProvider = getProvider(service);
+          if (!existingProvider) {
+            try {
+              seedProviders([
+                {
+                  providerKey: service,
+                  authUrl,
+                  tokenUrl,
+                  defaultScopes: inputScopes ?? [],
+                  scopePolicy: {},
+                },
+              ]);
+            } catch (err) {
+              log.warn(
+                { err, service },
+                "Failed to register custom OAuth provider",
+              );
+            }
+          }
+        }
 
         // Delegate to the shared orchestrator.
         // For profile-based providers, pass user scopes as requestedScopes so the

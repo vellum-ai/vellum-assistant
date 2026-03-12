@@ -23,7 +23,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import {
   createConnection,
   deleteApp,
@@ -64,6 +64,9 @@ function createTestApp(providerKey = "github", clientId = "client-1") {
 beforeEach(() => {
   resetDb();
   initializeDb();
+  // Explicitly clear all OAuth tables to prevent cross-test state pollution.
+  // Delete in FK-dependency order: connections → apps → providers.
+  resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
 });
 
 afterAll(() => {

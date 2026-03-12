@@ -46,6 +46,21 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock platform to redirect SQLite DB to the temp dir
+// ---------------------------------------------------------------------------
+
+mock.module("../util/platform.js", () => ({
+  getDataDir: () => TEST_DIR,
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getPidPath: () => join(TEST_DIR, "test.pid"),
+  getDbPath: () => join(TEST_DIR, "test.db"),
+  getLogPath: () => join(TEST_DIR, "test.log"),
+  ensureDataDir: () => {},
+}));
+
+// ---------------------------------------------------------------------------
 // Mock OAuth2 token refresh for token-manager deduplication tests
 // ---------------------------------------------------------------------------
 
@@ -71,6 +86,12 @@ mock.module("../security/oauth2.js", () => {
 
 // getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
 
+import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import {
+  createConnection,
+  seedProviders,
+  upsertApp,
+} from "../oauth/oauth-store.js";
 import { credentialKey } from "../security/credential-key.js";
 import {
   deleteSecureKey,
@@ -1160,11 +1181,14 @@ describe("credential_store tool", () => {
 describe("withValidToken refresh deduplication", () => {
   beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+    initializeDb();
   });
 
   beforeEach(() => {
     _resetBackend();
+    // Clean up files but NOT the DB file (managed by resetDb/initializeDb)
     for (const entry of readdirSync(TEST_DIR)) {
+      if (entry.startsWith("test.db")) continue; // preserve DB files
       rmSync(join(TEST_DIR, entry), { recursive: true, force: true });
     }
     _setStorePath(STORE_PATH);
@@ -1172,6 +1196,8 @@ describe("withValidToken refresh deduplication", () => {
     _resetRefreshBreakers();
     _resetInflightRefreshes();
     mockRefreshOAuth2Token.mockClear();
+    // Clear OAuth tables for test isolation
+    resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
   });
 
   afterEach(() => {
@@ -1183,18 +1209,51 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   afterAll(() => {
+    resetDb();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
   /**
    * Helper: set up a service with an access token, refresh token, and OAuth2
    * metadata so that token refresh can proceed through doRefresh().
+   *
+   * Seeds the oauth-store (provider → app → connection) and stores secrets
+   * in the new-format paths so that resolveRefreshConfig() in token-manager
+   * can find everything it needs.
    */
   function setupService(
     service: string,
     opts?: { expired?: boolean; accessToken?: string },
   ) {
     const accessToken = opts?.accessToken ?? "old-access-token";
+
+    // Seed the oauth-store: provider → app → connection
+    seedProviders([
+      {
+        providerKey: service,
+        authUrl: "https://oauth.example.com/authorize",
+        tokenUrl: "https://oauth.example.com/token",
+        defaultScopes: ["read"],
+        scopePolicy: {},
+      },
+    ]);
+    const app = upsertApp(service, "test-client-id");
+    const conn = createConnection({
+      oauthAppId: app.id,
+      providerKey: service,
+      grantedScopes: ["read"],
+      hasRefreshToken: true,
+    });
+
+    // Store secrets in new-format paths (used by token-manager)
+    setSecureKey(`oauth_app/${app.id}/client_secret`, "test-client-secret");
+    setSecureKey(`oauth_connection/${conn.id}/access_token`, accessToken);
+    setSecureKey(
+      `oauth_connection/${conn.id}/refresh_token`,
+      "valid-refresh-token",
+    );
+
+    // Also store in legacy paths (used by withValidToken for initial token read)
     setSecureKey(credentialKey(service, "access_token"), accessToken);
     setSecureKey(
       credentialKey(service, "refresh_token"),

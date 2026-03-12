@@ -45,9 +45,54 @@ mock.module("../tools/registry.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock OAuth2 flow to avoid starting real HTTP servers
+// ---------------------------------------------------------------------------
+
+mock.module("../security/oauth2.js", () => ({
+  prepareOAuth2Flow: () => ({
+    authUrl: "https://accounts.google.com/o/oauth2/auth?mock=true",
+    state: "test-state",
+    completion: new Promise(() => {}), // never resolves — fire-and-forget in deferred path
+  }),
+  startOAuth2Flow: () => {
+    throw new Error("startOAuth2Flow should not be called in these tests");
+  },
+  refreshOAuth2Token: () =>
+    Promise.resolve({ accessToken: "new-token", expiresIn: 3600 }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock platform to redirect SQLite DB to the temp dir
+// ---------------------------------------------------------------------------
+
+mock.module("../util/platform.js", () => ({
+  getDataDir: () => TEST_DIR,
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getPidPath: () => join(TEST_DIR, "test.pid"),
+  getDbPath: () => join(TEST_DIR, "test.db"),
+  getLogPath: () => join(TEST_DIR, "test.log"),
+  ensureDataDir: () => {},
+}));
+
+// ---------------------------------------------------------------------------
+// Mock public ingress URL — not available in unit tests. The connect
+// orchestrator dynamically imports this for non-interactive flows.
+// ---------------------------------------------------------------------------
+
+mock.module("../inbound/public-ingress-urls.js", () => ({
+  getPublicBaseUrl: () => {
+    throw new Error("No public ingress URL configured");
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Imports under test
 // ---------------------------------------------------------------------------
 
+import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { seedProviders } from "../oauth/oauth-store.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { CredentialBroker } from "../tools/credentials/broker.js";
@@ -65,7 +110,12 @@ const _ctx: ToolContext = {
   trustClass: "guardian",
 };
 
+// Initialize the DB once — tests that need a clean slate use resetTestTables.
+mkdirSync(TEST_DIR, { recursive: true });
+initializeDb();
+
 afterAll(() => {
+  resetDb();
   mock.restore();
   if (existsSync(TEST_DIR)) {
     rmSync(TEST_DIR, { recursive: true });
@@ -474,11 +524,36 @@ describe("credential_store tool — prompt action", () => {
 
 describe("credential_store tool — oauth2_connect error paths", () => {
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    // Re-create TEST_DIR and DB — earlier describe blocks may have deleted
+    // the entire directory (including the SQLite file).
+    if (existsSync(STORE_PATH)) rmSync(STORE_PATH, { force: true });
     mkdirSync(TEST_DIR, { recursive: true });
+    resetDb();
+    initializeDb();
     _setStorePath(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
+    // Clear OAuth tables for test isolation, then seed well-known providers
+    // so the orchestrator can resolve them.
+    resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");
+    seedProviders([
+      {
+        providerKey: "integration:gmail",
+        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        tokenUrl: "https://oauth2.googleapis.com/token",
+        defaultScopes: ["https://mail.google.com/"],
+        scopePolicy: {},
+        callbackTransport: "loopback",
+        loopbackPort: 8756,
+      },
+      {
+        providerKey: "integration:slack",
+        authUrl: "https://slack.com/oauth/v2/authorize",
+        tokenUrl: "https://slack.com/api/oauth.v2.access",
+        defaultScopes: ["channels:read"],
+        scopePolicy: {},
+      },
+    ]);
   });
 
   afterEach(() => {
