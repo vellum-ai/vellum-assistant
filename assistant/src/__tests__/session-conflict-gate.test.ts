@@ -77,6 +77,7 @@ mock.module("../workspace/turn-commit.js", () => ({
 mock.module("../workspace/git-service.js", () => ({
   getWorkspaceGitService: () => ({
     ensureInitialized: async () => {},
+    commitIfDirty: async () => ({ committed: false }),
   }),
 }));
 
@@ -137,6 +138,13 @@ mock.module("../config/loader.js", () => ({
       },
       entity: {
         enabled: false,
+      },
+      qdrant: {
+        url: "http://127.0.0.1:6333",
+        collection: "memory",
+        vectorSize: 384,
+        onDisk: true,
+        quantization: "scalar",
       },
       conflicts: {
         enabled: true,
@@ -520,48 +528,10 @@ describe("Session conflict soft gate (non-interruptive)", () => {
     );
   });
 
-  test("topically relevant explicit clarification reply resolves conflict", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-resolve",
-        scopeId: "default",
-        existingItemId: "existing-resolve",
-        candidateItemId: "candidate-resolve",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Should I assume Postgres or MySQL?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use Postgres as the default database.",
-        candidateStatement: "Use MySQL as the default database.",
-        existingKind: "preference",
-        candidateKind: "preference",
-        existingVerificationState: "user_reported",
-        candidateVerificationState: "user_reported",
-      },
-    ];
-
-    resolverResult = {
-      resolution: "keep_candidate",
-      strategy: "heuristic",
-      resolvedStatement: null,
-      explanation: "User prefers MySQL.",
-    };
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    // "use MySQL for our database" is a clarification reply (action cue "use")
-    // with topical relevance to the conflict statements.
-    await session.processMessage("use MySQL for our database", [], () => {});
-
-    expect(resolverCallCount).toBe(1);
-    // Agent loop still runs — no blocking
-    expect(runCalls).toHaveLength(1);
-  });
+  // NOTE: "topically relevant explicit clarification reply resolves conflict"
+  // was removed — the ConflictGate is no longer wired into the session pipeline
+  // (removed in the V2 memory rewrite). The equivalent behavior is covered by
+  // the "ConflictGate (unit)" tests below that call gate.evaluate() directly.
 
   test("non-clarification message does not attempt resolution", async () => {
     pendingConflicts = [
@@ -631,47 +601,9 @@ describe("Session conflict soft gate (non-interruptive)", () => {
     expect(runCalls).toHaveLength(1);
   });
 
-  test("passes session scopeId through to conflict store queries", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-scoped",
-        scopeId: "thread:private-abc",
-        existingItemId: "existing-scoped",
-        candidateItemId: "candidate-scoped",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Do you prefer tabs or spaces?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use tabs for indentation.",
-        candidateStatement: "Use spaces for indentation.",
-        existingKind: "preference",
-        candidateKind: "preference",
-        existingVerificationState: "user_reported",
-        candidateVerificationState: "user_reported",
-      },
-    ];
-
-    const session = makeSession({
-      scopeId: "thread:private-abc",
-      includeDefaultFallback: false,
-      strictSideEffects: true,
-    });
-    await session.loadFromDb();
-
-    await session.processMessage("should we use tabs or spaces for indentation?", [], () => {});
-
-    // Every call to listPendingConflictDetails should use the session's scopeId
-    expect(conflictScopeCalls.length).toBeGreaterThan(0);
-    expect(conflictScopeCalls.every((s) => s === "thread:private-abc")).toBe(
-      true,
-    );
-    // No calls should have used the hardcoded 'default'
-    expect(conflictScopeCalls).not.toContain("default");
-  });
+  // NOTE: "passes session scopeId through to conflict store queries"
+  // was removed — the ConflictGate is no longer wired into the session pipeline
+  // (removed in the V2 memory rewrite). Scope passing is covered by the unit tests.
 
   test('default session uses "default" scopeId for conflict queries', async () => {
     pendingConflicts = [];
@@ -725,145 +657,17 @@ describe("Session conflict soft gate (non-interruptive)", () => {
     expect(resolverCallCount).toBe(0);
   });
 
-  test("pending transient conflict is dismissed and not resolved", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-transient",
-        scopeId: "default",
-        existingItemId: "existing-transient",
-        candidateItemId: "candidate-transient",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Which PR should we track?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Track PR #5526 for review.",
-        candidateStatement: "Track PR #5525 for review.",
-        existingKind: "instruction",
-        candidateKind: "instruction",
-        existingVerificationState: "user_reported",
-        candidateVerificationState: "user_reported",
-      },
-    ];
+  // NOTE: "pending transient conflict is dismissed and not resolved"
+  // was removed — the ConflictGate is no longer wired into the session pipeline
+  // (removed in the V2 memory rewrite). Dismissal logic is covered by unit tests.
 
-    const session = makeSession();
-    await session.loadFromDb();
+  // NOTE: "incoherent conflict (zero statement overlap) is dismissed"
+  // was removed — the ConflictGate is no longer wired into the session pipeline
+  // (removed in the V2 memory rewrite). Incoherence dismissal is covered by unit tests.
 
-    const events: ServerMessage[] = [];
-    await session.processMessage("Check the latest PRs for review", [], (event) =>
-      events.push(event),
-    );
-
-    // Should run normal agent loop
-    expect(runCalls).toHaveLength(1);
-    // The conflict should have been dismissed
-    expect(resolveConflictCalls).toEqual([
-      {
-        id: "conflict-transient",
-        input: {
-          status: "dismissed",
-          resolutionNote:
-            "Dismissed by conflict policy (transient/non-durable).",
-        },
-      },
-    ]);
-  });
-
-  test("incoherent conflict (zero statement overlap) is dismissed", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-incoherent",
-        scopeId: "default",
-        existingItemId: "existing-incoherent",
-        candidateItemId: "candidate-incoherent",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion:
-          'I have conflicting notes: "The default model for the summarize CLI is google/gemini-3-flash-preview" vs "User\'s favorite color is blue." Which one is correct?',
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement:
-          "The default model for the summarize CLI is google/gemini-3-flash-preview.",
-        candidateStatement: "User's favorite color is blue.",
-        existingKind: "preference",
-        candidateKind: "preference",
-        existingVerificationState: "user_reported",
-        candidateVerificationState: "user_reported",
-      },
-    ];
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    const events: ServerMessage[] = [];
-    await session.processMessage("my favorite color is white", [], (event) =>
-      events.push(event),
-    );
-
-    // Should run normal agent loop
-    expect(runCalls).toHaveLength(1);
-    // The conflict should have been dismissed as incoherent
-    expect(resolveConflictCalls).toEqual([
-      {
-        id: "conflict-incoherent",
-        input: {
-          status: "dismissed",
-          resolutionNote:
-            "Dismissed by conflict policy (incoherent — zero statement overlap).",
-        },
-      },
-    ]);
-  });
-
-  test("non-user-evidenced conflict (assistant-inferred only) is dismissed", async () => {
-    pendingConflicts = [
-      {
-        id: "conflict-no-user-evidence",
-        scopeId: "default",
-        existingItemId: "existing-inferred",
-        candidateItemId: "candidate-inferred",
-        relationship: "ambiguous_contradiction",
-        status: "pending_clarification",
-        clarificationQuestion: "Do you want React or Vue?",
-        resolutionNote: null,
-        lastAskedAt: null,
-        resolvedAt: null,
-        createdAt: 1,
-        updatedAt: 1,
-        existingStatement: "Use React for frontend work.",
-        candidateStatement: "Use Vue for frontend work.",
-        existingKind: "preference",
-        candidateKind: "preference",
-        existingVerificationState: "assistant_inferred",
-        candidateVerificationState: "assistant_inferred",
-      },
-    ];
-
-    const session = makeSession();
-    await session.loadFromDb();
-
-    await session.processMessage("Should I use React or Vue?", [], () => {});
-
-    // Agent loop runs normally
-    expect(runCalls).toHaveLength(1);
-    // Conflict is dismissed because neither side has user-evidenced provenance
-    expect(resolveConflictCalls).toEqual([
-      {
-        id: "conflict-no-user-evidence",
-        input: {
-          status: "dismissed",
-          resolutionNote:
-            "Dismissed by conflict policy (no user-evidenced provenance).",
-        },
-      },
-    ]);
-  });
+  // NOTE: "non-user-evidenced conflict (assistant-inferred only) is dismissed"
+  // was removed — the ConflictGate is no longer wired into the session pipeline
+  // (removed in the V2 memory rewrite). Provenance dismissal is covered by unit tests.
 
   test("user-evidenced conflict is not dismissed when one side has user provenance", async () => {
     pendingConflicts = [
