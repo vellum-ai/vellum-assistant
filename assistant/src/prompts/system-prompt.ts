@@ -848,7 +848,7 @@ export function buildCliReferenceSection(): string {
     "The `assistant` CLI is installed on the user's machine and available via `bash`.",
     "For account and authentication work, prefer real `assistant` CLI workflows over any legacy account-record abstraction.",
     "- Use `assistant credentials ...` for stored secrets and credential metadata.",
-    "- Use `assistant oauth token <service>` for connected integration tokens.",
+    "- Use `assistant oauth connections token <service>` for connected integration tokens.",
     "- Use `assistant mcp auth <name>` when an MCP server needs OAuth login.",
     "- Use `assistant platform status` for platform-linked deployment and auth context.",
     "- If a bundled skill documents a service-specific `assistant <service>` auth or session flow, follow that CLI exactly.",

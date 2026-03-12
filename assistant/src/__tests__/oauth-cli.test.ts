@@ -117,19 +117,28 @@ async function runCli(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("assistant oauth token", () => {
+describe("assistant oauth connections token", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
   });
 
   test("prints bare token in human mode", async () => {
-    const { exitCode, stdout } = await runCli(["token", "twitter"]);
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "token",
+      "twitter",
+    ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("mock-access-token-xyz\n");
   });
 
   test("prints JSON in --json mode", async () => {
-    const { exitCode, stdout } = await runCli(["token", "twitter", "--json"]);
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "token",
+      "twitter",
+      "--json",
+    ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed).toEqual({ ok: true, token: "mock-access-token-xyz" });
@@ -142,7 +151,7 @@ describe("assistant oauth token", () => {
       return cb("tok");
     };
 
-    await runCli(["token", "twitter"]);
+    await runCli(["connections", "token", "twitter"]);
     expect(capturedService).toBe("integration:twitter");
   });
 
@@ -153,7 +162,11 @@ describe("assistant oauth token", () => {
       return cb("gmail-token");
     };
 
-    const { exitCode, stdout } = await runCli(["token", "gmail"]);
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "token",
+      "gmail",
+    ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("gmail-token\n");
     expect(capturedService).toBe("integration:gmail");
@@ -166,7 +179,12 @@ describe("assistant oauth token", () => {
       );
     };
 
-    const { exitCode, stdout } = await runCli(["token", "twitter", "--json"]);
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "token",
+      "twitter",
+      "--json",
+    ]);
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
@@ -180,7 +198,12 @@ describe("assistant oauth token", () => {
       );
     };
 
-    const { exitCode, stdout } = await runCli(["token", "twitter", "--json"]);
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "token",
+      "twitter",
+      "--json",
+    ]);
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
@@ -191,13 +214,17 @@ describe("assistant oauth token", () => {
     // Simulate withValidToken refreshing and returning a new token
     mockWithValidToken = async (_service, cb) => cb("refreshed-new-token");
 
-    const { exitCode, stdout } = await runCli(["token", "twitter"]);
+    const { exitCode, stdout } = await runCli([
+      "connections",
+      "token",
+      "twitter",
+    ]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("refreshed-new-token\n");
   });
 
   test("missing service argument exits non-zero", async () => {
-    const { exitCode } = await runCli(["token"]);
+    const { exitCode } = await runCli(["connections", "token"]);
     expect(exitCode).not.toBe(0);
   });
 });
