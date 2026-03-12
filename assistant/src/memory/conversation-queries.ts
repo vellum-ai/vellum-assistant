@@ -174,7 +174,9 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
       Array.isArray(parsed) &&
       parsed.length > 0 &&
       parsed.every(
-        (block: Record<string, unknown>) => block.type === "tool_result",
+        (block: Record<string, unknown>) =>
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result",
       )
     ) {
       return true;
