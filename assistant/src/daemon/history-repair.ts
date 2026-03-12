@@ -22,6 +22,11 @@ export interface RepairResult {
 const SYNTHETIC_RESULT =
   "<synthesized_result>tool result missing from history</synthesized_result>";
 
+const SYNTHETIC_WEB_SEARCH_ERROR = {
+  type: "web_search_tool_result_error",
+  error_code: "unavailable",
+};
+
 export function repairHistory(messages: Message[]): RepairResult {
   const stats: RepairStats = {
     assistantToolResultsMigrated: 0,
@@ -109,7 +114,9 @@ export function repairHistory(messages: Message[]): RepairResult {
             block.type === "web_search_tool_result"
           ) {
             const tr = block as ToolResultContent | WebSearchToolResultContent;
-            if (pendingToolUseIds.has(tr.tool_use_id)) {
+            const isTypeMatch = pendingToolUseIds.has(tr.tool_use_id) &&
+              (block.type === "web_search_tool_result") === serverToolUseIds.has(tr.tool_use_id);
+            if (isTypeMatch) {
               matchedIds.add(tr.tool_use_id);
               newContent.push(block);
             } else {
@@ -134,7 +141,7 @@ export function repairHistory(messages: Message[]): RepairResult {
                 newContent.push({
                   type: "web_search_tool_result",
                   tool_use_id: id,
-                  content: [],
+                  content: SYNTHETIC_WEB_SEARCH_ERROR,
                 });
               } else {
                 newContent.push({
@@ -223,7 +230,7 @@ function buildResultMessage(
         return {
           type: "web_search_tool_result" as const,
           tool_use_id: id,
-          content: [],
+          content: SYNTHETIC_WEB_SEARCH_ERROR,
         };
       }
       return {

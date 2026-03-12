@@ -498,6 +498,7 @@ describe("repairHistory", () => {
     expect(wsBlocks[0]).toMatchObject({
       type: "web_search_tool_result",
       tool_use_id: "stu_1",
+      content: { type: "web_search_tool_result_error", error_code: "unavailable" },
     });
   });
 
@@ -571,6 +572,94 @@ describe("repairHistory", () => {
     expect(repaired[2].content[0]).toMatchObject({
       type: "web_search_tool_result",
       tool_use_id: "stu_1",
+      content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+    });
+  });
+
+  test("downgrades type-mismatched tool_result for server_tool_use", () => {
+    // A tool_result paired with a server_tool_use ID is a type mismatch —
+    // the provider requires web_search_tool_result for server_tool_use
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Search" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "stu_1",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "stu_1", content: "wrong type" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    // The mismatched tool_result should be downgraded and a synthetic web_search_tool_result inserted
+    expect(stats.orphanToolResultsDowngraded).toBe(1);
+    expect(stats.missingToolResultsInserted).toBe(1);
+
+    const userMsg = repaired[2];
+    const wsBlocks = userMsg.content.filter(
+      (b) => b.type === "web_search_tool_result",
+    );
+    expect(wsBlocks).toHaveLength(1);
+    expect(wsBlocks[0]).toMatchObject({
+      type: "web_search_tool_result",
+      tool_use_id: "stu_1",
+      content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+    });
+  });
+
+  test("downgrades type-mismatched web_search_tool_result for tool_use", () => {
+    // A web_search_tool_result paired with a regular tool_use ID is a type mismatch
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "tu_1",
+            content: [{ type: "web_search_result", url: "https://example.com" }],
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.orphanToolResultsDowngraded).toBe(1);
+    expect(stats.missingToolResultsInserted).toBe(1);
+
+    const userMsg = repaired[2];
+    const trBlocks = userMsg.content.filter((b) => b.type === "tool_result");
+    expect(trBlocks).toHaveLength(1);
+    expect(trBlocks[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_1",
+      is_error: true,
     });
   });
 });
