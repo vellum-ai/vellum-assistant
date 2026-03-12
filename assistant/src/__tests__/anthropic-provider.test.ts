@@ -666,6 +666,162 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).toBe(true);
   });
 
+  // -----------------------------------------------------------------------
+  // ensureToolPairing — server_tool_use / web_search_tool_result pairing
+  // -----------------------------------------------------------------------
+
+  test("server_tool_use with missing web_search_tool_result gets synthetic result injected", async () => {
+    const messages: Message[] = [
+      userMsg("Search for something"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_abc123",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+      userMsg("Thanks"), // user text but no web_search_tool_result
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+        content?: unknown;
+      }>;
+    }>;
+
+    // The user message after assistant should contain a synthetic web_search_tool_result
+    const userAfterAssistant = sent[2];
+    expect(userAfterAssistant.role).toBe("user");
+    expect(userAfterAssistant.content[0].type).toBe("web_search_tool_result");
+    expect(userAfterAssistant.content[0].tool_use_id).toBe("srvtoolu_abc123");
+  });
+
+  test("server_tool_use at end of messages gets synthetic web_search_tool_result appended", async () => {
+    const messages: Message[] = [
+      userMsg("Search something"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_end",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // A synthetic user message should have been appended
+    expect(sent).toHaveLength(3);
+    expect(sent[2].role).toBe("user");
+    expect(sent[2].content[0].type).toBe("web_search_tool_result");
+    expect(sent[2].content[0].tool_use_id).toBe("srvtoolu_end");
+  });
+
+  test("server_tool_use with matching web_search_tool_result passes through unchanged", async () => {
+    const messages: Message[] = [
+      userMsg("Search something"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_ok",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_ok",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+                encrypted_content: "enc_abc",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // No synthetic messages or blocks added
+    expect(sent).toHaveLength(3);
+    const resultBlocks = sent[2].content.filter(
+      (b) => b.type === "web_search_tool_result",
+    );
+    expect(resultBlocks).toHaveLength(1);
+    expect(resultBlocks[0].tool_use_id).toBe("srvtoolu_ok");
+  });
+
+  test("mixed tool_use and server_tool_use with partial results gets missing ones filled", async () => {
+    const messages: Message[] = [
+      userMsg("Do things"),
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_b",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+      // Only tu_a has a result
+      toolResultMsg("tu_a", "result A"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+      }>;
+    }>;
+
+    const userAfterAssistant = sent[2];
+    // Should have tool_result for tu_a and synthetic web_search_tool_result for srvtoolu_b
+    expect(userAfterAssistant.content).toHaveLength(2);
+    expect(userAfterAssistant.content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_a",
+    });
+    expect(userAfterAssistant.content[1]).toMatchObject({
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_b",
+    });
+  });
+
   test("assistant message with only unknown blocks gets placeholder text", async () => {
     const messages: Message[] = [
       userMsg("Start"),
