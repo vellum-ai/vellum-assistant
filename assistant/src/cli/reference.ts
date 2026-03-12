@@ -10,7 +10,6 @@ Options:
   -h, --help                               display help for command
 
 Commands:
-  dev [options]                            Run the assistant in dev mode
   sessions                                 Manage sessions
   config                                   Manage configuration
   keys                                     Manage API keys in secure storage

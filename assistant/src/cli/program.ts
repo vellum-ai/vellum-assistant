@@ -12,7 +12,6 @@ import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
-import { registerDevCommand } from "./commands/dev.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerEmailCommand } from "./commands/email.js";
 import { registerKeysCommand } from "./commands/keys.js";
@@ -35,7 +34,6 @@ export function buildCliProgram(): Command {
   program.name("assistant").description("Local AI assistant").version(version);
 
   registerDefaultAction(program);
-  registerDevCommand(program);
   registerSessionsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);
