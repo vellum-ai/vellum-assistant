@@ -53,7 +53,14 @@ export class BYOOAuthConnection implements OAuthConnection {
       let fullUrl = `${effectiveBaseUrl}${req.path}`;
 
       if (req.query && Object.keys(req.query).length > 0) {
-        const params = new URLSearchParams(req.query);
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(req.query)) {
+          if (Array.isArray(value)) {
+            for (const v of value) params.append(key, v);
+          } else {
+            params.append(key, value);
+          }
+        }
         fullUrl += `?${params.toString()}`;
       }
 

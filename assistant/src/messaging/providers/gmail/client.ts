@@ -84,6 +84,20 @@ function extractNonAuthHeaders(
 }
 
 /**
+ * Convert URLSearchParams to a query record, collapsing multi-valued keys into arrays.
+ */
+function paramsToQuery(
+  params: URLSearchParams,
+): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key);
+    result[key] = values.length === 1 ? values[0] : values;
+  }
+  return result;
+}
+
+/**
  * Extract the JSON body from request options for use with OAuthConnection.
  */
 function extractBody(options?: GmailRequestOptions): unknown | undefined {
@@ -102,6 +116,7 @@ async function request<T>(
   connection: OAuthConnection,
   path: string,
   options?: GmailRequestOptions,
+  query?: Record<string, string | string[]>,
 ): Promise<T> {
   const canRetry = options?.retryable ?? isIdempotent(options);
   const method = (options?.method ?? "GET").toUpperCase();
@@ -112,6 +127,7 @@ async function request<T>(
       resp = await connection.request({
         method,
         path,
+        query,
         headers: {
           "Content-Type": "application/json",
           ...extractNonAuthHeaders(options),
@@ -171,7 +187,12 @@ export async function listMessages(
   if (labelIds) {
     for (const id of labelIds) params.append("labelIds", id);
   }
-  return request<GmailMessageListResponse>(connection, `/messages?${params}`);
+  return request<GmailMessageListResponse>(
+    connection,
+    "/messages",
+    undefined,
+    paramsToQuery(params),
+  );
 }
 
 /** Get a single message by ID. */
@@ -187,7 +208,12 @@ export async function getMessage(
     for (const h of metadataHeaders) params.append("metadataHeaders", h);
   }
   if (fields) params.set("fields", fields);
-  return request<GmailMessage>(connection, `/messages/${messageId}?${params}`);
+  return request<GmailMessage>(
+    connection,
+    `/messages/${messageId}`,
+    undefined,
+    paramsToQuery(params),
+  );
 }
 
 /**
@@ -333,9 +359,31 @@ async function executeBatchCall(
 }
 
 /**
+ * Fetch all messages individually using getMessage (no batch endpoint).
+ * Used as a fallback when the batch API is unavailable (e.g. platform connections
+ * that cannot expose raw tokens for the multipart batch endpoint).
+ */
+async function fetchMessagesIndividually(
+  connection: OAuthConnection,
+  messageIds: string[],
+  format: GmailMessageFormat,
+  metadataHeaders?: string[],
+  fields?: string,
+): Promise<GmailMessage[]> {
+  return Promise.all(
+    messageIds.map((id) =>
+      getMessage(connection, id, format, metadataHeaders, fields),
+    ),
+  );
+}
+
+/**
  * Get multiple messages using Gmail's batch HTTP endpoint.
  * Packs up to 100 sub-requests per HTTP call and runs up to BATCH_CONCURRENCY calls in parallel.
  * Falls back to individual getMessage for any sub-requests that fail within a batch.
+ *
+ * For connections that do not support raw token access (e.g. platform-managed connections),
+ * falls back to fetching each message individually via connection.request().
  */
 export async function batchGetMessages(
   connection: OAuthConnection,
@@ -357,6 +405,26 @@ export async function batchGetMessages(
         fields,
       ),
     ];
+  }
+
+  // Try batch API first; fall back to individual fetches if withToken is unavailable
+  // (e.g. platform-managed connections where raw tokens cannot be exposed).
+  let useBatch = true;
+  try {
+    // Probe withToken availability with a no-op call
+    await connection.withToken(async (token) => token);
+  } catch {
+    useBatch = false;
+  }
+
+  if (!useBatch) {
+    return fetchMessagesIndividually(
+      connection,
+      messageIds,
+      format,
+      metadataHeaders,
+      fields,
+    );
   }
 
   const results = new Array<GmailMessage | undefined>(messageIds.length).fill(
