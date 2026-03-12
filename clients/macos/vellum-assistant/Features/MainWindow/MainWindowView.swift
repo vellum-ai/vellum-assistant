@@ -608,7 +608,7 @@ struct MainWindowView: View {
                             ChatSessionErrorToast(
                                 message: "API key not set. Add one in Settings to start chatting.",
                                 icon: .keyRound,
-                                accentColor: VColor.warning,
+                                accentColor: Amber._550,
                                 actionLabel: "Open Settings",
                                 onAction: { windowState.selection = .panel(.settings) }
                             )
@@ -621,6 +621,7 @@ struct MainWindowView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+
         .overlay(alignment: .bottom) {
             if let toast = windowState.toastInfo {
                 VToast(
@@ -884,7 +885,7 @@ private struct ErrorToastOverlay: View {
                 ChatSessionErrorToast(
                     message: "API key not set. Add one in Settings to start chatting.",
                     icon: .keyRound,
-                    accentColor: VColor.warning,
+                    accentColor: Amber._550,
                     actionLabel: "Open Settings",
                     onAction: onOpenSettings
                 )

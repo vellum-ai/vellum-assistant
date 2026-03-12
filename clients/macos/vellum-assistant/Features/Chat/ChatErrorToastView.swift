@@ -47,8 +47,8 @@ struct ChatSessionErrorToast: View {
     init(
         message: String,
         subtitle: String? = nil,
-        icon: VIcon = .triangleAlert,
-        accentColor: Color = VColor.error,
+        icon: VIcon = .circleAlert,
+        accentColor: Color = Danger._700,
         actionLabel: String? = nil,
         onAction: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil
@@ -89,7 +89,19 @@ struct ChatSessionErrorToast: View {
             Spacer()
 
             if let actionLabel, let onAction {
-                VButton(label: actionLabel, style: .ghost, size: .medium, action: onAction)
+                Button(action: onAction) {
+                    Text(actionLabel)
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, VSpacing.md)
+                        .frame(height: 28)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(Color.white, lineWidth: 1.5)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(actionLabel)
             }
 
             if showCopyDebug, let onCopyDebugInfo {
@@ -143,7 +155,7 @@ struct ChatSessionErrorToast: View {
         case .authenticationRequired:
             return .lock
         case .unknown:
-            return .triangleAlert
+            return .circleAlert
         }
     }
 
@@ -152,15 +164,15 @@ struct ChatSessionErrorToast: View {
     private static func accentColor(for category: SessionErrorCategory) -> Color {
         switch category {
         case .rateLimit:
-            return VColor.warning
+            return Amber._550
         case .providerNetwork:
-            return Amber._500
+            return Amber._550
         case .sessionAborted:
-            return VColor.textSecondary
+            return Forest._700
         case .contextTooLarge:
-            return VColor.warning
+            return Amber._550
         default:
-            return VColor.error
+            return Danger._700
         }
     }
 
