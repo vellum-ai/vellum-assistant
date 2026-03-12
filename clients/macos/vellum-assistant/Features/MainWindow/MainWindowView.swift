@@ -438,12 +438,7 @@ struct MainWindowView: View {
                         }
 
                         chatContentView(geometry: geometry)
-                            .clipShape(UnevenRoundedRectangle(
-                                topLeadingRadius: VRadius.xl,
-                                bottomLeadingRadius: VRadius.xl,
-                                bottomTrailingRadius: 0,
-                                topTrailingRadius: 0
-                            ))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                             .animation(nil, value: sidebarExpanded)
                             .overlay {
                                 if showDaemonLoading && !isSettingsOpen {
@@ -452,8 +447,7 @@ struct MainWindowView: View {
                                 }
                             }
                     }
-                    .padding(.leading, 16)
-                    .padding(.vertical, 16)
+                    .padding(16)
                 }
                 .coordinateSpace(name: "coreLayout")
                 .overlay {

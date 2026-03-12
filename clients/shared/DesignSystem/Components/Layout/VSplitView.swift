@@ -26,6 +26,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     .background(mainBackground ?? VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                     .padding([.bottom, .leading], VSpacing.xs)
+                    .padding(.trailing, showPanel ? 0 : VSpacing.xs)
 
                 // Panel slides in from right, pushing content
                 if showPanel, let panel = panel {
