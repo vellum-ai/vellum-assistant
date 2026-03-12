@@ -10,6 +10,7 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { autoInstallFromCatalog } from "../../skills/catalog-install.js";
 import {
+  collectAllMissing,
   indexCatalogById,
   validateIncludes,
 } from "../../skills/include-graph.js";
@@ -186,10 +187,42 @@ export class SkillLoadTool implements Tool {
     // Load catalog for include validation and child metadata output
     let catalogIndex: Map<string, SkillSummary> | undefined;
     if (skill.includes && skill.includes.length > 0) {
-      const catalog = loadSkillCatalog();
+      let catalog = loadSkillCatalog();
       catalogIndex = indexCatalogById(catalog);
 
-      // Validate recursive includes (fail-closed)
+      // Auto-install missing includes before validation (max 5 rounds for transitive deps)
+      const MAX_INSTALL_ROUNDS = 5;
+      for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
+        const missing = collectAllMissing(skill.id, catalogIndex);
+        if (missing.size === 0) break;
+
+        let installedAny = false;
+        for (const missingId of missing) {
+          try {
+            const installed = await autoInstallFromCatalog(missingId);
+            if (installed) {
+              log.info(
+                { skillId: missingId, parentSkillId: skill.id },
+                "Auto-installed missing include",
+              );
+              installedAny = true;
+            }
+          } catch (err) {
+            log.warn(
+              { err, skillId: missingId },
+              "Failed to auto-install missing include",
+            );
+          }
+        }
+
+        if (!installedAny) break; // Nothing could be installed, stop trying
+
+        // Reload catalog to pick up newly installed skills
+        catalog = loadSkillCatalog();
+        catalogIndex = indexCatalogById(catalog);
+      }
+
+      // Validate (fail-closed — catches genuinely missing deps + cycles)
       const validation = validateIncludes(skill.id, catalogIndex);
       if (!validation.ok) {
         if (validation.error === "missing") {

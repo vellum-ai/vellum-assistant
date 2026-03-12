@@ -63,6 +63,13 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (s: unknown) => String(s),
 }));
 
+// Mock autoInstallFromCatalog — default returns false (not found in catalog).
+// Tests can override via `mockAutoInstall.mockImplementation(...)`.
+const mockAutoInstall = mock((_skillId: string) => Promise.resolve(false));
+mock.module("../skills/catalog-install.js", () => ({
+  autoInstallFromCatalog: (skillId: string) => mockAutoInstall(skillId),
+}));
+
 await import("../tools/skills/load.js");
 const { getTool } = await import("../tools/registry.js");
 
@@ -144,6 +151,10 @@ async function executeSkillLoad(
 describe("skill_load tool", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+    mockAutoInstall.mockReset();
+    mockAutoInstall.mockImplementation((_skillId: string) =>
+      Promise.resolve(false),
+    );
   });
 
   afterEach(() => {
@@ -848,5 +859,143 @@ describe("skill_load tool", () => {
     expect(result.content).toContain(
       "Use `skill_execute` to call these tools.",
     );
+  });
+
+  test("auto-installs missing includes from catalog", async () => {
+    // Parent includes "dep-a" which is not initially in the catalog
+    writeSkillWithIncludes(
+      "auto-parent",
+      "Auto Parent",
+      "Has auto-installable dep",
+      "Parent body",
+      ["dep-a"],
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- auto-parent\n");
+
+    // Mock autoInstallFromCatalog to succeed and write the skill to disk
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      if (skillId === "dep-a") {
+        writeSkill("dep-a", "Dep A", "A dependency", "Dep A body");
+        // Add to SKILLS.md so catalog reload finds it
+        writeFileSync(
+          join(TEST_DIR, "skills", "SKILLS.md"),
+          "- auto-parent\n- dep-a\n",
+        );
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await executeSkillLoad({ skill: "auto-parent" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Auto Parent");
+    expect(result.content).toContain("<loaded_skill");
+    expect(mockAutoInstall).toHaveBeenCalledWith("dep-a");
+  });
+
+  test("auto-installs transitive missing includes across rounds", async () => {
+    // Skill A includes B, B includes C. Neither B nor C in initial catalog.
+    writeSkillWithIncludes("trans-a", "Trans A", "Top level", "Body A", [
+      "trans-b",
+    ]);
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- trans-a\n");
+
+    let round = 0;
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      if (skillId === "trans-b" && round === 0) {
+        // First round: install B (which includes C)
+        writeSkillWithIncludes("trans-b", "Trans B", "Mid level", "Body B", [
+          "trans-c",
+        ]);
+        writeFileSync(
+          join(TEST_DIR, "skills", "SKILLS.md"),
+          "- trans-a\n- trans-b\n",
+        );
+        round++;
+        return Promise.resolve(true);
+      }
+      if (skillId === "trans-c") {
+        // Second round: install C
+        writeSkill("trans-c", "Trans C", "Leaf", "Body C");
+        writeFileSync(
+          join(TEST_DIR, "skills", "SKILLS.md"),
+          "- trans-a\n- trans-b\n- trans-c\n",
+        );
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await executeSkillLoad({ skill: "trans-a" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Trans A");
+    expect(result.content).toContain("<loaded_skill");
+    expect(mockAutoInstall).toHaveBeenCalledWith("trans-b");
+    expect(mockAutoInstall).toHaveBeenCalledWith("trans-c");
+  });
+
+  test("returns error when auto-install of missing include fails", async () => {
+    writeSkillWithIncludes(
+      "fail-parent",
+      "Fail Parent",
+      "Has failing dep",
+      "Body",
+      ["dep-x"],
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- fail-parent\n");
+
+    // autoInstallFromCatalog throws an error
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      if (skillId === "dep-x") {
+        return Promise.reject(new Error("Network error"));
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await executeSkillLoad({ skill: "fail-parent" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("dep-x");
+    expect(result.content).toContain("not found");
+    expect(result.content).not.toContain("<loaded_skill");
+  });
+
+  test("stops after MAX_INSTALL_ROUNDS", async () => {
+    // Pathological case: each install round reveals a new missing dep
+    writeSkillWithIncludes("loop-root", "Loop Root", "Infinite deps", "Body", [
+      "loop-dep-0",
+    ]);
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- loop-root\n");
+
+    let installCount = 0;
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      const id = skillId;
+      if (id.startsWith("loop-dep-")) {
+        installCount++;
+        const nextDepId = `loop-dep-${installCount}`;
+        // Install the requested dep, but it includes yet another missing dep
+        writeSkillWithIncludes(
+          id,
+          `Loop Dep ${installCount}`,
+          "Generated dep",
+          "Body",
+          [nextDepId],
+        );
+        // Update SKILLS.md to include all installed deps so far
+        const entries = ["- loop-root\n"];
+        for (let i = 0; i < installCount; i++) {
+          entries.push(`- loop-dep-${i}\n`);
+        }
+        writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), entries.join(""));
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    });
+
+    const result = await executeSkillLoad({ skill: "loop-root" });
+    // Should terminate with an error (the final dep is still missing)
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not found");
+    // Should have terminated — installCount should be bounded by MAX_INSTALL_ROUNDS (5)
+    expect(installCount).toBeLessThanOrEqual(5);
   });
 });
