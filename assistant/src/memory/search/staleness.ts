@@ -1,5 +1,5 @@
-import type { StalenessLevel } from "./types.js";
 import type { TieredCandidate } from "./tier-classifier.js";
+import type { StalenessLevel } from "./types.js";
 
 const BASE_LIFETIME_MS: Record<string, number> = {
   identity: 180 * 86_400_000, // 6 months
