@@ -75,6 +75,12 @@ enum LogExporter {
                 extra["thread_title"] = activeThread.title
                 if let sessionId = activeThread.sessionId {
                     tags["session_id"] = sessionId
+                    // conversation_id mirrors session_id — the daemon tags its
+                    // Sentry events with both names for the same value. Setting
+                    // it here enables cross-project search: find the daemon error
+                    // that corresponds to a macOS log report by querying
+                    // conversation_id in the vellum-assistant-brain Sentry project.
+                    tags["conversation_id"] = sessionId
                 }
             }
             var errorCategoryString: String?
@@ -91,6 +97,7 @@ enum LogExporter {
                 if let sessionId = vm.sessionId {
                     // Prefer the view model's sessionId (most up-to-date)
                     tags["session_id"] = sessionId
+                    tags["conversation_id"] = sessionId
                 }
             }
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
