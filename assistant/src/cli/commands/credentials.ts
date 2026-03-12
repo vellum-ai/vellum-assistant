@@ -117,6 +117,10 @@ function buildCredentialOutput(
     createdAt: new Date(metadata.createdAt).toISOString(),
     updatedAt: new Date(metadata.updatedAt).toISOString(),
     injectionTemplateCount: metadata.injectionTemplates?.length ?? 0,
+    grantedScopes: connection ? JSON.parse(connection.grantedScopes) : null,
+    expiresAt: connection?.expiresAt
+      ? new Date(connection.expiresAt).toISOString()
+      : null,
   };
 
   if (connection) {
