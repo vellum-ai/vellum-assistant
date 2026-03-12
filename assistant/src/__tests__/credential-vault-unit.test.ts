@@ -540,7 +540,9 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     mockGetProvider.mockImplementation(
       (key: string) => wellKnownProviders[key] ?? undefined,
     );
+    mockGetMostRecentAppByProvider.mockClear();
     mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetAppByProviderAndClientId.mockClear();
     mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
   });
 
@@ -715,6 +717,126 @@ describe("credential_store tool — oauth2_connect error paths", () => {
 
     // Reset mocks
     mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetProvider.mockImplementation(() => undefined);
+  });
+
+  test("uses getAppByProviderAndClientId when client_id is provided without client_secret", async () => {
+    // When client_id is supplied but client_secret is not, the vault should
+    // look up the matching app via getAppByProviderAndClientId (not the
+    // most-recent-app heuristic) so the secret comes from the correct app.
+    mockGetAppByProviderAndClientId.mockImplementation(
+      (providerKey: string, cId: string) => {
+        if (
+          providerKey === "integration:gmail" &&
+          cId === "caller-supplied-client-id"
+        ) {
+          return {
+            id: "matched-app-id",
+            providerKey: "integration:gmail",
+            clientId: "caller-supplied-client-id",
+            createdAt: Date.now(),
+          };
+        }
+        return undefined;
+      },
+    );
+    mockGetProvider.mockImplementation(() => ({
+      key: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+      scopePolicy: JSON.stringify({}),
+      callbackTransport: "loopback",
+      loopbackPort: 8756,
+    }));
+    setSecureKey("oauth_app/matched-app-id/client_secret", "matched-secret");
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "oauth2_connect",
+        service: "gmail",
+        client_id: "caller-supplied-client-id",
+      },
+      { ..._ctx, isInteractive: false },
+    );
+
+    // Should succeed — client_secret resolved from the matched app
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("To connect gmail, open this link");
+    // getMostRecentAppByProvider should NOT have been called since client_id was known
+    expect(mockGetMostRecentAppByProvider).not.toHaveBeenCalled();
+
+    // Reset mocks
+    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
+    mockGetProvider.mockImplementation(() => undefined);
+  });
+
+  test("falls back to getMostRecentAppByProvider when client_id is not provided", async () => {
+    // When neither client_id nor client_secret is provided, the vault should
+    // use getMostRecentAppByProvider (the fallback heuristic).
+    mockGetMostRecentAppByProvider.mockImplementation(() => ({
+      id: "recent-app-id",
+      providerKey: "integration:gmail",
+      clientId: "recent-client-id",
+      createdAt: Date.now(),
+    }));
+    mockGetProvider.mockImplementation(() => ({
+      key: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+      scopePolicy: JSON.stringify({}),
+      callbackTransport: "loopback",
+      loopbackPort: 8756,
+    }));
+    setSecureKey("oauth_app/recent-app-id/client_secret", "recent-secret");
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "oauth2_connect",
+        service: "gmail",
+      },
+      { ..._ctx, isInteractive: false },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("To connect gmail, open this link");
+    // getAppByProviderAndClientId should NOT have been called since client_id was unknown
+    expect(mockGetAppByProviderAndClientId).not.toHaveBeenCalled();
+
+    // Reset mocks
+    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetProvider.mockImplementation(() => undefined);
+  });
+
+  test("getAppByProviderAndClientId returning undefined leaves client_secret unresolved", async () => {
+    // When client_id is provided but getAppByProviderAndClientId returns no
+    // matching app, client_secret remains unresolved and the vault should
+    // report the missing secret error.
+    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
+    mockGetProvider.mockImplementation(() => ({
+      key: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+    }));
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "oauth2_connect",
+        service: "gmail",
+        client_id: "unknown-client-id",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("client_secret is required for gmail");
+    // getMostRecentAppByProvider should NOT have been called
+    expect(mockGetMostRecentAppByProvider).not.toHaveBeenCalled();
+
+    // Reset mocks
+    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
     mockGetProvider.mockImplementation(() => undefined);
   });
 
