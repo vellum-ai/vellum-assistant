@@ -197,11 +197,14 @@ enum LogExporter {
         // Email is excluded from the archive since it's already sent via
         // Sentry's UserFeedback API (linked to the event).
         if let formData {
-            let metadata: [String: String] = [
+            var metadata: [String: String] = [
                 "reason": formData.reason.rawValue,
                 "message": formData.message,
                 "device_id": SentryDeviceInfo.deviceId,
             ]
+            if !formData.name.isEmpty {
+                metadata["name"] = formData.name
+            }
             if let data = try? JSONSerialization.data(
                 withJSONObject: metadata,
                 options: [.prettyPrinted, .sortedKeys]
