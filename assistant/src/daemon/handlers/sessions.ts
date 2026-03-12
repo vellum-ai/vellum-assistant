@@ -61,7 +61,6 @@ import {
   type HandlerContext,
   log,
   pendingStandaloneSecrets,
-  wireEscalationHandler,
 } from "./shared.js";
 
 /**
@@ -195,21 +194,6 @@ export function handleConfirmationResponse(
         msg.selectedScope,
         undefined,
         { source: "button" },
-      );
-      syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
-      pendingInteractions.resolve(msg.requestId);
-      return;
-    }
-  }
-
-  // Also check computer-use sessions — they have their own PermissionPrompter
-  for (const [, cuSession] of ctx.cuSessions) {
-    if (cuSession.hasPendingConfirmation(msg.requestId)) {
-      cuSession.handleConfirmationResponse(
-        msg.requestId,
-        msg.decision,
-        msg.selectedPattern,
-        msg.selectedScope,
       );
       syncCanonicalStatusFromConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
@@ -369,7 +353,6 @@ export async function handleSessionCreate(
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
   });
-  wireEscalationHandler(session, ctx);
 
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
@@ -501,13 +484,7 @@ export async function switchSession(
     // Load the session without rebinding the client — the session stays headless
     await ctx.getOrCreateSession(sessionId);
   } else {
-    const session = await ctx.getOrCreateSession(sessionId);
-    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-    // sets a handler with the client's actual screen dimensions, and overwriting it
-    // here would replace those dimensions with the daemon's defaults.
-    if (!session.hasEscalationHandler()) {
-      wireEscalationHandler(session, ctx);
-    }
+    await ctx.getOrCreateSession(sessionId);
   }
 
   return {

@@ -4,46 +4,6 @@ import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
 // === Client → Server ===
 
-export interface CuSessionCreate {
-  type: "cu_session_create";
-  sessionId: string;
-  task: string;
-  screenWidth: number;
-  screenHeight: number;
-  attachments?: UserMessageAttachment[];
-  interactionType?: "computer_use" | "text_qa";
-}
-
-export interface CuSessionAbort {
-  type: "cu_session_abort";
-  sessionId: string;
-}
-
-export interface CuObservation {
-  type: "cu_observation";
-  sessionId: string;
-  axTree?: string;
-  axDiff?: string;
-  secondaryWindows?: string;
-  screenshot?: string;
-  /** Screenshot image width in pixels (`Px`). */
-  screenshotWidthPx?: number;
-  /** Screenshot image height in pixels (`Px`). */
-  screenshotHeightPx?: number;
-  /** Screen width in macOS points (`Pt`) used by native execution. */
-  screenWidthPt?: number;
-  /** Screen height in macOS points (`Pt`) used by native execution. */
-  screenHeightPt?: number;
-  /** Coordinate origin convention used by the observation payload. */
-  coordinateOrigin?: "top_left";
-  /** Display ID used by screenshot capture for this observation. */
-  captureDisplayId?: number;
-  executionResult?: string;
-  executionError?: string;
-  /** Free-form guidance from the user, injected mid-turn to steer the agent. */
-  userGuidance?: string;
-}
-
 export interface TaskSubmit {
   type: "task_submit";
   task: string;
@@ -129,36 +89,13 @@ export interface RecordingResume {
   recordingId: string;
 }
 
-export interface CuAction {
-  type: "cu_action";
-  sessionId: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  reasoning?: string;
-  stepNumber: number;
-}
-
-export interface CuComplete {
-  type: "cu_complete";
-  sessionId: string;
-  summary: string;
-  stepCount: number;
-  isResponse?: boolean;
-}
-
-export interface CuError {
-  type: "cu_error";
-  sessionId: string;
-  message: string;
-}
-
 export interface TaskRouted {
   type: "task_routed";
   sessionId: string;
   interactionType: "computer_use" | "text_qa";
   /** The task text passed to the escalated session. */
   task?: string;
-  /** Set when a text_qa session escalates to computer_use via computer_use_request_control. */
+  /** Set when a text_qa session escalates to computer_use. */
   escalatedFrom?: string;
 }
 
@@ -179,17 +116,11 @@ export interface WatchCompleteRequest {
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ComputerUseClientMessages =
-  | CuSessionCreate
-  | CuSessionAbort
-  | CuObservation
   | TaskSubmit
   | WatchObservation
   | RecordingStatus;
 
 export type _ComputerUseServerMessages =
-  | CuAction
-  | CuComplete
-  | CuError
   | TaskRouted
   | WatchStarted
   | WatchCompleteRequest

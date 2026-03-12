@@ -219,8 +219,6 @@ export interface RuntimeHttpServerOptions {
   sessionManagementDeps?: SessionManagementDeps;
   /** Lazy factory for model config set context (session eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
-  /** Provider for computer-use session dependencies (CU routes). */
-  getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
   /** Provider for watch observation dependencies (watch routes). */
   getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */

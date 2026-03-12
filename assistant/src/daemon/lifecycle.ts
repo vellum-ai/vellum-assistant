@@ -524,14 +524,6 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
-      getComputerUseDeps: () => {
-        const ctx = server.getHandlerContext();
-        return {
-          cuSessions: ctx.cuSessions,
-          sharedRequestTimestamps: ctx.sharedRequestTimestamps,
-          cuObservationParseSequence: ctx.cuObservationParseSequence,
-        };
-      },
       getWatchDeps: () => {
         const ctx = server.getHandlerContext();
         return {

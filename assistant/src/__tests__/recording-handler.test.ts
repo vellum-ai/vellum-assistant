@@ -32,8 +32,9 @@ mock.module("../config/loader.js", () => ({
     contextWindow: {
       enabled: true,
       maxInputTokens: 180000,
-      targetBudgetRatio: 0.30,
-      compactThreshold: 0.8,      summaryBudgetRatio: 0.05,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
     },
   }),
   invalidateConfigCache: noop,
@@ -167,8 +168,6 @@ function createCtx(): {
 
   const ctx: HandlerContext = {
     sessions: new Map(),
-    cuSessions: new Map(),
-    cuObservationParseSequence: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,

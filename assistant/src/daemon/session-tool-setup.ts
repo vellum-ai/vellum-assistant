@@ -25,7 +25,6 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
-import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllToolDefinitions,
@@ -115,16 +114,13 @@ export interface ToolSetupContext extends SurfaceSessionContext {
 
 /**
  * Collect all tool definitions for the agent loop: built-in tools,
- * UI surface proxy tools, app proxy tools, and the computer-use
- * escalation tool.
+ * UI surface proxy tools, and app proxy tools.
  */
 export function buildToolDefinitions(): ToolDefinition[] {
   return [
     ...getAllToolDefinitions(),
     ...allUiSurfaceTools.map((t) => t.getDefinition()),
     ...coreAppProxyTools.map((t) => t.getDefinition()),
-    // Escalation tool: allows text_qa sessions to hand off to computer use
-    requestComputerControlTool.getDefinition(),
   ];
 }
 
@@ -566,10 +562,7 @@ const HOST_TOOL_NAMES = new Set([
   "host_bash",
 ]);
 const ASSET_TOOL_NAMES = new Set(["asset_search", "asset_materialize"]);
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set([
-  "app_open",
-  "computer_use_request_control",
-]);
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**

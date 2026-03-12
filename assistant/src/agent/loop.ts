@@ -418,47 +418,11 @@ export class AgentLoop {
           break;
         }
 
-        // Guard against dual-control-mode conflicts in a single turn.
-        // If the model escalates to foreground computer control, browser_* tools
-        // in the same response create competing browser sessions/windows and can
-        // thrash renderer CPU. Reject browser_* calls in that turn.
-        const hasComputerUseEscalation = toolUseBlocks.some(
-          (toolUse) => toolUse.name === "computer_use_request_control",
-        );
-        const blockedBrowserToolIds = hasComputerUseEscalation
-          ? new Set(
-              toolUseBlocks
-                .filter((toolUse) => toolUse.name.startsWith("browser_"))
-                .map((toolUse) => toolUse.id),
-            )
-          : new Set<string>();
-
-        if (blockedBrowserToolIds.size > 0) {
-          log.warn(
-            {
-              blockedBrowserToolCount: blockedBrowserToolIds.size,
-              toolNames: toolUseBlocks.map((toolUse) => toolUse.name),
-            },
-            "Blocking browser_* tools: computer_use_request_control was requested in same turn",
-          );
-        }
-
         // Execute all tools concurrently for reduced latency.
         // Race against the abort signal so cancellation isn't blocked by
         // stuck tools (e.g. a hung browser navigation).
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
-            if (blockedBrowserToolIds.has(toolUse.id)) {
-              return {
-                toolUse,
-                result: {
-                  content:
-                    "Error: browser_* tools cannot run in the same turn as computer_use_request_control. Continue using the foreground computer-use session only.",
-                  isError: true,
-                },
-              };
-            }
-
             const result = await this.toolExecutor!(
               toolUse.name,
               toolUse.input,

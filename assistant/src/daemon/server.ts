@@ -48,7 +48,6 @@ import {
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
-import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -227,8 +226,6 @@ function makePendingInteractionRegistrar(
 
 export class DaemonServer {
   private sessions = new Map<string, Session>();
-  private cuSessions = new Map<string, ComputerUseSession>();
-  private cuObservationParseSequence = new Map<string, number>();
   private sessionOptions = new Map<string, SessionCreateOptions>();
   private sessionCreating = new Map<string, Promise<Session>>();
   private sharedRequestTimestamps: number[] = [];
@@ -419,11 +416,6 @@ export class DaemonServer {
     }
     this.sessions.clear();
 
-    for (const cuSession of this.cuSessions.values()) {
-      cuSession.abort();
-    }
-    this.cuSessions.clear();
-
     log.info("Daemon server stopped");
   }
 
@@ -570,8 +562,6 @@ export class DaemonServer {
   private handlerContext(): HandlerContext {
     return {
       sessions: this.sessions,
-      cuSessions: this.cuSessions,
-      cuObservationParseSequence: this.cuObservationParseSequence,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
@@ -918,23 +908,15 @@ export class DaemonServer {
 
   /**
    * Look up an active session by ID without creating one.
-   * Checks both normal sessions and computer-use sessions so the HTTP
-   * surface-action path is consistent with dispatch.
    */
-  findSession(sessionId: string): Session | ComputerUseSession | undefined {
-    return this.cuSessions.get(sessionId) ?? this.sessions.get(sessionId);
+  findSession(sessionId: string): Session | undefined {
+    return this.sessions.get(sessionId);
   }
 
   /**
    * Look up an active session that owns a given surfaceId.
-   * Falls back across both normal and computer-use sessions.
    */
-  findSessionBySurfaceId(
-    surfaceId: string,
-  ): Session | ComputerUseSession | undefined {
-    for (const s of this.cuSessions.values()) {
-      if (s.surfaceState.has(surfaceId)) return s;
-    }
+  findSessionBySurfaceId(surfaceId: string): Session | undefined {
     for (const s of this.sessions.values()) {
       if (s.surfaceState.has(surfaceId)) return s;
     }

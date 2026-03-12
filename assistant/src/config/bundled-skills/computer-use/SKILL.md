@@ -10,13 +10,10 @@ metadata:
     disable-model-invocation: true
 ---
 
-This skill provides the 12 computer*use*\* action tools for controlling
-the macOS desktop (used by CU sessions).
+This skill provides the computer_use_* action tools for controlling
+the macOS desktop. CU tools run through the main agent loop via HostCuProxy.
 
-The `computer_use_request_control` escalation tool is registered in the core
-registry (not this skill) so text_qa sessions can execute it directly.
-
-The skill is internally preactivated for computer-use sessions.
+The skill is internally preactivated for sessions with a connected desktop client.
 
 Tools in this skill are proxy tools — execution is forwarded to the connected
 macOS client, never handled locally by the assistant.

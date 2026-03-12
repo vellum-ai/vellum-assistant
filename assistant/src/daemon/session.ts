@@ -205,10 +205,6 @@ export class Session {
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
   }> = [];
-  /** @internal */ onEscalateToComputerUse?: (
-    task: string,
-    sourceSessionId: string,
-  ) => boolean;
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
@@ -422,16 +418,6 @@ export class Session {
 
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
-  }
-
-  setEscalationHandler(
-    handler: (task: string, sourceSessionId: string) => boolean,
-  ): void {
-    this.onEscalateToComputerUse = handler;
-  }
-
-  hasEscalationHandler(): boolean {
-    return this.onEscalateToComputerUse !== undefined;
   }
 
   isProcessing(): boolean {

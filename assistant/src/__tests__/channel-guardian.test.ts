@@ -1305,8 +1305,6 @@ function createMockCtx(): {
   let captured: ChannelVerificationSessionResponse | null = null;
   const ctx = {
     sessions: new Map(),
-    cuSessions: new Map(),
-    cuObservationParseSequence: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: {
       schedule: () => {},

@@ -202,7 +202,6 @@ export interface SurfaceSessionContext {
     }>;
     display?: string;
   }>;
-  onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
   isProcessing(): boolean;
@@ -933,19 +932,15 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control,
- * computer_use_* proxy tools, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
   toolName: string,
   input: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
-  // Route CU proxy tools (all computer_use_* except the escalation tool)
-  if (
-    toolName.startsWith("computer_use_") &&
-    toolName !== "computer_use_request_control"
-  ) {
+  // Route CU proxy tools (all computer_use_* action tools)
+  if (toolName.startsWith("computer_use_")) {
     if (!ctx.hostCuProxy) {
       return {
         content: "Computer use is not available — no desktop client connected.",
@@ -1191,32 +1186,6 @@ export async function surfaceProxyResolver(
     ctx.lastSurfaceAction.delete(surfaceId);
     return {
       content: lastAction ? "Surface completed" : "Surface dismissed",
-      isError: false,
-    };
-  }
-
-  if (toolName === "computer_use_request_control") {
-    const task =
-      typeof input.task === "string"
-        ? input.task
-        : "Perform the requested task";
-    if (!ctx.onEscalateToComputerUse) {
-      return {
-        content:
-          "Computer control escalation is not available in this session.",
-        isError: true,
-      };
-    }
-    const success = ctx.onEscalateToComputerUse(task, ctx.conversationId);
-    if (!success) {
-      return {
-        content: "Computer control escalation failed — no active connection.",
-        isError: true,
-      };
-    }
-    return {
-      content:
-        "Computer control activated. The task has been handed off to foreground computer use.",
       isError: false,
     };
   }

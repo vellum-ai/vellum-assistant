@@ -13,7 +13,6 @@ import {
   computerUseTypeTextTool,
   computerUseWaitTool,
 } from "../tools/computer-use/definitions.js";
-import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import { forwardComputerUseProxyTool } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -48,14 +47,12 @@ describe("computer-use tool definitions", () => {
     for (const tool of allComputerUseTools) {
       expect(tool.executionMode).toBe("proxy");
     }
-    expect(requestComputerControlTool.executionMode).toBe("proxy");
   });
 
   test("all tools belong to computer-use category", () => {
     for (const tool of allComputerUseTools) {
       expect(tool.category).toBe("computer-use");
     }
-    expect(requestComputerControlTool.category).toBe("computer-use");
   });
 
   test("all tools have unique names", () => {
@@ -222,20 +219,6 @@ describe("computer_use_respond", () => {
   test("requires answer and reasoning", () => {
     expect(schema(computerUseRespondTool).required).toContain("answer");
     expect(schema(computerUseRespondTool).required).toContain("reasoning");
-  });
-});
-
-// ── request_computer_control ────────────────────────────────────────
-
-describe("computer_use_request_control", () => {
-  test("requires task parameter", () => {
-    expect(schema(requestComputerControlTool).required).toContain("task");
-  });
-
-  test("execute throws proxy error", () => {
-    expect(() => requestComputerControlTool.execute({}, ctx)).toThrow(
-      "surfaceProxyResolver",
-    );
   });
 });
 

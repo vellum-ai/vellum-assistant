@@ -110,7 +110,6 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
-import { computerUseRouteDefinitions } from "./routes/computer-use-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -218,7 +217,6 @@ export class RuntimeHttpServer {
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
   private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
@@ -240,7 +238,6 @@ export class RuntimeHttpServer {
     this.getSkillContext = options.getSkillContext;
     this.sessionManagementDeps = options.sessionManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
-    this.getComputerUseDeps = options.getComputerUseDeps;
     this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
@@ -978,11 +975,6 @@ export class RuntimeHttpServer {
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
-      ...(this.getComputerUseDeps
-        ? computerUseRouteDefinitions({
-            getComputerUseDeps: this.getComputerUseDeps,
-          })
-        : []),
       ...(this.getWatchDeps
         ? watchRouteDefinitions({
             getWatchDeps: this.getWatchDeps,
