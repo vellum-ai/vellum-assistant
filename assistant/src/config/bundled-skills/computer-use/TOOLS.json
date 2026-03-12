@@ -301,7 +301,7 @@
     },
     {
       "name": "computer_use_respond",
-      "description": "Respond directly to the user with a text answer. Use this when the user is asking a question (about their schedule, meetings, calendar, etc.) rather than asking you to control the computer.",
+      "description": "Respond to the user with a text answer instead of performing computer actions. Use this when you can answer directly without interacting with the screen.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
