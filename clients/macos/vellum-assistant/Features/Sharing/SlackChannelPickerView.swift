@@ -231,22 +231,3 @@ struct SlackChannelPickerView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-#if DEBUG
-private struct SlackChannelPickerPreviewWrapper: View {
-    var body: some View {
-        SlackChannelPickerView(
-            gatewayBaseURL: "http://localhost:3000",
-            onSelect: { channel in
-                print("Selected: \(channel.name)")
-            },
-            onCancel: {
-                print("Cancelled")
-            }
-        )
-    }
-}
-
-#endif

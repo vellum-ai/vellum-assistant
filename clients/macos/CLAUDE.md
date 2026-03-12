@@ -212,7 +212,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **`@MainActor` on all ObservableObject classes** — all view models and managers that touch UI must be `@MainActor`.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `threadManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ThreadManager.subscribeToActiveViewModel()`.
 - **Dependency injection**: Pass dependencies (DaemonClient, AmbientAgent) through init parameters, not singletons. Session dependencies use protocols for testability.
-- **Previews**: Add `#Preview("ComponentName")` blocks to every new view. Wrap in `ZStack { VColor.background.ignoresSafeArea() ... }` to match the dark theme. Use `#if DEBUG` guards for preview-only code. Keep preview frames reasonable (400-600pt wide). **Never use `@Previewable`** — it's not supported on CI's Xcode 16.2. If a preview needs `@State`, use a `PreviewProvider` with a wrapper view instead (see `ThreadTabBar.swift` for the pattern).
+- **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: Add `.accessibilityLabel()` to icon-only buttons, `.accessibilityHidden(true)` to decorative elements, and `.accessibilityValue()` to stateful controls. See existing components for patterns.
 
