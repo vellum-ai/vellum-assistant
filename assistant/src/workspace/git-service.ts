@@ -136,6 +136,23 @@ interface GitStatus {
 }
 
 /**
+ * An empty directory path that git resolves to "no hooks directory".
+ *
+ * Git looks for hook scripts in `core.hooksPath`. When set to a path that
+ * contains no executable files, all hook types (pre-commit, commit-msg,
+ * post-commit, etc.) are silently skipped.
+ *
+ * We use `/dev/null` because:
+ * 1. It always exists on POSIX systems (macOS + Linux).
+ * 2. It is not a directory, so git will not find any hook scripts there.
+ * 3. It produces no side effects.
+ *
+ * This is intentionally stronger than `--no-verify`, which only suppresses
+ * pre-commit and commit-msg hooks and leaves post-commit hooks running.
+ */
+const EMPTY_HOOKS_PATH = "/dev/null";
+
+/**
  * Git service for workspace change management.
  *
  * Provides git-backed tracking of workspace state with lazy initialization.
@@ -146,6 +163,7 @@ interface GitStatus {
  * - Mutex-protected operations: prevents concurrent git command conflicts
  * - Handles both new and existing workspaces transparently
  * - Synchronous initial commit within mutex to prevent races
+ * - Fail-closed hook policy: auto-commits never run repository hooks
  */
 export class WorkspaceGitService {
   private readonly workspaceDir: string;
@@ -418,7 +436,7 @@ export class WorkspaceGitService {
             ? "Initial commit: migrated existing workspace"
             : "Initial commit: new workspace";
 
-          await this.execGit(["commit", "-m", message, "--allow-empty"]);
+          await this.execGitCommit(["-m", message, "--allow-empty"]);
 
           this.initialized = true;
           this.recordInitSuccess();
@@ -454,7 +472,7 @@ export class WorkspaceGitService {
       }
 
       // Commit (will succeed even if no changes)
-      await this.execGit(["commit", "-m", fullMessage, "--allow-empty"]);
+      await this.execGitCommit(["-m", fullMessage, "--allow-empty"]);
     });
   }
 
@@ -592,7 +610,7 @@ export class WorkspaceGitService {
               .join("\n");
         }
 
-        await this.execGit(["commit", "-m", fullMessage]);
+        await this.execGitCommit(["-m", fullMessage]);
         return { committed: true, status, didRunGit: true as const };
       });
       if (result.didRunGit) {
@@ -774,6 +792,27 @@ export class WorkspaceGitService {
         await this.execGit(["switch", "-c", "main"]);
       }
     }
+  }
+
+  /**
+   * Execute a git commit command with hooks suppressed via `core.hooksPath`.
+   *
+   * All workspace auto-commits go through this helper so that repository
+   * hook scripts (pre-commit, commit-msg, post-commit, etc.) are never
+   * executed without an explicit user trust decision.
+   *
+   * Uses `-c core.hooksPath=<EMPTY_HOOKS_PATH>` rather than `--no-verify`
+   * because `--no-verify` only suppresses pre-commit and commit-msg hooks
+   * while leaving post-commit hooks (and others) intact.
+   */
+  private async execGitCommit(
+    commitArgs: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{ stdout: string; stderr: string }> {
+    return this.execGit(
+      ["-c", `core.hooksPath=${EMPTY_HOOKS_PATH}`, "commit", ...commitArgs],
+      options,
+    );
   }
 
   /**

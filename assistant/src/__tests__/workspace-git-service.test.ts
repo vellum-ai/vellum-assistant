@@ -1205,6 +1205,113 @@ describe("WorkspaceGitService", () => {
     });
   });
 
+  describe("hook suppression (fail-closed auto-commits)", () => {
+    /**
+     * Helper: write an executable hook script that touches a sentinel file
+     * so we can detect if the hook ran.
+     */
+    function installHook(
+      repoDir: string,
+      hookName: string,
+      sentinelPath: string,
+    ): void {
+      const hooksDir = join(repoDir, ".git", "hooks");
+      mkdirSync(hooksDir, { recursive: true });
+      const hookPath = join(hooksDir, hookName);
+      writeFileSync(hookPath, `#!/bin/sh\ntouch "${sentinelPath}"\nexit 0\n`, {
+        mode: 0o755,
+      });
+    }
+
+    test("initial commit in ensureInitialized does not run pre-commit hook", async () => {
+      const sentinel = join(testDir, "pre-commit-ran.marker");
+
+      // Initialize the service so git init has run, but no initial commit yet.
+      // We need to install the hook AFTER git init but BEFORE the initial commit.
+      // Since ensureInitialized() does both atomically, we instead:
+      // 1. Manually git-init the directory.
+      // 2. Install the hook.
+      // 3. Then call ensureInitialized() so it creates the initial commit.
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      installHook(testDir, "pre-commit", sentinel);
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("initial commit in ensureInitialized does not run commit-msg hook", async () => {
+      const sentinel = join(testDir, "commit-msg-ran.marker");
+
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      installHook(testDir, "commit-msg", sentinel);
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("commitChanges does not run pre-commit hook", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "pre-commit-ran.marker");
+      installHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "file.txt"), "content");
+      await service.commitChanges("test: hook suppression");
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("commitChanges does not run commit-msg hook", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "commit-msg-ran.marker");
+      installHook(testDir, "commit-msg", sentinel);
+
+      writeFileSync(join(testDir, "file.txt"), "content");
+      await service.commitChanges("test: commit-msg hook suppression");
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("commitIfDirty does not run pre-commit hook", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "pre-commit-ran.marker");
+      installHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "dirty.txt"), "dirty");
+      const result = await service.commitIfDirty(() => ({
+        message: "test: commitIfDirty hook suppression",
+      }));
+
+      expect(result.committed).toBe(true);
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("commitIfDirty does not run commit-msg hook", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "commit-msg-ran.marker");
+      installHook(testDir, "commit-msg", sentinel);
+
+      writeFileSync(join(testDir, "dirty.txt"), "dirty");
+      const result = await service.commitIfDirty(() => ({
+        message: "test: commitIfDirty commit-msg hook suppression",
+      }));
+
+      expect(result.committed).toBe(true);
+      expect(existsSync(sentinel)).toBe(false);
+    });
+  });
+
   describe("isDeadlineExpired helper", () => {
     test("returns false when deadlineMs is undefined", () => {
       expect(isDeadlineExpired(undefined)).toBe(false);
