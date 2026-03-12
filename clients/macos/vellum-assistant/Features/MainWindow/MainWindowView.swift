@@ -604,15 +604,14 @@ struct MainWindowView: View {
                             onDismissError: { viewModel.dismissError() }
                         )
                     } else if !windowState.hasAPIKey {
-                        VStack(spacing: VSpacing.xs) {
-                            ChatSessionErrorToast(
-                                message: "API key not set. Add one in Settings to start chatting.",
-                                icon: .keyRound,
-                                accentColor: Amber._550,
-                                actionLabel: "Open Settings",
-                                onAction: { windowState.selection = .panel(.settings) }
-                            )
-                        }
+                        ChatSessionErrorToast(
+                            message: "API key not set. Add one in Settings to start chatting.",
+                            icon: .keyRound,
+                            accentColor: Amber._550,
+                            actionLabel: "Open Settings",
+                            onAction: { windowState.selection = .panel(.settings) }
+                        )
+                        .fixedSize(horizontal: true, vertical: false)
                         .frame(maxWidth: geo.size.width * 0.7)
                         .padding(.top, VSpacing.sm)
                         .animation(VAnimation.fast, value: windowState.hasAPIKey)
@@ -621,7 +620,6 @@ struct MainWindowView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-
         .overlay(alignment: .bottom) {
             if let toast = windowState.toastInfo {
                 VToast(
@@ -880,7 +878,7 @@ private struct ErrorToastOverlay: View {
     let onDismissError: () -> Void
 
     var body: some View {
-        VStack(spacing: VSpacing.xs) {
+        VStack(alignment: .center, spacing: VSpacing.xs) {
             if !hasAPIKey {
                 ChatSessionErrorToast(
                     message: "API key not set. Add one in Settings to start chatting.",
@@ -889,6 +887,8 @@ private struct ErrorToastOverlay: View {
                     actionLabel: "Open Settings",
                     onAction: onOpenSettings
                 )
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: maxWidth)
             }
 
             if let sessionError = errorManager.sessionError {
@@ -898,6 +898,8 @@ private struct ErrorToastOverlay: View {
                     onCopyDebugInfo: onCopyDebugInfo,
                     onDismiss: onDismissSessionError
                 )
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: maxWidth)
             }
 
             if let errorText = errorManager.errorText, errorManager.sessionError == nil {
@@ -908,9 +910,10 @@ private struct ErrorToastOverlay: View {
                     onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryLastMessage : nil,
                     onDismiss: onDismissError
                 )
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: maxWidth)
             }
         }
-        .frame(maxWidth: maxWidth)
         .padding(.top, VSpacing.sm)
         .animation(VAnimation.fast, value: hasAPIKey)
         .animation(VAnimation.fast, value: errorManager.sessionError != nil)

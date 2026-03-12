@@ -69,7 +69,6 @@ struct ChatSessionErrorToast: View {
     var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 14)
-                .offset(y: -1)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(message)
@@ -86,15 +85,17 @@ struct ChatSessionErrorToast: View {
                 }
             }
 
-            Spacer()
+            if actionLabel != nil || showCopyDebug || onDismiss != nil {
+                Spacer(minLength: 100)
+            }
 
             if let actionLabel, let onAction {
                 Button(action: onAction) {
                     Text(actionLabel)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.caption)
                         .foregroundColor(.white)
-                        .padding(.horizontal, VSpacing.md)
-                        .frame(height: 28)
+                        .padding(.horizontal, VSpacing.sm)
+                        .frame(height: 24)
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
                                 .strokeBorder(Color.white, lineWidth: 1.5)
