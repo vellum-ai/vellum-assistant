@@ -58,6 +58,7 @@ final class SSHTerminalWindow {
         window.title = "Terminal — \(assistant.assistantId)"
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 600, height: 400)
+        window.setContentSize(NSSize(width: 1024, height: 768))
         window.center()
 
         // Clean up on close.
@@ -100,7 +101,9 @@ private struct SSHTerminalContentView: View {
         VStack(spacing: 0) {
             terminalToolbar
             SSHTerminalView(sessionManager: sessionManager)
+                .padding(8)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
     }
 
