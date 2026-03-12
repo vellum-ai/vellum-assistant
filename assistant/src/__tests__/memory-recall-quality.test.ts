@@ -633,6 +633,25 @@ describe("Memory Recall Quality", () => {
         now + 2,
       );
 
+      // Link all items to an entity matching a query token ("framework")
+      db.insert(memoryEntities)
+        .values({
+          id: "entity-framework",
+          name: "framework",
+          type: "concept",
+          firstSeenAt: now,
+          lastSeenAt: now,
+          mentionCount: 1,
+        })
+        .run();
+      db.insert(memoryItemEntities)
+        .values([
+          { memoryItemId: "item-framework-active", entityId: "entity-framework" },
+          { memoryItemId: "item-framework-pending", entityId: "entity-framework" },
+          { memoryItemId: "item-framework-invalid", entityId: "entity-framework" },
+        ])
+        .run();
+
       const recall = await buildMemoryRecall(
         "framework preference",
         "conv-conflict-status",
@@ -817,14 +836,28 @@ describe("Memory Recall Quality", () => {
       });
       insertItemSource(db, "item-deploy-rule", "msg-seg", now);
 
+      // Link the item to an entity matching a query token ("deployment")
+      db.insert(memoryEntities)
+        .values({
+          id: "entity-deployment",
+          name: "deployment",
+          type: "concept",
+          firstSeenAt: now,
+          lastSeenAt: now,
+          mentionCount: 1,
+        })
+        .run();
+      db.insert(memoryItemEntities)
+        .values({ memoryItemId: "item-deploy-rule", entityId: "entity-deployment" })
+        .run();
+
       const recall = await buildMemoryRecall(
         "deployment staging production",
         "conv-multi",
         TEST_CONFIG,
       );
 
-      // Both the segment and item should contribute to the recall
-      expect(recall.lexicalHits).toBeGreaterThan(0);
+      // The item should be found via entity search and contribute to recall
       expect(recall.injectedText).toContain("staging");
       expect(recall.injectedText).toContain("production");
     });

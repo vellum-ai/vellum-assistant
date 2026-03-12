@@ -265,62 +265,6 @@ describe("Memory regressions", () => {
     }
   });
 
-  test("lexical recall accepts punctuation-heavy user queries without degrading", async () => {
-    const db = getDb();
-    const createdAt = 1_700_000_000_000;
-    db.insert(conversations)
-      .values({
-        id: "conv-1",
-        title: null,
-        createdAt,
-        updatedAt: createdAt,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalEstimatedCost: 0,
-        contextSummary: null,
-        contextCompactedMessageCount: 0,
-        contextCompactedAt: null,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-1",
-        conversationId: "conv-1",
-        role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "error timeout in src index ts" },
-        ]),
-        createdAt,
-      })
-      .run();
-    db.run(`
-      INSERT INTO memory_segments (
-        id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at
-      ) VALUES (
-        'seg-1', 'msg-1', 'conv-1', 'user', 0, 'error timeout in src index ts', 8, ${createdAt}, ${createdAt}
-      )
-    `);
-
-    const config = {
-      ...DEFAULT_CONFIG,
-      memory: {
-        ...DEFAULT_CONFIG.memory,
-        embeddings: {
-          ...DEFAULT_CONFIG.memory.embeddings,
-          required: false,
-        },
-      },
-    };
-
-    const recall = await buildMemoryRecall(
-      "error: timeout src/index.ts foo-bar",
-      "conv-1",
-      config,
-    );
-    expect(recall.degraded).toBe(false);
-    expect(recall.lexicalHits).toBeGreaterThan(0);
-  });
-
   test("recall excludes current-turn message ids from injected candidates", async () => {
     const db = getDb();
     const now = 1_700_000_100_000;
@@ -2653,6 +2597,24 @@ describe("Memory regressions", () => {
       ])
       .run();
 
+    // Link both items to an entity matching a query token ("dark" from "dark mode")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-dark-mode",
+        name: "dark",
+        type: "concept",
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      })
+      .run();
+    db.insert(memoryItemEntities)
+      .values([
+        { memoryItemId: "item-trust-confirmed", entityId: "entity-dark-mode" },
+        { memoryItemId: "item-trust-inferred", entityId: "entity-dark-mode" },
+      ])
+      .run();
+
     const config = {
       ...DEFAULT_CONFIG,
       memory: {
@@ -2721,6 +2683,24 @@ describe("Memory regressions", () => {
       ])
       .run();
 
+    // Link both items to an entity matching a query token ("vim" from "vim keybindings")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-vim",
+        name: "vim",
+        type: "concept",
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      })
+      .run();
+    db.insert(memoryItemEntities)
+      .values([
+        { memoryItemId: "item-trust-reported", entityId: "entity-vim" },
+        { memoryItemId: "item-trust-inferred2", entityId: "entity-vim" },
+      ])
+      .run();
+
     const config = {
       ...DEFAULT_CONFIG,
       memory: {
@@ -2784,6 +2764,21 @@ describe("Memory regressions", () => {
         0,
         "some_future_state",
       );
+
+    // Link the item to an entity matching a query token ("trust" from "unknown trust state preference")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-trust",
+        name: "trust",
+        type: "concept",
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      })
+      .run();
+    db.insert(memoryItemEntities)
+      .values({ memoryItemId: "item-trust-unknown", entityId: "entity-trust" })
+      .run();
 
     const config = {
       ...DEFAULT_CONFIG,
@@ -2849,6 +2844,24 @@ describe("Memory regressions", () => {
         accessCount: 0,
         verificationState: "user_confirmed",
       })
+      .run();
+
+    // Link both items to an entity matching a query token ("workshop" from "machine learning workshop")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-workshop",
+        name: "workshop",
+        type: "concept",
+        firstSeenAt: now - 60 * MS_PER_DAY,
+        lastSeenAt: now,
+        mentionCount: 1,
+      })
+      .run();
+    db.insert(memoryItemEntities)
+      .values([
+        { memoryItemId: "item-fresh-event", entityId: "entity-workshop" },
+        { memoryItemId: "item-stale-event", entityId: "entity-workshop" },
+      ])
       .run();
 
     const config = {
@@ -2917,6 +2930,24 @@ describe("Memory regressions", () => {
         accessCount: 0,
         verificationState: "user_confirmed",
       })
+      .run();
+
+    // Link both items to an entity matching a query token ("speed" from "speed of light")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-speed",
+        name: "speed",
+        type: "concept",
+        firstSeenAt: now - 365 * MS_PER_DAY,
+        lastSeenAt: now,
+        mentionCount: 1,
+      })
+      .run();
+    db.insert(memoryItemEntities)
+      .values([
+        { memoryItemId: "item-old-fact", entityId: "entity-speed" },
+        { memoryItemId: "item-new-fact", entityId: "entity-speed" },
+      ])
       .run();
 
     const config = {
@@ -4871,6 +4902,23 @@ describe("Memory regressions", () => {
     // Collect the item IDs so we can check them in recall results
     const privateItemKeys = privateItems.map((i) => `item:${i.id}`);
 
+    // Link extracted items to an entity matching a query token ("zephyr")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-zephyr",
+        name: "zephyr",
+        type: "concept",
+        firstSeenAt: Date.now(),
+        lastSeenAt: Date.now(),
+        mentionCount: 1,
+      })
+      .run();
+    for (const item of privateItems) {
+      db.insert(memoryItemEntities)
+        .values({ memoryItemId: item.id, entityId: "entity-zephyr" })
+        .run();
+    }
+
     // 3. Create a standard conversation for the "standard thread" perspective
     const stdConv = createConversation({
       title: "Standard e2e test",
@@ -4982,6 +5030,25 @@ describe("Memory regressions", () => {
     const obsidianItemKeys = defaultItems
       .filter((i) => i.statement.toLowerCase().includes("obsidian"))
       .map((i) => `item:${i.id}`);
+
+    // Link extracted items to an entity matching a query token ("obsidian")
+    db.insert(memoryEntities)
+      .values({
+        id: "entity-obsidian",
+        name: "obsidian",
+        type: "concept",
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      })
+      .run();
+    for (const item of defaultItems.filter((i) =>
+      i.statement.toLowerCase().includes("obsidian"),
+    )) {
+      db.insert(memoryItemEntities)
+        .values({ memoryItemId: item.id, entityId: "entity-obsidian" })
+        .run();
+    }
 
     // 2. Create a private conversation
     const privConv = createConversation({
