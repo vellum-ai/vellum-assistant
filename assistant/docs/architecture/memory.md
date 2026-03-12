@@ -25,11 +25,16 @@ graph TB
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
     end
 
-    subgraph "Embedding Providers"
+    subgraph "Embedding Provider Selection (selectEmbeddingBackend)"
+        PROVIDER_SELECT["Provider Selection<br/>auto: local → OpenAI → Gemini → Ollama<br/>or explicit config override"]
         LOCAL_EMB["Local (ONNX)<br/>bge-small-en-v1.5"]
         OAI_EMB["OpenAI<br/>text-embedding-3-small"]
         GEM_EMB["Gemini<br/>gemini-embedding-001"]
         OLL_EMB["Ollama<br/>nomic-embed-text"]
+    end
+
+    subgraph "Sparse Embedding (in-process)"
+        SPARSE_GEN["generateSparseEmbedding()<br/>TF-IDF, FNV-1a hashing<br/>(no external calls)"]
     end
 
     subgraph "Qdrant Vector Store"
@@ -86,21 +91,26 @@ graph TB
     WORKER --> CLEAN_SUPERSEDED
     WORKER --> BUILD_SUM
 
-    EMBED_SEG --> LOCAL_EMB
-    EMBED_ITEM --> LOCAL_EMB
-    EMBED_SUM --> LOCAL_EMB
+    EMBED_SEG --> PROVIDER_SELECT
+    EMBED_ITEM --> PROVIDER_SELECT
+    EMBED_SUM --> PROVIDER_SELECT
+    PROVIDER_SELECT --> LOCAL_EMB
+    PROVIDER_SELECT --> OAI_EMB
+    PROVIDER_SELECT --> GEM_EMB
+    PROVIDER_SELECT --> OLL_EMB
     LOCAL_EMB --> DENSE
-    LOCAL_EMB --> SPARSE
     OAI_EMB --> DENSE
-    OAI_EMB --> SPARSE
     GEM_EMB --> DENSE
-    GEM_EMB --> SPARSE
     OLL_EMB --> DENSE
-    OLL_EMB --> SPARSE
+    EMBED_SEG --> SPARSE_GEN
+    EMBED_ITEM --> SPARSE_GEN
+    EMBED_SUM --> SPARSE_GEN
+    SPARSE_GEN --> SPARSE
 
     NEEDS_MEM --> QUERY
     QUERY --> EMBED_Q
-    EMBED_Q --> LOCAL_EMB
+    EMBED_Q --> PROVIDER_SELECT
+    EMBED_Q --> SPARSE_GEN
     EMBED_Q --> HYBRID
     HYBRID --> RRF
     QUERY --> RECENCY
@@ -145,14 +155,14 @@ The key distinction: normal compaction is a cost-optimized background process th
 
 ### Memory Retrieval Config Knobs (Defaults)
 
-| Config key                                            |   Default | Purpose                                                                         |
-| ----------------------------------------------------- | --------: | ------------------------------------------------------------------------------- |
-| `memory.retrieval.dynamicBudget.enabled`              |    `true` | Toggle per-turn recall budget calculation from live prompt headroom.            |
-| `memory.retrieval.dynamicBudget.minInjectTokens`      |    `1200` | Lower clamp for computed recall injection budget.                              |
-| `memory.retrieval.dynamicBudget.maxInjectTokens`      |   `10000` | Upper clamp for computed recall injection budget.                              |
-| `memory.retrieval.dynamicBudget.targetHeadroomTokens` |   `10000` | Reserved headroom to keep free for response generation/tool traces.            |
-| `memory.retrieval.maxInjectTokens`                    |   `10000` | Static fallback when dynamic budget is disabled.                               |
-| `memory.retrieval.scopePolicy`                        | `'allow_global_fallback'` | Scope filtering strategy: `'strict'` or `'allow_global_fallback'`. |
+| Config key                                            |                   Default | Purpose                                                              |
+| ----------------------------------------------------- | ------------------------: | -------------------------------------------------------------------- |
+| `memory.retrieval.dynamicBudget.enabled`              |                    `true` | Toggle per-turn recall budget calculation from live prompt headroom. |
+| `memory.retrieval.dynamicBudget.minInjectTokens`      |                    `1200` | Lower clamp for computed recall injection budget.                    |
+| `memory.retrieval.dynamicBudget.maxInjectTokens`      |                   `10000` | Upper clamp for computed recall injection budget.                    |
+| `memory.retrieval.dynamicBudget.targetHeadroomTokens` |                   `10000` | Reserved headroom to keep free for response generation/tool traces.  |
+| `memory.retrieval.maxInjectTokens`                    |                   `10000` | Static fallback when dynamic budget is disabled.                     |
+| `memory.retrieval.scopePolicy`                        | `'allow_global_fallback'` | Scope filtering strategy: `'strict'` or `'allow_global_fallback'`.   |
 
 ### Memory Recall Debugging Playbook
 
@@ -191,14 +201,14 @@ stateDiagram-v2
 
 **Item extraction** uses LLM-powered extraction (with pattern-based fallback) to identify memorable information from conversation messages. Each extracted item belongs to one of six kinds:
 
-| Kind         | Description                                      | Base Lifetime  |
-| ------------ | ------------------------------------------------ | -------------- |
-| `identity`   | Personal info, facts, relationships              | 6 months       |
-| `preference` | Likes, dislikes, preferred approaches/tools      | 3 months       |
-| `constraint` | Rules, requirements, directives                  | 1 month        |
-| `project`    | Project details, repos, tech stacks, action items| 2 weeks        |
-| `decision`   | Choices made, approaches selected                | 2 weeks        |
-| `event`      | Deadlines, milestones, meetings, dates           | 3 days         |
+| Kind         | Description                                       | Base Lifetime |
+| ------------ | ------------------------------------------------- | ------------- |
+| `identity`   | Personal info, facts, relationships               | 6 months      |
+| `preference` | Likes, dislikes, preferred approaches/tools       | 3 months      |
+| `constraint` | Rules, requirements, directives                   | 1 month       |
+| `project`    | Project details, repos, tech stacks, action items | 2 weeks       |
+| `decision`   | Choices made, approaches selected                 | 2 weeks       |
+| `event`      | Deadlines, milestones, meetings, dates            | 3 days        |
 
 **Supersession chains** replace the old conflict resolution system. When the LLM extracts a new item that updates an existing one, it sets `supersedes` to the old item's ID and `overrideConfidence` to one of three levels:
 
