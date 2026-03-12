@@ -747,9 +747,7 @@ class CredentialStoreTool implements Tool {
           if (dbApp) {
             if (!clientId) clientId = dbApp.clientId;
             if (!clientSecret) {
-              clientSecret = getSecureKey(
-                `oauth_app/${dbApp.id}/client_secret`,
-              );
+              clientSecret = getSecureKey(dbApp.clientSecretCredentialPath);
             }
           }
         }
