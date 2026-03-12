@@ -33,10 +33,7 @@ import {
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
-import {
-  buildConversationSummaryJob,
-  buildGlobalSummaryJob,
-} from "./job-handlers/summarization.js";
+import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -57,7 +54,6 @@ import {
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
-import { bumpMemoryVersion } from "./recall-cache.js";
 
 // Re-export public utilities consumed by tests and other modules
 export { currentWeekWindow } from "./job-utils.js";
@@ -157,7 +153,6 @@ export async function runMemoryJobsOnce(
       try {
         await processJob(job, config);
         completeMemoryJob(job.id);
-        bumpMemoryVersion();
         groupProcessed += 1;
       } catch (err) {
         try {
@@ -311,12 +306,6 @@ async function processJob(
       return;
     case "build_conversation_summary":
       await buildConversationSummaryJob(job, config);
-      return;
-    case "refresh_weekly_summary":
-      await buildGlobalSummaryJob("weekly_global", config);
-      return;
-    case "refresh_monthly_summary":
-      await buildGlobalSummaryJob("monthly_global", config);
       return;
     case "backfill":
       backfillJob(job, config);

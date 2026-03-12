@@ -20,8 +20,6 @@ export type MemoryJobType =
   | "prune_old_conversations"
   | "backfill_entity_relations"
   | "check_contradictions"
-  | "refresh_weekly_summary"
-  | "refresh_monthly_summary"
   | "build_conversation_summary"
   | "backfill"
   | "rebuild_index"

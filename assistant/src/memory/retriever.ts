@@ -1,4 +1,3 @@
-import { createHash } from "crypto";
 import { inArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
@@ -21,11 +20,6 @@ import {
   isQdrantBreakerOpen,
   QdrantCircuitOpenError,
 } from "./qdrant-circuit-breaker.js";
-import {
-  getCachedRecall,
-  getMemoryVersion,
-  setCachedRecall,
-} from "./recall-cache.js";
 import { memoryItems, memoryItemSources, messages } from "./schema.js";
 import { entitySearch } from "./search/entity.js";
 import {
@@ -77,21 +71,6 @@ export type {
 
 const log = getLogger("memory-retriever");
 
-/** Hash the retrieval-relevant config fields so the recall cache distinguishes different configs. */
-function buildConfigFingerprint(config: AssistantConfig): string {
-  const relevant = {
-    r: config.memory.retrieval,
-    e: {
-      provider: config.memory.embeddings.provider,
-      required: config.memory.embeddings.required,
-    },
-    ent: config.memory.entity.enabled,
-  };
-  return createHash("sha256")
-    .update(JSON.stringify(relevant))
-    .digest("hex")
-    .slice(0, 16);
-}
 
 const EMBED_MAX_RETRIES = 3;
 const EMBED_BASE_DELAY_MS = 500;
@@ -747,7 +726,6 @@ export async function buildMemoryRecall(
   options?: MemoryRecallOptions,
 ): Promise<MemoryRecallResult> {
   const start = Date.now();
-  const versionSnapshot = getMemoryVersion();
   const excludeMessageIds =
     options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
   const signal = options?.signal;
@@ -766,22 +744,6 @@ export async function buildMemoryRecall(
       reason: "memory.aborted",
       latencyMs: Date.now() - start,
     });
-  }
-
-  // Check recall cache
-  const configFingerprint = buildConfigFingerprint(config);
-  const cached = getCachedRecall(
-    query,
-    conversationId,
-    options,
-    configFingerprint,
-  );
-  if (cached) {
-    log.debug(
-      { query: truncate(query, 120), latencyMs: Date.now() - start },
-      "Memory recall served from cache",
-    );
-    return { ...cached, latencyMs: Date.now() - start };
   }
 
   // Stage 1: Embedding generation
@@ -891,19 +853,6 @@ export async function buildMemoryRecall(
     start,
   );
 
-  // Only cache non-degraded results — degraded results (e.g. lexical-only
-  // fallback when embeddings fail) would delay quality recovery once the
-  // embedding backend comes back.
-  if (!result.degraded) {
-    setCachedRecall(
-      query,
-      conversationId,
-      options,
-      result,
-      versionSnapshot,
-      configFingerprint,
-    );
-  }
   return result;
 }
 
@@ -930,7 +879,6 @@ export async function buildMemoryRecallV2(
   options?: MemoryRecallOptions,
 ): Promise<MemoryRecallResult> {
   const start = Date.now();
-  const versionSnapshot = getMemoryVersion();
   const excludeMessageIds =
     options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
   const signal = options?.signal;
@@ -950,22 +898,6 @@ export async function buildMemoryRecallV2(
       reason: "memory.aborted",
       latencyMs: Date.now() - start,
     });
-  }
-
-  // Check recall cache
-  const configFingerprint = buildConfigFingerprint(config);
-  const cached = getCachedRecall(
-    query,
-    conversationId,
-    options,
-    configFingerprint,
-  );
-  if (cached) {
-    log.debug(
-      { query: truncate(query, 120), latencyMs: Date.now() - start },
-      "Memory recall V2 served from cache",
-    );
-    return { ...cached, latencyMs: Date.now() - start };
   }
 
   // ── Step 1+2: Generate dense and sparse embeddings ──────────────
@@ -1205,18 +1137,6 @@ export async function buildMemoryRecallV2(
     tier2Count,
     hybridSearchMs,
   };
-
-  // Only cache non-degraded results
-  if (!result.degraded) {
-    setCachedRecall(
-      query,
-      conversationId,
-      options,
-      result,
-      versionSnapshot,
-      configFingerprint,
-    );
-  }
 
   return result;
 }

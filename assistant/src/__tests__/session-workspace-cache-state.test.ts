@@ -168,10 +168,6 @@ mock.module("../memory/admin.js", () => ({
   }),
 }));
 
-mock.module("../memory/profile-compiler.js", () => ({
-  compileDynamicProfile: () => null,
-}));
-
 mock.module("../memory/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));

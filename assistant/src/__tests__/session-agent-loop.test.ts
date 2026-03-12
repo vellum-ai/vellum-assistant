@@ -198,10 +198,6 @@ mock.module("../daemon/session-runtime-assembly.js", () => ({
   stripInjectedContext: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../daemon/session-dynamic-profile.js", () => ({
-  stripDynamicProfileMessages: (msgs: Message[]) => msgs,
-}));
-
 mock.module("../daemon/date-context.js", () => ({
   buildTemporalContext: () => null,
 }));

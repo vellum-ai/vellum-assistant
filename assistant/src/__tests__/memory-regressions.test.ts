@@ -60,7 +60,7 @@ mock.module("../memory/qdrant-client.js", () => ({
 import { and, eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
-import { currentMonthWindow, vectorToBlob } from "../memory/job-utils.js";
+import { vectorToBlob } from "../memory/job-utils.js";
 
 // Disable LLM extraction in tests to avoid real API calls and ensure
 // deterministic pattern-based extraction.
@@ -114,10 +114,7 @@ import {
   backfillEntityRelationsJob,
   backfillJob,
 } from "../memory/job-handlers/backfill.js";
-import {
-  buildConversationSummaryJob,
-  buildGlobalSummaryJob,
-} from "../memory/job-handlers/summarization.js";
+import { buildConversationSummaryJob } from "../memory/job-handlers/summarization.js";
 import {
   claimMemoryJobs,
   enqueueBackfillEntityRelationsJob,
@@ -5074,138 +5071,6 @@ describe("Memory regressions", () => {
     );
     expect(hasObsidianInPrivate).toBe(true);
     expect(privRecall.injectedText.toLowerCase()).toContain("obsidian");
-  });
-
-  test("global weekly summary excludes private-scope memory items", async () => {
-    const db = getDb();
-    const now = new Date();
-    const { startMs, endMs } = currentWeekWindow(now);
-    const midMs = Math.floor((startMs + endMs) / 2);
-
-    // Insert a default-scope memory item within the current week window
-    db.insert(memoryItems)
-      .values({
-        id: "item-global-weekly-default",
-        kind: "preference",
-        subject: "editor",
-        statement: "User prefers VSCode for all editing",
-        status: "active",
-        confidence: 0.9,
-        fingerprint: "fp-global-weekly-default",
-        scopeId: "default",
-        firstSeenAt: midMs,
-        lastSeenAt: midMs,
-      })
-      .run();
-
-    // Insert a private-scope memory item within the same window
-    db.insert(memoryItems)
-      .values({
-        id: "item-global-weekly-private",
-        kind: "preference",
-        subject: "secret-tool",
-        statement: "User uses SecretTool for private work",
-        status: "active",
-        confidence: 0.9,
-        fingerprint: "fp-global-weekly-private",
-        scopeId: "private:thread-weekly-test",
-        firstSeenAt: midMs,
-        lastSeenAt: midMs,
-      })
-      .run();
-
-    const summaryConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        summarization: {
-          ...TEST_CONFIG.memory.summarization,
-          useLLM: false,
-        },
-      },
-    };
-
-    await buildGlobalSummaryJob("weekly_global", summaryConfig);
-
-    const summaries = db
-      .select()
-      .from(memorySummaries)
-      .where(eq(memorySummaries.scope, "weekly_global"))
-      .all();
-
-    expect(summaries).toHaveLength(1);
-    const summaryText = summaries[0].summary.toLowerCase();
-    // Default-scope content should appear
-    expect(summaryText).toContain("vscode");
-    // Private-scope content must NOT leak into the global summary
-    expect(summaryText).not.toContain("secrettool");
-  });
-
-  test("global monthly summary excludes private conversation summaries", async () => {
-    const db = getDb();
-    const now = new Date();
-    const { startMs, endMs } = currentMonthWindow(now);
-    const midMs = Math.floor((startMs + endMs) / 2);
-
-    // Insert a default-scope conversation summary within the current month
-    db.insert(memorySummaries)
-      .values({
-        id: "summary-monthly-default",
-        scope: "conversation",
-        scopeKey: "conv-monthly-default",
-        scopeId: "default",
-        summary: "User discussed PublicFramework integration patterns",
-        tokenEstimate: 10,
-        version: 1,
-        startAt: midMs - 1000,
-        endAt: midMs,
-        createdAt: midMs,
-        updatedAt: midMs,
-      })
-      .run();
-
-    // Insert a private-scope conversation summary within the same month
-    db.insert(memorySummaries)
-      .values({
-        id: "summary-monthly-private",
-        scope: "conversation",
-        scopeKey: "conv-monthly-private",
-        scopeId: "private:thread-monthly-test",
-        summary: "User discussed ConfidentialProject secret architecture",
-        tokenEstimate: 10,
-        version: 1,
-        startAt: midMs - 1000,
-        endAt: midMs,
-        createdAt: midMs,
-        updatedAt: midMs,
-      })
-      .run();
-
-    const summaryConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        summarization: {
-          ...TEST_CONFIG.memory.summarization,
-          useLLM: false,
-        },
-      },
-    };
-
-    await buildGlobalSummaryJob("monthly_global", summaryConfig);
-
-    const summaries = db
-      .select()
-      .from(memorySummaries)
-      .where(eq(memorySummaries.scope, "monthly_global"))
-      .all();
-
-    expect(summaries).toHaveLength(1);
-    const summaryText = summaries[0].summary.toLowerCase();
-    // Default-scope conversation summary content should appear
-    expect(summaryText).toContain("publicframework");
-    // Private-scope conversation summary content must NOT leak
-    expect(summaryText).not.toContain("confidentialproject");
   });
 
   // Backfill preserves private conversation scope on memory segments

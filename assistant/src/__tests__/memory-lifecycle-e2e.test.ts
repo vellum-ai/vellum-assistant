@@ -154,10 +154,6 @@ mock.module("../config/loader.js", () => ({
 
 import { ConflictGate } from "../daemon/session-conflict-gate.js";
 import {
-  injectDynamicProfileIntoUserMessage,
-  stripDynamicProfileMessages,
-} from "../daemon/session-dynamic-profile.js";
-import {
   createOrUpdatePendingConflict,
   getConflictById,
 } from "../memory/conflict-store.js";
@@ -179,14 +175,6 @@ import {
   memoryItemSources,
   messages,
 } from "../memory/schema.js";
-import type { Message } from "../providers/types.js";
-
-function messageText(message: Message): string {
-  return message.content
-    .filter((block) => block.type === "text")
-    .map((block) => (block as { type: "text"; text: string }).text)
-    .join("\n");
-}
 
 describe("Memory lifecycle E2E regression", () => {
   beforeAll(() => {
@@ -540,31 +528,5 @@ describe("Memory lifecycle E2E regression", () => {
       .get();
     expect(runtimeExisting?.status).toBe("active");
     expect(runtimeCandidate?.status).toBe("superseded");
-
-    const profileText =
-      "<dynamic-user-profile>\n- timezone: America/Los_Angeles\n- prefers concise answers\n</dynamic-user-profile>";
-    const baseUserMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: "Plan next sprint milestones." }],
-    };
-
-    const injectedProfileMessage = injectDynamicProfileIntoUserMessage(
-      baseUserMessage,
-      profileText,
-    );
-    const runtimeUserText = messageText(injectedProfileMessage);
-    expect(runtimeUserText).toContain("<dynamic-profile-context>");
-    expect(runtimeUserText).toContain("<dynamic-user-profile>");
-    expect(runtimeUserText).toContain("</dynamic-profile-context>");
-
-    const strippedMessages = stripDynamicProfileMessages(
-      [injectedProfileMessage],
-      profileText,
-    );
-    expect(strippedMessages).toHaveLength(1);
-    expect(messageText(strippedMessages[0] as Message).trim()).toBe(
-      "Plan next sprint milestones.",
-    );
-    expect(messageText(baseUserMessage)).toBe("Plan next sprint milestones.");
   });
 });
