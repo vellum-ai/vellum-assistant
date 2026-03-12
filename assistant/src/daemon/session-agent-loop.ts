@@ -122,6 +122,40 @@ import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-agent-loop");
 
+/**
+ * Parse the actual token count reported by the provider in a context-too-large
+ * error message. Providers typically include the prompt size, e.g.:
+ *   "prompt is too long: 242201 tokens > 200000 maximum"
+ *   "too many input tokens: 242201 > 200000"
+ *
+ * Returns the actual token count or null if it cannot be parsed.
+ */
+function parseActualTokensFromError(
+  errorMessage: string | null,
+): number | null {
+  if (!errorMessage) return null;
+
+  // Match patterns like "242201 tokens > 200000" or "242201 > 200000 maximum"
+  const match = errorMessage.match(
+    /(\d[\d,]*)\s*tokens?\s*[>≥]|:\s*(\d[\d,]*)\s*[>≥]/i,
+  );
+  if (match) {
+    const raw = (match[1] || match[2]).replace(/,/g, "");
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  // Fallback: match "too many input tokens: N > M"
+  const fallback = errorMessage.match(/(\d[\d,]*)\s*[>≥]\s*\d/);
+  if (fallback) {
+    const raw = fallback[1].replace(/,/g, "");
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  return null;
+}
+
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   bash: "Run Command",
@@ -663,7 +697,12 @@ export async function runAgentLoopImpl(
     const config = getConfig();
     const overflowRecovery = config.contextWindow.overflowRecovery;
     const providerMaxTokens = config.contextWindow.maxInputTokens;
-    const safetyMargin = overflowRecovery.safetyMarginRatio;
+    // Widen safety margin for large conversations where estimation error
+    // compounds across many messages with tool results.
+    const baseSafetyMargin = overflowRecovery.safetyMarginRatio;
+    const messageCount = ctx.messages.length;
+    const safetyMargin =
+      messageCount > 50 ? Math.max(baseSafetyMargin, 0.15) : baseSafetyMargin;
     const preflightBudget = Math.floor(providerMaxTokens * (1 - safetyMargin));
     let reducerState: ReducerState | undefined;
 
@@ -1003,6 +1042,38 @@ export async function runAgentLoopImpl(
         reducerState = createInitialReducerState();
       }
 
+      // When the provider reveals the actual token count in its error
+      // message (e.g. "242201 tokens > 200000"), use it to correct the
+      // compaction target. The estimator may significantly underestimate
+      // (e.g. estimated 185k but actual was 242k), so using the
+      // uncorrected preflightBudget would still be too high.
+      const actualTokens = parseActualTokensFromError(
+        state.contextTooLargeErrorMessage,
+      );
+      const estimatedTokensAtOverflow = estimatePromptTokens(
+        ctx.messages,
+        ctx.systemPrompt,
+        { providerName: ctx.provider.name },
+      );
+      let correctedTarget = preflightBudget;
+      if (actualTokens && estimatedTokensAtOverflow > 0) {
+        const estimationErrorRatio = actualTokens / estimatedTokensAtOverflow;
+        if (estimationErrorRatio > 1.0) {
+          correctedTarget = Math.floor(preflightBudget / estimationErrorRatio);
+          rlog.warn(
+            {
+              phase: "convergence",
+              actualTokens,
+              estimatedTokens: estimatedTokensAtOverflow,
+              estimationErrorRatio: estimationErrorRatio.toFixed(2),
+              preflightBudget,
+              correctedTarget,
+            },
+            "Adjusting compaction target based on observed estimation error",
+          );
+        }
+      }
+
       let convergenceAttempts = 0;
       const maxAttempts = overflowRecovery.maxAttempts;
 
@@ -1033,7 +1104,7 @@ export async function runAgentLoopImpl(
             providerName: ctx.provider.name,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
-            targetTokens: preflightBudget,
+            targetTokens: correctedTarget,
           },
           reducerState,
           (msgs, signal, opts) =>
@@ -1116,7 +1187,7 @@ export async function runAgentLoopImpl(
             lastCompactedAt: ctx.contextCompactedAt ?? undefined,
             force: true,
             minKeepRecentUserTurns: 0,
-            targetInputTokensOverride: preflightBudget,
+            targetInputTokensOverride: correctedTarget,
           },
         );
         if (emergencyCompact.compacted) {
@@ -1196,7 +1267,7 @@ export async function runAgentLoopImpl(
                   lastCompactedAt: ctx.contextCompactedAt ?? undefined,
                   force: true,
                   minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: preflightBudget,
+                  targetInputTokensOverride: correctedTarget,
                 },
               );
             if (emergencyCompact.compacted) {
@@ -1300,7 +1371,7 @@ export async function runAgentLoopImpl(
               lastCompactedAt: ctx.contextCompactedAt ?? undefined,
               force: true,
               minKeepRecentUserTurns: 0,
-              targetInputTokensOverride: preflightBudget,
+              targetInputTokensOverride: correctedTarget,
             },
           );
           if (emergencyCompact.compacted) {
