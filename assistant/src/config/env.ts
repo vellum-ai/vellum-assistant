@@ -51,16 +51,8 @@ export function getGatewayPort(): number {
   return int("GATEWAY_PORT", DEFAULT_GATEWAY_PORT);
 }
 
-/**
- * Resolve the gateway base URL for internal service-to-service calls.
- * Prefers GATEWAY_INTERNAL_BASE_URL if set, then INTERNAL_GATEWAY_BASE_URL
- * (used by skill subprocesses), otherwise derives from port.
- */
+/** Resolve the gateway base URL for internal service-to-service calls. */
 export function getGatewayInternalBaseUrl(): string {
-  const explicit = str("GATEWAY_INTERNAL_BASE_URL");
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const skillInjected = str("INTERNAL_GATEWAY_BASE_URL");
-  if (skillInjected) return skillInjected.replace(/\/+$/, "");
   return `http://127.0.0.1:${getGatewayPort()}`;
 }
 
@@ -197,11 +189,6 @@ export function getPlatformInternalApiKey(): string {
  * deprecated vars.
  */
 export function validateEnv(): void {
-  const gatewayPort = getGatewayPort();
-  if (gatewayPort < 1 || gatewayPort > 65535) {
-    throw new Error(`Invalid GATEWAY_PORT: ${gatewayPort} (must be 1-65535)`);
-  }
-
   const httpPort = getRuntimeHttpPort();
   if (httpPort < 1 || httpPort > 65535) {
     throw new Error(`Invalid RUNTIME_HTTP_PORT: ${httpPort} (must be 1-65535)`);
