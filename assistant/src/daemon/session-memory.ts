@@ -198,7 +198,7 @@ export async function prepareMemoryContext(
         tier1Count: recall.tier1Count ?? 0,
         tier2Count: recall.tier2Count ?? 0,
         hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
-        sparseVectorUsed: false,
+        sparseVectorUsed: recall.sparseVectorUsed ?? false,
         mergedCount: recall.mergedCount,
         selectedCount: recall.selectedCount,
         injectedTokens: recall.injectedTokens,
