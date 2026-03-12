@@ -143,7 +143,7 @@ function healthCheckHost(host: string): string {
 /** Hit the daemon's HTTP /healthz endpoint. Returns true if it responds
  *  with HTTP 200 within the timeout — false on connection refused, timeout,
  *  or any other error. */
-async function isHttpHealthy(): Promise<boolean> {
+export async function isHttpHealthy(): Promise<boolean> {
   const host = healthCheckHost(getRuntimeHttpHost());
   const port = getRuntimeHttpPort();
   try {

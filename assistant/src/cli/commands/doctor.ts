@@ -3,8 +3,10 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 
 import type { Command } from "commander";
 
+import { getRuntimeHttpPort } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
+import { isHttpHealthy } from "../../daemon/daemon-control.js";
 import {
   getDbPath,
   getLogPath,
@@ -13,7 +15,6 @@ import {
   getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
-import { getHttpBaseUrl, httpHealthCheck } from "../http-client.js";
 import { log } from "../logger.js";
 
 export function registerDoctorCommand(program: Command): void {
@@ -57,7 +58,7 @@ Examples:
       log.info("Vellum Doctor\n");
 
       // 0. Connection policy info
-      const httpUrl = getHttpBaseUrl();
+      const httpUrl = `http://127.0.0.1:${getRuntimeHttpPort()}`;
       const autostart = shouldAutoStartDaemon();
       log.info(`  HTTP:      ${httpUrl}`);
       log.info(`  Autostart: ${autostart ? "enabled" : "disabled"}\n`);
@@ -103,7 +104,7 @@ Examples:
 
       // 3. Daemon reachable (HTTP health check)
       try {
-        const healthy = await httpHealthCheck(2000);
+        const healthy = await isHttpHealthy();
         if (healthy) {
           pass("Assistant reachable");
         } else {
