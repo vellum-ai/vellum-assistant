@@ -600,6 +600,95 @@ export function clearCache(): void {
   invalidPatterns.clear();
 }
 
+// ─── Pseudo-rule helpers (internal use only) ────────────────────────────────
+//
+// Pseudo-rules store non-tool metadata (e.g. workspace feature flags) inside
+// the trust store so they persist across restarts via the existing mechanism.
+// They use a reserved tool-name prefix ("__internal:") that is never matched
+// against real tool invocations.
+
+/**
+ * Insert or replace a pseudo-rule for the given tool+pattern pair.
+ *
+ * If a rule with the same tool and pattern already exists it is replaced
+ * in-place (idempotent).  This prevents duplicate / conflicting entries from
+ * accumulating when the caller writes the same decision more than once.
+ */
+export function upsertPseudoRule(
+  tool: string,
+  pattern: string,
+  scope: string,
+  decision: "allow" | "deny" | "ask",
+): TrustRule {
+  // Re-read from disk to avoid lost updates from concurrent modifications.
+  cachedRules = null;
+  const rules = [...getRules()];
+
+  const existingIndex = rules.findIndex(
+    (r) => r.tool === tool && r.pattern === pattern,
+  );
+
+  if (existingIndex !== -1) {
+    const existing = rules[existingIndex];
+    if (existing.decision === decision && existing.scope === scope) {
+      // Already up to date — return as-is without a disk write.
+      return existing;
+    }
+    const updated: TrustRule = {
+      ...existing,
+      decision,
+      scope,
+    };
+    rules[existingIndex] = updated;
+    rules.sort(ruleOrder);
+    cachedRules = rules;
+    rebuildPatternCache(rules);
+    saveToDisk(rules);
+    notifyRulesChanged();
+    log.info({ rule: updated }, "Updated pseudo trust rule");
+    return updated;
+  }
+
+  const rule: TrustRule = {
+    id: uuid(),
+    tool,
+    pattern,
+    scope,
+    decision,
+    priority: 0,
+    createdAt: Date.now(),
+  };
+  rules.push(rule);
+  rules.sort(ruleOrder);
+  cachedRules = rules;
+  rebuildPatternCache(rules);
+  saveToDisk(rules);
+  notifyRulesChanged();
+  log.info({ rule }, "Added pseudo trust rule");
+  return rule;
+}
+
+/**
+ * Remove a pseudo-rule matching the given tool and pattern.
+ * Returns true if a rule was removed, false if none matched.
+ */
+export function removePseudoRule(tool: string, pattern: string): boolean {
+  // Re-read from disk to avoid lost updates from concurrent modifications.
+  cachedRules = null;
+  const rules = [...getRules()];
+  const index = rules.findIndex(
+    (r) => r.tool === tool && r.pattern === pattern,
+  );
+  if (index === -1) return false;
+  const [removed] = rules.splice(index, 1);
+  cachedRules = rules;
+  rebuildPatternCache(rules);
+  saveToDisk(rules);
+  notifyRulesChanged();
+  log.info({ id: removed.id, tool, pattern }, "Removed pseudo trust rule");
+  return true;
+}
+
 // ─── Starter approval bundle ────────────────────────────────────────────────
 //
 // A curated set of low-risk tool rules that most users would approve
