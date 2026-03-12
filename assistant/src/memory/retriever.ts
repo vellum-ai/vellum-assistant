@@ -460,14 +460,16 @@ export async function buildMemoryRecall(
       .length,
   };
 
-  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion.map((c) => ({
-    key: c.key,
-    type: c.type,
-    kind: c.kind,
-    finalScore: c.finalScore,
-    semantic: c.semantic,
-    recency: c.recency,
-  }));
+  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion
+    .slice(0, 10)
+    .map((c) => ({
+      key: c.key,
+      type: c.type,
+      kind: c.kind,
+      finalScore: c.finalScore,
+      semantic: c.semantic,
+      recency: c.recency,
+    }));
 
   const latencyMs = Date.now() - start;
 
