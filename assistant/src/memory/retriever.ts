@@ -285,7 +285,7 @@ export async function buildMemoryRecall(
 
   // Generate sparse embedding for the query text (TF-IDF based)
   const sparseVector = generateSparseEmbedding(query);
-  const sparseVectorUsed = sparseVector.indices.length > 0;
+  const sparseVectorAvailable = sparseVector.indices.length > 0;
 
   // ── Step 3: Hybrid search on Qdrant ─────────────────────────────
   const scopePolicy = config.memory.retrieval.scopePolicy;
@@ -299,6 +299,7 @@ export async function buildMemoryRecall(
 
   let hybridCandidates: Candidate[] = [];
   let semanticSearchFailed = false;
+  let sparseVectorUsed = false;
   const hybridSearchStart = Date.now();
 
   if (queryVector && !isQdrantBreakerOpen()) {
@@ -310,8 +311,9 @@ export async function buildMemoryRecall(
         HYBRID_LIMIT,
         excludeMessageIds,
         scopeIds,
-        sparseVectorUsed ? sparseVector : undefined,
+        sparseVectorAvailable ? sparseVector : undefined,
       );
+      sparseVectorUsed = sparseVectorAvailable;
     } catch (err) {
       semanticSearchFailed = true;
       if (isQdrantConnectionError(err)) {
