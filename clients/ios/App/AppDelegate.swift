@@ -126,7 +126,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
 
-        // Register inline reply action and Ride Shotgun notification category.
+        // Register inline reply action and notification category.
         let replyAction = UNTextInputNotificationAction(
             identifier: "REPLY_ACTION",
             title: "Reply",
@@ -141,9 +141,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         )
         UNUserNotificationCenter.current().setNotificationCategories([chatCategory])
         UNUserNotificationCenter.current().delegate = self
-
-        // Start the ambient agent trigger so it begins timing from launch.
-        ambientAgentManager.setup()
 
         // Start the proactive credential refresh loop. On iOS, initial credentials
         // come from QR pairing (bootstrap is macOS-only). If no actor token exists

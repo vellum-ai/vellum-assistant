@@ -196,8 +196,6 @@ extension AppDelegate {
     func setupAmbientAgent() {
         ambientAgent.appDelegate = self
         ambientAgent.daemonClient = daemonClient
-        // Ride Shotgun disabled — re-enable when the feature has a clearer value prop
-        // ambientAgent.setupRideShotgun()
     }
 
     func updateMenuBarIcon() {

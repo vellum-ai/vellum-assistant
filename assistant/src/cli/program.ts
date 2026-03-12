@@ -16,7 +16,6 @@ import { registerDevCommand } from "./commands/dev.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerEmailCommand } from "./commands/email.js";
 import { registerKeysCommand } from "./commands/keys.js";
-import { registerMapCommand } from "./commands/map.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
@@ -58,7 +57,6 @@ export function buildCliProgram(): Command {
   registerSkillsCommand(program);
   registerBrowserRelayCommand(program);
 
-  registerMapCommand(program);
   registerSequenceCommand(program);
 
   return program;

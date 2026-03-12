@@ -139,7 +139,6 @@ graph TB
     subgraph "macOS Menu Bar App (Swift)"
         subgraph "AppServices (singleton container)"
             DC_SWIFT["DaemonClient"]
-            AMBIENT["AmbientAgent"]
             SURFACE_MGR["SurfaceManager<br/>route by display field"]
             ZOOM["ZoomManager<br/>(@Observable)"]
             SETTINGS_STORE["SettingsStore<br/>shared settings state"]
@@ -156,18 +155,7 @@ graph TB
             WAIT["WAIT<br/>Adaptive UI settle<br/>AX tree polling"]
         end
 
-        subgraph "Ride Shotgun (Ambient Agent)"
-            RS_TRIGGER["RideShotgunTrigger<br/>timer-based auto-invitation<br/>eligibility checks"]
-            RS_SESSION["RideShotgunSession<br/>time-boxed observation<br/>HTTP + WatchSession"]
-            RS_INVITE["RideShotgunInvitationWindow"]
-            RS_PROGRESS["RideShotgunProgressWindow"]
-            RS_SUMMARY["RideShotgunSummaryWindow"]
-            WATCH["WatchSession<br/>timed capture loop"]
-            AX_CAP["AmbientAXCapture<br/>shallow tree depth 4"]
-            OCR_CAP["ScreenOCR<br/>Vision framework fallback"]
-        end
-
-        subgraph "Text Q&A Session"
+subgraph "Text Q&A Session"
             TEXT_SESS["TextSession<br/>streaming deltas"]
             TEXT_WIN["TextResponseWindow"]
         end
@@ -377,17 +365,6 @@ graph TB
     HTTP_RT -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
-
-    %% Ride Shotgun flow
-    RS_TRIGGER -->|"shouldShowInvitation"| AMBIENT
-    AMBIENT -->|"show"| RS_INVITE
-    RS_INVITE -->|"accepted"| RS_SESSION
-    RS_SESSION --> WATCH
-    WATCH --> AX_CAP
-    WATCH -.->|"fallback"| OCR_CAP
-    RS_SESSION -->|"observations via<br/>HTTP POST"| HTTP_RT
-    RS_SESSION -->|"progress"| RS_PROGRESS
-    RS_SESSION -->|"summary"| RS_SUMMARY
 
     %% Dynamic Workspace flow
     HTTP_RT -->|"ui_surface_show"| SURFACE_MGR

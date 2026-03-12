@@ -49,17 +49,6 @@ extension AppDelegate {
             options: [.customDismissAction]
         )
 
-        // Ride Shotgun invitation — duration choices
-        let shotgun1Action = UNNotificationAction(identifier: "SHOTGUN_1MIN", title: "1 min", options: [])
-        let shotgun3Action = UNNotificationAction(identifier: "SHOTGUN_3MIN", title: "3 min", options: [])
-        let shotgun5Action = UNNotificationAction(identifier: "SHOTGUN_5MIN", title: "5 min", options: [])
-        let rideShotgunCategory = UNNotificationCategory(
-            identifier: "RIDE_SHOTGUN",
-            actions: [shotgun1Action, shotgun3Action, shotgun5Action],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-
         let viewResponseAction = UNNotificationAction(
             identifier: "VIEW_RESPONSE",
             title: "View Response",
@@ -87,7 +76,6 @@ extension AppDelegate {
         center.setNotificationCategories([
             activityCategory,
             toolConfirmationCategory,
-            rideShotgunCategory,
             voiceResponseCategory,
             notificationIntentCategory,
         ])
@@ -537,30 +525,5 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return
         }
 
-        // Handle ride shotgun invitation notifications
-        if categoryId == "RIDE_SHOTGUN" {
-            let durationSeconds: Int?
-            switch response.actionIdentifier {
-            case "SHOTGUN_1MIN":
-                durationSeconds = 60
-            case "SHOTGUN_3MIN":
-                durationSeconds = 180
-            case "SHOTGUN_5MIN":
-                durationSeconds = 300
-            case UNNotificationDismissActionIdentifier:
-                durationSeconds = nil
-            default:
-                // Clicked the banner itself — start with default 3 min
-                durationSeconds = 180
-            }
-            await MainActor.run {
-                if let durationSeconds {
-                    self.ambientAgent.startRideShotgun(durationSeconds: durationSeconds)
-                } else {
-                    self.ambientAgent.rideShotgunTrigger.recordDeclined()
-                }
-            }
-            return
-        }
     }
 }

@@ -350,8 +350,6 @@ public final class HTTPTransport {
         case cuSessionAbort(sessionId: String)
         case cuObservation
         case cuTaskSubmit
-        case rideShotgunStart
-        case rideShotgunStop
         case cuWatch
 
         // Recordings
@@ -728,10 +726,6 @@ public final class HTTPTransport {
             return ("/v1/computer-use/observations", nil)
         case .cuTaskSubmit:
             return ("/v1/computer-use/tasks", nil)
-        case .rideShotgunStart:
-            return ("/v1/computer-use/ride-shotgun/start", nil)
-        case .rideShotgunStop:
-            return ("/v1/computer-use/ride-shotgun/stop", nil)
         case .cuWatch:
             return ("/v1/computer-use/watch", nil)
         // Recordings
@@ -1114,10 +1108,6 @@ public final class HTTPTransport {
             return ("\(prefix)/computer-use/observations/", nil)
         case .cuTaskSubmit:
             return ("\(prefix)/computer-use/tasks/", nil)
-        case .rideShotgunStart:
-            return ("\(prefix)/computer-use/ride-shotgun/start/", nil)
-        case .rideShotgunStop:
-            return ("\(prefix)/computer-use/ride-shotgun/stop/", nil)
         case .cuWatch:
             return ("\(prefix)/computer-use/watch/", nil)
         // Recordings
