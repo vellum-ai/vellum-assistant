@@ -36,7 +36,7 @@ struct ChatSessionErrorToast: View {
         self.accent = Self.accentColor(for: error.category)
         self.actionLabel = error.isRetryable ? Self.actionLabel(for: error.category) : nil
         self.onAction = error.isRetryable ? onRetry : nil
-        self.showCopyDebug = error.debugDetails != nil
+        self.showCopyDebug = true
         self.onCopyDebugInfo = onCopyDebugInfo
         self.onDismiss = onDismiss
     }
