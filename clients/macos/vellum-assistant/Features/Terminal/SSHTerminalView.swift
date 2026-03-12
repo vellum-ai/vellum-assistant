@@ -15,14 +15,9 @@ struct SSHTerminalView: NSViewRepresentable {
         terminalView.terminalDelegate = context.coordinator
         terminalView.configureNativeColors()
 
-        // Configure the internal scroller to blend with the dark terminal background.
-        // Use overlay style so the track is invisible and the knob floats over content.
-        for subview in terminalView.subviews {
-            if let scroller = subview as? NSScroller {
-                scroller.scrollerStyle = .overlay
-                scroller.knobStyle = .light
-            }
-        }
+        // Hide the internal NSScroller to remove the visible track gutter.
+        // Scrolling still works via trackpad and mouse wheel.
+        Self.hideScroller(in: terminalView)
 
         // Register the coordinator so the session manager can write output to the terminal.
         context.coordinator.terminalView = terminalView
@@ -35,7 +30,15 @@ struct SSHTerminalView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: TerminalView, context: Context) {
-        // No dynamic updates needed — the SSE stream drives content.
+        // Re-apply scroller hiding in case SwiftTerm recreates or shows it.
+        Self.hideScroller(in: nsView)
+    }
+
+    /// Hides any NSScroller subviews inside the terminal view.
+    private static func hideScroller(in view: TerminalView) {
+        for subview in view.subviews where subview is NSScroller {
+            subview.isHidden = true
+        }
     }
 
     func makeCoordinator() -> Coordinator {
