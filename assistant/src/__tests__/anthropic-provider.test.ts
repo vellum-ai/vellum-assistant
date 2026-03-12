@@ -836,8 +836,8 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // The server_tool_use pair (server_tool_use + web_search_tool_result) should
     // be in the leading portion of the assistant message, before tool_use.
-    // splitAssistantForToolPairing: leading=[server_tool_use, web_search_tool_result],
-    // toolUseBlocks=[tool_use], carryover=[text]
+    // splitAssistantForToolPairing: leading=[server_tool_use, web_search_tool_result, text],
+    // toolUseBlocks=[tool_use], carryover=[]
     const assistantMsg = sent[1];
     expect(assistantMsg.role).toBe("assistant");
     const blockTypes = assistantMsg.content.map((b) => b.type);

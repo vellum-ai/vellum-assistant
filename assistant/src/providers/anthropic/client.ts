@@ -107,11 +107,6 @@ function buildSyntheticToolResult(
   };
 }
 
-function buildSyntheticResult(
-  toolUseId: string,
-): Anthropic.ToolResultBlockParam {
-  return buildSyntheticToolResult(toolUseId);
-}
 
 /**
  * Collect ordered IDs of client-side tool_use blocks only.
@@ -226,7 +221,7 @@ function normalizeFollowingUserContent(
 
   const missingIds = orderedToolUseIds.filter((id) => !matchedById.has(id));
   const orderedResults = orderedToolUseIds.map(
-    (id) => matchedById.get(id) ?? buildSyntheticResult(id),
+    (id) => matchedById.get(id) ?? buildSyntheticToolResult(id),
   );
 
   return {
@@ -356,7 +351,7 @@ function ensureToolPairing(
       );
       result.push({
         role: "user" as const,
-        content: toolUseIds.map((id) => buildSyntheticResult(id)),
+        content: toolUseIds.map((id) => buildSyntheticToolResult(id)),
       });
 
       // If the assistant contained collapsed post-tool text, preserve it as a
