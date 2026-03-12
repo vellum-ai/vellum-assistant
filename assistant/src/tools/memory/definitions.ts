@@ -11,10 +11,6 @@ export const memoryRecallDefinition: ToolDefinition = {
         type: "string",
         description: "The search query — be specific and descriptive",
       },
-      max_results: {
-        type: "number",
-        description: "Maximum number of memory items to return (default: 10)",
-      },
       scope: {
         type: "string",
         enum: ["default", "conversation"],
