@@ -66,7 +66,7 @@ mock.module("../util/logger.js", () => ({
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-const { registerOAuthCommand } = await import("../cli/commands/oauth.js");
+const { registerOAuthCommand } = await import("../cli/commands/oauth/index.js");
 
 // ---------------------------------------------------------------------------
 // Test helper

@@ -19,7 +19,7 @@ import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
-import { registerOAuthCommand } from "./commands/oauth.js";
+import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
