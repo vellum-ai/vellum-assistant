@@ -58,6 +58,8 @@ extension ChatViewModel {
         }
         if let tcIdx = tcIdx {
             messages[msgIdx].toolCalls[tcIdx].confirmationDecision = decision
+            // Clear live pending confirmation now that a decision has been made
+            messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = nil
             // Use the tool category from the confirmation data as the label
             let label = ToolConfirmationData(requestId: "", toolName: toolName, riskLevel: "").toolCategory
             messages[msgIdx].toolCalls[tcIdx].confirmationLabel = label
@@ -1194,6 +1196,13 @@ extension ChatViewModel {
                 temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? [],
                 toolUseId: msg.toolUseId
             )
+            // Attach confirmation to matching tool call if toolUseId is available
+            if let toolUseId = msg.toolUseId,
+               let assistantId = currentAssistantMessageId,
+               let msgIdx = messages.firstIndex(where: { $0.id == assistantId }),
+               let tcIdx = messages[msgIdx].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = confirmation
+            }
             let confirmMsg = ChatMessage(
                 role: .assistant,
                 text: "",
@@ -1855,9 +1864,23 @@ extension ChatViewModel {
             }
             // Stamp confirmation data on the corresponding ToolCallData in the
             // preceding assistant message so it survives thread switches.
+            let decision = mapConfirmationState(msg.state)
             if let toolName = confirmationToolName,
-               let state = mapConfirmationState(msg.state) {
+               let state = decision {
                 stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId, targetMessageId: precedingAssistantId)
+            }
+            // Clear pendingConfirmation even for states that don't stamp a decision
+            // (e.g. resolved_stale) so the confirmation UI doesn't remain visible.
+            if decision == nil {
+                for i in messages.indices.reversed() {
+                    guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+                    if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                        $0.pendingConfirmation?.requestId == msg.requestId
+                    }) {
+                        messages[i].toolCalls[tcIdx].pendingConfirmation = nil
+                        break
+                    }
+                }
             }
 
         case .assistantActivityState(let msg):
