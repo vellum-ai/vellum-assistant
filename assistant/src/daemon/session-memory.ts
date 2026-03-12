@@ -43,16 +43,18 @@ function isToolResultOnlyUserTurn(message: Message | undefined): boolean {
 
 /**
  * Fast gate that determines whether the current turn warrants memory
- * retrieval. Returns `false` for low-value turns (empty, very short,
+ * retrieval. Returns `false` for mechanical no-ops (empty content,
  * tool-result-only) so the full memory pipeline can be skipped.
- * Runs in microseconds — string length checks only, no external calls.
+ * Runs in microseconds — no external calls.
+ *
+ * Note: We intentionally avoid character-length heuristics here.
+ * Short messages like "What did I say?" or "My preferences?" are
+ * legitimate memory queries. Per AGENTS.md, judgement calls about
+ * message value should be routed through the daemon, not hardcoded.
  */
 export function needsMemory(messages: Message[], content: string): boolean {
-  // Empty or whitespace-only content
+  // Empty or whitespace-only content — mechanical validation, nothing to query
   if (!content || content.trim().length === 0) return false;
-
-  // Very short messages like "ok", "thanks", "yes"
-  if (content.length < 20) return false;
 
   // Tool-result-only turns (assistant tool loop)
   const latestMessage = messages[messages.length - 1];
@@ -104,8 +106,8 @@ export async function prepareMemoryContext(
     return noopResult();
   }
 
-  // Gate: skip the entire memory pipeline for low-value turns (empty,
-  // very short messages, tool-result-only turns).
+  // Gate: skip the entire memory pipeline for mechanical no-ops (empty
+  // content, tool-result-only turns).
   if (!needsMemory(ctx.messages, content)) {
     return noopResult();
   }
