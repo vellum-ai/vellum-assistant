@@ -547,22 +547,11 @@ struct ScrollWheelDetector: NSViewRepresentable {
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether,
-                // but only if actually scrolled away from the bottom.
+                // Direct user scroll up (toward older content) — untether immediately.
                 // Momentum events are excluded so a flick doesn't accidentally untether.
-                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
-                // reading it synchronously in the event monitor sees the pre-scroll state.
-                DispatchQueue.main.async {
-                    if let scrollView = coordinator.findEnclosingScrollView() {
-                        let clipBounds = scrollView.contentView.bounds
-                        let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY >= 20 {
-                            coordinator.onScrollUp?()
-                        }
-                    } else {
-                        coordinator.onScrollUp?()
-                    }
-                }
+                // Called synchronously so isNearBottom is cleared before any competing
+                // layout pass can trigger an auto-scroll-to-bottom.
+                coordinator.onScrollUp?()
             } else if event.scrollingDeltaY < -1 {
                 // Scrolling down (direct or momentum) — re-tether if at bottom.
                 // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
@@ -599,12 +588,33 @@ struct ScrollWheelDetector: NSViewRepresentable {
         var onScrollToBottom: (() -> Void)?
         var monitor: Any?
 
+        /// Resolves the chat NSScrollView by hit-testing from the window root.
+        /// The detector sits in a `.background` modifier (sibling of the scroll view),
+        /// so walking up the superview chain may miss it or find a wrong parent.
         func findEnclosingScrollView() -> NSScrollView? {
+            if let sv = view?.enclosingScrollView { return sv }
             var current = view?.superview
             while let v = current {
                 if let sv = v as? NSScrollView { return sv }
                 current = v.superview
             }
+            guard let window = view?.window, let contentView = window.contentView else { return nil }
+            let probe = view?.convert(
+                NSPoint(x: view?.bounds.midX ?? 0, y: view?.bounds.midY ?? 0),
+                to: nil
+            ) ?? .zero
+            return Self.deepestScrollView(in: contentView, containing: probe)
+        }
+
+        private static func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.contains(localPoint) else { return nil }
+            for sub in view.subviews.reversed() {
+                if let sv = deepestScrollView(in: sub, containing: windowPoint) {
+                    return sv
+                }
+            }
+            if let sv = view as? NSScrollView { return sv }
             return nil
         }
     }
