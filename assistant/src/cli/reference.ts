@@ -28,7 +28,7 @@ Commands:
   completions <shell>                      Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)
   notifications [options]                  Send and inspect notifications through the unified notification router
   platform [options]                       Manage platform integration for containerized deployments
-  oauth [options]                          Manage OAuth tokens for connected integrations
+  oauth [options]                          Manage OAuth providers, apps, connections, and tokens
   skills                                   Browse and install skills from the Vellum catalog
   browser                                  Browser automation, extension relay, and Chrome CDP management
   sequence [options]                       Manage email sequences

@@ -1,30 +1,41 @@
 import type { Command } from "commander";
 
-import { withValidToken } from "../../security/token-manager.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
+import { withValidToken } from "../../../security/token-manager.js";
+import { shouldOutputJson, writeOutput } from "../../output.js";
+import { registerProviderCommands } from "./providers.js";
 
 export function registerOAuthCommand(program: Command): void {
   const oauth = program
     .command("oauth")
-    .description("Manage OAuth tokens for connected integrations")
+    .description("Manage OAuth providers, apps, connections, and tokens")
     .option("--json", "Machine-readable compact JSON output");
 
   oauth.addHelpText(
     "after",
     `
-OAuth tokens are managed automatically — the "token" command returns a
-guaranteed-valid access token, refreshing transparently if the stored token
-is expired or near-expiry. Callers never need to handle refresh themselves.
+The oauth command group manages the full OAuth lifecycle:
 
-The <service> argument is the short integration name (e.g. "twitter", "gmail",
-"slack"). The token is resolved from the corresponding OAuth connection.
+  providers   Protocol-level configurations (auth URLs, scopes, endpoints)
+  apps        Client credentials (client ID / secret pairs)
+  connections Active token grants per provider
+  token       Return a guaranteed-valid access token for a service
+
+Providers are seeded on startup for built-in integrations. Apps and connections
+are created during the OAuth authorization flow or can be managed manually via
+their respective subcommands.
 
 Examples:
   $ assistant oauth token twitter
-  $ assistant oauth token twitter --json
-  $ TOKEN=$(assistant oauth token gmail)
-  $ curl -H "Authorization: Bearer $(assistant oauth token twitter)" https://api.x.com/2/tweets`,
+  $ assistant oauth providers list
+  $ assistant oauth providers get integration:gmail
+  $ assistant oauth providers register --provider-key custom:myapi --auth-url https://example.com/auth --token-url https://example.com/token`,
   );
+
+  // ---------------------------------------------------------------------------
+  // providers — subcommand group
+  // ---------------------------------------------------------------------------
+
+  registerProviderCommands(oauth);
 
   // ---------------------------------------------------------------------------
   // token — return a guaranteed-valid access token
