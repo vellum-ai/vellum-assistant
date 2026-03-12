@@ -85,6 +85,16 @@ struct AssistantChannelsDetailView: View {
                 stopCountdownTimer()
             }
         }
+        .onChange(of: store.channelSetupStatus["telegram"]) { _, status in
+            if status == nil || status == "not_configured" {
+                telegramSetupExpanded = false
+            }
+        }
+        .onChange(of: store.channelSetupStatus["slack"]) { _, status in
+            if status == nil || status == "not_configured" {
+                slackChannelSetupExpanded = false
+            }
+        }
         .onChange(of: store.channelSetupStatus["phone"]) { _, status in
             if status == nil || status == "not_configured" {
                 voiceSetupExpanded = false
@@ -264,7 +274,6 @@ struct AssistantChannelsDetailView: View {
                     VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                         store.saveTelegramToken(botToken: telegramBotTokenText)
                         telegramBotTokenText = ""
-                        telegramSetupExpanded = false
                     }
                     VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         telegramSetupExpanded = false
@@ -411,7 +420,6 @@ struct AssistantChannelsDetailView: View {
                         )
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
-                        slackChannelSetupExpanded = false
                     }
                     VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         slackChannelSetupExpanded = false
@@ -525,7 +533,6 @@ struct AssistantChannelsDetailView: View {
                         )
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
-                        voiceSetupExpanded = false
                     }
                     VButton(label: "Cancel", style: .tertiary, size: .medium) {
                         voiceSetupExpanded = false
