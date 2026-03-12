@@ -25,11 +25,11 @@ import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
 import type {
   OAuthConnectResult,
-  OAuthProviderProfile,
+  OAuthProviderBehavior,
   OAuthScopePolicy,
 } from "./connect-types.js";
 import { getProvider } from "./oauth-store.js";
-import { getProviderProfile, resolveService } from "./provider-profiles.js";
+import { getProviderBehavior, resolveService } from "./provider-behaviors.js";
 import { resolveScopes } from "./scope-policy.js";
 import { storeOAuth2Tokens } from "./token-persistence.js";
 
@@ -40,24 +40,24 @@ const log = getLogger("oauth-connect-orchestrator");
 // ---------------------------------------------------------------------------
 
 /**
- * Extract only the behavioral/code-side fields from PROVIDER_PROFILES.
- * These fields contain functions or IDs that cannot be stored in the DB.
+ * Look up the code-side behavioral fields for a provider.
+ * Returns an empty object when no behavior is registered.
  */
-function getProviderBehavior(providerKey: string): {
-  identityVerifier?: OAuthProviderProfile["identityVerifier"];
-  setup?: OAuthProviderProfile["setup"];
+function resolveBehavior(providerKey: string): {
+  identityVerifier?: OAuthProviderBehavior["identityVerifier"];
+  setup?: OAuthProviderBehavior["setup"];
   setupSkillId?: string;
   postConnectHookId?: string;
-  injectionTemplates?: OAuthProviderProfile["injectionTemplates"];
+  injectionTemplates?: OAuthProviderBehavior["injectionTemplates"];
 } {
-  const profile = getProviderProfile(providerKey);
-  if (!profile) return {};
+  const behavior = getProviderBehavior(providerKey);
+  if (!behavior) return {};
   return {
-    identityVerifier: profile.identityVerifier,
-    setup: profile.setup,
-    setupSkillId: profile.setupSkillId,
-    postConnectHookId: profile.postConnectHookId,
-    injectionTemplates: profile.injectionTemplates,
+    identityVerifier: behavior.identityVerifier,
+    setup: behavior.setup,
+    setupSkillId: behavior.setupSkillId,
+    postConnectHookId: behavior.postConnectHookId,
+    injectionTemplates: behavior.injectionTemplates,
   };
 }
 
@@ -142,8 +142,8 @@ export async function orchestrateOAuthConnect(
     };
   }
 
-  // Behavioral/code-side fields still come from PROVIDER_PROFILES
-  const behavior = getProviderBehavior(resolvedService);
+  // Behavioral/code-side fields come from the behavior registry
+  const behavior = resolveBehavior(resolvedService);
 
   // Deserialize JSON fields from the DB row
   const dbDefaultScopes = safeJsonParse<string[]>(
@@ -185,11 +185,9 @@ export async function orchestrateOAuthConnect(
     // Explicit scopes override — bypass policy (caller takes responsibility)
     finalScopes = options.scopes;
   } else {
-    // Build a profile-compatible object for resolveScopes from the DB row
-    const scopeProfile: OAuthProviderProfile = {
+    // Build a scope-resolver-compatible object from the DB row
+    const scopeProfile = {
       service: resolvedService,
-      authUrl: providerRow.authUrl,
-      tokenUrl: providerRow.tokenUrl,
       defaultScopes: dbDefaultScopes,
       scopePolicy: dbScopePolicy,
     };

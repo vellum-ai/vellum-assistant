@@ -1,6 +1,6 @@
 import { v4 as uuid } from "uuid";
 
-import { credentialKey, migrateKeys } from "../../security/credential-key.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKey } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
@@ -60,7 +60,6 @@ export class CredentialBroker {
    * Returns a single-use token on success, or a denial reason on failure.
    */
   authorize(request: AuthorizeRequest): AuthorizeResult {
-    migrateKeys();
     const metadata = getCredentialMetadata(request.service, request.field);
     if (!metadata) {
       return {

@@ -1,17 +1,20 @@
 import { getConfig } from "../../config/loader.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
-import { getMostRecentAppByProvider } from "../../oauth/oauth-store.js";
 import {
-  getProviderProfile,
+  getMostRecentAppByProvider,
+  getProvider,
+} from "../../oauth/oauth-store.js";
+import {
+  getProviderBehavior,
   resolveService,
   SERVICE_ALIASES,
-} from "../../oauth/provider-profiles.js";
+} from "../../oauth/provider-behaviors.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { buildAssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-import { credentialKey, migrateKeys } from "../../security/credential-key.js";
+import { credentialKey } from "../../security/credential-key.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
   deleteSecureKeyAsync,
@@ -200,7 +203,6 @@ class CredentialStoreTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    migrateKeys();
     const action = input.action as string;
 
     switch (action) {
@@ -734,8 +736,10 @@ class CredentialStoreTool implements Tool {
         // Resolve aliases (e.g. "gmail" → "integration:gmail")
         const service = resolveService(rawService);
 
-        // Fill missing params from provider profile
-        const profile = getProviderProfile(service);
+        // Code-side behavioral fields (identityVerifier, setup, etc.)
+        const behavior = getProviderBehavior(service);
+        // Protocol-level config from the DB (authUrl, tokenUrl, scopes, etc.)
+        const providerRow = getProvider(service);
 
         // Resolve client_id and client_secret.
         // Priority:
@@ -759,11 +763,9 @@ class CredentialStoreTool implements Tool {
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;
 
-        if (profile) {
-          // Profile-based provider (well-known like gmail, slack, twitter):
-          // Don't pass authUrl/tokenUrl — the orchestrator resolves those from the profile.
-          // Pass user-provided scopes as requestedScopes so the scope policy engine is invoked.
-          // If no scopes provided, pass neither — let the orchestrator use profile defaults via scope policy.
+        if (providerRow) {
+          // Well-known provider (gmail, slack, twitter): the orchestrator
+          // resolves authUrl/tokenUrl/scopes from the DB provider row.
         } else {
           // Custom/unknown provider: require authUrl, tokenUrl, scopes from input
           if (!input.auth_url)
@@ -787,9 +789,9 @@ class CredentialStoreTool implements Tool {
         }
 
         const authUrl =
-          (input.auth_url as string | undefined) ?? profile?.authUrl;
+          (input.auth_url as string | undefined) ?? providerRow?.authUrl;
         const tokenUrl =
-          (input.token_url as string | undefined) ?? profile?.tokenUrl;
+          (input.token_url as string | undefined) ?? providerRow?.tokenUrl;
         if (!clientId)
           return {
             content:
@@ -801,10 +803,10 @@ class CredentialStoreTool implements Tool {
         // agent to collect it from the user rather than letting it improvise
         // browser-automation workarounds that inevitably fail.
         const requiresSecret =
-          profile?.setup?.requiresClientSecret ??
-          !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
+          behavior?.setup?.requiresClientSecret ??
+          !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
         if (requiresSecret && !clientSecret) {
-          const skillId = profile?.setupSkillId;
+          const skillId = behavior?.setupSkillId;
           const skillHint = skillId
             ? `\n\nLoad the "${skillId}" skill for provider-specific instructions on obtaining the client secret.`
             : '\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.';
@@ -817,7 +819,10 @@ class CredentialStoreTool implements Tool {
         const tokenEndpointAuthMethod =
           (input.token_endpoint_auth_method as
             | TokenEndpointAuthMethod
-            | undefined) ?? profile?.tokenEndpointAuthMethod;
+            | undefined) ??
+          (providerRow?.tokenEndpointAuthMethod as
+            | TokenEndpointAuthMethod
+            | undefined);
 
         // Delegate to the shared orchestrator.
         // For profile-based providers, pass user scopes as requestedScopes so the
@@ -832,9 +837,9 @@ class CredentialStoreTool implements Tool {
           allowedTools: input.allowed_tools as string[] | undefined,
           authUrl,
           tokenUrl,
-          ...(profile
+          ...(providerRow
             ? {
-                // Profile-based: let orchestrator resolve scopes via policy engine.
+                // Well-known provider: let orchestrator resolve scopes via policy engine.
                 // Only pass requestedScopes if the user explicitly provided scopes.
                 ...(inputScopes ? { requestedScopes: inputScopes } : {}),
               }
@@ -842,11 +847,8 @@ class CredentialStoreTool implements Tool {
                 // Custom provider: explicit scopes override (bypasses policy engine)
                 scopes: inputScopes,
               }),
-          extraParams:
-            (input.extra_params as Record<string, string> | undefined) ??
-            profile?.extraParams,
-          userinfoUrl:
-            (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
+          extraParams: (input.extra_params as Record<string, string> | undefined),
+          userinfoUrl: (input.userinfo_url as string | undefined),
           tokenEndpointAuthMethod,
           onDeferredComplete: (deferredResult) => {
             // Emit oauth_connect_result to all connected SSE clients so the
@@ -916,8 +918,8 @@ class CredentialStoreTool implements Tool {
           };
         }
         const resolvedService = resolveService(rawService);
-        const profile = getProviderProfile(resolvedService);
-        if (!profile) {
+        const descProviderRow = getProvider(resolvedService);
+        if (!descProviderRow) {
           return {
             content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(
               SERVICE_ALIASES,
@@ -926,11 +928,15 @@ class CredentialStoreTool implements Tool {
           };
         }
 
+        const descBehavior = getProviderBehavior(resolvedService);
+
         // Compute the redirect URI based on callback transport
         let redirectUri: string;
-        const transport = profile.callbackTransport ?? "gateway";
-        if (transport === "loopback" && profile.loopbackPort) {
-          redirectUri = `http://127.0.0.1:${profile.loopbackPort}/oauth/callback`;
+        const transport =
+          (descProviderRow.callbackTransport as "loopback" | "gateway" | null) ??
+          "gateway";
+        if (transport === "loopback" && descProviderRow.loopbackPort) {
+          redirectUri = `http://127.0.0.1:${descProviderRow.loopbackPort}/oauth/callback`;
         } else if (transport === "loopback") {
           redirectUri =
             "(automatic — no redirect URI needed, uses random localhost port)";
@@ -950,20 +956,30 @@ class CredentialStoreTool implements Tool {
 
         // Prefer explicit setup metadata, fall back to heuristic
         const requiresClientSecret =
-          profile.setup?.requiresClientSecret ??
-          !!(profile.tokenEndpointAuthMethod || profile.extraParams);
+          descBehavior?.setup?.requiresClientSecret ??
+          !!(descProviderRow.tokenEndpointAuthMethod || descProviderRow.extraParams);
+
+        const descDefaultScopes: string[] = descProviderRow.defaultScopes
+          ? JSON.parse(descProviderRow.defaultScopes)
+          : [];
 
         const info: Record<string, unknown> = {
           service: resolvedService,
-          authUrl: profile.authUrl,
-          tokenUrl: profile.tokenUrl,
-          scopes: profile.defaultScopes,
+          authUrl: descProviderRow.authUrl,
+          tokenUrl: descProviderRow.tokenUrl,
+          scopes: descDefaultScopes,
           callbackTransport: transport,
           redirectUri,
           requiresClientSecret,
         };
-        if (profile.setup) info.setup = profile.setup;
-        if (profile.extraParams) info.extraParams = profile.extraParams;
+        if (descBehavior?.setup) info.setup = descBehavior.setup;
+        if (descProviderRow.extraParams) {
+          try {
+            info.extraParams = JSON.parse(descProviderRow.extraParams);
+          } catch {
+            // Non-fatal
+          }
+        }
 
         return { content: JSON.stringify(info, null, 2), isError: false };
       }

@@ -7,8 +7,7 @@ import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
-import { getConnectionByProvider } from "../oauth/oauth-store.js";
-import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
+import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -647,27 +646,22 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
 }
 
 function buildIntegrationSection(): string {
-  const allCreds = listCredentialMetadata();
-  // Show OAuth2-connected services (those with oauth2TokenUrl in metadata)
-  const oauthCreds = allCreds.filter(
-    (c) => c.oauth2TokenUrl && c.field === "access_token",
-  );
-  if (oauthCreds.length === 0) return "";
+  let connections: { providerKey: string; accountInfo?: string | null }[];
+  try {
+    connections = listConnections().filter((c) => c.status === "active");
+  } catch {
+    // DB not available — no connected services to show
+    return "";
+  }
+
+  if (connections.length === 0) return "";
 
   const lines = ["## Connected Services", ""];
-  for (const cred of oauthCreds) {
-    let acctInfo: string | undefined;
-    try {
-      const conn = getConnectionByProvider(cred.service);
-      if (conn?.accountInfo) {
-        acctInfo = conn.accountInfo;
-      }
-    } catch {
-      // DB not available — accountInfo simply not shown
-    }
-
-    const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
-    lines.push(`- **${cred.service}**: ${state}`);
+  for (const conn of connections) {
+    const state = conn.accountInfo
+      ? `Connected (${conn.accountInfo})`
+      : "Connected";
+    lines.push(`- **${conn.providerKey}**: ${state}`);
   }
 
   return lines.join("\n");
