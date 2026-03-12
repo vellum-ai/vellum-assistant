@@ -260,19 +260,11 @@ final class AssistantCli {
         proc.standardError = FileHandle.nullDevice
 
         let fullEnv = ProcessInfo.processInfo.environment
-        var env: [String: String] = [
+        proc.environment = [
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "TMPDIR": fullEnv["TMPDIR"] ?? NSTemporaryDirectory(),
         ]
-        // Forward BASE_DATA_DIR so the CLI reads the correct lockfile and
-        // PID files. Without this, `vellum sleep` looks at the default home
-        // directory instead of the test-specific data directory, which can
-        // cause it to miss the correct assistant or read stale PID files.
-        for key in ["BASE_DATA_DIR", "VELLUM_LOCKFILE_DIR"] {
-            if let val = fullEnv[key] { env[key] = val }
-        }
-        proc.environment = env
 
         do {
             try proc.run()
@@ -572,35 +564,6 @@ final class AssistantCli {
 
     // MARK: - Private Helpers
 
-    /// Check whether a given PID belongs to a vellum-related process by
-    /// inspecting its command line via `ps`. Returns false for unrelated
-    /// processes to prevent killing them when a PID file is stale.
-    private func isVellumProcess(_ pid: pid_t) -> Bool {
-        let pipe = Pipe()
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
-        proc.arguments = ["-p", "\(pid)", "-o", "command="]
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-        } catch {
-            return false
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !command.isEmpty else {
-            return false
-        }
-        // Match vellum-related processes: compiled binary names, @vellumai scoped
-        // packages, the /vellum/ path component (bunx installs), and source-tree
-        // daemon paths (/daemon/main). Avoids matching unrelated processes whose
-        // working directory happens to contain "vellum" (e.g. vellum-assistant).
-        let pattern = "vellum-daemon|vellum-cli|vellum-gateway|@vellumai|/vellum/|/daemon/main"
-        return command.range(of: pattern, options: .regularExpression) != nil
-    }
-
     /// Kill the gateway directly via PID file — fallback when CLI binary is unavailable.
     private func killGatewayViaPIDFile() {
         guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else { return }
@@ -613,15 +576,6 @@ final class AssistantCli {
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = pid_t(pidString),
               kill(pid, 0) == 0 else {
-            return
-        }
-
-        // Verify the PID actually belongs to a vellum-related process before
-        // killing. If the PID file is stale and macOS has reused the PID for
-        // an unrelated process (e.g. the Playwright test runner), skip the kill.
-        guard isVellumProcess(pid) else {
-            log.warning("PID \(pid) is not a vellum process — skipping gateway kill and cleaning up stale PID file")
-            try? FileManager.default.removeItem(at: gatewayPidFileURL)
             return
         }
 
@@ -656,15 +610,6 @@ final class AssistantCli {
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = pid_t(pidString),
               kill(pid, 0) == 0 else {
-            return
-        }
-
-        // Verify the PID actually belongs to a vellum-related process before
-        // killing. If the PID file is stale and macOS has reused the PID for
-        // an unrelated process (e.g. the Playwright test runner), skip the kill.
-        guard isVellumProcess(pid) else {
-            log.warning("PID \(pid) is not a vellum process — skipping daemon kill and cleaning up stale PID file")
-            try? FileManager.default.removeItem(at: pidFileURL)
             return
         }
 
