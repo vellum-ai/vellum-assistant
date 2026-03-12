@@ -106,8 +106,20 @@ struct ChatView: View {
     @State private var containerWidth: CGFloat = 0
     @State private var appearance = AvatarAppearanceManager.shared
 
+    // MARK: - In-Chat Search (Cmd+F)
+    @State private var isSearchActive = false
+    @State private var searchText = ""
+    @State private var currentMatchIndex = 0
+
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
+    }
+
+    /// Message IDs whose text contains the search query, ordered chronologically.
+    private var searchMatches: [UUID] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        return messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
 
     var body: some View {
@@ -345,11 +357,43 @@ struct ChatView: View {
             handleDrop(providers: providers)
         }
         .onKeyPress(.escape) {
+            if isSearchActive {
+                dismissSearch()
+                return .handled
+            }
             if btwResponse != nil {
                 onDismissBtw?()
                 return .handled
             }
             return .ignored
+        }
+        .onKeyPress("f", modifiers: .command) {
+            activateSearch()
+            return .handled
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSearchActive {
+                ChatSearchBar(
+                    searchText: $searchText,
+                    matchCount: searchMatches.count,
+                    currentMatchIndex: currentMatchIndex,
+                    onPrevious: { navigateMatch(delta: -1) },
+                    onNext: { navigateMatch(delta: 1) },
+                    onDismiss: { dismissSearch() }
+                )
+                .padding(.trailing, VSpacing.xl)
+                .padding(.top, VSpacing.sm)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(VAnimation.fast, value: isSearchActive)
+        .onChange(of: searchText) {
+            // Reset to first match when query changes
+            currentMatchIndex = 0
+            scrollToCurrentMatch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { _ in
+            activateSearch()
         }
     }
 
@@ -474,6 +518,31 @@ struct ChatView: View {
             if !urls.isEmpty { onDropFiles(urls) }
         }
         return true
+    }
+
+    // MARK: - Search Helpers
+
+    private func activateSearch() {
+        isSearchActive = true
+    }
+
+    private func dismissSearch() {
+        isSearchActive = false
+        searchText = ""
+        currentMatchIndex = 0
+    }
+
+    private func navigateMatch(delta: Int) {
+        let matches = searchMatches
+        guard !matches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex + delta + matches.count) % matches.count
+        scrollToCurrentMatch()
+    }
+
+    private func scrollToCurrentMatch() {
+        let matches = searchMatches
+        guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
+        anchorMessageId = matches[currentMatchIndex]
     }
 }
 

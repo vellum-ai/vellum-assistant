@@ -5,6 +5,11 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
 
+extension Notification.Name {
+    /// Posted when the user triggers Edit > Find (Cmd+F) from the menu bar.
+    static let activateChatSearch = Notification.Name("activateChatSearch")
+}
+
 extension AppDelegate {
 
     // MARK: - Menu Bar
@@ -68,6 +73,27 @@ extension AppDelegate {
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.insertItem(fileMenuItem, at: 1)
+
+        // Edit menu — provides Cmd+F "Find" so the shortcut works regardless of focus state.
+        if mainMenu.indexOfItem(withTitle: "Edit") < 0 {
+            let editMenu = NSMenu(title: "Edit")
+
+            // Standard edit actions so Cmd+C/V/X/A work in text fields
+            editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+            editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+            editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+            editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+            editMenu.addItem(NSMenuItem.separator())
+
+            let findItem = NSMenuItem(title: "Find...", action: #selector(activateChatSearch), keyEquivalent: "f")
+            findItem.keyEquivalentModifierMask = .command
+            findItem.target = self
+            editMenu.addItem(findItem)
+
+            let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+            editMenuItem.submenu = editMenu
+            mainMenu.insertItem(editMenuItem, at: 2)
+        }
     }
 
     // MARK: - Menu Item Validation
@@ -370,6 +396,10 @@ extension AppDelegate {
             mainWindow?.windowState.selection = .thread(id)
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
+    }
+
+    @objc func activateChatSearch() {
+        NotificationCenter.default.post(name: .activateChatSearch, object: nil)
     }
 
     @objc func openAppCollection() {
