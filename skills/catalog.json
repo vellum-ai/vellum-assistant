@@ -117,7 +117,8 @@
         "emoji": "📧",
         "vellum": {
           "display-name": "Email Setup",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "feature-flag": "email-channel"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
