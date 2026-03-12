@@ -9,7 +9,7 @@
  *
  * Expected: tests 1-4 FAIL before the fix is applied (PR 2).
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -713,27 +713,69 @@ describe("web_search_tool_result structural guard", () => {
   /**
    * Structural guard that prevents future regressions where new code checks
    * for `=== "tool_result"` or `!== "tool_result"` without also handling
-   * `"web_search_tool_result"`. All tool-result type checks in these files
-   * should go through a helper like `isToolResultBlock()` or explicitly
-   * include both types.
+   * `"web_search_tool_result"`.
    *
-   * If this test fails, use `isToolResultBlock()` from session-history.ts
-   * (or the inline pattern in window-manager.ts `isToolResultOnly`) instead
-   * of raw `=== "tool_result"` / `!== "tool_result"` comparisons.
+   * This test scans ALL source files under assistant/src/ (excluding test
+   * files, .d.ts declarations, and node_modules) for raw tool_result type
+   * comparisons. Files where only `tool_result` is legitimately needed
+   * are listed in the allowlist below.
+   *
+   * If this test fails, either:
+   * 1. Use `isToolResultBlock()` from session-history.ts, or
+   * 2. Include both "tool_result" and "web_search_tool_result" in the check, or
+   * 3. Add the file to the allowlist with a comment explaining why only
+   *    `tool_result` is correct.
    */
 
-  const SESSION_HISTORY_PATH = join(
-    import.meta.dir,
-    "..",
-    "daemon",
-    "session-history.ts",
-  );
-  const WINDOW_MANAGER_PATH = join(
-    import.meta.dir,
-    "..",
-    "context",
-    "window-manager.ts",
-  );
+  const SRC_DIR = join(import.meta.dir, "..");
+
+  /**
+   * Files where raw `tool_result` checks are legitimate and
+   * `web_search_tool_result` handling is NOT required.
+   *
+   * Each entry must have a comment explaining why the file is exempt.
+   */
+  const ALLOWLISTED_FILES = new Set([
+    // Truncation logic operates on tool_result text content (string `.content`);
+    // web_search_tool_result has a structurally different content format
+    // (array of web_search_result objects) and is not truncated this way.
+    "context/tool-result-truncation.ts",
+
+    // Anthropic provider type guards define API-specific discriminants.
+    // It has a separate isWebSearchToolResultBlock for the other type.
+    "providers/anthropic/client.ts",
+
+    // OpenAI provider converts Anthropic-style messages to OpenAI format.
+    // OpenAI API does not support web_search_tool_result natively; those
+    // blocks are handled upstream before reaching the OpenAI client.
+    "providers/openai/client.ts",
+
+    // Renders tool_result blocks for client display. web_search_tool_result
+    // blocks are rendered by the client via their own display path.
+    "daemon/handlers/shared.ts",
+
+    // Agent loop tool execution: these handle results from locally-executed
+    // tools (tool_use -> tool_result). Server-side web search results
+    // (server_tool_use -> web_search_tool_result) are injected by the
+    // provider, not the local tool executor, so they never flow here.
+    "agent/loop.ts",
+
+    // Reconciles synthesized cancellation tool_results for locally-executed
+    // tools only. Same reasoning as agent/loop.ts above.
+    "daemon/session-agent-loop.ts",
+
+    // Parses tool_result blocks from skill invocation results. Skills
+    // return tool_result blocks, never web_search_tool_result blocks.
+    "skills/active-skill-tools.ts",
+
+    // Renders tool_result events for subagent event streams.
+    // web_search_tool_result is not emitted through the subagent event path.
+    "runtime/routes/subagents-routes.ts",
+
+    // Extracts tool results from persisted message content for work-item
+    // display. web_search_tool_result blocks are not relevant here.
+    "runtime/routes/work-items-routes.ts",
+  ]);
 
   /**
    * Find lines with raw tool_result type comparisons that are NOT inside
@@ -752,21 +794,22 @@ describe("web_search_tool_result structural guard", () => {
     const violations: Array<{ file: string; line: number; text: string }> = [];
     const lines = source.split("\n");
 
-    // Track whether we're inside the isToolResultBlock function
-    let insideIsToolResultBlock = false;
+    // Track whether we're inside an isToolResultBlock or isToolResultContent
+    // helper function definition (which canonically defines the check).
+    let insideHelperFunction = false;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // Detect entry/exit of the isToolResultBlock helper
-      if (/function isToolResultBlock\b/.test(line)) {
-        insideIsToolResultBlock = true;
+      // Detect entry/exit of known helper functions that define the canonical check
+      if (/function isToolResult(Block|Content)\b/.test(line)) {
+        insideHelperFunction = true;
       }
-      if (insideIsToolResultBlock && line.trim() === "}") {
-        insideIsToolResultBlock = false;
+      if (insideHelperFunction && line.trim() === "}") {
+        insideHelperFunction = false;
         continue;
       }
-      if (insideIsToolResultBlock) continue;
+      if (insideHelperFunction) continue;
 
       // Check for raw tool_result type comparisons (both quote styles)
       const hasRawCheck =
@@ -774,8 +817,22 @@ describe("web_search_tool_result structural guard", () => {
         /["']tool_result["']\s*[=!]==?/.test(line);
       if (!hasRawCheck) continue;
 
-      // Allow lines that also reference web_search_tool_result (paired check)
-      if (/web_search_tool_result/.test(line)) continue;
+      // Allow lines that reference web_search_tool_result nearby (paired check).
+      // Multi-line patterns like `block.type === "tool_result" ||\n  block.type === "web_search_tool_result"`
+      // are common, so we check a window of +/- 3 lines for the pairing.
+      const windowStart = Math.max(0, i - 3);
+      const windowEnd = Math.min(lines.length - 1, i + 3);
+      let pairedOrSuppressed = false;
+      for (let j = windowStart; j <= windowEnd; j++) {
+        if (
+          /web_search_tool_result/.test(lines[j]) ||
+          /guard:allow-tool-result-only/.test(lines[j])
+        ) {
+          pairedOrSuppressed = true;
+          break;
+        }
+      }
+      if (pairedOrSuppressed) continue;
 
       // Allow comment-only lines
       if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) continue;
@@ -790,41 +847,72 @@ describe("web_search_tool_result structural guard", () => {
     return violations;
   }
 
-  test("session-history.ts has no raw tool_result type checks outside isToolResultBlock", () => {
-    const source = readFileSync(SESSION_HISTORY_PATH, "utf-8");
-    const violations = findRawToolResultChecks(source, "session-history.ts");
+  /**
+   * Recursively collect all .ts source files under a directory, excluding
+   * test files, declaration files, and node_modules.
+   */
+  function collectSourceFiles(dir: string): string[] {
+    const files: string[] = [];
 
-    if (violations.length > 0) {
-      const message = [
-        "Found raw tool_result type checks in session-history.ts that do not",
-        'also handle "web_search_tool_result". Use isToolResultBlock() instead.',
-        "",
-        "Violations:",
-        ...violations.map((v) => `  - ${v.file}:${v.line}: ${v.text}`),
-        "",
-        'Fix: replace raw `=== "tool_result"` / `!== "tool_result"` checks',
-        "with a call to isToolResultBlock() which handles both types.",
-      ].join("\n");
-      expect(violations, message).toEqual([]);
+    for (const entry of readdirSync(dir) as string[]) {
+      const fullPath = join(dir, entry);
+      const stat = statSync(fullPath);
+
+      if (stat.isDirectory()) {
+        // Skip test directories and node_modules
+        if (
+          entry === "__tests__" ||
+          entry === "node_modules" ||
+          entry === ".turbo"
+        ) {
+          continue;
+        }
+        files.push(...collectSourceFiles(fullPath));
+      } else if (
+        entry.endsWith(".ts") &&
+        !entry.endsWith(".d.ts") &&
+        !entry.endsWith(".test.ts")
+      ) {
+        files.push(fullPath);
+      }
     }
-  });
 
-  test("window-manager.ts has no raw tool_result type checks without web_search_tool_result", () => {
-    const source = readFileSync(WINDOW_MANAGER_PATH, "utf-8");
-    const violations = findRawToolResultChecks(source, "window-manager.ts");
+    return files;
+  }
 
-    if (violations.length > 0) {
+  test("no source file has raw tool_result type checks without web_search_tool_result handling", () => {
+    const sourceFiles = collectSourceFiles(SRC_DIR);
+    const allViolations: Array<{ file: string; line: number; text: string }> =
+      [];
+
+    for (const filePath of sourceFiles) {
+      // Compute relative path from SRC_DIR for allowlist lookup
+      const relPath = filePath.slice(SRC_DIR.length + 1);
+
+      // Skip allowlisted files
+      if (ALLOWLISTED_FILES.has(relPath)) continue;
+
+      const source = readFileSync(filePath, "utf-8");
+      const violations = findRawToolResultChecks(source, relPath);
+      allViolations.push(...violations);
+    }
+
+    if (allViolations.length > 0) {
       const message = [
-        "Found raw tool_result type checks in window-manager.ts that do not",
-        'also handle "web_search_tool_result". Either use isToolResultBlock()',
-        'or include both "tool_result" and "web_search_tool_result" in the check.',
+        "Found raw tool_result type checks in source files that do not also",
+        'handle "web_search_tool_result". This can cause web search results',
+        "to be silently dropped.",
         "",
         "Violations:",
-        ...violations.map((v) => `  - ${v.file}:${v.line}: ${v.text}`),
+        ...allViolations.map((v) => `  - ${v.file}:${v.line}: ${v.text}`),
         "",
-        "Fix: ensure all tool_result type checks also handle web_search_tool_result.",
+        "Fix options:",
+        "  1. Use isToolResultBlock() from session-history.ts",
+        '  2. Add || block.type === "web_search_tool_result" to your check',
+        "  3. If only tool_result is correct, add the file to ALLOWLISTED_FILES",
+        "     in this test with a comment explaining why.",
       ].join("\n");
-      expect(violations, message).toEqual([]);
+      expect(allViolations, message).toEqual([]);
     }
   });
 });

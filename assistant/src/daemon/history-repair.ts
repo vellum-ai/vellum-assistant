@@ -272,7 +272,7 @@ function downgradeResult(
   tr: ToolResultContent | WebSearchToolResultContent,
 ): ContentBlock {
   const content =
-    tr.type === "tool_result" ? tr.content : "[web search result]";
+    tr.type === "tool_result" ? tr.content : "[web search result]"; // guard:allow-tool-result-only — distinguishes content format between the two types
   return {
     type: "text",
     text: `[orphaned ${tr.type} for ${tr.tool_use_id}]: ${content}`,

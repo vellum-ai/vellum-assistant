@@ -174,7 +174,9 @@ export function isLastUserMessageToolResult(conversationId: string): boolean {
       Array.isArray(parsed) &&
       parsed.length > 0 &&
       parsed.every(
-        (block: Record<string, unknown>) => block.type === "tool_result",
+        (block: Record<string, unknown>) =>
+          block.type === "tool_result" ||
+          block.type === "web_search_tool_result",
       )
     ) {
       return true;
@@ -389,7 +391,10 @@ function buildExcerpt(rawContent: string, query: string): string {
         if (typeof block === "object" && block != null) {
           if (block.type === "text" && typeof block.text === "string") {
             parts.push(block.text);
-          } else if (block.type === "tool_result") {
+          } else if (
+            block.type === "tool_result" ||
+            block.type === "web_search_tool_result"
+          ) {
             const inner = Array.isArray(block.content) ? block.content : [];
             for (const ib of inner) {
               if (ib?.type === "text" && typeof ib.text === "string")
