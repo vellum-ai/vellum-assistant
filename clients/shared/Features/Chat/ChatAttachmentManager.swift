@@ -29,6 +29,11 @@ public final class ChatAttachmentManager: ObservableObject {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
+    /// Limits concurrent attachment I/O to avoid unbounded memory spikes when
+    /// many files are selected at once (each can read up to 20 MB).
+    private static let maxConcurrentLoads = 4
+    private let loadSemaphore = DispatchSemaphore(value: maxConcurrentLoads)
+
     // MARK: - Limits
 
     /// Maximum file size per attachment (20 MB).
@@ -61,7 +66,7 @@ public final class ChatAttachmentManager: ObservableObject {
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
-            let result = await Self.loadAttachment(url: url)
+            let result = await self.loadAttachment(url: url)
             switch result {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
@@ -114,7 +119,7 @@ public final class ChatAttachmentManager: ObservableObject {
         loadingCount += 1
         Task {
             defer { self.loadingCount -= 1 }
-            let result = await Self.loadAttachment(imageData: imageData, filename: filename)
+            let result = await self.loadAttachment(imageData: imageData, filename: filename)
             switch result {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
@@ -129,9 +134,12 @@ public final class ChatAttachmentManager: ObservableObject {
     /// Reads, validates, compresses, and thumbnails an attachment from a file URL.
     /// All blocking work runs off the main actor; callers receive a ready-to-use
     /// ChatAttachment (or an error message) and can update UI state directly.
-    private static func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
+    private func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
+        let semaphore = self.loadSemaphore
         // Hop off the main actor for all blocking I/O and CPU work.
         return await Task.detached(priority: .userInitiated) {
+            semaphore.wait()
+            defer { semaphore.signal() }
             let data: Data
             do {
                 data = try Data(contentsOf: url)
@@ -204,8 +212,11 @@ public final class ChatAttachmentManager: ObservableObject {
 
     /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
     /// All blocking work runs off the main actor.
-    private static func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
+    private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
+        let semaphore = self.loadSemaphore
         return await Task.detached(priority: .userInitiated) {
+            semaphore.wait()
+            defer { semaphore.signal() }
             // Convert to PNG if needed — raw image data may be TIFF
             let pngData: Data
             #if os(macOS)

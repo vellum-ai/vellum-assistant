@@ -411,7 +411,7 @@ The assistant creates attachments from two sources:
 1. **Directives**: `<vellum-attachment source="sandbox|host" path="..." />` tags in response text. Sandbox paths are relative to the working directory; host paths require user approval.
 2. **Tool output**: Image and file content blocks from tool results are automatically converted into attachments.
 
-Limits: up to 5 attachments per turn, 20 MB each.
+Limits: 20 MB per attachment.
 
 </details>
 
