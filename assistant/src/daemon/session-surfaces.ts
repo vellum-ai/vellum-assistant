@@ -203,6 +203,8 @@ export interface SurfaceSessionContext {
     display?: string;
   }>;
   onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  /** Optional proxy for delegating computer-use actions to a connected desktop client. */
+  hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
   isProcessing(): boolean;
   enqueueMessage(
     content: string,
@@ -931,13 +933,54 @@ export function buildUserFacingLabel(
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, computer_use_request_control,
+ * computer_use_* proxy tools, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
   toolName: string,
   input: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
+  // Route CU proxy tools (all computer_use_* except the escalation tool)
+  if (
+    toolName.startsWith("computer_use_") &&
+    toolName !== "computer_use_request_control"
+  ) {
+    if (!ctx.hostCuProxy) {
+      return {
+        content: "Computer use is not available — no desktop client connected.",
+        isError: true,
+      };
+    }
+
+    // Terminal tools resolve immediately without a client round-trip
+    if (
+      toolName === "computer_use_done" ||
+      toolName === "computer_use_respond"
+    ) {
+      const summary =
+        typeof input.summary === "string"
+          ? input.summary
+          : typeof input.answer === "string"
+            ? input.answer
+            : "Task complete";
+      ctx.hostCuProxy.reset();
+      return { content: summary, isError: false };
+    }
+
+    // Record the action and proxy to the connected desktop client
+    const reasoning =
+      typeof input.reasoning === "string" ? input.reasoning : undefined;
+    ctx.hostCuProxy.recordAction(toolName, input, reasoning);
+    return ctx.hostCuProxy.request(
+      toolName,
+      input,
+      ctx.conversationId,
+      ctx.hostCuProxy.stepCount,
+      reasoning,
+    );
+  }
+
   if (toolName === "ui_show" || toolName === "ui_update") {
     const caps = ctx.channelCapabilities;
     if (caps && !caps.supportsDynamicUi) {

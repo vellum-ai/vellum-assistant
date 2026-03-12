@@ -17,6 +17,7 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
@@ -449,6 +450,12 @@ function makeHubPublisher(
         conversationId,
         kind: "host_file",
       });
+    } else if (msg.type === "host_cu_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
+      });
     }
 
     // ServerMessage is a large union; sessionId exists on most but not all variants.
@@ -640,9 +647,14 @@ export async function handleSendMessage(
       });
       session.setHostFileProxy(fileProxy);
     }
+    if (!session.isProcessing() || !session.hostCuProxy) {
+      const cuProxy = new HostCuProxy(onEvent);
+      session.setHostCuProxy(cuProxy);
+    }
   } else if (!session.isProcessing()) {
     session.setHostBashProxy(undefined);
     session.setHostFileProxy(undefined);
+    session.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.

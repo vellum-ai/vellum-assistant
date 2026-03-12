@@ -57,6 +57,7 @@ import type {
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import type { ServerMessage } from "./message-protocol.js";
 import {
@@ -213,6 +214,12 @@ function makePendingInteractionRegistrar(
         session,
         conversationId,
         kind: "host_file",
+      });
+    } else if (msg.type === "host_cu_request") {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: "host_cu",
       });
     }
   };
@@ -665,9 +672,13 @@ export class DaemonServer {
           }),
         );
       }
+      if (!session.isProcessing() || !session.hostCuProxy) {
+        session.setHostCuProxy(new HostCuProxy(session.getCurrentSender()));
+      }
     } else if (!session.isProcessing()) {
       session.setHostBashProxy(undefined);
       session.setHostFileProxy(undefined);
+      session.setHostCuProxy(undefined);
     }
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
