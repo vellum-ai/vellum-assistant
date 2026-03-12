@@ -947,6 +947,28 @@ private struct MessageCellView: View {
         .id("thinking-indicator")
     }
 
+    /// Returns true when the given pending confirmation is already rendered inline
+    /// under a preceding assistant message's tool step (via AssistantProgressView),
+    /// so the standalone ToolConfirmationBubble row should be suppressed.
+    ///
+    /// Falls back to `false` when `pendingConfirmation` is not populated on any
+    /// tool call (e.g. history restore, missing `toolUseId`), which correctly
+    /// causes the standalone bubble to render as a fallback.
+    private func isConfirmationRenderedInline(
+        confirmation: ToolConfirmationData,
+        messages: [ChatMessage],
+        at index: Int
+    ) -> Bool {
+        for i in (0..<index).reversed() {
+            let msg = messages[i]
+            guard msg.role == .assistant, msg.confirmation == nil else { continue }
+            return msg.toolCalls.contains { tc in
+                tc.pendingConfirmation?.requestId == confirmation.requestId
+            }
+        }
+        return false
+    }
+
     var body: some View {
         if showTimestamp.contains(index) {
             TimestampDivider(date: message.timestamp)
@@ -954,15 +976,26 @@ private struct MessageCellView: View {
 
         if let confirmation = message.confirmation {
             if confirmation.state == .pending {
-                ToolConfirmationBubble(
+                // Check if this confirmation is already rendered inline under the
+                // preceding assistant message's tool step (via AssistantProgressView).
+                // If so, skip the standalone bubble to avoid duplication.
+                let isRenderedInline = isConfirmationRenderedInline(
                     confirmation: confirmation,
-                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                    onAllow: { onConfirmationAllow(confirmation.requestId) },
-                    onDeny: { onConfirmationDeny(confirmation.requestId) },
-                    onAlwaysAllow: onAlwaysAllow,
-                    onTemporaryAllow: onTemporaryAllow
+                    messages: displayMessages,
+                    at: index
                 )
-                .id(message.id)
+
+                if !isRenderedInline {
+                    ToolConfirmationBubble(
+                        confirmation: confirmation,
+                        isKeyboardActive: confirmation.requestId == activePendingRequestId,
+                        onAllow: { onConfirmationAllow(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAlwaysAllow: onAlwaysAllow,
+                        onTemporaryAllow: onTemporaryAllow
+                    )
+                    .id(message.id)
+                }
             } else {
                 let hasPrecedingAssistant: Bool = {
                     guard index > 0 else { return false }
