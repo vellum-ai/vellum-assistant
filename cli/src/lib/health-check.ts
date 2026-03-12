@@ -11,10 +11,10 @@ export interface HealthCheckResult {
 }
 
 export async function checkManagedHealth(
-  runtimeUrl: string,
   assistantId: string,
 ): Promise<HealthCheckResult> {
-  const { readPlatformToken } = await import("./platform-client.js");
+  const { getPlatformUrl, readPlatformToken } =
+    await import("./platform-client.js");
   const token = readPlatformToken();
   if (!token) {
     return {
@@ -24,7 +24,7 @@ export async function checkManagedHealth(
   }
 
   try {
-    const url = `${runtimeUrl}/v1/assistants/${assistantId}/healthz/`;
+    const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),

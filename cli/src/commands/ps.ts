@@ -360,7 +360,7 @@ async function listAllAssistants(): Promise<void> {
           health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
         }
       } else if (a.cloud === "vellum") {
-        health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
+        health = await checkManagedHealth(a.assistantId);
       } else {
         health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
       }
