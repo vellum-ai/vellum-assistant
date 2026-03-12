@@ -30,6 +30,23 @@ let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
   "not-found";
 let idCounter = 0;
 
+// App upsert mock state
+let mockUpsertAppCalls: Array<{
+  provider: string;
+  clientId: string;
+  clientSecretOpts?: {
+    clientSecretValue?: string;
+    clientSecretCredentialPath?: string;
+  };
+}> = [];
+let mockUpsertAppResult: Record<string, unknown> = {
+  id: "app-upsert-1",
+  providerKey: "integration:test",
+  clientId: "test-client-id",
+  createdAt: 1700000000000,
+  updatedAt: 1700000000000,
+};
+
 // Connect mock state
 let mockOrchestrateOAuthConnect: (
   opts: Record<string, unknown>,
@@ -91,7 +108,17 @@ mock.module("../oauth/oauth-store.js", () => ({
   listConnections: () => [],
   deleteConnection: () => false,
   // Stubs required by apps.ts and providers.ts (transitively loaded via oauth/index.ts)
-  upsertApp: async () => ({}),
+  upsertApp: async (
+    provider: string,
+    clientId: string,
+    clientSecretOpts?: {
+      clientSecretValue?: string;
+      clientSecretCredentialPath?: string;
+    },
+  ) => {
+    mockUpsertAppCalls.push({ provider, clientId, clientSecretOpts });
+    return mockUpsertAppResult;
+  },
   getApp: () => undefined,
   getAppByProviderAndClientId: (providerKey: string, clientId: string) =>
     mockGetAppByProviderAndClientId(providerKey, clientId),
@@ -835,5 +862,125 @@ describe("assistant oauth connections connect <provider-key>", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("client_secret");
     expect(parsed.error).toContain("apps upsert");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// apps upsert --client-secret-credential-path
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth apps upsert --client-secret-credential-path", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    secureKeyStore = new Map();
+    metadataStore = [];
+    disconnectOAuthProviderCalls = [];
+    disconnectOAuthProviderResult = "not-found";
+    idCounter = 0;
+    mockUpsertAppCalls = [];
+    mockUpsertAppResult = {
+      id: "app-upsert-1",
+      providerKey: "integration:gmail",
+      clientId: "abc123",
+      createdAt: 1700000000000,
+      updatedAt: 1700000000000,
+    };
+    mockOrchestrateOAuthConnect = async () => ({
+      success: true,
+      deferred: false,
+      grantedScopes: [],
+    });
+    mockGetAppByProviderAndClientId = () => undefined;
+    mockGetMostRecentAppByProvider = () => undefined;
+    mockGetProvider = () => undefined;
+    mockGetProviderBehavior = () => undefined;
+    mockGetSecureKey = () => undefined;
+  });
+
+  test("upsert with --client-secret-credential-path passes path to upsertApp", async () => {
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:gmail",
+      "--client-id",
+      "abc123",
+      "--client-secret-credential-path",
+      "custom/path",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "integration:gmail",
+      clientId: "abc123",
+      clientSecretOpts: { clientSecretCredentialPath: "custom/path" },
+    });
+    const parsed = JSON.parse(stdout);
+    expect(parsed.id).toBe("app-upsert-1");
+  });
+
+  test("upsert with both --client-secret and --client-secret-credential-path returns error", async () => {
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:gmail",
+      "--client-id",
+      "abc123",
+      "--client-secret",
+      "s3cret",
+      "--client-secret-credential-path",
+      "custom/path",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      "Cannot provide both --client-secret and --client-secret-credential-path",
+    );
+    // upsertApp should NOT have been called
+    expect(mockUpsertAppCalls).toHaveLength(0);
+  });
+
+  test("upsert with --client-secret passes clientSecretValue to upsertApp", async () => {
+    const { exitCode } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:gmail",
+      "--client-id",
+      "abc123",
+      "--client-secret",
+      "s3cret",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "integration:gmail",
+      clientId: "abc123",
+      clientSecretOpts: { clientSecretValue: "s3cret" },
+    });
+  });
+
+  test("upsert without any secret option passes undefined", async () => {
+    const { exitCode } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "integration:gmail",
+      "--client-id",
+      "abc123",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "integration:gmail",
+      clientId: "abc123",
+      clientSecretOpts: undefined,
+    });
   });
 });

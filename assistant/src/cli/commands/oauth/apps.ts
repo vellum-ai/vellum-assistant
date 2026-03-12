@@ -165,6 +165,10 @@ At least --id or --provider must be specified.`,
       "--client-secret <secret>",
       "OAuth client secret (stored in secure keychain)",
     )
+    .option(
+      "--client-secret-credential-path <path>",
+      "Path to an existing client secret in the credential store (mutually exclusive with --client-secret)",
+    )
     .addHelpText(
       "after",
       `
@@ -175,23 +179,46 @@ stored in the secure system keychain — not in the database.
 When an existing app is matched and a --client-secret is provided, the stored
 secret is updated. The app row itself is returned as-is.
 
+You can supply the client secret directly via --client-secret, or reference an
+existing credential in the store via --client-secret-credential-path. These two
+options are mutually exclusive — providing both is an error.
+
 Examples:
   $ assistant oauth apps upsert --provider integration:gmail --client-id abc123
   $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret s3cret
+  $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret-credential-path "custom/path"
   $ assistant oauth apps upsert --provider integration:gmail --client-id abc123 --json`,
     )
     .action(
       async (
-        opts: { provider: string; clientId: string; clientSecret?: string },
+        opts: {
+          provider: string;
+          clientId: string;
+          clientSecret?: string;
+          clientSecretCredentialPath?: string;
+        },
         cmd: Command,
       ) => {
         try {
+          if (opts.clientSecret && opts.clientSecretCredentialPath) {
+            writeOutput(cmd, {
+              ok: false,
+              error:
+                "Cannot provide both --client-secret and --client-secret-credential-path",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          const clientSecretOpts = opts.clientSecret
+            ? { clientSecretValue: opts.clientSecret }
+            : opts.clientSecretCredentialPath
+              ? { clientSecretCredentialPath: opts.clientSecretCredentialPath }
+              : undefined;
           const row = await upsertApp(
             opts.provider,
             opts.clientId,
-            opts.clientSecret
-              ? { clientSecretValue: opts.clientSecret }
-              : undefined,
+            clientSecretOpts,
           );
 
           if (!shouldOutputJson(cmd)) {
