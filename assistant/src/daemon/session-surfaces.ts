@@ -614,6 +614,7 @@ export function handleSurfaceAction(
             userMessage: `Something went wrong: ${message}`,
             retryable: false,
             debugDetails: `History-restored relay prompt processing failed: ${message}`,
+            errorCategory: "processing_failed",
           }),
         );
       });

@@ -601,6 +601,14 @@ export function handleError(
     });
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
+    } else if (
+      classified.code === "PROVIDER_ORDERING" ||
+      classified.code === "PROVIDER_WEB_SEARCH"
+    ) {
+      // Ordering errors detected via classifySessionError (e.g. from ProviderError
+      // with statusCode 400 and ordering message) — trigger the retry path.
+      state.orderingErrorDetected = true;
+      state.deferredOrderingError = event.error.message;
     } else {
       deps.onEvent(
         buildSessionErrorMessage(deps.ctx.conversationId, classified),

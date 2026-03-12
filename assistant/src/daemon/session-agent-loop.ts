@@ -1289,8 +1289,7 @@ export async function runAgentLoopImpl(
           recall.injectedText,
           "separate_context_message",
         ),
-      stripDynamicProfile: (msgs) =>
-        stripDynamicProfileMessages(msgs, ""),
+      stripDynamicProfile: (msgs) => stripDynamicProfileMessages(msgs, ""),
     });
 
     emitUsage(
@@ -1458,12 +1457,17 @@ export async function runAgentLoopImpl(
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Session processing error");
+      const classified = classifySessionError(err, errorCtx);
       ctx.traceEmitter.emit("request_error", truncate(message, 200, ""), {
         requestId: reqId,
         status: "error",
-        attributes: { errorClass, message: truncate(message, 500, "") },
+        attributes: {
+          errorClass,
+          message: truncate(message, 500, ""),
+          errorCategory: classified.errorCategory,
+          errorCode: classified.code,
+        },
       });
-      const classified = classifySessionError(err, errorCtx);
       onEvent({ type: "error", message: classified.userMessage });
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger("on-error", {
