@@ -226,24 +226,16 @@ struct ComposerView: View {
         let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
         let hasSlashHighlight = slashCommandRange != nil
 
-        return ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                ZStack(alignment: .leading) {
-                    composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-                    composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-                }
-                .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
-                .padding(.trailing, 70)
-                // Invisible anchor at the bottom of the content for auto-scrolling.
-                Color.clear
-                    .frame(height: 1)
-                    .id("composerBottom")
+        return ScrollView(.vertical, showsIndicators: false) {
+            ZStack(alignment: .leading) {
+                composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+                composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .onChange(of: inputText) {
-                proxy.scrollTo("composerBottom", anchor: .bottom)
-            }
+            .frame(maxWidth: .infinity, minHeight: composerCompactHeight, alignment: .leading)
+            .padding(.trailing, 70)
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.bottom)
         .frame(minHeight: composerCompactHeight, maxHeight: inputText.isEmpty ? composerCompactHeight : composerMaxHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
