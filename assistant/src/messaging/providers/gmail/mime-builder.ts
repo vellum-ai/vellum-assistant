@@ -21,6 +21,10 @@ export interface MimeMessageOptions {
   attachments: MimeAttachment[];
 }
 
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
 function toBase64Url(input: Buffer): string {
   return input
     .toString("base64")
@@ -37,17 +41,23 @@ export function buildMultipartMime(options: MimeMessageOptions): string {
   const { to, subject, body, inReplyTo, cc, bcc, attachments } = options;
   const boundary = `----=_Part_${randomBytes(16).toString("hex")}`;
 
+  const sanitizedTo = sanitizeHeaderValue(to);
+  const sanitizedSubject = sanitizeHeaderValue(subject);
+  const sanitizedCc = cc ? sanitizeHeaderValue(cc) : undefined;
+  const sanitizedBcc = bcc ? sanitizeHeaderValue(bcc) : undefined;
+  const sanitizedInReplyTo = inReplyTo ? sanitizeHeaderValue(inReplyTo) : undefined;
+
   const headers = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
+    `To: ${sanitizedTo}`,
+    `Subject: ${sanitizedSubject}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   ];
-  if (cc) headers.push(`Cc: ${cc}`);
-  if (bcc) headers.push(`Bcc: ${bcc}`);
-  if (inReplyTo) {
-    headers.push(`In-Reply-To: ${inReplyTo}`);
-    headers.push(`References: ${inReplyTo}`);
+  if (sanitizedCc) headers.push(`Cc: ${sanitizedCc}`);
+  if (sanitizedBcc) headers.push(`Bcc: ${sanitizedBcc}`);
+  if (sanitizedInReplyTo) {
+    headers.push(`In-Reply-To: ${sanitizedInReplyTo}`);
+    headers.push(`References: ${sanitizedInReplyTo}`);
   }
 
   const parts: string[] = [];
