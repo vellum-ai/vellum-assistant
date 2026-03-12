@@ -17,6 +17,7 @@ import { removeAssistantEntry } from "../lib/assistant-config";
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
+import { appendHistory, loadHistory } from "../lib/input-history";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
 import TextInput from "./TextInput";
 import { Tooltip } from "./Tooltip";
@@ -1137,6 +1138,9 @@ function ChatApp({
   handleRef,
 }: ChatAppProps): ReactElement {
   const [inputValue, setInputValue] = useState("");
+  const historyRef = useRef<string[]>(loadHistory());
+  const historyIndexRef = useRef(-1);
+  const savedInputRef = useRef("");
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [spinnerText, setSpinnerText] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionRequest | null>(null);
@@ -2022,11 +2026,42 @@ function ChatApp({
 
   const handleSubmit = useCallback(
     (value: string) => {
+      const trimmed = value.trim();
+      if (trimmed) {
+        appendHistory(trimmed);
+        historyRef.current = loadHistory();
+      }
+      historyIndexRef.current = -1;
+      savedInputRef.current = "";
       setInputValue("");
       handleInput(value);
     },
     [handleInput],
   );
+
+  const handleHistoryUp = useCallback(() => {
+    const history = historyRef.current;
+    if (history.length === 0) return;
+    if (historyIndexRef.current === -1) {
+      savedInputRef.current = inputValue;
+    }
+    const nextIndex = Math.min(historyIndexRef.current + 1, history.length - 1);
+    historyIndexRef.current = nextIndex;
+    const entry = history[history.length - 1 - nextIndex];
+    setInputValue(entry);
+  }, [inputValue]);
+
+  const handleHistoryDown = useCallback(() => {
+    if (historyIndexRef.current <= 0) {
+      historyIndexRef.current = -1;
+      setInputValue(savedInputRef.current);
+      return;
+    }
+    historyIndexRef.current -= 1;
+    const history = historyRef.current;
+    const entry = history[history.length - 1 - historyIndexRef.current];
+    setInputValue(entry);
+  }, []);
 
   useEffect(() => {
     const handle: ChatAppHandle = {
@@ -2238,6 +2273,8 @@ function ChatApp({
               value={inputValue}
               onChange={setInputValue}
               onSubmit={handleSubmit}
+              onHistoryUp={handleHistoryUp}
+              onHistoryDown={handleHistoryDown}
               focus={inputFocused}
             />
           </Box>

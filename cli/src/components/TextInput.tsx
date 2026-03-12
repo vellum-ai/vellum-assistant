@@ -6,6 +6,8 @@ interface TextInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit?: (value: string) => void;
+  onHistoryUp?: () => void;
+  onHistoryDown?: () => void;
   focus?: boolean;
   placeholder?: string;
 }
@@ -14,6 +16,8 @@ function TextInput({
   value,
   onChange,
   onSubmit,
+  onHistoryUp,
+  onHistoryDown,
   focus = true,
   placeholder = "",
 }: TextInputProps): ReactElement {
@@ -30,13 +34,17 @@ function TextInput({
 
   useInput(
     (input, key) => {
-      if (
-        key.upArrow ||
-        key.downArrow ||
-        (key.ctrl && input === "c") ||
-        key.tab ||
-        (key.shift && key.tab)
-      ) {
+      if (key.upArrow) {
+        onHistoryUp?.();
+        setRenderTick((t) => t + 1);
+        return;
+      }
+      if (key.downArrow) {
+        onHistoryDown?.();
+        setRenderTick((t) => t + 1);
+        return;
+      }
+      if ((key.ctrl && input === "c") || key.tab || (key.shift && key.tab)) {
         return;
       }
 
