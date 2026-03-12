@@ -82,6 +82,25 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock prepareOAuth2Flow — unit tests should not start real loopback HTTP
+// servers. The connect orchestrator still runs its own validation logic
+// (scope policy, non-interactive ingress checks, etc.) but the actual
+// OAuth flow setup is stubbed.
+// ---------------------------------------------------------------------------
+
+mock.module("../security/oauth2.js", () => ({
+  prepareOAuth2Flow: mock(async () => ({
+    authUrl: "https://mock-auth-url.example.com/authorize",
+    state: "mock-state",
+    completion: new Promise(() => {}),
+  })),
+  startOAuth2Flow: mock(async () => ({
+    grantedScopes: [],
+    tokens: { access_token: "mock-token" },
+  })),
+}));
+
+// ---------------------------------------------------------------------------
 // Imports under test
 // ---------------------------------------------------------------------------
 
