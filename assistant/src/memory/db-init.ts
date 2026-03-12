@@ -67,6 +67,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameGuardianVerificationValues,
@@ -347,6 +348,9 @@ export function initializeDb(): void {
 
   // 54. Add explicit client_secret_credential_path to oauth_apps
   migrateOAuthAppsClientSecretPath(database);
+
+  // 55. Add ping_url column to oauth_providers
+  migrateOAuthProvidersPingUrl(database);
 
   validateMigrationState(database);
 

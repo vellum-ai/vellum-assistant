@@ -18,6 +18,7 @@ export function createOAuthTables(database: DrizzleDb): void {
       extra_params TEXT,
       callback_transport TEXT,
       loopback_port INTEGER,
+      ping_url TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )

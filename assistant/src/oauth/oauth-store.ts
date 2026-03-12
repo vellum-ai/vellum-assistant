@@ -158,6 +158,7 @@ export function registerProvider(params: {
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
     loopbackPort: params.loopbackPort ?? null,
+    pingUrl: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -208,10 +209,12 @@ export async function upsertApp(
 
   const now = Date.now();
   const id = uuid();
+  const clientSecretCredentialPath = `oauth_app/${id}/client_secret`;
   const row = {
     id,
     providerKey,
     clientId,
+    clientSecretCredentialPath,
     createdAt: now,
     updatedAt: now,
   };
@@ -220,7 +223,7 @@ export async function upsertApp(
 
   if (clientSecret) {
     const stored = await setSecureKeyAsync(
-      `oauth_app/${id}/client_secret`,
+      clientSecretCredentialPath,
       clientSecret,
     );
     if (!stored) {
