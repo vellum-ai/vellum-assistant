@@ -778,8 +778,10 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let persistentDecisionsAllowed: Bool?
     /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
     public let temporaryOptionsAvailable: [String]?
+    /// The tool_use block ID for client-side correlation with specific tool calls.
+    public let toolUseId: String?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -793,6 +795,7 @@ public struct ConfirmationRequest: Codable, Sendable {
         self.sessionId = sessionId
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.temporaryOptionsAvailable = temporaryOptionsAvailable
+        self.toolUseId = toolUseId
     }
 }
 

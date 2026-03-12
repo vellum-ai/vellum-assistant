@@ -124,6 +124,7 @@ export class PermissionPrompter {
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
         temporaryOptionsAvailable,
+        toolUseId,
       });
 
       this.onStateChanged?.(requestId, "pending", "system", toolUseId);

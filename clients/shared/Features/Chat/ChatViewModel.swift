@@ -2151,6 +2151,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].confirmation?.approvedDecision = decision
             }
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
     }
@@ -2184,6 +2185,7 @@ public final class ChatViewModel: ObservableObject {
             messages[index].confirmation?.state = .approved
             messages[index].confirmation?.approvedDecision = decision
         }
+        clearPendingConfirmation(requestId: requestId)
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
     }
@@ -2199,6 +2201,22 @@ public final class ChatViewModel: ObservableObject {
             case "deny":
                 messages[index].confirmation?.state = .denied
             default:
+                break
+            }
+        }
+        clearPendingConfirmation(requestId: requestId)
+    }
+
+    /// Clear `pendingConfirmation` on the matching tool call so the inline bubble
+    /// reflects the submitted decision without waiting for the daemon's
+    /// `confirmation_state_changed` echo.
+    private func clearPendingConfirmation(requestId: String) {
+        for i in messages.indices.reversed() {
+            guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+            if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                $0.pendingConfirmation?.requestId == requestId
+            }) {
+                messages[i].toolCalls[tcIdx].pendingConfirmation = nil
                 break
             }
         }

@@ -19,8 +19,15 @@ struct ChatBubble: View {
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
     var resolveHttpPort: (() -> Int?) = { nil }
+    // Confirmation action callbacks (threaded to AssistantProgressView for inline bubbles)
+    var onConfirmationAllow: ((String) -> Void)? = nil
+    var onConfirmationDeny: ((String) -> Void)? = nil
+    var onAlwaysAllow: ((String, String, String, String) -> Void)? = nil
+    var onTemporaryAllow: ((String, String) -> Void)? = nil
+    var activeConfirmationRequestId: String? = nil
     /// Called when the user taps "Retry" on a failed message.
     var onRetryFailedMessage: ((UUID) -> Void)?
+
     var isLatestAssistantMessage: Bool = false
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
