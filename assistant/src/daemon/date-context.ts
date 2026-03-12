@@ -107,6 +107,17 @@ function canonicalizeTimeZone(timeZone: string): string | null {
       return null;
     }
   }
+  // Check abbreviation mapping before Intl (many abbreviations are not recognized by Intl)
+  const abbrIana = TIMEZONE_ABBREVIATIONS[trimmed.toUpperCase()];
+  if (abbrIana) {
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: abbrIana,
+      }).resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  }
   try {
     return new Intl.DateTimeFormat("en-US", {
       timeZone: trimmed,
@@ -117,11 +128,73 @@ function canonicalizeTimeZone(timeZone: string): string | null {
 }
 
 /**
- * Regex matching IANA timezone identifiers (e.g. "America/New_York") and
- * UTC/GMT offset tokens (e.g. "UTC+5", "GMT-8:30").
+ * Common timezone abbreviation → IANA identifier mapping.
+ * Used as a fallback when `Intl.DateTimeFormat` does not recognize the abbreviation.
  */
-const TIMEZONE_TOKEN_RE =
-  /\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b/gi;
+const TIMEZONE_ABBREVIATIONS: Record<string, string> = {
+  // North America
+  PST: "America/Los_Angeles",
+  PDT: "America/Los_Angeles",
+  PT: "America/Los_Angeles",
+  MST: "America/Denver",
+  MDT: "America/Denver",
+  MT: "America/Denver",
+  CST: "America/Chicago",
+  CDT: "America/Chicago",
+  CT: "America/Chicago",
+  EST: "America/New_York",
+  EDT: "America/New_York",
+  ET: "America/New_York",
+  AKST: "America/Anchorage",
+  AKDT: "America/Anchorage",
+  HST: "Pacific/Honolulu",
+  AST: "America/Puerto_Rico",
+  NST: "America/St_Johns",
+  NDT: "America/St_Johns",
+  // Europe
+  BST: "Europe/London",
+  CET: "Europe/Paris",
+  CEST: "Europe/Paris",
+  EET: "Europe/Athens",
+  EEST: "Europe/Athens",
+  WET: "Europe/Lisbon",
+  WEST: "Europe/Lisbon",
+  MSK: "Europe/Moscow",
+  IST: "Europe/Dublin",
+  // Asia / Oceania
+  JST: "Asia/Tokyo",
+  KST: "Asia/Seoul",
+  HKT: "Asia/Hong_Kong",
+  SGT: "Asia/Singapore",
+  ICT: "Asia/Bangkok",
+  WIB: "Asia/Jakarta",
+  PHT: "Asia/Manila",
+  PKT: "Asia/Karachi",
+  NPT: "Asia/Kathmandu",
+  AEST: "Australia/Sydney",
+  AEDT: "Australia/Sydney",
+  ACST: "Australia/Adelaide",
+  ACDT: "Australia/Adelaide",
+  AWST: "Australia/Perth",
+  NZST: "Pacific/Auckland",
+  NZDT: "Pacific/Auckland",
+  // South America
+  BRT: "America/Sao_Paulo",
+  ART: "America/Argentina/Buenos_Aires",
+};
+
+/**
+ * Regex matching IANA timezone identifiers (e.g. "America/New_York"),
+ * UTC/GMT offset tokens (e.g. "UTC+5", "GMT-8:30"), and common
+ * timezone abbreviations (e.g. "PST", "EST", "JST").
+ *
+ * Abbreviation alternation is built from `TIMEZONE_ABBREVIATIONS` keys.
+ */
+const TIMEZONE_ABBR_ALTERNATION = Object.keys(TIMEZONE_ABBREVIATIONS).join("|");
+const TIMEZONE_TOKEN_RE = new RegExp(
+  `\\b(?:[A-Za-z][A-Za-z0-9_+-]*(?:/[A-Za-z0-9_+-]+)+|(?:UTC|GMT)(?:[+-]\\d{1,2}(?::?\\d{2})?)?|(?:${TIMEZONE_ABBR_ALTERNATION}))\\b`,
+  "gi",
+);
 
 /**
  * Extract the user's timezone from V2 memory recall injected text.
