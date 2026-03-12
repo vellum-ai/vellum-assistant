@@ -10,7 +10,6 @@ enum VerifyResult {
 final class ActionVerifier {
     private var actionHistory: [AgentAction] = []
     private let maxSteps: Int
-    private(set) var blockedCount: Int = 0
 
     init(maxSteps: Int = 50) {
         self.maxSteps = maxSteps
@@ -89,12 +88,9 @@ final class ActionVerifier {
 
     func reset() {
         actionHistory.removeAll()
-        blockedCount = 0
     }
 
     var currentStepCount: Int { actionHistory.count }
-
-    func resetBlockCount() { blockedCount = 0 }
 
     // MARK: - Loop Detection
 

@@ -125,7 +125,7 @@ enum HostCuActionRunner {
             let verifyResult = verifier.verify(resolvedAction)
             switch verifyResult {
             case .allowed:
-                verifier.resetBlockCount()
+                break
 
             case .needsConfirmation(let reason):
                 log.warning("[\(request.stepNumber)] Needs confirmation (blocked in proxy): \(reason)")
