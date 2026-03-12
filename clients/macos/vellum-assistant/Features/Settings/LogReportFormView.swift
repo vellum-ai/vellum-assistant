@@ -28,7 +28,7 @@ struct LogReportFormView: View {
             actionRow
         }
         .padding(VSpacing.xl)
-        .background(VColor.background)
+        .background(VColor.backgroundSubtle)
         .frame(width: 480)
     }
 
