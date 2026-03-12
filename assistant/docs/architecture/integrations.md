@@ -121,7 +121,8 @@ sequenceDiagram
     participant OAuth as OAuth2 PKCE Flow
     participant Browser as System Browser
     participant Google as Google OAuth Server
-    participant Vault as Credential Vault
+    participant Store as SQLite OAuth Store
+    participant Vault as Secure Keychain
     participant TokenMgr as TokenManager
     participant Tool as Gmail Tool Executor
     participant API as Gmail REST API
@@ -140,20 +141,25 @@ sequenceDiagram
     Google->>OAuth: callback with auth code
     OAuth->>Google: exchange code + code_verifier for tokens
     Google-->>OAuth: access + refresh tokens
-    OAuth->>Vault: setSecureKey (access + refresh)
-    OAuth->>Vault: upsertCredentialMetadata (allowedTools, expiresAt)
+    OAuth->>Store: storeOAuth2Tokens() → upsert oauth_app + oauth_connection rows
+    Store->>Vault: setSecureKeyAsync("oauth_connection/{id}/access_token")
+    Store->>Vault: setSecureKeyAsync("oauth_connection/{id}/refresh_token")
+    Store->>Store: write expiresAt, grantedScopes to oauth_connections
     OAuth-->>Handler: success + account email
     Handler->>HTTP: integration_connect_result {success, accountInfo}
     HTTP->>UI: show connected state
 
     Note over UI,API: Tool Execution Flow
     Tool->>TokenMgr: withValidToken("gmail", callback)
-    TokenMgr->>Vault: getSecureKey("integration:gmail:access_token")
-    TokenMgr->>Vault: getMetadata (check expiresAt)
+    TokenMgr->>Store: getConnectionByProvider("integration:gmail")
+    TokenMgr->>Vault: getSecureKey("oauth_connection/{conn.id}/access_token")
+    TokenMgr->>Store: check oauth_connections.expires_at
     alt Token expired
+        TokenMgr->>Store: resolveRefreshConfig() → tokenUrl, clientId from provider/app rows
         TokenMgr->>Google: refresh with refresh_token
         Google-->>TokenMgr: new access token
-        TokenMgr->>Vault: update access token + expiresAt
+        TokenMgr->>Vault: setSecureKeyAsync("oauth_connection/{id}/access_token")
+        TokenMgr->>Store: updateConnection(expiresAt)
     end
     TokenMgr->>Tool: callback(validToken)
     Tool->>API: Gmail REST API call with Bearer token
@@ -167,13 +173,13 @@ sequenceDiagram
 
 | Decision                                   | Rationale                                                                                                                                                                                                                                        |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                 |
+| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in the secure keychain (`oauth_app/{id}/client_secret`) for autonomous refresh                                                                                |
 | Shared connect orchestrator                | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
 | Canonical credential naming                | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                    |
 | Gateway callback transport                 | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                |
 | Unified `MessagingProvider` interface      | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                      |
 | Provider auto-selection                    | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX                                                                                                                                             |
-| Token expiry in credential metadata        | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer                                                                                                                                         |
+| Token expiry in SQLite oauth-store         | `oauth_connections.expires_at` column tracks token expiry; `TokenManager` reads it for proactive refresh with 5min buffer. No separate metadata store needed                                                                                     |
 | Confidence scores on medium-risk tools     | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution                                                                                                                                                   |
 | Platform-specific extension tools          | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface                                                                                                                 |
 | Identity verification before token storage | OAuth2 tokens are only persisted after a successful identity verification call, preventing storage of invalid or mismatched credentials                                                                                                          |
