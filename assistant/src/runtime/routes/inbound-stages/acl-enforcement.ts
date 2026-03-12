@@ -452,9 +452,11 @@ export async function enforceIngressAcl(
         }
 
         // ── Invite token intercept (inactive member) ──
-        // Same as the non-member branch: invite tokens can reactivate
-        // revoked/pending members without requiring guardian approval.
-        if (inviteToken && denyInactiveMember) {
+        // Invite tokens can reactivate revoked/pending members without
+        // requiring guardian approval, but blocked members are excluded so
+        // they are short-circuited at the ACL layer rather than entering the
+        // redemption path.
+        if (!isBlockedMember && inviteToken && denyInactiveMember) {
           const inviteResult = await handleInviteTokenIntercept({
             rawToken: inviteToken,
             sourceChannel,
@@ -477,9 +479,15 @@ export async function enforceIngressAcl(
         }
 
         // ── 6-digit invite code intercept (inactive member) ──
-        // Same as the non-member branch: codes can reactivate revoked/pending
-        // members. Non-matching codes fall through to normal processing.
-        if (denyInactiveMember && /^\d{6}$/.test(trimmedContent)) {
+        // Codes can reactivate revoked/pending members; non-matching codes
+        // fall through. Blocked members are excluded here for consistency —
+        // the redemption service would reject them anyway, but early exit
+        // avoids unnecessary work.
+        if (
+          !isBlockedMember &&
+          denyInactiveMember &&
+          /^\d{6}$/.test(trimmedContent)
+        ) {
           const codeInterceptResult = await handleInviteCodeIntercept({
             code: trimmedContent,
             sourceChannel,
