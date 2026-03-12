@@ -451,8 +451,15 @@ class CredentialStoreTool implements Tool {
             "metadata delete failed after removing credential",
           );
         }
-        // Also clean up any OAuth connection for this service
-        await disconnectOAuthProvider(service);
+        // Also clean up any OAuth connection for this service (best-effort)
+        try {
+          await disconnectOAuthProvider(service);
+        } catch (err) {
+          log.warn(
+            { service, err },
+            "OAuth disconnect failed after removing credential",
+          );
+        }
         return {
           content: `Deleted credential for ${service}/${field}.`,
           isError: false,

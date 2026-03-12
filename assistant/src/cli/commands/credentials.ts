@@ -434,7 +434,12 @@ Examples:
 
         // Also clean up the OAuth connection and new-format secure keys.
         // disconnectOAuthProvider is a no-op when no connection exists.
-        const oauthDisconnected = await disconnectOAuthProvider(service);
+        let oauthDisconnected = false;
+        try {
+          oauthDisconnected = await disconnectOAuthProvider(service);
+        } catch {
+          // Best-effort — OAuth tables may not exist yet
+        }
 
         if (
           secretResult !== "deleted" &&
@@ -486,6 +491,8 @@ Examples:
     )
     .action(async (service: string, _opts: unknown, cmd: Command) => {
       try {
+        assertMetadataWritable();
+
         let cleanedUp = false;
 
         // 1. Disconnect the OAuth connection (new-format keys + connection row)
