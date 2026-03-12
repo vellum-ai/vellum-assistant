@@ -23,8 +23,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-const mockDeleteSecureKeyAsync = mock(() =>
-  Promise.resolve("deleted" as const),
+const mockDeleteSecureKeyAsync = mock(
+  (): Promise<"deleted" | "not-found" | "error"> =>
+    Promise.resolve("deleted" as const),
 );
 const mockSetSecureKeyAsync = mock(() => Promise.resolve(true));
 /** Simulated secure key store for getSecureKey lookups. */
