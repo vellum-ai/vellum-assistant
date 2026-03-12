@@ -36,7 +36,7 @@ const TEST_DIR = join(
 );
 const TOKEN_DIR = join(TEST_DIR, ".vellum", "protected");
 const TOKEN_PATH = join(TOKEN_DIR, "keychain-broker.token");
-const SOCKET_PATH = join(TEST_DIR, "broker.sock");
+const SOCKET_PATH = join(TEST_DIR, ".vellum", "keychain-broker.sock");
 const TEST_TOKEN = "test-auth-token-abc123";
 
 // ---------------------------------------------------------------------------
@@ -106,27 +106,16 @@ function createMockBroker(): {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
-let originalEnv: string | undefined;
-
 beforeAll(() => {
   mkdirSync(TOKEN_DIR, { recursive: true });
 });
 
 beforeEach(() => {
-  originalEnv = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   // Clean up socket file from prior test
   try {
     rmSync(SOCKET_PATH, { force: true });
   } catch {
     /* ignore */
-  }
-});
-
-afterEach(() => {
-  if (originalEnv === undefined) {
-    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
-  } else {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = originalEnv;
   }
 });
 
@@ -157,15 +146,15 @@ describe("keychain-broker-client", () => {
   // isAvailable()
   // -----------------------------------------------------------------------
   describe("isAvailable", () => {
-    test("returns false when env var is unset", () => {
-      delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+    test("returns false when socket file does not exist", () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       expect(client.isAvailable()).toBe(false);
     });
 
     test("returns false when token file does not exist", () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+      // Create the socket file so that check passes
+      writeFileSync(SOCKET_PATH, "");
       try {
         rmSync(TOKEN_PATH, { force: true });
       } catch {
@@ -175,8 +164,8 @@ describe("keychain-broker-client", () => {
       expect(client.isAvailable()).toBe(false);
     });
 
-    test("returns true when both env var and token file exist", () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    test("returns true when both socket file and token file exist", () => {
+      writeFileSync(SOCKET_PATH, "");
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       expect(client.isAvailable()).toBe(true);
@@ -190,7 +179,6 @@ describe("keychain-broker-client", () => {
     let broker: ReturnType<typeof createMockBroker>;
 
     beforeEach(async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       broker = createMockBroker();
     });
@@ -343,7 +331,6 @@ describe("keychain-broker-client", () => {
     let broker: ReturnType<typeof createMockBroker>;
 
     beforeEach(async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       broker = createMockBroker();
     });
@@ -381,7 +368,6 @@ describe("keychain-broker-client", () => {
     let broker: ReturnType<typeof createMockBroker>;
 
     beforeEach(async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
       writeFileSync(TOKEN_PATH, "old-token");
       broker = createMockBroker();
     });
@@ -441,59 +427,42 @@ describe("keychain-broker-client", () => {
   // Graceful degradation
   // -----------------------------------------------------------------------
   describe("graceful degradation", () => {
-    test("get returns null when broker is not running", async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    test("get returns null when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.get("test-key");
       expect(result).toBeNull();
     });
 
-    test("set returns false when broker is not running", async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    test("set returns false when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.set("test-key", "value");
       expect(result).toBe(false);
     });
 
-    test("del returns false when broker is not running", async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    test("del returns false when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.del("test-key");
       expect(result).toBe(false);
     });
 
-    test("list returns empty array when broker is not running", async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    test("list returns empty array when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.list();
       expect(result).toEqual([]);
     });
 
-    test("ping returns null when broker is not running", async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
+    test("ping returns null when socket file does not exist", async () => {
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.ping();
       expect(result).toBeNull();
     });
 
-    test("returns fallbacks when socket path env var is unset", async () => {
-      delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
-      writeFileSync(TOKEN_PATH, TEST_TOKEN);
-      const client = createBrokerClient();
-      expect(await client.get("key")).toBeNull();
-      expect(await client.set("key", "val")).toBe(false);
-      expect(await client.del("key")).toBe(false);
-      expect(await client.list()).toEqual([]);
-      expect(await client.ping()).toBeNull();
-    });
-
     test("returns fallbacks when token file is missing", async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
       try {
         rmSync(TOKEN_PATH, { force: true });
       } catch {
@@ -515,7 +484,6 @@ describe("keychain-broker-client", () => {
     let broker: ReturnType<typeof createMockBroker>;
 
     beforeEach(async () => {
-      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       broker = createMockBroker();
     });
