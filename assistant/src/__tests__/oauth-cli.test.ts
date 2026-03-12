@@ -39,6 +39,12 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
   setSecureKeyAsync: async () => true,
   deleteSecureKey: () => "not-found",
+  deleteSecureKeyAsync: async () => "not-found" as const,
+  listSecureKeys: () => [],
+  getBackendType: () => "encrypted",
+  isDowngradedFromKeychain: () => false,
+  _resetBackend: () => {},
+  _setBackend: () => {},
 }));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
