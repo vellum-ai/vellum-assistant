@@ -27,8 +27,8 @@ export interface IndexMessageInput {
   /**
    * Trust class of the actor who produced this message, captured at
    * persist time. When `'guardian'` or `undefined` (legacy), extraction
-   * and conflict resolution jobs run. Otherwise, the message is segmented
-   * and embedded but no profile mutations are triggered.
+   * jobs run. Otherwise, the message is segmented and embedded but no
+   * profile mutations are triggered.
    */
   provenanceTrustClass?: TrustClass;
 }
@@ -45,7 +45,7 @@ export function indexMessageNow(
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
-  // are trusted for extraction and conflict resolution.
+  // are trusted for extraction.
   const isTrustedActor =
     input.provenanceTrustClass === "guardian" ||
     input.provenanceTrustClass === undefined;
