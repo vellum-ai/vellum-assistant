@@ -10,6 +10,26 @@ export interface HealthCheckResult {
   detail: string | null;
 }
 
+interface OrgListResponse {
+  results: { id: string }[];
+}
+
+async function fetchOrganizationId(
+  platformUrl: string,
+  token: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(`${platformUrl}/v1/organizations/`, {
+      headers: { "X-Session-Token": token },
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as OrgListResponse;
+    return body.results?.[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function checkManagedHealth(
   assistantId: string,
 ): Promise<HealthCheckResult> {
@@ -23,20 +43,32 @@ export async function checkManagedHealth(
     };
   }
 
+  const platformUrl = getPlatformUrl();
+
+  const orgId = await fetchOrganizationId(platformUrl, token);
+  if (!orgId) {
+    return {
+      status: "error (auth)",
+      detail: "could not resolve organization",
+    };
+  }
+
   try {
-    const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
+    const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/healthz/`;
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),
       HEALTH_CHECK_TIMEOUT_MS,
     );
 
+    const headers: Record<string, string> = {
+      "X-Session-Token": token,
+      "Vellum-Organization-Id": orgId,
+    };
+
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Session-Token": token,
-      },
+      headers,
     });
 
     clearTimeout(timeoutId);
