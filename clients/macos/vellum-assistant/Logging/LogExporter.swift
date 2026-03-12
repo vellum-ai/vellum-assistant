@@ -525,7 +525,13 @@ enum LogExporter {
         try? data.write(to: url)
     }
 
-    /// Reads the workspace config.json and writes a sanitized copy with API key
+    /// Replaces a value with a presence flag: "(set)" if non-empty, "(empty)" otherwise.
+    private nonisolated static func redactValue(_ val: Any?) -> String {
+        if let str = val as? String { return str.isEmpty ? "(empty)" : "(set)" }
+        return val == nil ? "(empty)" : "(set)"
+    }
+
+    /// Reads the workspace config.json and writes a sanitized copy with sensitive
     /// values replaced by presence flags. Falls back silently if unreadable.
     private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) {
         var config = WorkspaceConfigIO.read()
@@ -534,9 +540,41 @@ enum LogExporter {
         // Strip API key values — preserve which providers have keys configured
         if var apiKeys = config["apiKeys"] as? [String: Any] {
             for key in apiKeys.keys {
-                apiKeys[key] = apiKeys[key] != nil ? "(set)" : "(empty)"
+                apiKeys[key] = redactValue(apiKeys[key])
             }
             config["apiKeys"] = apiKeys
+        }
+
+        // Strip ingress webhook secret
+        if var ingress = config["ingress"] as? [String: Any],
+           var webhook = ingress["webhook"] as? [String: Any] {
+            webhook["secret"] = redactValue(webhook["secret"])
+            ingress["webhook"] = webhook
+            config["ingress"] = ingress
+        }
+
+        // Strip skill-level API keys and env vars
+        if var skills = config["skills"] as? [String: Any],
+           var entries = skills["entries"] as? [String: [String: Any]] {
+            for name in entries.keys {
+                if entries[name]?["apiKey"] != nil {
+                    entries[name]?["apiKey"] = redactValue(entries[name]?["apiKey"])
+                }
+                if var env = entries[name]?["env"] as? [String: Any] {
+                    for envKey in env.keys {
+                        env[envKey] = redactValue(env[envKey])
+                    }
+                    entries[name]?["env"] = env
+                }
+            }
+            skills["entries"] = entries
+            config["skills"] = skills
+        }
+
+        // Strip Twilio accountSid
+        if var twilio = config["twilio"] as? [String: Any] {
+            twilio["accountSid"] = redactValue(twilio["accountSid"])
+            config["twilio"] = twilio
         }
 
         guard let data = try? JSONSerialization.data(
