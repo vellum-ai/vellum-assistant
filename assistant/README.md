@@ -241,12 +241,9 @@ The per-assistant mapping is propagated to the gateway via the config file watch
 
 ### Phone Number Resolution Order
 
-At runtime, `getTwilioConfig()` resolves the phone number using this priority chain:
+At runtime, `getTwilioConfig()` resolves the phone number from **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
 
-1. **`TWILIO_PHONE_NUMBER` env var** — highest priority, explicit override for dev/CI.
-2. **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
-
-If no number is found after both sources, an error is thrown.
+If no number is found, an error is thrown.
 
 ### Assistant-Scoped Guardian State
 
