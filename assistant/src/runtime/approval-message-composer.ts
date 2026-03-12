@@ -36,7 +36,8 @@ export type ApprovalMessageScenario =
   | "guardian_deny_no_binding"
   | "requester_cancel"
   | "approval_already_resolved"
-  | "guardian_text_unavailable";
+  | "guardian_text_unavailable"
+  | "git_hooks_trust_prompt";
 
 export interface ApprovalMessageContext {
   scenario: ApprovalMessageScenario;
@@ -292,6 +293,14 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
 
     case "guardian_text_unavailable":
       return "I can't process text replies for approvals right now. Please use the approve/deny buttons above to respond.";
+
+    case "git_hooks_trust_prompt":
+      return (
+        "This project has git hooks configured. " +
+        "By default, hooks are disabled for assistant auto-commits to prevent untrusted code from running. " +
+        "Do you trust this project and want to enable hooks for assistant auto-commits? " +
+        "Reply yes to allow hooks, or no to keep them disabled."
+      );
 
     default: {
       // Exhaustive check — TypeScript will flag if a scenario is missing.

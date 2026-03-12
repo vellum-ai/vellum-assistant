@@ -4,12 +4,60 @@
  * These tests verify that workspace changes are committed even when
  * post-processing errors occur after the agent loop completes, and
  * that the shutdown sequence commits changes made during server.stop().
+ *
+ * Also contains end-to-end regression tests for the git hook exploit chain:
+ * a malicious pre-commit hook planted in a workspace must NOT execute during
+ * any auto-commit path (turn, heartbeat, shutdown) unless the workspace has
+ * been explicitly trusted by the user.
  */
+
+// ─── Bun mock.module calls must appear before all other imports ───────────────
+// These intercept the git-hooks-trust, logger, and config modules so tests can
+// control trust state without touching the real trust store on disk.
+
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Control the hook trust decision from each test via this variable.
+let _exploitMockDecision: "allow" | "deny" | "ask" = "ask";
+
+mock.module("../workspace/git-hooks-trust.js", () => ({
+  getGitHooksTrustDecision: (_workspaceDir: string) => _exploitMockDecision,
+  setGitHooksTrustDecision: () => {},
+  detectConfiguredHooks: async () => ({
+    hookFiles: [],
+    hooksDir: "",
+    hasHooks: false,
+  }),
+  GIT_HOOKS_TRUST_PSEUDO_TOOL: "__internal:git-hooks-trust",
+}));
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    child: () => ({
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+    }),
+  }),
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
+// ─── Module imports (after mocks) ────────────────────────────────────────────
+
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _resetGitServiceRegistry,
@@ -339,6 +387,178 @@ describe("Commit guarantees", () => {
       const postStop = await heartbeat.commitAllPending();
       expect(postStop.committed).toBe(0);
       expect(commitCount(testDir)).toBe(2); // unchanged
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Git hook exploit regression
+  //
+  // These tests reproduce the full exploit chain:
+  //   1. A malicious pre-commit hook is planted in the workspace.
+  //   2. The assistant triggers an auto-commit (turn / heartbeat / shutdown).
+  //   3. Under the default "ask" trust state the hook MUST NOT execute.
+  //   4. Only after the trust decision is explicitly "allow" may the hook run.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("git hook exploit chain regression", () => {
+    /**
+     * Write an executable hook script that touches a sentinel file.
+     * If the sentinel file exists after a commit the hook ran.
+     */
+    function plantMaliciousHook(
+      repoDir: string,
+      hookName: string,
+      sentinelPath: string,
+    ): void {
+      const hooksDir = join(repoDir, ".git", "hooks");
+      mkdirSync(hooksDir, { recursive: true });
+      writeFileSync(
+        join(hooksDir, hookName),
+        `#!/bin/sh\ntouch "${sentinelPath}"\nexit 0\n`,
+        { mode: 0o755 },
+      );
+    }
+
+    beforeEach(() => {
+      // Default: fail-closed (no explicit trust decision)
+      _exploitMockDecision = "ask";
+    });
+
+    test("turn-boundary auto-commit does NOT execute pre-commit hook when trust is ask (default)", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "exploit-ran.marker");
+      plantMaliciousHook(testDir, "pre-commit", sentinel);
+
+      // Simulate a turn: write a file and commit
+      writeFileSync(join(testDir, "work.ts"), "export const x = 1;");
+      await commitTurnChanges(testDir, "sess_exploit_turn", 1);
+
+      // Hook must NOT have run
+      expect(existsSync(sentinel)).toBe(false);
+      // But commit should still have been created
+      expect(commitCount(testDir)).toBe(2);
+    });
+
+    test("turn-boundary auto-commit does NOT execute pre-commit hook when trust is deny", async () => {
+      _exploitMockDecision = "deny";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "exploit-ran-deny.marker");
+      plantMaliciousHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "work.ts"), "export const x = 2;");
+      await commitTurnChanges(testDir, "sess_exploit_deny", 1);
+
+      expect(existsSync(sentinel)).toBe(false);
+      expect(commitCount(testDir)).toBe(2);
+    });
+
+    test("heartbeat auto-commit does NOT execute pre-commit hook when trust is ask", async () => {
+      _exploitMockDecision = "ask";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "heartbeat-exploit.marker");
+      plantMaliciousHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "background.log.txt"), "background output");
+
+      const services = new Map<string, WorkspaceGitService>();
+      services.set(testDir, service);
+
+      let fakeTime = 1_000_000;
+      const heartbeat = new WorkspaceHeartbeatService({
+        ageThresholdMs: 0, // trigger immediately
+        fileThreshold: 1,
+        getServices: () => services,
+        now: () => fakeTime,
+      });
+
+      fakeTime += 1;
+      const result = await heartbeat.check();
+      expect(result.committed).toBe(1);
+
+      // Hook must NOT have run
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("shutdown auto-commit does NOT execute pre-commit hook when trust is ask", async () => {
+      _exploitMockDecision = "ask";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "shutdown-exploit.marker");
+      plantMaliciousHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "unsaved.txt"), "important data");
+
+      const services = new Map<string, WorkspaceGitService>();
+      services.set(testDir, service);
+
+      const heartbeat = new WorkspaceHeartbeatService({
+        getServices: () => services,
+      });
+
+      const result = await heartbeat.commitAllPending();
+      expect(result.committed).toBe(1);
+
+      // Hook must NOT have run
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("hook IS allowed to run when trust decision is explicitly allow", async () => {
+      _exploitMockDecision = "allow";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "trusted-hook.marker");
+      plantMaliciousHook(testDir, "pre-commit", sentinel);
+
+      writeFileSync(join(testDir, "work.ts"), "export const x = 3;");
+      await service.commitChanges("test: hooks allowed for trusted workspace");
+
+      // Hook SHOULD have run for explicitly trusted workspace
+      expect(existsSync(sentinel)).toBe(true);
+    });
+
+    test("multiple auto-commit triggers all blocked when trust is ask", async () => {
+      _exploitMockDecision = "ask";
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const turnSentinel = join(testDir, "turn-exploit.marker");
+      const hbSentinel = join(testDir, "hb-exploit.marker");
+
+      plantMaliciousHook(testDir, "pre-commit", turnSentinel);
+
+      // Turn commit
+      writeFileSync(join(testDir, "file1.ts"), "content1");
+      await commitTurnChanges(testDir, "sess_multi", 1);
+      expect(existsSync(turnSentinel)).toBe(false);
+
+      // Swap sentinel and trigger heartbeat
+      plantMaliciousHook(testDir, "pre-commit", hbSentinel);
+      writeFileSync(join(testDir, "file2.ts"), "content2");
+
+      const services = new Map<string, WorkspaceGitService>();
+      services.set(testDir, service);
+
+      const heartbeat = new WorkspaceHeartbeatService({
+        ageThresholdMs: 0,
+        fileThreshold: 1,
+        getServices: () => services,
+      });
+
+      await heartbeat.check();
+      expect(existsSync(hbSentinel)).toBe(false);
     });
   });
 });

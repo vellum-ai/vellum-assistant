@@ -4,19 +4,64 @@
  *
  * This test wires together WorkspaceGitService, commitTurnChanges, and WorkspaceHeartbeatService
  * in the same flow a real daemon session would follow.
+ *
+ * Also contains hook-trust lifecycle tests that verify hooks stay suppressed through
+ * the full workspace lifecycle until an explicit trust decision is made.
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+// ─── Bun mock.module calls must appear before all other imports ───────────────
+
 import {
   afterAll,
   afterEach,
   beforeEach,
   describe,
   expect,
+  mock,
   test,
 } from "bun:test";
+
+// Default: fail-closed ("ask"). Hook trust tests switch to "allow".
+let _lifecycleMockDecision: "allow" | "deny" | "ask" = "ask";
+
+mock.module("../workspace/git-hooks-trust.js", () => ({
+  getGitHooksTrustDecision: (_workspaceDir: string) => _lifecycleMockDecision,
+  setGitHooksTrustDecision: () => {},
+  detectConfiguredHooks: async () => ({
+    hookFiles: [],
+    hooksDir: "",
+    hasHooks: false,
+  }),
+  GIT_HOOKS_TRUST_PSEUDO_TOOL: "__internal:git-hooks-trust",
+}));
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    child: () => ({
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+    }),
+  }),
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
+// ─── Module imports (after mocks) ────────────────────────────────────────────
+
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   _resetEnrichmentService,
@@ -335,5 +380,90 @@ describe("Workspace git lifecycle (integration)", () => {
 
     expect(fromTurnCommitPath).toBe(fromHeartbeatPath);
     expect(fromHeartbeatPath).toBe(fromDirectCall);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Hook trust lifecycle — fail-closed through the full session lifecycle
+  // ─────────────────────────────────────────────────────────────────────────
+
+  test("hooks remain suppressed throughout full lifecycle when trust is ask (default)", async () => {
+    // Ensure default fail-closed behavior
+    _lifecycleMockDecision = "ask";
+
+    const sessionId = "sess_hook_trust_lifecycle";
+
+    // Plant a hook that writes a sentinel if it executes
+    const sentinel = join(testDir, "hook-lifecycle.marker");
+    const hooksDir = join(testDir, ".git", "hooks");
+
+    const service = getWorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    // .git/hooks exists only after init
+    mkdirSync(hooksDir, { recursive: true });
+    writeFileSync(
+      join(hooksDir, "pre-commit"),
+      `#!/bin/sh\ntouch "${sentinel}"\nexit 0\n`,
+      { mode: 0o755 },
+    );
+
+    // Turn 1 commit
+    writeFileSync(join(testDir, "turn1.ts"), "content");
+    await commitTurnChanges(testDir, sessionId, 1);
+    expect(existsSync(sentinel)).toBe(false);
+
+    // Turn 2 commit
+    writeFileSync(join(testDir, "turn2.ts"), "more content");
+    await commitTurnChanges(testDir, sessionId, 2);
+    expect(existsSync(sentinel)).toBe(false);
+
+    // Heartbeat commit
+    writeFileSync(join(testDir, "background.txt"), "bg work");
+
+    const services = new Map<string, WorkspaceGitService>();
+    services.set(testDir, service);
+
+    const heartbeat = new WorkspaceHeartbeatService({
+      ageThresholdMs: 0,
+      fileThreshold: 1,
+      getServices: () => services,
+    });
+
+    const hbResult = await heartbeat.check();
+    expect(hbResult.committed).toBe(1);
+    expect(existsSync(sentinel)).toBe(false);
+
+    // Shutdown commit
+    writeFileSync(join(testDir, "final.txt"), "final write");
+    const shutdownResult = await heartbeat.commitAllPending();
+    expect(shutdownResult.committed).toBe(1);
+    expect(existsSync(sentinel)).toBe(false);
+
+    // All commits were created without the hook running
+    expect(commitCount(testDir)).toBeGreaterThanOrEqual(4); // init + 2 turns + heartbeat + shutdown
+  });
+
+  test("hooks run for every commit once workspace is explicitly trusted", async () => {
+    // Simulate the user granting trust
+    _lifecycleMockDecision = "allow";
+
+    const sentinel = join(testDir, "trusted-lifecycle.marker");
+    const hooksDir = join(testDir, ".git", "hooks");
+
+    const service = getWorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    mkdirSync(hooksDir, { recursive: true });
+    writeFileSync(
+      join(hooksDir, "pre-commit"),
+      `#!/bin/sh\ntouch "${sentinel}"\nexit 0\n`,
+      { mode: 0o755 },
+    );
+
+    writeFileSync(join(testDir, "trusted.ts"), "export const y = 1;");
+    await service.commitChanges("test: trust lifecycle allow");
+
+    // Hook should have run for the trusted workspace
+    expect(existsSync(sentinel)).toBe(true);
   });
 });
