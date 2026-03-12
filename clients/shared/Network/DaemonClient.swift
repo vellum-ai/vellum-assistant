@@ -1348,8 +1348,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Subagent Management
 
     /// Abort a running subagent.
-    public func sendSubagentAbort(subagentId: String) throws {
-        try send(SubagentAbortMessage(subagentId: subagentId))
+    public func sendSubagentAbort(subagentId: String, sessionId: String? = nil) throws {
+        try send(SubagentAbortMessage(subagentId: subagentId, sessionId: sessionId))
     }
 
     /// Request subagent detail events (lazy-loaded when the user opens the detail panel).

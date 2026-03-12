@@ -4188,11 +4188,13 @@ public struct SubagentMessageRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let content: String
+    public let sessionId: String?
 
-    public init(type: String, subagentId: String, content: String) {
+    public init(type: String, subagentId: String, content: String, sessionId: String? = nil) {
         self.type = type
         self.subagentId = subagentId
         self.content = content
+        self.sessionId = sessionId
     }
 }
 

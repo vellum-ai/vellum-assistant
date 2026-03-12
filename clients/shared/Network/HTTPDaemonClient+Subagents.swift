@@ -15,10 +15,10 @@ extension HTTPTransport {
                 Task { await self.fetchSubagentDetail(subagentId: msg.subagentId, conversationId: msg.conversationId) }
                 return true
             } else if let msg = message as? SubagentAbortMessage {
-                Task { await self.handleSubagentAbort(subagentId: msg.subagentId) }
+                Task { await self.handleSubagentAbort(subagentId: msg.subagentId, sessionId: msg.sessionId) }
                 return true
             } else if let msg = message as? SubagentMessageRequest {
-                Task { await self.handleSubagentMessage(subagentId: msg.subagentId, content: msg.content) }
+                Task { await self.handleSubagentMessage(subagentId: msg.subagentId, content: msg.content, sessionId: msg.sessionId) }
                 return true
             }
 
@@ -62,7 +62,7 @@ extension HTTPTransport {
         }
     }
 
-    private func handleSubagentAbort(subagentId: String, isRetry: Bool = false) async {
+    private func handleSubagentAbort(subagentId: String, sessionId: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .subagentAbort(id: subagentId)) else { return }
 
         var request = URLRequest(url: url)
@@ -72,7 +72,7 @@ extension HTTPTransport {
 
         // The abort endpoint requires a sessionId in the body
         var body: [String: Any] = [:]
-        if let sessionId = pendingLocalSessionId {
+        if let sessionId = sessionId {
             body["sessionId"] = sessionId
         }
 
@@ -83,7 +83,7 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await handleSubagentAbort(subagentId: subagentId, isRetry: true) }
+                    if case .success = result { await handleSubagentAbort(subagentId: subagentId, sessionId: sessionId, isRetry: true) }
                     return
                 }
                 guard (200..<300).contains(http.statusCode) else {
@@ -98,7 +98,7 @@ extension HTTPTransport {
         }
     }
 
-    private func handleSubagentMessage(subagentId: String, content: String, isRetry: Bool = false) async {
+    private func handleSubagentMessage(subagentId: String, content: String, sessionId: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .subagentMessage(id: subagentId)) else { return }
 
         var request = URLRequest(url: url)
@@ -107,7 +107,7 @@ extension HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = ["content": content]
-        if let sessionId = pendingLocalSessionId {
+        if let sessionId = sessionId {
             body["sessionId"] = sessionId
         }
 
@@ -118,7 +118,7 @@ extension HTTPTransport {
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
                     let result = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = result { await handleSubagentMessage(subagentId: subagentId, content: content, isRetry: true) }
+                    if case .success = result { await handleSubagentMessage(subagentId: subagentId, content: content, sessionId: sessionId, isRetry: true) }
                     return
                 }
                 guard (200..<300).contains(http.statusCode) else {
