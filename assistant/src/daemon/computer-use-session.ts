@@ -20,7 +20,7 @@ import type {
   Provider,
   ToolDefinition,
 } from "../providers/types.js";
-import { allComputerUseTools } from "../tools/computer-use/definitions.js";
+import { legacyFallbackComputerUseTools } from "../tools/computer-use/definitions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getTool, registerSkillTools } from "../tools/registry.js";
 import {
@@ -356,7 +356,7 @@ export class ComputerUseSession {
       // core-vs-skill collisions that would permanently block skill
       // projection recovery on subsequent sessions.
       const fallbackSkillId = this.preactivatedSkillIds[0] ?? "computer-use";
-      const fallbackTools: Tool[] = allComputerUseTools.map((t) => ({
+      const fallbackTools: Tool[] = legacyFallbackComputerUseTools.map((t) => ({
         ...t,
         origin: "skill" as const,
         ownerSkillId: fallbackSkillId,
@@ -365,7 +365,7 @@ export class ComputerUseSession {
       registerSkillTools(fallbackTools);
       // Track in the session map so resetSkillToolProjection cleans up
       this.skillProjectionState.set(fallbackSkillId, "fallback");
-      cuToolDefs = allComputerUseTools.map((t) => t.getDefinition());
+      cuToolDefs = legacyFallbackComputerUseTools.map((t) => t.getDefinition());
     }
 
     const toolDefs: ToolDefinition[] = [
