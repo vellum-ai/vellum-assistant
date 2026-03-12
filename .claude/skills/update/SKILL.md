@@ -69,16 +69,14 @@ The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-
 
 8. Build the macOS app (foreground, so compilation errors are caught immediately):
    ```bash
-   REPO_ROOT="$(pwd)"
-   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh
+   cd clients/macos && ./build.sh
    ```
 
    If the build fails, stop and report the error. Do not proceed to launch.
 
    Then launch with file-watching in the background (the build is cached, so this just launches + watches):
    ```bash
-   REPO_ROOT="$(pwd)"
-   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
+   cd clients/macos && ./build.sh run &
    ```
 
 9. Verify fresh state — run `vellum ps` to confirm processes are running:

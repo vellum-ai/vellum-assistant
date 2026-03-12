@@ -31,7 +31,7 @@ import type {
 } from "../../provider-types.js";
 import * as telegram from "./client.js";
 
-/** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
+/** Resolve the gateway base URL. */
 function getGatewayUrl(): string {
   return getGatewayInternalBaseUrl();
 }

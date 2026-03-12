@@ -51,17 +51,10 @@ public enum LockfilePaths {
     /// Resolve the full gateway URL for the given (or latest) assistant.
     ///
     /// Resolution order:
-    /// 1. `GATEWAY_INTERNAL_BASE_URL` env var
-    /// 2. `runtimeUrl` from the lockfile entry for `connectedAssistantId`
+    /// 1. `runtimeUrl` from the lockfile entry for `connectedAssistantId`
     ///    (falls back to the most-recently-hatched entry)
-    /// 3. `http://127.0.0.1:{resolveGatewayPort()}`
+    /// 2. `http://127.0.0.1:{resolveGatewayPort()}`
     public static func resolveGatewayUrl(connectedAssistantId: String? = nil) -> String {
-        if let envUrl = ProcessInfo.processInfo.environment["GATEWAY_INTERNAL_BASE_URL"],
-           !envUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return envUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        }
-
         if let json = read(),
            let assistants = json["assistants"] as? [[String: Any]] {
             let assistant: [String: Any]?
