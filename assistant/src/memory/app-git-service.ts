@@ -297,7 +297,7 @@ export async function restoreAppVersion(
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
-  await gitService.runWithMutex(async (exec) => {
+  await gitService.runWithMutex(async (exec, execCommit) => {
     // Checkout the app's files at the target commit.
     // --no-overlay removes files that don't exist at the target commit.
     await exec([
@@ -327,10 +327,10 @@ export async function restoreAppVersion(
 
     const shortHash = commitHash.substring(0, 7);
 
-    // Stage only this app's files and commit atomically within the same mutex lock
+    // Stage only this app's files and commit atomically within the same mutex lock.
+    // Use execCommit (not exec) so the hook suppression policy is enforced.
     await exec(["add", "--", `${appId}.json`, `${appId}/`]);
-    await exec([
-      "commit",
+    await execCommit([
       "-m",
       `Restore app: ${appName} to ${shortHash}`,
       "--allow-empty",

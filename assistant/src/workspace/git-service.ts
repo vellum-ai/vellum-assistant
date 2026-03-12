@@ -904,15 +904,28 @@ export class WorkspaceGitService {
    * Run a sequence of git commands atomically under the workspace mutex.
    * Use this for write operations that need serialization with other
    * git mutations (e.g. checkout + commit).
+   *
+   * The callback receives two helpers:
+   * - `exec`       — runs any git command (non-commit operations).
+   * - `execCommit` — runs `git commit` through `execGitCommit`, which
+   *                  enforces the hook suppression policy. Always use
+   *                  `execCommit` instead of `exec(["commit", ...])` to
+   *                  ensure the trust-based hook policy is applied.
    */
   async runWithMutex(
     fn: (
       exec: (args: string[]) => Promise<{ stdout: string; stderr: string }>,
+      execCommit: (
+        commitArgs: string[],
+      ) => Promise<{ stdout: string; stderr: string }>,
     ) => Promise<void>,
   ): Promise<void> {
     await this.ensureInitialized();
     await this.mutex.withLock(async () => {
-      await fn((args) => this.execGit(args));
+      await fn(
+        (args) => this.execGit(args),
+        (commitArgs) => this.execGitCommit(commitArgs),
+      );
     });
   }
 
