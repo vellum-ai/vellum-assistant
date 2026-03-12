@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
+import { getRuntimeHttpPort } from "../config/env.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { getHttpBaseUrl } from "./http-client.js";
 
 const LEFT_PANEL_WIDTH = 36;
 const RIGHT_LINE_COUNT = 11;
@@ -14,7 +14,7 @@ export interface MainScreenLayout {
 }
 
 export function renderMainScreen(): MainScreenLayout {
-  const httpUrl = getHttpBaseUrl();
+  const httpUrl = `http://127.0.0.1:${getRuntimeHttpPort()}`;
   const workspace = getWorkspaceDir();
   const assistantId = workspace.split("/").pop() ?? "vellum";
 
