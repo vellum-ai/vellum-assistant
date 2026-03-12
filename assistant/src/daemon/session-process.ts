@@ -284,6 +284,7 @@ export async function drainQueue(
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface === "macos" || sourceInterface === "ios") {
       session.restoreProxyAvailability();
+      session.addPreactivatedSkillId("computer-use");
     }
   }
 
