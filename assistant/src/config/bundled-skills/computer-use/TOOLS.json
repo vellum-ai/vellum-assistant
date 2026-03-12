@@ -253,7 +253,7 @@
     },
     {
       "name": "computer_use_run_applescript",
-      "description": "Execute an AppleScript to control applications via Apple's scripting bridge. Use this for operations that are more reliable through scripting than UI interaction: setting a browser URL directly, navigating Finder to a path, querying app state (tab count, window titles, document status), or clicking deeply nested menu items. The script's return value (if any) will be reported back. NEVER use \"do shell script\" \u2014 it is blocked for security. Keep scripts short and targeted to a single operation.",
+      "description": "Run an AppleScript command. Prefer this over click/type when possible \u2014 it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
