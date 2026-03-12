@@ -62,6 +62,8 @@ export function getIsContainerized(): boolean {
  */
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_DAEMON_AUTOSTART",
+  "VELLUM_DAEMON_NOAUTH",
+  "VELLUM_DATA_DIR",
   "VELLUM_HOOK_EVENT",
   "VELLUM_HOOK_NAME",
   "VELLUM_HOOK_SETTINGS",
