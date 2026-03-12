@@ -29,11 +29,11 @@ Determine which path applies before taking action:
 
 # Path A: Collaborative Browser Setup (macOS Desktop App)
 
-You open pages via the `open` command (launches in the user's default browser — no Chrome dependency). The user does the clicking and form-filling. You tell them exactly what to look for and click at each step.
+You open pages in the user's default browser using the `/tmp/vellum-nav.sh` helper (see "Opening URLs" below). The user does the clicking and form-filling. You tell them exactly what to look for and click at each step.
 
 ## Path A Rules
 
-1. **Navigation is your job.** Use `host_bash` with `open "URL"` to open every URL. The user should never have to type a URL.
+1. **Navigation is your job.** Open every URL for the user — they should never have to type a URL. Use the browser-aware navigation pattern described in **Opening URLs** below.
 2. **Screenshots are a tool, not a routine.** Don't screenshot after every step. Give clear landmark-based instructions and let the user tell you how it's going. If the user reports something doesn't match or they're stuck, offer to take a screenshot: "Want me to take a look? I can screenshot your screen to see what you're seeing." Then adapt based on what you see.
 3. **Never auto-advance.** Wait for user confirmation ("done", "ok", "next", etc.) before proceeding to the next step.
 4. **Use landmarks, not coordinates.** Don't say "click the third item in the left sidebar." Say "Look for **APIs & Services** — it might be in the left sidebar, or you might need to click the hamburger menu first."
@@ -45,20 +45,50 @@ You open pages via the `open` command (launches in the user's default browser �
 
 ## Opening URLs
 
-All URL navigation uses this pattern:
+### Setup: create the navigation helper (do this once at the start of the flow)
+
+Before opening any URLs, create the helper script:
 
 ```
 host_bash:
-  command: open "TARGET_URL"
+  command: |
+    cat > /tmp/vellum-nav.sh << 'NAVSCRIPT'
+    #!/bin/bash
+    URL="$1"
+    BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h.get('LSHandlerRoleAll','')) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
+    case "$BROWSER" in
+      com.google.chrome)
+        osascript -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+      com.apple.safari)
+        osascript -e "tell application \"Safari\" to set URL of current tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+      company.thebrowser.Browser)
+        osascript -e "tell application \"Arc\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+      com.brave.Browser)
+        osascript -e "tell application \"Brave Browser\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+      *)
+        open "$URL" ;;
+    esac
+    NAVSCRIPT
+    chmod +x /tmp/vellum-nav.sh
+    echo "Navigation helper ready."
 ```
 
-Replace `TARGET_URL` with the actual URL for each step. The `open` command launches the URL in whatever the user's default browser is.
+### Navigating to a URL
+
+For every URL in the flow, use:
+
+```
+host_bash:
+  command: /tmp/vellum-nav.sh "TARGET_URL"
+```
+
+Replace `TARGET_URL` with the actual URL. The helper detects the default browser and navigates in the existing tab. On the first call (no browser window yet), it falls back to opening a new tab.
 
 ## Step Pattern
 
 Every step follows this rhythm:
 
-1. **Open the URL** via `open "https://..."`
+1. **Open the URL** using the browser-aware pattern above
 2. **Give a landmark-based instruction** — tell the user what to look for, not pixel-precise coordinates
 3. **User acts** and confirms
 4. **If the user reports a mismatch or is stuck** — offer to screenshot to see what they're seeing, then adapt
@@ -68,7 +98,9 @@ Every step follows this rhythm:
 
 ## Pre-Flow
 
-Before beginning, tell the user:
+**First**, create the navigation helper script (see "Opening URLs" above). Do this silently before saying anything to the user.
+
+Then tell the user:
 
 > We're going to set up Google OAuth together — 9 steps, about 3–5 minutes. I'll open each page in your browser and tell you exactly what to do. You can pause anytime and pick up where you left off.
 >
@@ -166,9 +198,12 @@ Wait for confirmation.
 
 ## Step 5: Configure OAuth Consent Screen
 
-This is the most variable step. Google has been actively redesigning this flow. Look for landmarks rather than assuming exact layout.
+This is the most variable step. Google has two different flows depending on whether the consent screen has been configured before:
 
-### Google Auth Platform Sidebar Reference
+- **New projects** → Google redirects to a **wizard** at `/auth/overview/create` with steps: App Information → Audience → Contact Information → Finish
+- **Previously configured projects** → Google shows separate pages: Branding, Audience, Data Access, etc.
+
+### Google Auth Platform Sidebar Reference (for previously configured projects)
 
 | Sidebar Item    | What It Contains                                             | URL Path         |
 | --------------- | ------------------------------------------------------------ | ---------------- |
@@ -178,13 +213,48 @@ This is the most variable step. Google has been actively redesigning this flow. 
 | **Data Access** | Scopes ("Add or Remove Scopes")                              | `/auth/scopes`   |
 | **Clients**     | OAuth client credentials                                     | `/auth/clients`  |
 
-### Step 5a: Branding / Initial setup
+### Step 5a: Open the consent screen
 
 Open: `https://console.cloud.google.com/auth/branding?project=PROJECT_ID`.
 
-The Branding page has App name, User support email, Developer contact email, and optionally logo/links. It does **not** have a User Type selector — that's on the Audience page (Step 5b).
+This may land on one of two pages:
 
-If the consent screen is already configured (app name and emails already filled in), recognize this and skip ahead.
+#### Case 1: Wizard flow (new/unconfigured projects)
+
+If the user lands on a page with numbered steps (App Information → Audience → Contact Information → Finish), or the URL shows `/auth/overview/create`, guide them through the wizard:
+
+> It looks like Google is showing the setup wizard. Let's walk through it:
+>
+> **Step 1 — App Information:**
+>
+> - **App name:** `Vellum Assistant`
+> - Leave everything else as-is
+>
+> **Step 2 — Audience:**
+>
+> - Select **External** — this lets any Google account authorize (it starts in testing mode, so only test users you add can access it)
+>
+> **Step 3 — Contact Information:**
+>
+> - Enter your email address
+>
+> Then click **Create** at the bottom.
+
+Wait for confirmation. After the wizard completes, the user will be on the separate-page layout. **Skip Step 5b** (the wizard already set user type), and go directly to adding test users and scopes.
+
+Open the Audience page to add test users:
+
+Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`.
+
+> Great, the consent screen is configured! One more thing — scroll down to the **Test users** section, click **+ Add users**, enter your email address, and click **Save**.
+
+Wait for confirmation, then proceed to Step 5c.
+
+#### Case 2: Branding page (already configured projects)
+
+If the user sees a Branding page with fields for App name, User support email, Developer contact email — they've been here before or the consent screen is already set up.
+
+If already configured (app name and emails already filled in), skip ahead to Step 5b.
 
 If it needs setup:
 
@@ -195,9 +265,9 @@ If it needs setup:
 > 3. **Developer contact email:** enter your email
 > 4. Click **Save**
 
-Wait for confirmation. If already configured, skip directly to Step 5b.
+Wait for confirmation, then continue to Step 5b.
 
-### Step 5b: Audience and test users
+### Step 5b: Audience and test users (skip if wizard was used)
 
 Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`.
 
@@ -215,10 +285,13 @@ Copy the required scopes to the clipboard, then open the Data Access page:
 ```
 host_bash:
   command: |
-    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy && open "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
+    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy && /tmp/vellum-nav.sh "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
 ```
 
-> Now I've opened the **Data Access** page and copied the required scopes to your clipboard. Click **Add or Remove Scopes**, find the **"Manually add scopes"** text box at the bottom, **paste** (Cmd+V), then click **Add to Table** (or **Update**), and **Save**.
+> Now I've opened the **Data Access** page and copied the required scopes to your clipboard. There are two stages here:
+>
+> 1. Click **Add or Remove Scopes** — a panel will open. Scroll down to the **"Manually add scopes"** text box, **paste** (Cmd+V), then click **Update** at the bottom of the panel.
+> 2. Back on the main page, scroll down and click **Save**.
 >
 > When done, you should see them listed on the page:
 >
@@ -364,8 +437,8 @@ When the user reports something doesn't look right, offer to take a screenshot t
 
 ## Guardrails
 
-- **No browser automation tools.** Path A uses `host_bash` + `open` for navigation. No `browser_*`, no CDP, no `computer_use_*` for navigation.
-- **Browser-agnostic.** Use `open` to launch URLs in the default browser. Do not use AppleScript to target any specific browser. Use `pbcopy` for clipboard operations.
+- **No browser automation tools.** Path A uses `host_bash` + `/tmp/vellum-nav.sh` for navigation. No `browser_*`, no CDP, no `computer_use_*` for navigation.
+- **Browser-aware tab reuse.** Every URL navigation uses the self-contained detect-and-navigate snippet from the "Opening URLs" section. The assistant does not need to remember the browser — the snippet detects it each time. Falls back to `open` for unknown browsers or when no window exists. Use `pbcopy` for clipboard operations.
 - **Do not delete and recreate OAuth clients.** That orphans stored credentials.
 - **Do not leave the credential dialog early.** The Client Secret is shown only once.
 - **Google Cloud UI drift is normal.** Adapt instructions while preserving the same end state.
