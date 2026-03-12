@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { OAuthConnectionRow } from "../oauth/oauth-store.js";
 import { credentialKey } from "../security/credential-key.js";
 
 const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
+
+/** Simulated active OAuth connections keyed by provider. */
+const oauthConnections = new Map<string, OAuthConnectionRow>();
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
@@ -17,12 +21,36 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+mock.module("../oauth/oauth-store.js", () => ({
+  getConnectionByProvider: (providerKey: string) =>
+    oauthConnections.get(providerKey),
+}));
+
+/** Helper to insert a fake active connection for a provider. */
+function setOAuthConnected(providerKey: string): void {
+  oauthConnections.set(providerKey, {
+    id: "fake-id",
+    oauthAppId: "fake-app",
+    providerKey,
+    accountInfo: null,
+    grantedScopes: "[]",
+    expiresAt: null,
+    hasRefreshToken: 0,
+    status: "active",
+    label: null,
+    metadata: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
 const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
   await import("../schedule/integration-status.js");
 
 describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
+    oauthConnections.clear();
     mockTwilioAccountSid = undefined;
   });
 
@@ -38,14 +66,8 @@ describe("integration-status", () => {
     });
 
     test("returns all connected when all keys are set", () => {
-      secureKeyValues.set(
-        credentialKey("integration:gmail", "access_token"),
-        "tok",
-      );
-      secureKeyValues.set(
-        credentialKey("integration:slack", "access_token"),
-        "tok",
-      );
+      setOAuthConnected("integration:gmail");
+      setOAuthConnected("integration:slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
@@ -130,14 +152,8 @@ describe("integration-status", () => {
     });
 
     test("all connected", () => {
-      secureKeyValues.set(
-        credentialKey("integration:gmail", "access_token"),
-        "tok",
-      );
-      secureKeyValues.set(
-        credentialKey("integration:slack", "access_token"),
-        "tok",
-      );
+      setOAuthConnected("integration:gmail");
+      setOAuthConnected("integration:slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       secureKeyValues.set(credentialKey("telegram", "bot_token"), "tok");
@@ -179,10 +195,7 @@ describe("integration-status", () => {
     });
 
     test("email category checks Gmail", () => {
-      secureKeyValues.set(
-        credentialKey("integration:gmail", "access_token"),
-        "tok",
-      );
+      setOAuthConnected("integration:gmail");
       expect(hasCapability("email")).toBe(true);
     });
   });

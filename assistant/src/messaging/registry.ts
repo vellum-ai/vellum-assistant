@@ -2,8 +2,7 @@
  * Messaging provider registry — register/lookup providers by platform ID.
  */
 
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey } from "../security/secure-keys.js";
+import { getConnectionByProvider } from "../oauth/oauth-store.js";
 import type { MessagingProvider } from "./provider.js";
 
 const providers = new Map<string, MessagingProvider>();
@@ -27,10 +26,7 @@ export function getMessagingProvider(id: string): MessagingProvider {
 export function getConnectedProviders(): MessagingProvider[] {
   return Array.from(providers.values()).filter((p) => {
     if (p.isConnected) return p.isConnected();
-    const token = getSecureKey(
-      credentialKey(p.credentialService, "access_token"),
-    );
-    return token !== undefined;
+    return getConnectionByProvider(p.credentialService)?.status === "active";
   });
 }
 
