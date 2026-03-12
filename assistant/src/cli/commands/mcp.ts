@@ -424,8 +424,8 @@ OAuth flow. If the server already has valid cached tokens, the command succeeds
 immediately without opening a browser. Tokens are cached locally for future use
 by the assistant.
 
-After successful authentication, run 'vellum mcp reload' to apply changes
-without restarting the assistant.
+After successful authentication, the running assistant detects the change
+automatically. You can also run 'vellum mcp reload' to apply immediately.
 
 Examples:
   $ assistant mcp auth my-server
@@ -583,7 +583,10 @@ Examples:
       provider.stopCallbackServer();
 
       log.info(`Authentication successful for "${name}".`);
-      log.info("Run 'vellum mcp reload' to apply changes.");
+      log.info(
+        "The running assistant will pick up this change automatically. " +
+          "Or run 'vellum mcp reload' to apply now.",
+      );
       signalMcpReload();
       process.exit(0);
     });
