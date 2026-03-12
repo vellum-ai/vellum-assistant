@@ -559,4 +559,36 @@ describe("assistant oauth providers list", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toHaveLength(0);
   });
+
+  test("trims whitespace around commas in --provider-key", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--provider-key",
+      "gmail, google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(2);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google-calendar");
+  });
+
+  test("ignores empty segments from extra commas in --provider-key", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--provider-key",
+      "gmail,,google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(2);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("integration:gmail");
+    expect(keys).toContain("integration:google-calendar");
+  });
 });
