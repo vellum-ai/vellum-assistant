@@ -665,7 +665,7 @@ describe("HostCuProxy", () => {
   // -------------------------------------------------------------------------
 
   describe("dispose", () => {
-    test("rejects all pending requests", () => {
+    test("rejects all pending requests", async () => {
       setup();
 
       const resultPromise = proxy.request(
