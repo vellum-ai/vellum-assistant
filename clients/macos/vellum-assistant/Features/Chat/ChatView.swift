@@ -330,7 +330,19 @@ struct ChatView: View {
             currentMatchIndex = 0
             scrollToCurrentMatch()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { _ in
+        .onChange(of: messages.count) {
+            // Clamp currentMatchIndex when messages change (e.g. streaming, deletion)
+            // to avoid "4 of 2" display or broken navigation.
+            let count = searchMatches.count
+            if currentMatchIndex >= count {
+                currentMatchIndex = max(count - 1, 0)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
+            // Scope to the active thread so only the visible ChatView activates.
+            if let targetId = notification.object as? UUID, targetId != threadId {
+                return
+            }
             activateSearch()
         }
     }

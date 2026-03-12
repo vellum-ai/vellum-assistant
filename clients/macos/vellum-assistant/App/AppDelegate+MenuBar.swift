@@ -399,7 +399,7 @@ extension AppDelegate {
     }
 
     @objc func activateChatSearch() {
-        NotificationCenter.default.post(name: .activateChatSearch, object: nil)
+        NotificationCenter.default.post(name: .activateChatSearch, object: mainWindow?.threadManager.activeThreadId)
     }
 
     @objc func openAppCollection() {

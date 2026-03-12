@@ -67,3 +67,34 @@ struct ChatSearchBar: View {
         }
     }
 }
+
+// MARK: - Preview
+
+#if DEBUG
+struct ChatSearchBar_Preview: PreviewProvider {
+    static var previews: some View {
+        ChatSearchBarPreviewWrapper()
+            .frame(width: 400)
+            .previewDisplayName("ChatSearchBar")
+    }
+}
+
+private struct ChatSearchBarPreviewWrapper: View {
+    @State private var text = "hello"
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            ChatSearchBar(
+                searchText: $text,
+                matchCount: 5,
+                currentMatchIndex: 2,
+                onPrevious: {},
+                onNext: {},
+                onDismiss: {}
+            )
+            .padding()
+        }
+    }
+}
+#endif
