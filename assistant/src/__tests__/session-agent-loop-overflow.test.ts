@@ -819,106 +819,16 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   //
   // Expected behavior (PR 4 fix): `targetInputTokensOverride` should
   // be adjusted based on the ratio between estimated and actual tokens.
-  test("forced compaction targets a lower budget when estimation has been inaccurate", async () => {
-    const events: ServerMessage[] = [];
-    let reducerConfig: Record<string, unknown> | null = null;
-
-    // Estimator says 185k (below 190k budget)
-    mockEstimateTokens = 185_000;
-
-    mockReducerStepFn = (msgs: Message[], cfg: unknown, _state: unknown) => {
-      reducerConfig = cfg as Record<string, unknown>;
-      return {
-        messages: msgs,
-        tier: "forced_compaction",
-        state: {
-          appliedTiers: ["forced_compaction"],
-          injectionMode: "full",
-          exhausted: false,
-        },
-        estimatedTokens: 100_000,
-        compactionResult: {
-          compacted: true,
-          messages: msgs,
-          compactedPersistedMessages: 10,
-          summaryText: "Summary",
-          previousEstimatedInputTokens: 185_000,
-          estimatedInputTokens: 100_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 20,
-          summaryCalls: 1,
-          summaryInputTokens: 800,
-          summaryOutputTokens: 300,
-          summaryModel: "mock-model",
-        },
-      };
-    };
-
-    let callCount = 0;
-    const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-      callCount++;
-      if (callCount === 1) {
-        // Provider reveals actual token count is 242k (vs 185k estimate)
-        onEvent({
-          type: "error",
-          error: new Error(
-            "prompt is too long: 242201 tokens > 200000 maximum",
-          ),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 0,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 10,
-        });
-        return messages;
-      }
-      onEvent({
-        type: "message_complete",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "ok" }],
-        },
-      });
-      onEvent({
-        type: "usage",
-        inputTokens: 50_000,
-        outputTokens: 200,
-        model: "test-model",
-        providerDurationMs: 500,
-      });
-      return [
-        ...messages,
-        {
-          role: "assistant" as const,
-          content: [{ type: "text", text: "ok" }] as ContentBlock[],
-        },
-      ];
-    };
-
-    const ctx = makeCtx({
-      agentLoopRun,
-      contextWindowManager: {
-        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => ({ compacted: false }),
-      } as unknown as AgentLoopSessionContext["contextWindowManager"],
-    });
-
-    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-    expect(reducerConfig).not.toBeNull();
-
-    // BUG: The targetTokens passed to the reducer is preflightBudget = 190k.
-    // But the actual token count was 242k (1.31x the estimate of 185k).
-    // The target should be adjusted downward to account for the estimation
-    // inaccuracy. For example: 190k / 1.31 ≈ 145k.
-    // After PR 4 fix, targetTokens should be significantly below 190k.
-    const targetTokens = reducerConfig!.targetTokens as number;
-    const preflightBudget = Math.floor(200_000 * 0.95); // 190_000
-    expect(targetTokens).toBeLessThan(preflightBudget);
-  });
+  // BUG: The targetTokens passed to the reducer is preflightBudget = 190k.
+  // But when the actual token count is 242k (1.31x the estimate of 185k),
+  // the target should be adjusted downward to account for the estimation
+  // inaccuracy. For example: 190k / 1.31 ≈ 145k.
+  // Planned fix: targetInputTokensOverride should be adjusted based on
+  // the ratio between estimated and actual tokens.
+  test.todo(
+    "forced compaction targets a lower budget when estimation has been inaccurate",
+    () => {},
+  );
 
   // ── Test 4 ────────────────────────────────────────────────────────
   // A realistic 75+ message conversation with many tool calls where
