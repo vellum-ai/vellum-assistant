@@ -1869,17 +1869,17 @@ extension ChatViewModel {
                let state = decision {
                 stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId, targetMessageId: precedingAssistantId)
             }
-            // Clear pendingConfirmation even for states that don't stamp a decision
-            // (e.g. resolved_stale) so the confirmation UI doesn't remain visible.
-            if decision == nil {
-                for i in messages.indices.reversed() {
-                    guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
-                    if let tcIdx = messages[i].toolCalls.firstIndex(where: {
-                        $0.pendingConfirmation?.requestId == msg.requestId
-                    }) {
-                        messages[i].toolCalls[tcIdx].pendingConfirmation = nil
-                        break
-                    }
+            // Always clear pendingConfirmation so the inline confirmation UI
+            // doesn't remain visible after the request is resolved — covers
+            // resolved_stale, timed_out, and cases where stampConfirmationOnToolCall
+            // failed to find a matching tool call.
+            for i in messages.indices.reversed() {
+                guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+                if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                    $0.pendingConfirmation?.requestId == msg.requestId
+                }) {
+                    messages[i].toolCalls[tcIdx].pendingConfirmation = nil
+                    break
                 }
             }
 
