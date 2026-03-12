@@ -132,10 +132,7 @@ action: "oauth2_connect"
 service: "integration:slack"
 client_id: "<the extracted Client ID>"
 client_secret: "<the extracted Client Secret>"
-auth_url: "https://slack.com/oauth/v2/authorize"
-token_url: "https://slack.com/api/oauth.v2.access"
 scopes: ["channels:read", "channels:history", "groups:read", "groups:history", "im:read", "im:history", "im:write", "mpim:read", "mpim:history", "users:read", "chat:write", "search:read", "reactions:write"]
-extra_params: {"user_scope": "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write"}
 ```
 
 This will open the Slack authorization page in the user's browser. Wait for the flow to complete.

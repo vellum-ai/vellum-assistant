@@ -101,11 +101,7 @@ action: "oauth2_connect"
 service: "integration:notion"
 client_id: "<the extracted OAuth client_id>"
 client_secret: "<the extracted OAuth client_secret>"
-auth_url: "https://api.notion.com/v1/oauth/authorize"
-token_url: "https://api.notion.com/v1/oauth/token"
 scopes: []
-extra_params: {"owner": "user"}
-token_endpoint_auth_method: "client_secret_basic"
 ```
 
 This will open the Notion authorization page in the user's browser. Wait for the flow to complete.
