@@ -1042,8 +1042,6 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Ran an AppleScript"
         case "computer_use_wait":
             return "Waited for the screen"
-        case "computer_use_request_control":
-            return "Requested computer control"
         case "computer_use_done", "computer_use_respond":
             return "Finished the task"
         case "ui_show":
