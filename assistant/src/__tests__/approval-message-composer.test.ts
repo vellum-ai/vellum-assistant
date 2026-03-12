@@ -32,6 +32,10 @@ const ALL_SCENARIOS: ApprovalMessageScenario[] = [
   "guardian_verify_status_unbound",
   "guardian_deny_no_identity",
   "guardian_deny_no_binding",
+  "requester_cancel",
+  "approval_already_resolved",
+  "guardian_text_unavailable",
+  "git_hooks_trust_prompt",
 ];
 
 describe("approval-message-composer", () => {
@@ -245,6 +249,56 @@ describe("approval-message-composer", () => {
       });
       expect(typeof msg).toBe("string");
       expect(msg.length).toBeGreaterThan(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Git hooks trust prompt — explicit trust decision copy
+  // -----------------------------------------------------------------------
+
+  describe("git_hooks_trust_prompt scenario", () => {
+    test("produces a non-empty string", () => {
+      const msg = getFallbackMessage({ scenario: "git_hooks_trust_prompt" });
+      expect(typeof msg).toBe("string");
+      expect(msg.trim().length).toBeGreaterThan(0);
+    });
+
+    test("mentions git hooks", () => {
+      const msg = getFallbackMessage({ scenario: "git_hooks_trust_prompt" });
+      expect(msg.toLowerCase()).toContain("git hooks");
+    });
+
+    test("mentions trust decision", () => {
+      const msg = getFallbackMessage({ scenario: "git_hooks_trust_prompt" });
+      expect(msg.toLowerCase()).toContain("trust");
+    });
+
+    test("explains default fail-closed behavior", () => {
+      const msg = getFallbackMessage({ scenario: "git_hooks_trust_prompt" });
+      // Should tell the user that hooks are disabled by default
+      expect(msg.toLowerCase()).toContain("disabled");
+    });
+
+    test("provides clear yes/no guidance", () => {
+      const msg = getFallbackMessage({ scenario: "git_hooks_trust_prompt" });
+      // Should instruct user how to respond
+      expect(msg.toLowerCase()).toMatch(/yes|allow|no|deny/);
+    });
+
+    test("composeApprovalMessage returns assistantPreface when provided", () => {
+      const preface = "I found git hooks in this project.";
+      const msg = composeApprovalMessage({
+        scenario: "git_hooks_trust_prompt",
+        assistantPreface: preface,
+      });
+      expect(msg).toBe(preface);
+    });
+
+    test("composeApprovalMessage falls back to deterministic template when no preface", () => {
+      const msg = composeApprovalMessage({
+        scenario: "git_hooks_trust_prompt",
+      });
+      expect(msg.toLowerCase()).toContain("git hooks");
     });
   });
 });
