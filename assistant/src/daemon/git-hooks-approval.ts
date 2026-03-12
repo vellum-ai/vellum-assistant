@@ -9,8 +9,8 @@ import { isAllowDecision } from "../permissions/types.js";
 export const GIT_HOOKS_TRUST_TOOL_NAME = "__internal:git-hooks-trust";
 
 export type GitHooksTrustApprovalResult =
-  | { approved: true }
-  | { approved: false };
+  | { approved: true; timedOut?: false }
+  | { approved: false; timedOut?: boolean };
 
 /**
  * Prompts the user to decide whether to trust the project's git hooks
@@ -44,5 +44,7 @@ export async function requestGitHooksTrustApproval(
     opts?.signal,
   );
 
-  return { approved: isAllowDecision(result.decision) };
+  const approved = isAllowDecision(result.decision);
+  const timedOut = !approved && result.decisionContext?.includes("timed out");
+  return { approved, timedOut };
 }

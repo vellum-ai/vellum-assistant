@@ -424,12 +424,12 @@ export async function runAgentLoopImpl(
             const approval = await requestGitHooksTrustApproval(ctx.prompter, {
               signal: abortController.signal,
             });
-            // If the session was aborted mid-prompt, do not persist any
-            // decision — the prompter resolves with "deny" on abort but that
-            // is an infrastructure event, not a real user choice.  Reset the
-            // guard so the user is re-prompted in the next session.
-            if (abortController.signal.aborted) {
-              ctx.gitHooksTrustPromptIssuedForWorkspace = undefined;
+            // If the session was aborted mid-prompt or the prompt timed
+            // out, do not persist any decision — these are infrastructure
+            // events, not real user choices.  Leave the session guard set so
+            // we don't re-prompt on subsequent turns; the guard resets
+            // naturally when the session ends.
+            if (abortController.signal.aborted || approval.timedOut) {
               return;
             }
             setGitHooksTrustDecision(
@@ -437,24 +437,23 @@ export async function runAgentLoopImpl(
               approval.approved ? "allow" : "deny",
             );
           } catch (err) {
-            // Infrastructure errors (disposed prompter, timeout, etc.) should
-            // not permanently silence the trust prompt.  Reset the guard so
-            // the user is re-prompted next session.
+            // Infrastructure errors (disposed prompter, etc.) should not
+            // permanently silence the trust prompt.  Leave the session guard
+            // set to prevent re-prompt spam within this session; the guard
+            // resets naturally when the session ends.
             rlog.warn(
               { err },
               "Git hooks trust prompt failed (non-fatal); will re-prompt next session",
             );
-            ctx.gitHooksTrustPromptIssuedForWorkspace = undefined;
           }
         })
         .catch((err) => {
+          // Detection failure — leave the session guard set to avoid
+          // retrying on every turn.  Will re-prompt next session.
           rlog.warn(
             { err },
             "Git hooks trust hook detection failed (non-fatal); will re-prompt next session",
           );
-          // Reset the guard so a transient detection failure doesn't
-          // permanently silence the trust prompt for this session.
-          ctx.gitHooksTrustPromptIssuedForWorkspace = undefined;
         });
     }
   }
