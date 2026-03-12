@@ -2153,6 +2153,18 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].confirmation?.approvedDecision = decision
             }
         }
+        // Clear pendingConfirmation on the matching tool call immediately so the
+        // inline bubble reflects the submitted decision without waiting for the
+        // daemon's confirmation_state_changed echo.
+        for i in messages.indices.reversed() {
+            guard messages[i].role == .assistant, messages[i].confirmation == nil else { continue }
+            if let tcIdx = messages[i].toolCalls.firstIndex(where: {
+                $0.pendingConfirmation?.requestId == requestId
+            }) {
+                messages[i].toolCalls[tcIdx].pendingConfirmation = nil
+                break
+            }
+        }
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
     }
