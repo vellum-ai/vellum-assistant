@@ -298,34 +298,3 @@ struct APIKeyStepView: View {
         return mode
     }
 }
-
-#Preview("Default - API Key Only") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 0) {
-            APIKeyStepView(state: {
-                let s = OnboardingState()
-                s.currentStep = 2
-                return s
-            }())
-        }
-    }
-    .frame(width: 460, height: 620)
-}
-
-#Preview("User Hosted Enabled") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 0) {
-            APIKeyStepView(state: {
-                let s = OnboardingState()
-                s.currentStep = 2
-                return s
-            }())
-        }
-    }
-    .frame(width: 460, height: 620)
-    .onAppear {
-        MacOSClientFeatureFlagManager.shared.setOverride("user_hosted_enabled", enabled: true)
-    }
-}

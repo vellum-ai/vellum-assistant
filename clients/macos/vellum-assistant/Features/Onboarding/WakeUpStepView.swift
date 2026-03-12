@@ -134,15 +134,3 @@ struct WakeUpStepView: View {
         }
     }
 }
-
-// MARK: - Previews
-
-#Preview("Onboarding context") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        VStack(spacing: 0) {
-            WakeUpStepView(state: OnboardingState())
-        }
-    }
-    .frame(width: 520, height: 580)
-}

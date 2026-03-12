@@ -122,15 +122,3 @@ struct ImproveExperienceStepView: View {
         }
     }
 }
-
-#Preview("ImproveExperienceStepView") {
-    ZStack {
-        VColor.surfaceOverlay.ignoresSafeArea()
-        ImproveExperienceStepView(state: {
-            let s = OnboardingState()
-            s.currentStep = 1
-            return s
-        }())
-    }
-    .frame(width: 520, height: 500)
-}

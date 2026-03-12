@@ -284,22 +284,3 @@ struct AvatarRevealStepView: View {
         }
     }
 }
-
-#Preview("Loading") {
-    ZStack {
-        RadialGradient(
-            colors: [VColor.surfaceOverlay, VColor.surfaceBase],
-            center: .center,
-            startRadius: 0,
-            endRadius: 500
-        )
-        .ignoresSafeArea()
-
-        AvatarRevealStepView(
-            assistantName: "Velly",
-            daemonClient: DaemonClient(),
-            onContinue: {}
-        )
-    }
-    .frame(width: 460, height: 620)
-}
