@@ -158,7 +158,7 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 ## Developer Experience
 
 - **Debug builds:** The `#if !DEBUG` guard compiles out the entire `KeychainBrokerServer`. The broker socket is not created, so clients see the broker as unavailable and use the encrypted store. Developers never encounter keychain prompts during the edit-build-run cycle.
-- **Release builds:** The broker starts automatically with the app. The daemon discovers it via the socket env var and token file. No configuration needed.
+- **Release builds:** The broker starts automatically with the app. The daemon discovers the broker via the derived socket path (`join(getRootDir(), "keychain-broker.sock")`) and token file. No configuration needed.
 - **CLI-only / headless:** No macOS app means no broker socket. All storage uses the encrypted file store. This is the expected path for CI, servers, and non-macOS platforms.
 
 ## Callsite Policy
