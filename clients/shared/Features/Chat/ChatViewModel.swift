@@ -149,6 +149,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantStatusText }
         set { messageManager.assistantStatusText = newValue }
     }
+    public var isCompacting: Bool {
+        get { messageManager.isCompacting }
+        set { messageManager.isCompacting = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }

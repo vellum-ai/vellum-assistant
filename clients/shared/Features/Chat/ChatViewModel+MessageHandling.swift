@@ -1893,6 +1893,7 @@ extension ChatViewModel {
             assistantActivityAnchor = msg.anchor
             assistantActivityReason = msg.reason
             assistantStatusText = msg.statusText
+            isCompacting = msg.reason == "context_compacting"
             switch msg.phase {
             case "thinking":
                 isThinking = true

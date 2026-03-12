@@ -598,6 +598,7 @@ struct ActiveChatViewWrapper: View {
             ),
             hasAPIKey: windowState.hasAPIKey,
             isThinking: viewModel.isThinking,
+            isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
