@@ -44,6 +44,7 @@ mock.module("../security/secure-keys.js", () => {
   };
   return {
     getSecureKey: (key: string) => storedKeys.get(key) ?? null,
+    getSecureKeyAsync: async (key: string) => storedKeys.get(key) ?? undefined,
     setSecureKey: syncSet,
     setSecureKeyAsync: async (key: string, value: string) =>
       syncSet(key, value),
