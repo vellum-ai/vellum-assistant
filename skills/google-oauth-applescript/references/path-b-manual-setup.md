@@ -80,10 +80,11 @@ Tell the user:
 > **Then, regardless of which flow you saw:**
 >
 > - **Scopes** — Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
->   - Click **Add or Remove Scopes**
->   - Find the **"Manually add scopes"** text box and paste these (comma-separated):
+>   - Click **Add or Remove Scopes** — a panel will open
+>   - Scroll down to the **"Manually add scopes"** text box and paste these (comma-separated):
 >     `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
->   - Click **Add to Table**, then **Save**
+>   - Click **Update** at the bottom of the panel
+>   - Back on the main page, scroll down and click **Save**
 >
 > Let me know when all parts are done.
 

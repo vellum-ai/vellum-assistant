@@ -285,7 +285,10 @@ host_bash:
     echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy && /tmp/vellum-nav.sh "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
 ```
 
-> Now I've opened the **Data Access** page and copied the required scopes to your clipboard. Click **Add or Remove Scopes**, find the **"Manually add scopes"** text box at the bottom, **paste** (Cmd+V), then click **Add to Table** (or **Update**), and **Save**.
+> Now I've opened the **Data Access** page and copied the required scopes to your clipboard. There are two stages here:
+>
+> 1. Click **Add or Remove Scopes** — a panel will open. Scroll down to the **"Manually add scopes"** text box, **paste** (Cmd+V), then click **Update** at the bottom of the panel.
+> 2. Back on the main page, scroll down and click **Save**.
 >
 > When done, you should see them listed on the page:
 >
