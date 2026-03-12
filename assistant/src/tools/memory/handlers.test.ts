@@ -437,6 +437,9 @@ describe("handleMemoryRecall", () => {
   // ── Scope filtering ───────────────────────────────────────────────
 
   test("scope 'conversation' passes scope policy override to retriever", async () => {
+    // Seed a conversation with segments in the target scope and in a different
+    // scope. With scope="conversation", only the target scope's segments should
+    // be returned (fallbackToDefault=false).
     const db = getDb();
     const now = Date.now();
     const convId = "conv-scope-a";
@@ -454,7 +457,7 @@ describe("handleMemoryRecall", () => {
     // Insert a segment scoped to this conversation's scope
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
-      VALUES ('seg-scope-a', 'msg-scope-a', '${convId}', 'user', 0, 'scoped data for conversation A', 8, '${convId}', ${
+      VALUES ('seg-scope-a', 'msg-scope-a', '${convId}', 'user', 0, 'Conversation-scoped data for conversation A', 8, '${convId}', ${
         now - 5_000
       }, ${now - 5_000})
     `);
@@ -462,21 +465,25 @@ describe("handleMemoryRecall", () => {
     // Insert an out-of-scope segment that should NOT be returned
     db.run(`
       INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
-      VALUES ('seg-scope-other', 'msg-scope-a', '${convId}', 'user', 1, 'data from a different scope', 8, 'other-scope', ${
+      VALUES ('seg-scope-other', 'msg-scope-a', '${convId}', 'user', 1, 'Out-of-scope data from a different scope', 8, 'other-scope', ${
         now - 5_000
       }, ${now - 5_000})
     `);
 
     const result = await handleMemoryRecall(
-      { query: "scoped data", scope: "conversation" },
+      { query: "data", scope: "conversation" },
       TEST_CONFIG,
+      convId,
       convId,
     );
 
     expect(result.isError).toBe(false);
     const parsed = parseResult(result.content);
-    // Verify recency search found the conversation-scoped segment
-    expect(parsed.sources.recency).toBeGreaterThan(0);
+    // With conversation scope, only the conversation-scoped segment is returned.
+    // The other-scope segment should be excluded (fallbackToDefault=false).
+    expect(parsed.sources.recency).toBe(1);
+    expect(parsed.text).toContain("Conversation-scoped data");
+    expect(parsed.text).not.toContain("Out-of-scope data");
   });
 
   test("default scope handler invocation does not error", async () => {
