@@ -12,6 +12,12 @@ const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
 const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
 
+// Anthropic renders each PDF page as an image (~1,568 tokens at standard
+// resolution) plus any extracted text. Typical PDF pages are 50-150 KB.
+// Using ~100 KB/page and ~1,600 tokens/page gives ~0.016 tokens/byte.
+const ANTHROPIC_PDF_TOKENS_PER_BYTE = 0.016;
+const ANTHROPIC_PDF_MIN_TOKENS = 1600; // At least one page
+
 export interface TokenEstimatorOptions {
   providerName?: string;
 }
@@ -21,14 +27,37 @@ export function estimateTextTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-function shouldCountFileSourceData(
+function estimateAnthropicPdfTokens(base64Data: string): number {
+  const rawBytes = Math.ceil((base64Data.length * 3) / 4);
+  return Math.max(
+    ANTHROPIC_PDF_MIN_TOKENS,
+    Math.ceil(rawBytes * ANTHROPIC_PDF_TOKENS_PER_BYTE),
+  );
+}
+
+function estimateFileDataTokens(
   block: Extract<ContentBlock, { type: "file" }>,
   options?: TokenEstimatorOptions,
-): boolean {
-  if (options?.providerName !== "gemini") {
-    return false;
+): number {
+  const providerName = options?.providerName;
+
+  // Anthropic sends PDFs as native document blocks and renders each page as an image
+  if (
+    providerName === "anthropic" &&
+    block.source.media_type === "application/pdf"
+  ) {
+    return estimateAnthropicPdfTokens(block.source.data);
   }
-  return GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type);
+
+  // Gemini sends certain file types inline as base64
+  if (
+    providerName === "gemini" &&
+    GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type)
+  ) {
+    return estimateTextTokens(block.source.data);
+  }
+
+  return 0;
 }
 
 function estimateImageSourceDataTokens(
@@ -76,9 +105,7 @@ export function estimateContentBlockTokens(
         FILE_BLOCK_OVERHEAD_TOKENS +
         estimateTextTokens(block.source.filename) +
         estimateTextTokens(block.source.media_type) +
-        (shouldCountFileSourceData(block, options)
-          ? estimateTextTokens(block.source.data)
-          : 0) +
+        estimateFileDataTokens(block, options) +
         estimateTextTokens(block.extracted_text ?? "")
       );
     case "thinking":

@@ -104,7 +104,7 @@ describe("token estimator", () => {
     expect(largeFileTokens - smallFileTokens).toBeGreaterThan(1000);
   });
 
-  test("does not count file base64 payload for OpenAI/Anthropic-style file fallback", () => {
+  test("does not count file base64 payload for OpenAI-style file fallback", () => {
     const sharedSource = {
       type: "base64" as const,
       filename: "report.pdf",
@@ -128,6 +128,47 @@ describe("token estimator", () => {
     );
 
     expect(largeFileTokens).toBe(smallFileTokens);
+  });
+
+  test("estimates Anthropic PDF tokens from file size", () => {
+    // ~14.8 MB PDF => ~20M base64 chars
+    const base64Length = 20_000_000;
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          filename: "large-report.pdf",
+          media_type: "application/pdf",
+          data: "a".repeat(base64Length),
+        },
+        extracted_text: "",
+      },
+      { providerName: "anthropic" },
+    );
+
+    // Raw bytes = 20_000_000 * 3/4 = 15_000_000
+    // Estimated tokens = 15_000_000 * 0.016 = 240_000 (plus overhead)
+    expect(tokens).toBeGreaterThan(200_000);
+  });
+
+  test("Anthropic PDF minimum is one page", () => {
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          filename: "tiny.pdf",
+          media_type: "application/pdf",
+          data: "a".repeat(16),
+        },
+        extracted_text: "",
+      },
+      { providerName: "anthropic" },
+    );
+
+    // Should be at least ANTHROPIC_PDF_MIN_TOKENS (1600) plus overhead
+    expect(tokens).toBeGreaterThanOrEqual(1600);
   });
 
   test("does not count non-inline file base64 payload for Gemini", () => {
