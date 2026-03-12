@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { PromiseGuard } from "../util/promise-guard.js";
+import { getGitHooksTrustDecision } from "./git-hooks-trust.js";
 
 const execFileAsync = promisify(execFile);
 const log = getLogger("workspace-git");
@@ -163,7 +164,7 @@ const EMPTY_HOOKS_PATH = "/dev/null";
  * - Mutex-protected operations: prevents concurrent git command conflicts
  * - Handles both new and existing workspaces transparently
  * - Synchronous initial commit within mutex to prevent races
- * - Fail-closed hook policy: auto-commits never run repository hooks
+ * - Policy-based hook execution: hooks run only for explicitly trusted workspaces
  */
 export class WorkspaceGitService {
   private readonly workspaceDir: string;
@@ -795,20 +796,39 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Execute a git commit command with hooks suppressed via `core.hooksPath`.
+   * Execute a git commit command with policy-based hook execution.
    *
-   * All workspace auto-commits go through this helper so that repository
-   * hook scripts (pre-commit, commit-msg, post-commit, etc.) are never
-   * executed without an explicit user trust decision.
+   * Consults `getGitHooksTrustDecision(workspaceDir)` to decide whether hooks
+   * should run for this commit:
    *
-   * Uses `-c core.hooksPath=<EMPTY_HOOKS_PATH>` rather than `--no-verify`
-   * because `--no-verify` only suppresses pre-commit and commit-msg hooks
-   * while leaving post-commit hooks (and others) intact.
+   * - `"allow"`: the user has explicitly trusted this workspace. Commits run
+   *   without any hook override so repository hooks execute normally.
+   * - `"deny"` / `"ask"`: hooks are suppressed via
+   *   `-c core.hooksPath=<EMPTY_HOOKS_PATH>`. This is the fail-closed default
+   *   for untrusted or undecided workspaces.
+   *
+   * Using `-c core.hooksPath=…` is intentionally stronger than `--no-verify`,
+   * which only suppresses pre-commit and commit-msg hooks and leaves
+   * post-commit hooks (and others) intact.
    */
   private async execGitCommit(
     commitArgs: string[],
     options?: { signal?: AbortSignal },
   ): Promise<{ stdout: string; stderr: string }> {
+    const decision = getGitHooksTrustDecision(this.workspaceDir);
+
+    if (decision === "allow") {
+      log.debug(
+        { workspaceDir: this.workspaceDir, hooks_enabled: true },
+        "Running commit with hooks enabled (trusted workspace)",
+      );
+      return this.execGit(["commit", ...commitArgs], options);
+    }
+
+    log.debug(
+      { workspaceDir: this.workspaceDir, hooks_suppressed: true, decision },
+      "Running commit with hooks suppressed (untrusted workspace)",
+    );
     return this.execGit(
       ["-c", `core.hooksPath=${EMPTY_HOOKS_PATH}`, "commit", ...commitArgs],
       options,
