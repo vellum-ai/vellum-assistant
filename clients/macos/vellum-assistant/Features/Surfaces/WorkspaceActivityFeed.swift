@@ -40,7 +40,7 @@ struct WorkspaceActivityFeed: View {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         assistantAvatar
 
-                        Text(TextResponseView.markdownString(streamingText))
+                        Text(MessageBubbleView.markdownString(streamingText))
                             .font(VFont.body)
                             .foregroundColor(VColor.contentDefault)
                             .textSelection(.enabled)
@@ -59,7 +59,8 @@ struct WorkspaceActivityFeed: View {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         assistantAvatar
 
-                        BouncingDots()
+                        ProgressView()
+                            .controlSize(.small)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.md)
                             .background(
