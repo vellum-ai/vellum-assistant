@@ -2524,16 +2524,8 @@ public struct MemoryStatus: Codable, Sendable {
     public let reason: String?
     public let provider: String?
     public let model: String?
-    // Deprecated fields — optional for backwards compat during rollout
-    public let conflictsPending: Double?
-    public let conflictsResolved: Double?
-    public let oldestPendingConflictAgeMs: Double?
-    public let cleanupResolvedJobsPending: Double?
-    public let cleanupSupersededJobsPending: Double?
-    public let cleanupResolvedJobsCompleted24h: Double?
-    public let cleanupSupersededJobsCompleted24h: Double?
 
-    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double? = nil, conflictsResolved: Double? = nil, oldestPendingConflictAgeMs: Double? = nil, cleanupResolvedJobsPending: Double? = nil, cleanupSupersededJobsPending: Double? = nil, cleanupResolvedJobsCompleted24h: Double? = nil, cleanupSupersededJobsCompleted24h: Double? = nil) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: MemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -2541,13 +2533,6 @@ public struct MemoryStatus: Codable, Sendable {
         self.reason = reason
         self.provider = provider
         self.model = model
-        self.conflictsPending = conflictsPending
-        self.conflictsResolved = conflictsResolved
-        self.oldestPendingConflictAgeMs = oldestPendingConflictAgeMs
-        self.cleanupResolvedJobsPending = cleanupResolvedJobsPending
-        self.cleanupSupersededJobsPending = cleanupSupersededJobsPending
-        self.cleanupResolvedJobsCompleted24h = cleanupResolvedJobsCompleted24h
-        self.cleanupSupersededJobsCompleted24h = cleanupSupersededJobsCompleted24h
     }
 }
 
