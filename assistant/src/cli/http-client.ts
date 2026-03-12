@@ -5,28 +5,21 @@
  * Patterns are adapted from `cli/src/lib/http-client.ts` (external CLI).
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { getRuntimeHttpPort } from "../config/env.js";
-import { getRootDir } from "../util/platform.js";
+import { CLI_EDGE_TOKEN_STORE_KEY } from "../security/credential-key.js";
+import { getSecureKey } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Token
 // ---------------------------------------------------------------------------
 
 /**
- * Read the HTTP bearer token from `<rootDir>/http-token`.
- * Returns undefined if the token file doesn't exist or is empty.
+ * Read the HTTP bearer token from the encrypted credential store.
+ * Returns undefined if the token has not been persisted yet.
  */
 export function readHttpToken(): string | undefined {
-  const tokenPath = join(getRootDir(), "http-token");
-  try {
-    const token = readFileSync(tokenPath, "utf-8").trim();
-    return token || undefined;
-  } catch {
-    return undefined;
-  }
+  const token = getSecureKey(CLI_EDGE_TOKEN_STORE_KEY);
+  return token || undefined;
 }
 
 // ---------------------------------------------------------------------------

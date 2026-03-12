@@ -47,6 +47,8 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintCredentialPair } from "../runtime/auth/credential-service.js";
+import { CLI_EDGE_TOKEN_STORE_KEY } from "../security/credential-key.js";
+import { setSecureKey } from "../security/secure-keys.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -185,9 +187,13 @@ export async function runDaemon(): Promise<void> {
         hashedDeviceId,
       });
 
-      // DEPRECATED: The http-token file is deprecated. Readers will be
-      // migrated to use the credential store instead. This write is kept
-      // for backward compatibility until all consumers are updated.
+      // Persist the CLI edge token in the encrypted credential store so
+      // that in-process readers (built-in CLI, etc.) can retrieve it
+      // without touching the filesystem.
+      setSecureKey(CLI_EDGE_TOKEN_STORE_KEY, credentials.accessToken);
+
+      // DEPRECATED: The http-token file is kept for backward compatibility
+      // until all consumers are migrated to the credential store.
       const httpTokenPath = join(getRootDir(), "http-token");
       writeFileSync(httpTokenPath, credentials.accessToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);

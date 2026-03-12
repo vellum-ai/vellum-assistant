@@ -12,3 +12,9 @@
 export function credentialKey(service: string, field: string): string {
   return `credential/${service}/${field}`;
 }
+
+/**
+ * Well-known key under which the daemon persists the CLI edge access token
+ * in the encrypted credential store.
+ */
+export const CLI_EDGE_TOKEN_STORE_KEY = "internal/cli_edge_token";
