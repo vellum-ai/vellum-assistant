@@ -6,14 +6,15 @@
  * with OAuth tokens, Telegram delivery is proxied through the gateway which
  * owns the bot token and handles Telegram API retries.
  *
- * The `token` parameter in MessagingProvider methods is unused for Telegram
- * because delivery is authenticated via the gateway's bearer token, not
- * a per-user OAuth token.
+ * The `connectionOrToken` parameter in MessagingProvider methods is unused
+ * for Telegram because delivery is authenticated via the gateway's bearer
+ * token, not a per-user OAuth token.
  */
 
 import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import type { OAuthConnection } from "../../../oauth/connection.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKey } from "../../../security/secure-keys.js";
@@ -69,7 +70,9 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     );
   },
 
-  async testConnection(_token: string): Promise<ConnectionInfo> {
+  async testConnection(
+    _connectionOrToken: OAuthConnection | string,
+  ): Promise<ConnectionInfo> {
     const botToken = getBotToken();
     if (!botToken) {
       return {
@@ -114,7 +117,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     conversationId: string,
     text: string,
     _options?: SendOptions,
@@ -152,7 +155,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   // interact with chats where users have initiated contact or the bot
   // has been added to a group.
   async listConversations(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _options?: ListOptions,
   ): Promise<Conversation[]> {
     return [];
@@ -160,7 +163,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not provide message history retrieval.
   async getHistory(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _conversationId: string,
     _options?: HistoryOptions,
   ): Promise<Message[]> {
@@ -169,7 +172,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not support message search.
   async search(
-    _token: string,
+    _connectionOrToken: OAuthConnection | string,
     _query: string,
     _options?: SearchOptions,
   ): Promise<SearchResult> {
