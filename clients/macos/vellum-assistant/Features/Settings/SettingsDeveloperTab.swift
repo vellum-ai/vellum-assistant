@@ -39,6 +39,11 @@ struct SettingsDeveloperTab: View {
     @State private var daemonEnvVars: [(String, String)] = []
     @State private var testerModel: ToolPermissionTesterModel?
 
+    // -- Healthz / restart state --
+    @State private var healthz: DaemonHealthz?
+    @State private var showingRestartConfirmation: Bool = false
+    @State private var isRestarting: Bool = false
+
     // -- Sentry testing state --
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
@@ -57,12 +62,24 @@ struct SettingsDeveloperTab: View {
             assistantInfoSection
             // Switch Assistant
             switchAssistantSection
+            // Managed/remote-only sections
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               assistant.isManaged || assistant.isRemote {
+                restartAssistantSection
+                AssistantBackupsSection(assistant: assistant, store: store)
+                    .withRestoreConfirmation
+            }
             // Gateway Settings
             GatewaySettingsCard(
                 store: store,
                 daemonClient: daemonClient,
                 isManaged: lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })?.isManaged ?? false
             )
+            // Upgrade (managed/remote only)
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               assistant.isManaged || assistant.isRemote {
+                AssistantUpgradeSection(assistant: assistant, currentVersion: healthz?.version)
+            }
             // Hatch New Assistant
             hatchNewAssistantSection
             // Retire Assistant
@@ -97,6 +114,10 @@ struct SettingsDeveloperTab: View {
                 }
             }
             Task { await loadHatchFlag() }
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               assistant.isManaged || assistant.isRemote {
+                Task { await fetchHealthz() }
+            }
 
             // Advanced dev setup
             macOSFlagStates = MacOSClientFeatureFlagManager.shared.allFlagStates()
@@ -125,6 +146,34 @@ struct SettingsDeveloperTab: View {
             } else {
                 Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
             }
+        }
+        .alert("Restart Assistant", isPresented: $showingRestartConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Restart") {
+                isRestarting = true
+                Task {
+                    await performRestart()
+                    isRestarting = false
+                }
+            }
+        } message: {
+            Text("Are you sure you want to restart the assistant? It will be briefly unavailable.")
+        }
+        .sheet(isPresented: $isRestarting) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text("Restarting assistant...")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Text("The assistant will be briefly unavailable.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
         }
         .sheet(isPresented: $isRetiring) {
             VStack(spacing: VSpacing.lg) {
@@ -214,7 +263,87 @@ struct SettingsDeveloperTab: View {
             if let daemonClient {
                 DeveloperDaemonStatusRows(daemonClient: daemonClient)
             }
+
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
+               assistant.isManaged || assistant.isRemote {
+                healthzInfoRows
+            }
         }
+    }
+
+    // MARK: - Healthz Info
+
+    @ViewBuilder
+    private var healthzInfoRows: some View {
+        if let healthz {
+            if let version = healthz.version, !version.isEmpty {
+                infoRow(label: "Version", value: version, mono: true)
+            }
+
+            if let disk = healthz.disk {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(alignment: .center) {
+                        Text("Disk")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 100, alignment: .leading)
+                        Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                        Spacer()
+                    }
+                    ProgressView(value: Double(disk.usedMb), total: Double(max(disk.totalMb, 1)))
+                        .progressViewStyle(.linear)
+                        .tint(Double(disk.usedMb) / Double(max(disk.totalMb, 1)) > 0.9 ? VColor.error : VColor.accent)
+                }
+            }
+
+            if let memory = healthz.memory {
+                infoRow(label: "Memory", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+            }
+
+            if let cpu = healthz.cpu {
+                infoRow(label: "CPU", value: String(format: "%.1f%%", cpu.currentPercent))
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading health metrics...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+        }
+    }
+
+    private func formatMb(_ mb: Double) -> String {
+        if mb >= 1024 {
+            return String(format: "%.1f GB", mb / 1024.0)
+        }
+        return String(format: "%.0f MB", mb)
+    }
+
+    private func fetchHealthz() async {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/healthz/") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            healthz = try decoder.decode(DaemonHealthz.self, from: data)
+        } catch {}
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
@@ -390,6 +519,58 @@ struct SettingsDeveloperTab: View {
     private func switchToAssistant(_ assistant: LockfileAssistant) {
         AppDelegate.shared?.performSwitchAssistant(to: assistant)
         onClose()
+    }
+
+    // MARK: - Restart Assistant
+
+    private var restartAssistantSection: some View {
+        SettingsCard(
+            title: "Restart Assistant",
+            subtitle: "The assistant will be briefly unavailable during restart."
+        ) {
+            VButton(label: "Restart", style: .secondary, size: .medium) {
+                showingRestartConfirmation = true
+            }
+        }
+    }
+
+    private func performRestart() async {
+        guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else { return }
+
+        if assistant.isManaged || assistant.isRemote {
+            await performManagedRestart(assistant: assistant)
+        } else {
+            await performLocalRestart()
+        }
+
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        await fetchHealthz()
+    }
+
+    private func performManagedRestart(assistant: LockfileAssistant) async {
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        guard let token = SessionTokenManager.getToken(), !token.isEmpty else { return }
+        guard let url = URL(string: "\(baseURL)/v1/assistants/restart/") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    private func performLocalRestart() async {
+        do {
+            try await AppDelegate.shared?.assistantCli.hatch(
+                name: selectedAssistantId,
+                daemonOnly: true,
+                restart: true
+            )
+        } catch {}
     }
 
     // MARK: - Retire Assistant
