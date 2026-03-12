@@ -497,4 +497,41 @@ describe("resolveOAuthConnection", () => {
       /No base URL configured for "integration:custom-service"/,
     );
   });
+
+  test("resolves base URL via app's canonical providerKey for custom credential_service", () => {
+    // Set up a well-known provider with a baseUrl
+    mockProviders.set("github", {
+      key: "github",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      baseUrl: "https://api.github.com",
+    });
+    // The custom credential service has no provider entry of its own
+    // (getProvider("integration:github-work") returns undefined)
+
+    // App points to the canonical "github" provider
+    const appId = "app-github-work";
+    mockApps.set(appId, {
+      id: appId,
+      providerKey: "github",
+      clientId: "test-client-id",
+    });
+
+    // Connection uses the custom credential service as its providerKey
+    const connId = "conn-github-work";
+    mockConnections.set("integration:github-work", {
+      id: connId,
+      providerKey: "integration:github-work",
+      oauthAppId: appId,
+      expiresAt: Date.now() + 3600 * 1000,
+      grantedScopes: JSON.stringify(["repo"]),
+      accountInfo: null,
+    });
+    setSecureKey(`oauth_connection/${connId}/access_token`, "ghp-test-token");
+
+    const conn = resolveOAuthConnection("integration:github-work");
+
+    expect(conn).toBeInstanceOf(BYOOAuthConnection);
+    expect(conn.providerKey).toBe("integration:github-work");
+    expect(conn.grantedScopes).toEqual(["repo"]);
+  });
 });
