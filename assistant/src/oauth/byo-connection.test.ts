@@ -88,7 +88,6 @@ import { resolveOAuthConnection } from "./connection-resolver.js";
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let mockFetch: ReturnType<typeof mock<any>>;
 
 // ---------------------------------------------------------------------------

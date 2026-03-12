@@ -19,4 +19,8 @@ public final class AmbientAgent: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     var knowledge: KnowledgeStore { knowledgeStore }
+
+    func pause() {}
+    func resume() {}
+    func teardown() {}
 }
