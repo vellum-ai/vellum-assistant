@@ -150,29 +150,6 @@ struct DebugPanel: View {
         return String(format: "%.0fms", ms)
     }
 
-    private func formatWhole(_ value: Int) -> String {
-        "\(value)"
-    }
-
-    private func formatWhole(_ value: Double) -> String {
-        "\(Int(value.rounded()))"
-    }
-
-    private func formatDurationMs(_ value: Int?) -> String {
-        guard let value else { return "n/a" }
-        return formatDurationMs(Double(value))
-    }
-
-    private func formatDurationMs(_ value: Double?) -> String {
-        guard let value else { return "n/a" }
-        if value < 60_000 {
-            return String(format: "%.0fs", value / 1000)
-        }
-        if value < 3_600_000 {
-            return String(format: "%.0fm", value / 60_000)
-        }
-        return String(format: "%.1fh", value / 3_600_000)
-    }
 }
 
 #Preview {
