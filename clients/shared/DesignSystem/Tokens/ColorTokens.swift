@@ -79,6 +79,7 @@ public enum Amber {
     public static let _800 = Color(hex: 0xA35E0C)
     public static let _700 = Color(hex: 0xC97C10)
     public static let _600 = Color(hex: 0xE8A020)
+    public static let _550 = Color(hex: 0xF1B21E)
     public static let _500 = Color(hex: 0xFAC426)
     public static let _400 = Color(hex: 0xFDD94E)
     public static let _300 = Color(hex: 0xFEEC94)
