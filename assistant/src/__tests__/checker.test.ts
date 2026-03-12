@@ -680,14 +680,14 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write within workspace with no rule → auto-allowed in workspace mode", async () => {
+    test("file_write within workspace with no rule → prompt (Medium risk) in workspace mode", async () => {
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("workspace-scoped");
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("Medium risk");
     });
 
     test("file_write outside workspace with no rule → prompt", async () => {
@@ -4595,24 +4595,24 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.reason).toContain("Workspace mode");
   });
 
-  test("file_write within workspace → allow (workspace-scoped)", async () => {
+  test("file_write within workspace → prompt (Medium risk)", async () => {
     const result = await check(
       "file_write",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Medium risk");
   });
 
-  test("file_edit within workspace → allow (workspace-scoped)", async () => {
+  test("file_edit within workspace → prompt (Medium risk)", async () => {
     const result = await check(
       "file_edit",
       { file_path: "/home/user/my-project/src/index.ts" },
       workspaceDir,
     );
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Medium risk");
   });
 
   // ── file operations outside workspace follow risk-based fallback ──

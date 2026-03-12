@@ -794,7 +794,7 @@ export async function check(
   if (
     permissionsMode === "workspace" &&
     !matchedRule &&
-    risk !== RiskLevel.High
+    risk === RiskLevel.Low
   ) {
     // When sandbox is disabled, bash runs on the host — don't auto-allow
     const sandboxEnabled = getConfig().sandbox.enabled;
