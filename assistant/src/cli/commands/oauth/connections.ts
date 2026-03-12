@@ -249,8 +249,16 @@ Examples:
         let cleanedUp = false;
 
         // 1. Disconnect the OAuth connection (new-format keys + connection row)
-        const oauthDisconnected = await disconnectOAuthProvider(providerKey);
-        if (oauthDisconnected) cleanedUp = true;
+        const oauthResult = await disconnectOAuthProvider(providerKey);
+        if (oauthResult === "error") {
+          writeOutput(cmd, {
+            ok: false,
+            error: `Failed to disconnect OAuth provider "${providerKey}" — please try again`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+        if (oauthResult === "disconnected") cleanedUp = true;
 
         // 2. Clean up legacy credential keys for common fields
         const legacyFields = [

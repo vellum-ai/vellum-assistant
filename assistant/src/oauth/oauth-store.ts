@@ -455,14 +455,16 @@ export function deleteConnection(id: string): boolean {
  * Fully disconnect an OAuth provider: delete the new-format secure keys
  * (access_token and refresh_token) and remove the connection row from SQLite.
  *
- * Returns `true` if a connection was found and cleaned up, `false` if no
- * active connection existed for the given provider.
+ * Returns `"disconnected"` if a connection was found and cleaned up,
+ * `"not-found"` if no active connection existed for the given provider,
+ * or `"error"` if secure key deletion failed (connection row is preserved
+ * to avoid orphaning secrets).
  */
 export async function disconnectOAuthProvider(
   providerKey: string,
-): Promise<boolean> {
+): Promise<"disconnected" | "not-found" | "error"> {
   const conn = getConnectionByProvider(providerKey);
-  if (!conn) return false;
+  if (!conn) return "not-found";
 
   const r1 = await deleteSecureKeyAsync(
     `oauth_connection/${conn.id}/access_token`,
@@ -481,10 +483,10 @@ export async function disconnectOAuthProvider(
       },
       "Failed to delete OAuth secure keys — skipping connection row deletion to avoid orphaning secrets",
     );
-    return false;
+    return "error";
   }
 
   deleteConnection(conn.id);
 
-  return true;
+  return "disconnected";
 }

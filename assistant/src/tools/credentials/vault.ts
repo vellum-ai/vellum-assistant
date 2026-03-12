@@ -453,7 +453,13 @@ class CredentialStoreTool implements Tool {
         }
         // Also clean up any OAuth connection for this service (best-effort)
         try {
-          await disconnectOAuthProvider(service);
+          const oauthResult = await disconnectOAuthProvider(service);
+          if (oauthResult === "error") {
+            log.warn(
+              { service },
+              "OAuth disconnect failed after removing credential — secure key deletion error",
+            );
+          }
         } catch (err) {
           log.warn(
             { service, err },

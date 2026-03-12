@@ -434,17 +434,26 @@ Examples:
 
         // Also clean up the OAuth connection and new-format secure keys.
         // disconnectOAuthProvider is a no-op when no connection exists.
-        let oauthDisconnected = false;
+        let oauthResult: "disconnected" | "not-found" | "error" = "not-found";
         try {
-          oauthDisconnected = await disconnectOAuthProvider(service);
+          oauthResult = await disconnectOAuthProvider(service);
         } catch {
           // Best-effort — OAuth tables may not exist yet
+        }
+
+        if (oauthResult === "error") {
+          writeOutput(cmd, {
+            ok: false,
+            error: "Failed to disconnect OAuth provider — please try again",
+          });
+          process.exitCode = 1;
+          return;
         }
 
         if (
           secretResult !== "deleted" &&
           !metadataDeleted &&
-          !oauthDisconnected
+          oauthResult !== "disconnected"
         ) {
           writeOutput(cmd, { ok: false, error: "Credential not found" });
           process.exitCode = 1;
