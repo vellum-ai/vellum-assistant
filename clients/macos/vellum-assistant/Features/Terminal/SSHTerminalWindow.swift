@@ -48,7 +48,7 @@ final class SSHTerminalWindow {
         let hostingController = NSHostingController(rootView: contentView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -57,7 +57,7 @@ final class SSHTerminalWindow {
         window.contentViewController = hostingController
         window.title = "Terminal — \(assistant.assistantId)"
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 400, height: 300)
+        window.minSize = NSSize(width: 600, height: 400)
         window.center()
 
         // Clean up on close.
