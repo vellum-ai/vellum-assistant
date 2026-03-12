@@ -174,6 +174,42 @@ struct ModifiersGallerySection: View {
                     )
                 }
             }
+
+            Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+            // MARK: - .if()
+            GallerySectionHeader(
+                title: ".if(_:transform:)",
+                description: "Conditionally applies a transformation to a view. When the condition is true, the transform closure is applied; otherwise the view is returned unchanged."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("condition = true (bold applied)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    Text("Hello, world!")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .if(true) { view in
+                            view.bold()
+                        }
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("condition = false (no change)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.contentSecondary)
+
+                    Text("Hello, world!")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.contentDefault)
+                        .if(false) { view in
+                            view.bold()
+                        }
+                }
+            }
         }
     }
 }
