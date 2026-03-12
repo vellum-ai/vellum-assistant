@@ -303,13 +303,6 @@ struct APIKeyStepView: View {
     ZStack {
         VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
-            Spacer()
-            Image("VellyLogo")
-                .resizable()
-                .interpolation(.none)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
             APIKeyStepView(state: {
                 let s = OnboardingState()
                 s.currentStep = 2
@@ -324,13 +317,6 @@ struct APIKeyStepView: View {
     ZStack {
         VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
-            Spacer()
-            Image("VellyLogo")
-                .resizable()
-                .interpolation(.none)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
             APIKeyStepView(state: {
                 let s = OnboardingState()
                 s.currentStep = 2

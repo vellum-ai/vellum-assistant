@@ -281,13 +281,6 @@ struct FnKeyStepView: View {
     ZStack {
         VColor.surfaceOverlay.ignoresSafeArea()
         VStack(spacing: 0) {
-            Spacer()
-            Image("VellyLogo")
-                .resizable()
-                .interpolation(.none)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
             FnKeyStepView(state: {
                 let s = OnboardingState()
                 s.assistantName = "Assistant"
