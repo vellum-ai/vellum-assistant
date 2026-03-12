@@ -507,6 +507,35 @@ describe("HostCuProxy", () => {
       expect(result.content).toMatch(/<\/ax-tree>$/m);
     });
 
+    test("includes secondaryWindows after AX tree with cross-window note", () => {
+      setup();
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]\nLabel [2]",
+        secondaryWindows: "Safari — Window [10]\n  Link [11]",
+      });
+
+      expect(result.content).toContain("Safari — Window [10]");
+      expect(result.content).toContain("Link [11]");
+      expect(result.content).toContain(
+        "Note: The element [ID]s above are from other windows",
+      );
+      // secondaryWindows should appear after the AX tree
+      const axTreeEnd = result.content.indexOf("</ax-tree>");
+      const secondaryIdx = result.content.indexOf("Safari — Window [10]");
+      expect(axTreeEnd).toBeLessThan(secondaryIdx);
+    });
+
+    test("omits secondaryWindows section when field is absent", () => {
+      setup();
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).not.toContain("other windows");
+    });
+
     test("includes diff when present", () => {
       setup();
 

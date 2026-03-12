@@ -304,6 +304,16 @@ export class HostCuProxy {
       parts.push("</ax-tree>");
     }
 
+    // Secondary windows for cross-app awareness
+    if (obs.secondaryWindows) {
+      parts.push("");
+      parts.push(obs.secondaryWindows);
+      parts.push("");
+      parts.push(
+        "Note: The element [ID]s above are from other windows — you can reference them for context but can only interact with the focused window's elements.",
+      );
+    }
+
     // Screenshot metadata
     const screenshotMeta = this.formatScreenshotMetadata(obs);
     if (screenshotMeta.length > 0) {
