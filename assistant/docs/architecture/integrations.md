@@ -197,34 +197,32 @@ sequenceDiagram
 | `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                    |
 | `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                      |
 | `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                  |
-| `assistant/src/oauth/provider-profiles.ts`       | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers             |
+| `assistant/src/oauth/provider-behaviors.ts`      | Provider behavior registry: identity verifiers, setup metadata, injection templates                |
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
 | `assistant/src/oauth/scope-policy.ts`            | Deterministic scope resolution and policy enforcement                                              |
-| `assistant/src/oauth/connect-types.ts`           | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`                     |
+| `assistant/src/oauth/connect-types.ts`           | Shared types: `OAuthProviderBehavior`, `OAuthScopePolicy`, `OAuthConnectResult`                    |
 | `assistant/src/oauth/token-persistence.ts`       | Token storage helper: persists tokens, metadata, and runs post-connect hooks                       |
 | `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                     |
 
 ---
 
-## OAuth Extensibility — Provider Profiles, Scope Policy, and Connect Orchestrator
+## OAuth Extensibility — Provider Behaviors, Scope Policy, and Connect Orchestrator
 
-The OAuth extensibility layer makes adding a new OAuth provider a declarative operation. Instead of writing custom auth handlers, new providers are added as entries in the **provider profile registry**. The shared **connect orchestrator** handles the full flow from profile resolution through token storage.
+The OAuth extensibility layer makes adding a new OAuth provider a declarative operation. Protocol fields (auth URLs, token URLs, scopes, scope policy) are stored in the `oauth_providers` database table, while behavioral fields (identity verifiers, setup metadata, injection templates) live in the **provider behavior registry**. The shared **connect orchestrator** handles the full flow from provider resolution through token storage.
 
-### Provider Profile Registry
+### Provider Behavior Registry
 
-`assistant/src/oauth/provider-profiles.ts` contains the `PROVIDER_PROFILES` map — a canonical registry of well-known OAuth providers. Each profile (`OAuthProviderProfile`) declares:
+`assistant/src/oauth/provider-behaviors.ts` contains the `PROVIDER_BEHAVIORS` map — a registry of behavioral aspects for well-known OAuth providers. Each behavior (`OAuthProviderBehavior`) declares:
 
-| Field                  | Purpose                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| `authUrl` / `tokenUrl` | OAuth2 authorization and token endpoints                                                               |
-| `defaultScopes`        | Scopes requested on every connect attempt                                                              |
-| `scopePolicy`          | Controls whether additional scopes are allowed (see Scope Policy below)                                |
-| `callbackTransport`    | `'loopback'` (local redirect) or `'gateway'` (public ingress)                                          |
-| `identityVerifier`     | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
-| `setup`                | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type)            |
-| `injectionTemplates`   | Auto-applied credential injection rules for the script proxy                                           |
+| Field                | Purpose                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------ |
+| `identityVerifier`   | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
+| `setup`              | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type)            |
+| `injectionTemplates` | Auto-applied credential injection rules for the script proxy                                           |
 
-Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `SERVICE_ALIASES`.
+Protocol fields (`authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`) are stored in the `oauth_providers` database table rather than in code.
+
+Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`. Short aliases (e.g. `gmail`, `slack`) are resolved via `resolveService()`.
 
 ### Scope Policy Engine
 
@@ -244,7 +242,7 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 `assistant/src/oauth/connect-orchestrator.ts` exports `orchestrateOAuthConnect(options)`, which runs the full OAuth2 flow:
 
 1. **Resolve service** — alias expansion via `resolveService()`.
-2. **Load profile** — `getProviderProfile()` from the registry.
+2. **Load behavior** — `getProviderBehavior()` from the registry; load protocol fields from the `oauth_providers` DB table.
 3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
 4. **Build OAuth config** — merge profile defaults with caller overrides.
 5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
@@ -266,24 +264,24 @@ This replaces provider-specific handlers — any provider in the registry can be
 
 ### Adding a New OAuth Provider
 
-1. **Declare a profile** in `PROVIDER_PROFILES` (`oauth/provider-profiles.ts`):
+1. **Register protocol fields** in the `oauth_providers` database table (via CLI or migration):
    - Set `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, and `callbackTransport`.
-   - Add a `SERVICE_ALIASES` entry if a shorthand name is desired.
-2. **Optional: add an identity verifier** — an async function on the profile that fetches the user's account info from the provider's API.
-3. **Optional: add setup metadata** — `setup.displayName`, `setup.dashboardUrl`, `setup.appType` enable the generic OAuth setup skill to guide users through app creation.
-4. **Optional: add injection templates** — for providers whose tokens should be auto-injected by the script proxy.
-5. **No handler code needed** — the generic `oauth_connect_start` handler and the connect orchestrator handle the flow automatically.
+2. **Optional: declare behavioral fields** in `PROVIDER_BEHAVIORS` (`oauth/provider-behaviors.ts`):
+   - Add an `identityVerifier` — an async function that fetches the user's account info from the provider's API.
+   - Add `setup` metadata — `displayName`, `dashboardUrl`, `appType` enable the generic OAuth setup skill to guide users through app creation.
+   - Add `injectionTemplates` — for providers whose tokens should be auto-injected by the script proxy.
+3. **No handler code needed** — the generic `oauth_connect_start` handler and the connect orchestrator handle the flow automatically.
 
 ### Key Source Files
 
-| File                                             | Role                                                                            |
-| ------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `assistant/src/oauth/provider-profiles.ts`       | Provider profile registry and alias resolution                                  |
-| `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                          |
-| `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                  |
-| `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`) |
-| `assistant/src/oauth/token-persistence.ts`       | Token storage: keychain writes, metadata upsert, post-connect hooks             |
-| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler                  |
+| File                                             | Role                                                                             |
+| ------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `assistant/src/oauth/provider-behaviors.ts`      | Provider behavior registry and alias resolution                                  |
+| `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                           |
+| `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                   |
+| `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderBehavior`, `OAuthScopePolicy`, `OAuthConnectResult`) |
+| `assistant/src/oauth/token-persistence.ts`       | Token storage: keychain writes, metadata upsert, post-connect hooks              |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler                   |
 
 ---
 

@@ -34,7 +34,7 @@ export const oauthApps = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    uniqueIndex("idx_oauth_apps_provider_key_client_id").on(
+    uniqueIndex("idx_oauth_apps_provider_client").on(
       table.providerKey,
       table.clientId,
     ),
