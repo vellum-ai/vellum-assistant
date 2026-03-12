@@ -3,13 +3,11 @@
  * confirmation, secret, host_bash, host_file, and host_cu interactions.
  *
  * When the agent loop emits a confirmation_request, secret_request,
- * host_bash_request, or host_file_request, the onEvent callback registers
- * the interaction here. Standalone HTTP endpoints (/v1/confirm, /v1/secret,
- * /v1/trust-rules, /v1/host-bash-result, /v1/host-file-result) look up the
- * session from this tracker to resolve the interaction.
- *
- * host_cu_request registration and /v1/host-cu-result will be added in a
- * follow-up PR as part of the unify-cu-loop plan.
+ * host_bash_request, host_file_request, or host_cu_request, the onEvent
+ * callback registers the interaction here. Standalone HTTP endpoints
+ * (/v1/confirm, /v1/secret, /v1/trust-rules, /v1/host-bash-result,
+ * /v1/host-file-result, /v1/host-cu-result) look up the session from this
+ * tracker to resolve the interaction.
  */
 
 import type { Session } from "../daemon/session.js";
@@ -85,15 +83,12 @@ export function getByConversation(
  * Remove pending confirmation and secret interactions for a given session.
  * Used when auto-denying all pending interactions (e.g. new user message).
  *
- * host_bash and host_file interactions are intentionally skipped — they
- * represent in-flight tool executions proxied to the client, not
+ * host_bash, host_file, and host_cu interactions are intentionally skipped
+ * — they represent in-flight tool executions proxied to the client, not
  * confirmations to auto-deny. Removing them would orphan the request: the
- * client would POST to /v1/host-bash-result or /v1/host-file-result after
- * completing the operation, get a 404, and the proxy timer would fire with
- * a spurious timeout error.
- *
- * host_cu is also skipped for the same reason (proxy endpoint coming in a
- * follow-up PR).
+ * client would POST to /v1/host-bash-result, /v1/host-file-result, or
+ * /v1/host-cu-result after completing the operation, get a 404, and the
+ * proxy timer would fire with a spurious timeout error.
  */
 export function removeBySession(session: Session): void {
   for (const [requestId, interaction] of pending) {

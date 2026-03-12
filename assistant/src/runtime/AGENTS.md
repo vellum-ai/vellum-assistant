@@ -45,12 +45,12 @@ Host file allows the assistant to perform file operations (read, write, edit) on
 
 ### Host CU (desktop proxy computer-use execution)
 
-Host CU will allow the assistant to proxy computer-use actions (screenshots, mouse/keyboard input) to the desktop host via the client, following the same pattern as host bash and host file.
+Host CU allows the assistant to proxy computer-use actions (screenshots, mouse/keyboard input) to the desktop host via the client, following the same pattern as host bash and host file.
 
-- **Discovery**: Clients will discover pending host CU requests via SSE events (`host_cu_request`) which include a `requestId`.
-- **Resolution**: Clients will execute the CU action on the host and respond via:
-  - `POST /v1/host-cu-result` — `{ requestId, ... }` (schema TBD in implementation PR)
-- **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. The type union already includes `host_cu`; registration and route will be added in a follow-up PR.
+- **Discovery**: Clients discover pending host CU requests via SSE events (`host_cu_request`) which include a `requestId`.
+- **Resolution**: Clients execute the CU action on the host and respond via:
+  - `POST /v1/host-cu-result` — `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance? }`
+- **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-cu-routes.ts`.
 
 ### Channel approvals (Telegram, Slack)
 
