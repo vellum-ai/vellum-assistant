@@ -316,6 +316,13 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
+  // Also write to legacy credential key path so the deprecated
+  // withValidToken() reads the refreshed token on subsequent calls.
+  await setSecureKeyAsync(
+    credentialKey(service, "access_token"),
+    result.accessToken,
+  );
+
   if (result.refreshToken) {
     if (
       !(await setSecureKeyAsync(

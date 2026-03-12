@@ -48,18 +48,37 @@ mock.module("../tools/registry.js", () => ({
 // Mock oauth-store to avoid SQLite dependency in unit tests
 // ---------------------------------------------------------------------------
 
-let mockGetMostRecentAppByProvider: ReturnType<typeof mock<() => unknown>>;
-let mockGetProvider: ReturnType<typeof mock<() => unknown>>;
+let mockGetMostRecentAppByProvider: ReturnType<
+  typeof mock<(key: string) => unknown>
+>;
+let mockGetAppByProviderAndClientId: ReturnType<
+  typeof mock<(key: string, clientId: string) => unknown>
+>;
+let mockGetProvider: ReturnType<typeof mock<(key: string) => unknown>>;
 
 mock.module("../oauth/oauth-store.js", () => {
   mockGetMostRecentAppByProvider = mock(() => undefined);
+  mockGetAppByProviderAndClientId = mock(() => undefined);
   mockGetProvider = mock(() => undefined);
   return {
     getMostRecentAppByProvider: mockGetMostRecentAppByProvider,
+    getAppByProviderAndClientId: mockGetAppByProviderAndClientId,
     getProvider: mockGetProvider,
     listConnections: mock(() => []),
+    seedProviders: mock(() => {}),
   };
 });
+
+// ---------------------------------------------------------------------------
+// Mock public ingress URL — not available in unit tests. The connect
+// orchestrator dynamically imports this for non-interactive flows.
+// ---------------------------------------------------------------------------
+
+mock.module("../inbound/public-ingress-urls.js", () => ({
+  getPublicBaseUrl: () => {
+    throw new Error("No public ingress URL configured");
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Imports under test
@@ -490,18 +509,48 @@ describe("credential_store tool — prompt action", () => {
 // ---------------------------------------------------------------------------
 
 describe("credential_store tool — oauth2_connect error paths", () => {
+  /** Well-known provider rows returned by the mocked getProvider */
+  const wellKnownProviders: Record<string, object> = {
+    "integration:gmail": {
+      key: "integration:gmail",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+      scopePolicy: JSON.stringify({}),
+      callbackTransport: "loopback",
+      loopbackPort: 8756,
+    },
+    "integration:slack": {
+      key: "integration:slack",
+      authUrl: "https://slack.com/oauth/v2/authorize",
+      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      defaultScopes: JSON.stringify(["channels:read"]),
+      scopePolicy: JSON.stringify({}),
+    },
+  };
+
   beforeEach(() => {
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
     _setStorePath(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
+    // Return well-known provider rows so vault.ts knows gmail/slack are
+    // registered, and custom providers return undefined.
+    mockGetProvider.mockImplementation(
+      (key: string) => wellKnownProviders[key] ?? undefined,
+    );
+    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     _setMetadataPath(null);
     _setStorePath(null);
     _resetBackend();
+    mockGetProvider.mockImplementation(() => undefined);
+    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
+    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
   });
 
   test("requires service parameter", async () => {
@@ -571,6 +620,21 @@ describe("credential_store tool — oauth2_connect error paths", () => {
   });
 
   test("requires interactive context", async () => {
+    // Register custom-svc as a provider so the orchestrator finds it
+    // and reaches the non-interactive check (gateway transport).
+    mockGetProvider.mockImplementation((key: string) => {
+      if (key === "custom-svc") {
+        return {
+          key: "custom-svc",
+          authUrl: "https://auth.example.com",
+          tokenUrl: "https://token.example.com",
+          defaultScopes: JSON.stringify(["read"]),
+          scopePolicy: JSON.stringify({}),
+        };
+      }
+      return wellKnownProviders[key] ?? undefined;
+    });
+
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
@@ -627,11 +691,11 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+      scopePolicy: JSON.stringify({}),
+      callbackTransport: "loopback",
+      loopbackPort: 8756,
     }));
-    setSecureKey(
-      "oauth_app/test-app-id/client_secret",
-      "test-secret",
-    );
+    setSecureKey("oauth_app/test-app-id/client_secret", "test-secret");
 
     const result = await credentialStoreTool.execute(
       {

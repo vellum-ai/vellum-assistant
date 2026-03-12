@@ -5,7 +5,7 @@
  * extra_params, granted_scopes, metadata) are stored as serialized JSON strings.
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb, rawChanges } from "../memory/db.js";
@@ -294,7 +294,7 @@ export function getConnectionByProvider(
         eq(oauthConnections.status, "active"),
       ),
     )
-    .orderBy(desc(oauthConnections.createdAt))
+    .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
     .limit(1)
     .get();
 }
