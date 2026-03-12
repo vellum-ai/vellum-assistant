@@ -117,14 +117,19 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
     };
   }
 
-  // Resolve required tools
+  // Resolve required tools — empty snapshot falls back to task template.
+  // An explicit [] does not mean "no tools"; it means the snapshot hasn't
+  // constrained the tool set, so we fall back to the task template's tools.
+  const taskRequiredTools = task.requiredTools
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
+    : getRegisteredToolNames();
   let requiredTools: string[];
-  if (workItem.requiredTools != null) {
-    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  if (workItem.requiredTools == null) {
+    requiredTools = taskRequiredTools;
   } else {
-    requiredTools = task.requiredTools
-      ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : getRegisteredToolNames();
+    const snapshotTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+    requiredTools =
+      snapshotTools.length > 0 ? snapshotTools : taskRequiredTools;
   }
 
   // Auto-approve all required tools for chat-initiated runs.
