@@ -644,6 +644,32 @@ enum LogExporter {
             config["twilio"] = twilio
         }
 
+        // Strip MCP transport headers (SSE/streamable-http) and env vars (stdio)
+        if var mcp = config["mcp"] as? [String: Any],
+           var servers = mcp["servers"] as? [String: [String: Any]] {
+            for name in servers.keys {
+                var server = servers[name]!
+                if var transport = server["transport"] as? [String: Any] {
+                    if var headers = transport["headers"] as? [String: Any] {
+                        for key in headers.keys {
+                            headers[key] = redactValue(headers[key])
+                        }
+                        transport["headers"] = headers
+                    }
+                    if var env = transport["env"] as? [String: Any] {
+                        for key in env.keys {
+                            env[key] = redactValue(env[key])
+                        }
+                        transport["env"] = env
+                    }
+                    server["transport"] = transport
+                }
+                servers[name] = server
+            }
+            mcp["servers"] = servers
+            config["mcp"] = mcp
+        }
+
         guard let data = try? JSONSerialization.data(
             withJSONObject: config,
             options: [.prettyPrinted, .sortedKeys]
