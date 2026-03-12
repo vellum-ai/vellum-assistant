@@ -230,7 +230,8 @@ enum HostCuActionRunner {
             ?? extractInt(from: input, key: "scrollAmount")
             ?? extractInt(from: input, key: "scroll_amount")
         let summary = input["summary"]?.value as? String
-        let waitDuration = extractInt(from: input, key: "duration")
+        let waitDuration = extractInt(from: input, key: "duration_ms")
+            ?? extractInt(from: input, key: "duration")
             ?? extractInt(from: input, key: "waitDuration")
             ?? extractInt(from: input, key: "wait_duration")
         let appName = input["app_name"]?.value as? String
