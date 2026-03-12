@@ -307,7 +307,8 @@ export function updateConnection(
   updates: Partial<{
     accountInfo: string;
     grantedScopes: string[];
-    expiresAt: number;
+    /** Pass `null` to explicitly clear a stale expiresAt in the DB. */
+    expiresAt: number | null;
     hasRefreshToken: boolean;
     status: string;
     label: string;
@@ -318,6 +319,8 @@ export function updateConnection(
   const now = Date.now();
 
   // Build the set clause, serializing JSON fields and converting booleans.
+  // For expiresAt, null means "clear the column" so we check for undefined
+  // explicitly rather than truthiness.
   const set: Record<string, unknown> = { updatedAt: now };
   if (updates.accountInfo !== undefined) set.accountInfo = updates.accountInfo;
   if (updates.grantedScopes !== undefined)

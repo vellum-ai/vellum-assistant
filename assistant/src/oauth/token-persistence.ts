@@ -127,7 +127,7 @@ export async function storeOAuth2Tokens(
     updateConnection(connId, {
       accountInfo: resolvedAccountInfo,
       grantedScopes,
-      expiresAt: expiresAt ?? undefined,
+      expiresAt,
       hasRefreshToken,
       metadata: rawTokenResponse,
     });
@@ -163,9 +163,7 @@ export async function storeOAuth2Tokens(
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
-    await deleteSecureKeyAsync(
-      `oauth_connection/${connId}/refresh_token`,
-    );
+    await deleteSecureKeyAsync(`oauth_connection/${connId}/refresh_token`);
   }
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
