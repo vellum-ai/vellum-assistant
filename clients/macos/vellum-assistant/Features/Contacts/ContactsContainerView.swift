@@ -15,13 +15,15 @@ enum ContactSelection: Hashable {
 struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
     var store: SettingsStore?
+    var isEmailEnabled: Bool = false
 
     @StateObject private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
-    init(daemonClient: DaemonClient?, store: SettingsStore? = nil) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil, isEmailEnabled: Bool = false) {
         self.daemonClient = daemonClient
         self.store = store
+        self.isEmailEnabled = isEmailEnabled
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
     }
 
@@ -58,7 +60,7 @@ struct ContactsContainerView: View {
                 switch selection {
                 case .assistant:
                     if let store {
-                        AssistantChannelsDetailView(store: store, daemonClient: daemonClient)
+                        AssistantChannelsDetailView(store: store, daemonClient: daemonClient, isEmailEnabled: isEmailEnabled)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     } else {
                         VStack(spacing: VSpacing.md) {

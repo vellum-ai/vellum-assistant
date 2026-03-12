@@ -62,11 +62,13 @@ struct SettingsPanel: View {
     @State private var selectedTab: SettingsTab = .general
     @State private var isContactsEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
+    @State private var isEmailEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
+    private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -170,6 +172,8 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .developer {
                         selectedTab = .general
                     }
+                } else if key == Self.emailFeatureFlagKey {
+                    isEmailEnabled = enabled
                 }
             }
         }
@@ -287,7 +291,7 @@ struct SettingsPanel: View {
         case .permissionsAndPrivacy:
             permissionsAndPrivacyContent
         case .contacts:
-            ContactsContainerView(daemonClient: daemonClient, store: store)
+            ContactsContainerView(daemonClient: daemonClient, store: store, isEmailEnabled: isEmailEnabled)
         case .archivedThreads:
             SettingsArchivedThreadsTab(threadManager: threadManager)
         case .developer:
@@ -730,6 +734,9 @@ struct SettingsPanel: View {
                 if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
                     isDeveloperEnabled = developerFlag.enabled
                 }
+                if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
+                    isEmailEnabled = emailFlag.enabled
+                }
                 return
             } catch {
                 // Fall through to local config fallback.
@@ -749,6 +756,9 @@ struct SettingsPanel: View {
         }
         if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
             isDeveloperEnabled = developerEnabled
+        }
+        if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
+            isEmailEnabled = emailEnabled
         }
     }
 
