@@ -622,15 +622,17 @@ enum LogExporter {
         if var skills = config["skills"] as? [String: Any],
            var entries = skills["entries"] as? [String: [String: Any]] {
             for name in entries.keys {
-                if entries[name]?["apiKey"] != nil {
-                    entries[name]?["apiKey"] = redactValue(entries[name]?["apiKey"])
+                var entry = entries[name]!
+                if entry["apiKey"] != nil {
+                    entry["apiKey"] = redactValue(entry["apiKey"])
                 }
-                if var env = entries[name]?["env"] as? [String: Any] {
+                if var env = entry["env"] as? [String: Any] {
                     for envKey in env.keys {
                         env[envKey] = redactValue(env[envKey])
                     }
-                    entries[name]?["env"] = env
+                    entry["env"] = env
                 }
+                entries[name] = entry
             }
             skills["entries"] = entries
             config["skills"] = skills
