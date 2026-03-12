@@ -215,7 +215,9 @@ function queryExistingItemsForContext(
 
   // Extract a rough subject prefix from the first few words of the text
   const words = text.trim().split(/\s+/).slice(0, 3).join(" ");
-  const subjectPrefix = words.length > 0 ? `${words}%` : "%";
+  // Escape LIKE wildcards so user text with % or _ doesn't alter query semantics
+  const escaped = words.replace(/%/g, "").replace(/_/g, "");
+  const subjectPrefix = escaped.length > 0 ? `${escaped}%` : "%";
 
   // Query active items matching subject prefix, limited to 10
   const rows = db
@@ -380,6 +382,9 @@ async function extractItemsWithLLM(
         return extractItemsPatternBased(text, scopeId);
       }
 
+      // Build set of known existing item IDs for supersession validation
+      const existingItemIds = new Set(existingItems.map((e) => e.id));
+
       const items: ExtractedItem[] = [];
       for (const raw of input.items) {
         // Apply kind migration map for old kind names, then validate
@@ -397,10 +402,15 @@ async function extractItemsWithLLM(
           statement,
         );
 
-        // Validate supersedes: must reference a known existing item ID
-        const supersedes =
+        // Validate supersedes: must reference a known existing item ID.
+        // Reject hallucinated IDs that don't match any item we showed the LLM.
+        const rawSupersedes =
           typeof raw.supersedes === "string" && raw.supersedes.length > 0
             ? raw.supersedes
+            : null;
+        const supersedes =
+          rawSupersedes && existingItemIds.has(rawSupersedes)
+            ? rawSupersedes
             : null;
         const overrideConfidence = VALID_OVERRIDE_CONFIDENCES.has(
           raw.overrideConfidence,
@@ -552,9 +562,12 @@ export async function extractAndUpsertMemoryItemsForMessage(
       upserted += 1;
     }
 
-    // Handle LLM-directed supersession based on overrideConfidence
+    // Handle LLM-directed supersession based on overrideConfidence.
+    // Guard: skip if supersedes targets the current item (self-supersession on
+    // fingerprint re-hit would incorrectly remove an active memory).
     if (
       item.supersedes &&
+      item.supersedes !== memoryItemId &&
       item.overrideConfidence === "explicit" &&
       effectiveStatus === "active"
     ) {
