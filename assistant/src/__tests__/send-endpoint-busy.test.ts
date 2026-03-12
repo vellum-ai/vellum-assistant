@@ -118,6 +118,7 @@ function makeCompletingSession(): Session {
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -175,6 +176,7 @@ function makeHangingSession(): Session {
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
@@ -260,6 +262,7 @@ function makePendingApprovalSession(
     setHostBashProxy: () => {},
     setHostFileProxy: () => {},
     setHostCuProxy: () => {},
+    addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) =>
       pending.has(candidateRequestId),
