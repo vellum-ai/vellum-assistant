@@ -315,7 +315,8 @@ struct ChatView: View {
             }
             return .ignored
         }
-        .onKeyPress("f", modifiers: .command) {
+        .onKeyPress("f", phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
             activateSearch()
             return .handled
         }
