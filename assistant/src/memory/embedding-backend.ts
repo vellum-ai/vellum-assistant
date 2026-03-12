@@ -626,9 +626,9 @@ function isOllamaConfigured(config: AssistantConfig): boolean {
 
 const SPARSE_VOCAB_SIZE = 30_000;
 
-/** Tokenize text into lowercase alphanumeric tokens. */
+/** Tokenize text into lowercase alphanumeric tokens (Unicode-aware). */
 function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 /** Hash a token to a stable index in [0, vocabSize). */
