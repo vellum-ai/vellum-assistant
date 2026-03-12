@@ -690,7 +690,7 @@ function buildMemoryRecallSection(): string {
     "- The auto-injected memory context doesn't contain what you need",
     "- The user references something from a previous session",
     "",
-    "The tool searches across semantic, lexical, entity graph, and recency sources. Be specific in your query for best results.",
+    "The tool uses hybrid search (dense and sparse vectors) supplemented by recency. Be specific in your query for best results.",
   ].join("\n");
 }
 

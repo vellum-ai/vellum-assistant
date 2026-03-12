@@ -176,7 +176,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.memory.cleanup).toEqual({
       enabled: true,
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
-      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 90,
     });
