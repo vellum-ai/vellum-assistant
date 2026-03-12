@@ -181,6 +181,35 @@ describe("provider operations", () => {
       // createdAt should be preserved from the original insert
       expect(row!.createdAt).toBe(originalCreatedAt);
     });
+
+    test("persists pingUrl when provided", () => {
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize",
+          tokenUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+          pingUrl: "https://api.github.com/user",
+        },
+      ]);
+      const row = getProvider("github");
+      expect(row!.pingUrl).toBe("https://api.github.com/user");
+    });
+
+    test("pingUrl defaults to null when omitted", () => {
+      seedProviders([
+        {
+          providerKey: "github",
+          authUrl: "https://github.com/authorize",
+          tokenUrl: "https://github.com/token",
+          defaultScopes: ["repo"],
+          scopePolicy: {},
+        },
+      ]);
+      const row = getProvider("github");
+      expect(row!.pingUrl).toBeNull();
+    });
   });
 
   describe("getProvider", () => {

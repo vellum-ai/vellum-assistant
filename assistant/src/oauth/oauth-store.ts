@@ -48,6 +48,7 @@ export function seedProviders(
     tokenUrl: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
+    pingUrl?: string;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -63,6 +64,7 @@ export function seedProviders(
     const tokenUrl = p.tokenUrl;
     const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
     const userinfoUrl = p.userinfoUrl ?? null;
+    const pingUrl = p.pingUrl ?? null;
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
@@ -83,6 +85,7 @@ export function seedProviders(
         extraParams,
         callbackTransport,
         loopbackPort,
+        pingUrl,
         createdAt: now,
         updatedAt: now,
       })
@@ -99,6 +102,7 @@ export function seedProviders(
           extraParams,
           callbackTransport,
           loopbackPort,
+          pingUrl,
           updatedAt: now,
         },
       })
@@ -132,6 +136,7 @@ export function registerProvider(params: {
   tokenUrl: string;
   tokenEndpointAuthMethod?: string;
   userinfoUrl?: string;
+  pingUrl?: string;
   baseUrl?: string;
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
@@ -159,7 +164,7 @@ export function registerProvider(params: {
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
     loopbackPort: params.loopbackPort ?? null,
-    pingUrl: null,
+    pingUrl: params.pingUrl ?? null,
     createdAt: now,
     updatedAt: now,
   };

@@ -17,6 +17,7 @@ const PROVIDER_SEED_DATA: Record<
     tokenUrl: string;
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
+    pingUrl?: string;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: {
@@ -34,6 +35,7 @@ const PROVIDER_SEED_DATA: Record<
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+    pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     defaultScopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
@@ -57,6 +59,7 @@ const PROVIDER_SEED_DATA: Record<
     providerKey: "integration:slack",
     authUrl: "https://slack.com/oauth/v2/authorize",
     tokenUrl: "https://slack.com/api/oauth.v2.access",
+    pingUrl: "https://slack.com/api/auth.test",
     baseUrl: "https://slack.com/api",
     defaultScopes: [
       "channels:read",
@@ -90,6 +93,7 @@ const PROVIDER_SEED_DATA: Record<
     providerKey: "integration:notion",
     authUrl: "https://api.notion.com/v1/oauth/authorize",
     tokenUrl: "https://api.notion.com/v1/oauth/token",
+    pingUrl: "https://api.notion.com/v1/users/me",
     baseUrl: "https://api.notion.com",
     defaultScopes: [],
     scopePolicy: {
@@ -105,6 +109,7 @@ const PROVIDER_SEED_DATA: Record<
     providerKey: "integration:twitter",
     authUrl: "https://twitter.com/i/oauth2/authorize",
     tokenUrl: "https://api.x.com/2/oauth2/token",
+    pingUrl: "https://api.x.com/2/users/me",
     baseUrl: "https://api.x.com",
     defaultScopes: [
       "tweet.read",
@@ -128,6 +133,7 @@ const PROVIDER_SEED_DATA: Record<
     providerKey: "slack_channel",
     authUrl: "urn:manual-token",
     tokenUrl: "urn:manual-token",
+    pingUrl: "https://slack.com/api/auth.test",
     baseUrl: "https://slack.com/api",
     defaultScopes: [],
     scopePolicy: {
