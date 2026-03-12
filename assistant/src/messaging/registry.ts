@@ -14,7 +14,6 @@ import type { MessagingProvider } from "./provider.js";
  */
 const PLATFORM_FLAG_KEYS: Record<string, string> = {
   gmail: "feature_flags.messaging.gmail.enabled",
-  telegram: "feature_flags.messaging.telegram.enabled",
 };
 
 const providers = new Map<string, MessagingProvider>();

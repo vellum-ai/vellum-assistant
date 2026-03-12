@@ -42,14 +42,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "messaging-telegram",
-      "scope": "assistant",
-      "key": "feature_flags.messaging.telegram.enabled",
-      "label": "Messaging: Telegram",
-      "description": "Allow messaging tools to operate on the Telegram platform",
-      "defaultEnabled": false
-    },
-    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
