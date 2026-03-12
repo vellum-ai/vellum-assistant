@@ -45,8 +45,6 @@ export interface ChannelDeliveryResult {
   ok: boolean;
   /** The message timestamp returned by the delivery endpoint (e.g. Slack message ts). */
   ts?: string;
-  /** The Telegram message_id returned when a new message was sent. */
-  messageId?: number;
 }
 
 interface ManagedOutboundCallbackContext {
@@ -99,9 +97,6 @@ export async function deliverChannelReply(
     const responseBody = (await response.json()) as Record<string, unknown>;
     if (typeof responseBody.ts === "string") {
       result.ts = responseBody.ts;
-    }
-    if (typeof responseBody.messageId === "number") {
-      result.messageId = responseBody.messageId;
     }
   } catch {
     // Response may not be JSON for non-Slack channels; that's fine.
