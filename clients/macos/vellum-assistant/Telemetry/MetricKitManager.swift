@@ -54,6 +54,7 @@ import os
     /// `completion` is called on `sentrySerialQueue` after the flush finishes
     /// (or immediately if Sentry was already enabled and no flush is needed).
     /// `nonisolated` so the Settings sheet can call it from a detached Task.
+
     /// Data for Sentry's User Feedback API, attached to the captured event.
     /// Sent via `SentrySDK.capture(userFeedback:)` so it appears in Sentry's
     /// "User Feedback" section linked to the event.

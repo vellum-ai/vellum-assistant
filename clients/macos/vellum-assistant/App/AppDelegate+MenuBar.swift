@@ -503,8 +503,10 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         // Belt-and-suspenders: re-activate after a run-loop tick so macOS respects
-        // the policy switch that just happened above.
-        DispatchQueue.main.async {
+        // the policy switch that just happened above. Check logReportWindow to
+        // avoid resurrecting a window that was closed during the async gap.
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.logReportWindow, window.isVisible else { return }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
