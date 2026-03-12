@@ -101,7 +101,6 @@ describe("Memory regressions (experimental)", () => {
 
     db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM memory_segments");
-    db.run("DELETE FROM memory_summaries");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
