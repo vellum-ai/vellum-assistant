@@ -102,9 +102,10 @@ private struct SSHTerminalContentView: View {
             terminalToolbar
             SSHTerminalView(sessionManager: sessionManager)
                 .padding(8)
+                .background(VColor.backgroundSubtle)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
+        .background(VColor.backgroundSubtle)
     }
 
     private var terminalToolbar: some View {
