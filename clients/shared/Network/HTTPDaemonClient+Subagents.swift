@@ -72,7 +72,7 @@ extension HTTPTransport {
 
         // The abort endpoint requires a sessionId in the body
         var body: [String: Any] = [:]
-        if let sessionId = activeLocalSessionId {
+        if let sessionId = pendingLocalSessionId {
             body["sessionId"] = sessionId
         }
 
@@ -107,7 +107,7 @@ extension HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = ["content": content]
-        if let sessionId = activeLocalSessionId {
+        if let sessionId = pendingLocalSessionId {
             body["sessionId"] = sessionId
         }
 

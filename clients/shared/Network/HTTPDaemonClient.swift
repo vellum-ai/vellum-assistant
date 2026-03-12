@@ -172,14 +172,14 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
-    /// The local session ID used by the client (set from the synthetic session_info).
-    /// Used to remap the daemon's internal conversation ID to the client's session ID
-    /// so that ChatViewModel's belongsToSession() filter passes.
-    var activeLocalSessionId: String?
+    /// Maps the daemon's server-side conversationId → client-local sessionId.
+    /// Used to remap sessionId in incoming SSE events so ChatViewModel's
+    /// belongsToSession() filter passes. Supports multiple concurrent threads.
+    var serverToLocalSessionMap: [String: String] = [:]
 
-    /// The daemon's internal conversation ID, learned from the first SSE event.
-    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
-    var remoteSessionId: String?
+    /// The local session ID for the most recently created session, awaiting
+    /// the server's conversationId from the first POST /v1/messages response.
+    var pendingLocalSessionId: String?
 
     let decoder = JSONDecoder()
     let encoder = JSONEncoder()
@@ -1412,43 +1412,25 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
-        // Remap the daemon's internal session/conversation ID to the client's
-        // local session ID so that ChatViewModel.belongsToSession() passes.
-        // The daemon assigns its own UUID via getOrCreateConversation(), which
-        // differs from the correlationId the client uses as sessionId.
         var jsonString = data
-        if let localId = activeLocalSessionId {
-            if remoteSessionId == nil {
-                // Learn the daemon's session ID from the first event envelope.
-                if let eventData = data.data(using: .utf8),
-                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
-                   let eventSessionId = envelope.sessionId,
-                   eventSessionId != localId {
-                    remoteSessionId = eventSessionId
-                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
-                }
-            }
-            if let remoteId = remoteSessionId {
-                // Replace only the sessionId JSON value — not arbitrary occurrences
-                // of the UUID elsewhere in the payload. Handle both compact
-                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\":\"\(remoteId)\"",
-                    with: "\"sessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"sessionId\": \"\(remoteId)\"",
-                    with: "\"sessionId\": \"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\":\"\(remoteId)\"",
-                    with: "\"parentSessionId\":\"\(localId)\""
-                )
-                jsonString = jsonString.replacingOccurrences(
-                    of: "\"parentSessionId\": \"\(remoteId)\"",
-                    with: "\"parentSessionId\": \"\(localId)\""
-                )
-            }
+        // Remap server conversation IDs to client-local session IDs
+        for (serverId, localId) in serverToLocalSessionMap {
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\":\"\(serverId)\"",
+                with: "\"sessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"sessionId\": \"\(serverId)\"",
+                with: "\"sessionId\": \"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\":\"\(serverId)\"",
+                with: "\"parentSessionId\":\"\(localId)\""
+            )
+            jsonString = jsonString.replacingOccurrences(
+                of: "\"parentSessionId\": \"\(serverId)\"",
+                with: "\"parentSessionId\": \"\(localId)\""
+            )
         }
 
         guard let jsonData = jsonString.data(using: .utf8) else { return }
