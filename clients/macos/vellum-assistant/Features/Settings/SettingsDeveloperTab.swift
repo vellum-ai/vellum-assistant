@@ -68,6 +68,9 @@ struct SettingsDeveloperTab: View {
                 restartAssistantSection
                 AssistantBackupsSection(assistant: assistant, store: store)
                     .withRestoreConfirmation
+                if assistant.isManaged {
+                    sshTerminalSection
+                }
             }
             // Gateway Settings
             GatewaySettingsCard(
@@ -571,6 +574,27 @@ struct SettingsDeveloperTab: View {
                 restart: true
             )
         } catch {}
+    }
+
+    // MARK: - SSH Terminal
+
+    private var sshTerminalSection: some View {
+        SettingsCard(
+            title: "SSH Terminal",
+            subtitle: "Open a terminal session to the assistant's host machine."
+        ) {
+            VButton(label: "Open Terminal", style: .secondary, size: .medium) {
+                openTerminalInBrowser()
+            }
+        }
+    }
+
+    private func openTerminalInBrowser() {
+        let baseURL = store.platformBaseUrl.isEmpty
+            ? AuthService.shared.baseURL
+            : store.platformBaseUrl
+        guard let url = URL(string: "\(baseURL)/settings?panel=assistant-terminal") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Retire Assistant
