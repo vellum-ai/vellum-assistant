@@ -92,6 +92,11 @@ struct AssistantChannelsDetailView: View {
                 store.refreshTwilioNumbers()
             }
         }
+        .onChange(of: isEmailEnabled) { _, enabled in
+            if enabled {
+                store.refreshAssistantEmail()
+            }
+        }
     }
 
     // MARK: - Email Channel Card
