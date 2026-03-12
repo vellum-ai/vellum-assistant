@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { BackendError, VellumError } from "../util/errors.js";
 import {
   CredentialRequiredError,
   PlatformOAuthConnection,
@@ -116,6 +117,16 @@ describe("PlatformOAuthConnection", () => {
     await conn.request({ method: "GET", path: "/some/path" });
   });
 
+  test("error classes extend VellumError hierarchy", () => {
+    const credErr = new CredentialRequiredError();
+    expect(credErr).toBeInstanceOf(BackendError);
+    expect(credErr).toBeInstanceOf(VellumError);
+
+    const provErr = new ProviderUnreachableError();
+    expect(provErr).toBeInstanceOf(BackendError);
+    expect(provErr).toBeInstanceOf(VellumError);
+  });
+
   test("424 response throws CredentialRequiredError", async () => {
     globalThis.fetch = mock(async () => {
       return new Response("", { status: 424 });
@@ -143,6 +154,24 @@ describe("PlatformOAuthConnection", () => {
     await expect(conn.withToken(async (token) => token)).rejects.toThrow(
       "Raw token access is not supported for platform-managed connections. Use connection.request() instead.",
     );
+  });
+
+  test("strips trailing slash from platformBaseUrl to avoid double slashes", async () => {
+    globalThis.fetch = mock(async (url: string | URL | Request) => {
+      expect(String(url)).toBe(
+        "https://platform.example.com/v1/assistants/asst-abc/external-provider-proxy/gmail/",
+      );
+      return new Response(
+        JSON.stringify({ status: 200, headers: {}, body: null }),
+        { status: 200 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      platformBaseUrl: "https://platform.example.com/",
+    });
+    await conn.request({ method: "GET", path: "/test" });
   });
 
   test("strips integration: prefix from providerKey for slug", async () => {

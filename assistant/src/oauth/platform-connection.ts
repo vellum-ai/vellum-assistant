@@ -1,17 +1,18 @@
+import { BackendError } from "../util/errors.js";
 import type {
   OAuthConnection,
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "./connection.js";
 
-export class CredentialRequiredError extends Error {
+export class CredentialRequiredError extends BackendError {
   constructor(message = "Connection not set up on platform") {
     super(message);
     this.name = "CredentialRequiredError";
   }
 }
 
-export class ProviderUnreachableError extends Error {
+export class ProviderUnreachableError extends BackendError {
   constructor(message = "Provider is unreachable") {
     super(message);
     this.name = "ProviderUnreachableError";
@@ -47,7 +48,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
     this.accountInfo = options.accountInfo;
     this.grantedScopes = options.grantedScopes;
     this.assistantId = options.assistantId;
-    this.platformBaseUrl = options.platformBaseUrl;
+    this.platformBaseUrl = options.platformBaseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
   }
 
@@ -84,7 +85,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
     }
 
     if (!response.ok) {
-      throw new Error(
+      throw new BackendError(
         `Platform proxy returned unexpected status ${response.status}`,
       );
     }
@@ -103,7 +104,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
   }
 
   async withToken<T>(_fn: (token: string) => Promise<T>): Promise<T> {
-    throw new Error(
+    throw new BackendError(
       "Raw token access is not supported for platform-managed connections. Use connection.request() instead.",
     );
   }
