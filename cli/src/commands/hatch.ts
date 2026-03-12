@@ -136,14 +136,12 @@ ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
-VELLUM_CLOUD=${cloud}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
 ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
 GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 RUNTIME_HTTP_PORT=7821
-VELLUM_CLOUD=\$VELLUM_CLOUD
 DOTENV_EOF
 
 mkdir -p "\$HOME/.vellum/workspace"
@@ -743,7 +741,10 @@ async function hatchLocal(
         `🧹 Found ${orphans.length} orphaned process${orphans.length === 1 ? "" : "es"} — cleaning up...`,
       );
       for (const orphan of orphans) {
-        await stopProcess(parseInt(orphan.pid, 10), `${orphan.name} (PID ${orphan.pid})`);
+        await stopProcess(
+          parseInt(orphan.pid, 10),
+          `${orphan.name} (PID ${orphan.pid})`,
+        );
       }
     }
   }
