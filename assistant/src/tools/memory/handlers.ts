@@ -31,21 +31,37 @@ export async function handleMemorySave(
     };
   }
 
-  const kind = args.kind;
+  const rawKind = args.kind;
   const validKinds = new Set([
+    "identity",
     "preference",
-    "fact",
+    "project",
     "decision",
-    "profile",
-    "relationship",
+    "constraint",
     "event",
-    "opinion",
-    "instruction",
-    "style",
-    "playbook",
-    "learning",
   ]);
-  if (typeof kind !== "string" || !validKinds.has(kind)) {
+  /** Maps old kind names to their new equivalents for backwards compat. */
+  const kindMigrationMap: Record<string, string> = {
+    profile: "identity",
+    fact: "identity",
+    relationship: "identity",
+    opinion: "preference",
+    todo: "project",
+    instruction: "constraint",
+    style: "preference",
+    playbook: "constraint",
+    learning: "identity",
+  };
+  if (typeof rawKind !== "string") {
+    return {
+      content: `Error: kind is required and must be one of: ${[
+        ...validKinds,
+      ].join(", ")}`,
+      isError: true,
+    };
+  }
+  const kind = kindMigrationMap[rawKind] ?? rawKind;
+  if (!validKinds.has(kind)) {
     return {
       content: `Error: kind is required and must be one of: ${[
         ...validKinds,
