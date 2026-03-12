@@ -28,6 +28,7 @@ import {
   createMediaAssetsTables,
   createMessagesFts,
   createNotificationTables,
+  createOAuthTables,
   createScopedApprovalGrantsTable,
   createSequenceTables,
   createTasksAndWorkItemsTables,
@@ -339,6 +340,9 @@ export function initializeDb(): void {
 
   // 52. Drop the legacy reminders table after data migration
   migrateDropRemindersTable(database);
+
+  // 53. OAuth provider/app/connection tables
+  createOAuthTables(database);
 
   validateMigrationState(database);
 
