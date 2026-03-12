@@ -262,7 +262,7 @@ export class HostCuProxy {
     obs: CuObservationResult,
     previousAXTree?: string,
   ): ToolExecutionResult {
-    const prevTree = previousAXTree ?? this._previousAXTree;
+    const prevTree = previousAXTree;
     const parts: string[] = [];
 
     // Surface user guidance prominently so the model sees it first

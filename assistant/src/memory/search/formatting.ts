@@ -125,8 +125,26 @@ export function buildTwoLayerInjection(params: {
     return "";
   }
 
-  // Budget tracking — tier 1 gets priority
-  let remainingTokens = totalBudgetTokens ?? Infinity;
+  // Budget tracking — tier 1 gets priority.
+  // Reserve tokens for XML wrapper overhead (<memory_context>, section tags,
+  // newlines between sections) so the final assembled text stays within budget.
+  const WRAPPER_OVERHEAD_TOKENS = estimateTextTokens(
+    "<memory_context>\n\n\n\n</memory_context>",
+  );
+  const SECTION_TAG_TOKENS = estimateTextTokens(
+    "<possibly_relevant>\n\n</possibly_relevant>",
+  );
+  const sectionCount = [
+    identityItems.length,
+    tier1Candidates.length,
+    tier2Candidates.length,
+    preferences.length,
+  ].filter((n) => n > 0).length;
+  const structuralOverhead =
+    WRAPPER_OVERHEAD_TOKENS + sectionCount * SECTION_TAG_TOKENS;
+  let remainingTokens = totalBudgetTokens
+    ? Math.max(1, totalBudgetTokens - structuralOverhead)
+    : Infinity;
 
   // Render tier 1 items first (identity, relevant context, preferences)
   const identityLines = renderPlainStatements(
