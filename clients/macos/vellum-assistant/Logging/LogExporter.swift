@@ -49,10 +49,14 @@ enum LogExporter {
             let archiveName = defaultArchiveName()
             let attachment = Attachment(path: archiveURL.path, filename: archiveName)
             let event = Event(level: .info)
-            let messageText = formData.message.isEmpty
-                ? "\(formData.reason.displayName) log report"
-                : "\(formData.reason.displayName) log report: \(formData.message)"
-            event.message = SentryMessage(formatted: messageText)
+            let errorTitle = "\(formData.reason.displayName) log report"
+            event.message = SentryMessage(formatted: errorTitle)
+            // Set error so Sentry displays the error message (not "No error message provided").
+            event.error = NSError(
+                domain: "com.vellum.log-report",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: errorTitle]
+            )
             var tags: [String: String] = [
                 "source": "log_report",
                 "report_reason": formData.reason.rawValue,
@@ -71,15 +75,8 @@ enum LogExporter {
             // Sentry's UserFeedback API, linked to the event. This keeps PII
             // out of event tags/extras and lets us use Sentry's built-in
             // feedback UI for triage.
-            // Compose feedback comments with the reason as topic heading.
-            let feedbackComments: String = {
-                if formData.message.isEmpty {
-                    return formData.reason.displayName
-                }
-                return "\(formData.reason.displayName): \(formData.message)"
-            }()
             let feedback = MetricKitManager.UserFeedbackData(
-                comments: feedbackComments,
+                comments: formData.message.isEmpty ? nil : formData.message,
                 email: formData.email,
                 name: formData.name.isEmpty ? nil : formData.name
             )
