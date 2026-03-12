@@ -235,6 +235,7 @@ struct ComposerView: View {
             .padding(.trailing, 70)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.bottom)
         .frame(minHeight: composerCompactHeight, maxHeight: inputText.isEmpty ? composerCompactHeight : composerMaxHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
