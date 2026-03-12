@@ -189,7 +189,9 @@ Examples:
           const row = await upsertApp(
             opts.provider,
             opts.clientId,
-            opts.clientSecret,
+            opts.clientSecret
+              ? { clientSecretValue: opts.clientSecret }
+              : undefined,
           );
 
           if (!shouldOutputJson(cmd)) {
