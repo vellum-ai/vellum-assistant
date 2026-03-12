@@ -99,6 +99,8 @@ struct SettingsDeveloperTab: View {
             macOSFeatureFlagSection
             // Environment Variables
             environmentVariablesSection
+            // Containerization
+            ContainerizationSection()
             // Sentry Testing
             sentryTestingSection
         }
