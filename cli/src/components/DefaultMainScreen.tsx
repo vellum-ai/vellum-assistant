@@ -839,7 +839,8 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   if (isRuntimeMessage(item)) {
     const cols = Math.max(1, terminalColumns);
     // Account for "HH:MM AM Label: " prefix on the first line
-    const label = item.role === "user" ? "You:" : "Assistant:";
+    const defaultLabel = item.role === "user" ? "You:" : "Assistant:";
+    const label = item.label ?? defaultLabel;
     const prefixLen = 10 + label.length + 1; // timestamp + space + label + space
     let lines = 0;
     const contentLines = item.content.split("\n");

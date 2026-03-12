@@ -64,10 +64,11 @@ function TextInput({
         // Ctrl+K — kill from cursor to end
         nextValue = currentValue.slice(0, currentOffset);
       } else if (key.ctrl && input === "w") {
-        // Ctrl+W — delete word backwards
+        // Ctrl+W — delete word backwards (handles tabs and other whitespace)
         const before = currentValue.slice(0, currentOffset);
-        const trimmed = before.replace(/\s+$/, "");
-        const wordStart = Math.max(0, trimmed.lastIndexOf(" ") + 1);
+        // Skip trailing whitespace, then find previous whitespace boundary
+        const match = before.match(/^(.*\s)?\S+\s*$/);
+        const wordStart = match?.[1]?.length ?? 0;
         nextValue =
           currentValue.slice(0, wordStart) + currentValue.slice(currentOffset);
         nextOffset = wordStart;
