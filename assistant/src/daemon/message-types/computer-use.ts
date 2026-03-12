@@ -1,4 +1,4 @@
-// Computer use, task routing, and watch observation types.
+// Computer use and watch observation types.
 
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
@@ -89,16 +89,6 @@ export interface RecordingResume {
   recordingId: string;
 }
 
-export interface TaskRouted {
-  type: "task_routed";
-  sessionId: string;
-  interactionType: "computer_use" | "text_qa";
-  /** The task text passed to the escalated session. */
-  task?: string;
-  /** Set when a text_qa session escalates to computer_use. */
-  escalatedFrom?: string;
-}
-
 export interface WatchStarted {
   type: "watch_started";
   sessionId: string;
@@ -121,7 +111,6 @@ export type _ComputerUseClientMessages =
   | RecordingStatus;
 
 export type _ComputerUseServerMessages =
-  | TaskRouted
   | WatchStarted
   | WatchCompleteRequest
   | RecordingStart

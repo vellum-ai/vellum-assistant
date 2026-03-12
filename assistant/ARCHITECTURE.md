@@ -968,7 +968,7 @@ The text_qa system prompt includes an action execution hierarchy that guides too
 | **GOOD**        | Headless browser               | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background)         |
 | **LAST RESORT** | Foreground computer use        | `computer_use_request_control`        | Only on explicit user request ("go ahead", "take over")     |
 
-The `computer_use_request_control` tool is a core proxy tool available only to text*qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use*\*`action tools from the bundled`computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
+The `computer_use_request_control` tool is a core proxy tool available only to text*qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use*\*`action tools from the bundled`computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
 
 ### Sandbox Filesystem and Host Access
 
