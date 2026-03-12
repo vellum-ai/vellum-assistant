@@ -30,7 +30,7 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: mockDeleteSecureKeyAsync,
 }));
 
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import {
   createConnection,
   deleteApp,
@@ -128,7 +128,7 @@ describe("provider operations", () => {
       });
     });
 
-    test("does not overwrite existing provider rows", () => {
+    test("updates existing provider rows with corrected seed data", () => {
       seedProviders([
         {
           providerKey: "github",
@@ -136,16 +136,16 @@ describe("provider operations", () => {
           tokenUrl: "https://github.com/login/oauth/access_token",
           defaultScopes: ["repo"],
           scopePolicy: {},
+          baseUrl: "https://api.github.com",
         },
       ]);
 
-      // Manually update the provider's authUrl via raw SQL
-      const db = getDb();
-      db.run(
-        "UPDATE oauth_providers SET auth_url = 'https://custom.example.com/auth' WHERE provider_key = 'github'",
-      );
+      const original = getProvider("github");
+      expect(original).toBeDefined();
+      expect(original!.baseUrl).toBe("https://api.github.com");
+      const originalCreatedAt = original!.createdAt;
 
-      // Re-seed with different values
+      // Re-seed with corrected values (simulates a code fix deployed on upgrade)
       seedProviders([
         {
           providerKey: "github",
@@ -153,13 +153,22 @@ describe("provider operations", () => {
           tokenUrl: "https://github.com/login/oauth/access_token-v2",
           defaultScopes: ["repo", "user"],
           scopePolicy: { required: ["repo"] },
+          baseUrl: "https://api.github.com/v2",
         },
       ]);
 
-      // The manual update should persist (seed did not overwrite)
       const row = getProvider("github");
       expect(row).toBeDefined();
-      expect(row!.authUrl).toBe("https://custom.example.com/auth");
+      // Seed data should overwrite the existing row
+      expect(row!.authUrl).toBe("https://github.com/login/oauth/authorize-v2");
+      expect(row!.tokenUrl).toBe(
+        "https://github.com/login/oauth/access_token-v2",
+      );
+      expect(row!.baseUrl).toBe("https://api.github.com/v2");
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user"]);
+      expect(JSON.parse(row!.scopePolicy)).toEqual({ required: ["repo"] });
+      // createdAt should be preserved from the original insert
+      expect(row!.createdAt).toBe(originalCreatedAt);
     });
   });
 

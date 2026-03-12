@@ -3,10 +3,11 @@ import { seedProviders } from "./oauth-store.js";
 /**
  * Protocol-level seed data for each well-known OAuth provider.
  *
- * These values are written to the `oauth_providers` SQLite table on
- * first startup (INSERT OR IGNORE). Code-side behavioral fields
- * (identityVerifier, injectionTemplates, setup, etc.) live in
- * `provider-behaviors.ts` and are never persisted to the DB.
+ * These values are upserted into the `oauth_providers` SQLite table on
+ * every startup so that corrections (e.g. a fixed baseUrl) propagate to
+ * existing installations. Code-side behavioral fields (identityVerifier,
+ * injectionTemplates, setup, etc.) live in `provider-behaviors.ts` and
+ * are never persisted to the DB.
  */
 const PROVIDER_SEED_DATA: Record<
   string,
@@ -123,8 +124,8 @@ const PROVIDER_SEED_DATA: Record<
 
 /**
  * Seed the oauth_providers table with well-known provider configurations.
- * Uses INSERT OR IGNORE so existing rows are never overwritten — safe to
- * call on every startup.
+ * Uses INSERT … ON CONFLICT DO UPDATE so seed-data corrections propagate
+ * to existing installations. Safe to call on every startup.
  */
 export function seedOAuthProviders(): void {
   seedProviders(Object.values(PROVIDER_SEED_DATA));
