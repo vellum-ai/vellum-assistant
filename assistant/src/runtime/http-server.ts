@@ -155,6 +155,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
@@ -217,6 +218,7 @@ export class RuntimeHttpServer {
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
+  private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
 
@@ -238,6 +240,7 @@ export class RuntimeHttpServer {
     this.sessionManagementDeps = options.sessionManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
     this.getComputerUseDeps = options.getComputerUseDeps;
+    this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
@@ -976,6 +979,11 @@ export class RuntimeHttpServer {
       ...(this.getComputerUseDeps
         ? computerUseRouteDefinitions({
             getComputerUseDeps: this.getComputerUseDeps,
+          })
+        : []),
+      ...(this.getWatchDeps
+        ? watchRouteDefinitions({
+            getWatchDeps: this.getWatchDeps,
           })
         : []),
       ...(this.getRecordingDeps

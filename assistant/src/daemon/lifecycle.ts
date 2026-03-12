@@ -530,6 +530,11 @@ export async function runDaemon(): Promise<void> {
           cuSessions: ctx.cuSessions,
           sharedRequestTimestamps: ctx.sharedRequestTimestamps,
           cuObservationParseSequence: ctx.cuObservationParseSequence,
+        };
+      },
+      getWatchDeps: () => {
+        const ctx = server.getHandlerContext();
+        return {
           handleWatchObservation: async (params) => {
             await handleWatchObservation(
               {

@@ -221,6 +221,8 @@ export interface RuntimeHttpServerOptions {
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
   /** Provider for computer-use session dependencies (CU routes). */
   getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
+  /** Provider for watch observation dependencies (watch routes). */
+  getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
 }
