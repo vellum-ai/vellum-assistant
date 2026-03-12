@@ -282,8 +282,6 @@ extension AppDelegate {
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
         // Clear stale org ID so the next bootstrap re-resolves it for the new assistant
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
-        assistant.writeToWorkspaceConfig()
-
         // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil

@@ -190,11 +190,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       mutated = true;
     }
     if (typeof res.pidFile !== "string") {
-      res.pidFile = join(
-        res.instanceDir as string,
-        ".vellum",
-        "vellum.pid",
-      );
+      res.pidFile = join(res.instanceDir as string, ".vellum", "vellum.pid");
       mutated = true;
     }
   }
@@ -363,7 +359,6 @@ export async function allocateLocalResources(
   if (existingLocals.length === 0) {
     const home = homedir();
     const vellumDir = join(home, ".vellum");
-    mkdirSync(vellumDir, { recursive: true });
     return {
       instanceDir: home,
       daemonPort: DEFAULT_DAEMON_PORT,
