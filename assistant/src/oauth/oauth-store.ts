@@ -212,6 +212,12 @@ export function getMostRecentAppByProvider(
     .get();
 }
 
+/** Return all OAuth apps. */
+export function listApps(): OAuthAppRow[] {
+  const db = getDb();
+  return db.select().from(oauthApps).all();
+}
+
 /** Delete an app by ID. Returns true if a row was deleted. */
 export function deleteApp(id: string): boolean {
   const db = getDb();
