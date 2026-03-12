@@ -584,41 +584,34 @@ struct MainWindowView: View {
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .overlay(alignment: .top) {
-            GeometryReader { geo in
-                Group {
-                    if let viewModel = threadManager.activeViewModel {
-                        ErrorToastOverlay(
-                            errorManager: viewModel.errorManager,
-                            hasAPIKey: windowState.hasAPIKey,
-                            isConnectionError: viewModel.isConnectionError,
-                            isSecretBlockError: viewModel.isSecretBlockError,
-                            isRetryableError: viewModel.isRetryableError,
-                            hasRetryPayload: viewModel.hasRetryPayload,
-                            maxWidth: geo.size.width * 0.7,
-                            onOpenSettings: { windowState.selection = .panel(.settings) },
-                            onRetrySessionError: { viewModel.retryAfterSessionError() },
-                            onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
-                            onDismissSessionError: { viewModel.dismissSessionError() },
-                            onSendAnyway: { viewModel.sendAnyway() },
-                            onRetryLastMessage: { viewModel.retryLastMessage() },
-                            onDismissError: { viewModel.dismissError() }
-                        )
-                    } else if !windowState.hasAPIKey {
-                        ChatSessionErrorToast(
-                            message: "API key not set. Add one in Settings to start chatting.",
-                            icon: .keyRound,
-                            accentColor: Amber._550,
-                            actionLabel: "Open Settings",
-                            onAction: { windowState.selection = .panel(.settings) }
-                        )
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(maxWidth: geo.size.width * 0.7)
-                        .padding(.top, VSpacing.sm)
-                        .animation(VAnimation.fast, value: windowState.hasAPIKey)
-                    }
+            Group {
+                if let viewModel = threadManager.activeViewModel {
+                    ErrorToastOverlay(
+                        errorManager: viewModel.errorManager,
+                        hasAPIKey: windowState.hasAPIKey,
+                        onOpenSettings: { windowState.selection = .panel(.settings) },
+                        onRetrySessionError: { viewModel.retryAfterSessionError() },
+                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                        onDismissSessionError: { viewModel.dismissSessionError() },
+                        onSendAnyway: { viewModel.sendAnyway() },
+                        onRetryLastMessage: { viewModel.retryLastMessage() },
+                        onDismissError: { viewModel.dismissError() }
+                    )
+                } else if !windowState.hasAPIKey {
+                    ChatSessionErrorToast(
+                        message: "API key not set. Add one in Settings to start chatting.",
+                        icon: .keyRound,
+                        accentColor: Amber._550,
+                        actionLabel: "Open Settings",
+                        onAction: { windowState.selection = .panel(.settings) }
+                    )
+                    .fixedSize(horizontal: true, vertical: false)
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
+                    .padding(.top, VSpacing.sm)
+                    .animation(VAnimation.fast, value: windowState.hasAPIKey)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .overlay(alignment: .bottom) {
             if let toast = windowState.toastInfo {
@@ -864,11 +857,6 @@ struct MainWindowView: View {
 private struct ErrorToastOverlay: View {
     @ObservedObject var errorManager: ChatErrorManager
     let hasAPIKey: Bool
-    let isConnectionError: Bool
-    let isSecretBlockError: Bool
-    let isRetryableError: Bool
-    let hasRetryPayload: Bool
-    var maxWidth: CGFloat = .infinity
     let onOpenSettings: () -> Void
     let onRetrySessionError: () -> Void
     let onCopyDebugInfo: () -> Void
@@ -888,7 +876,7 @@ private struct ErrorToastOverlay: View {
                     onAction: onOpenSettings
                 )
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(maxWidth: maxWidth)
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
             if let sessionError = errorManager.sessionError {
@@ -899,19 +887,19 @@ private struct ErrorToastOverlay: View {
                     onDismiss: onDismissSessionError
                 )
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(maxWidth: maxWidth)
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
 
             if let errorText = errorManager.errorText, errorManager.sessionError == nil {
                 ChatSessionErrorToast(
                     message: errorText,
-                    subtitle: isConnectionError ? errorManager.connectionDiagnosticHint : nil,
-                    actionLabel: isSecretBlockError ? "Send Anyway" : (isRetryableError || (isConnectionError && hasRetryPayload)) ? "Retry" : nil,
-                    onAction: isSecretBlockError ? onSendAnyway : (isRetryableError || (isConnectionError && hasRetryPayload)) ? onRetryLastMessage : nil,
+                    subtitle: errorManager.isConnectionError ? errorManager.connectionDiagnosticHint : nil,
+                    actionLabel: errorManager.isSecretBlockError ? "Send Anyway" : (errorManager.isRetryableError || (errorManager.isConnectionError && errorManager.hasRetryPayload)) ? "Retry" : nil,
+                    onAction: errorManager.isSecretBlockError ? onSendAnyway : (errorManager.isRetryableError || (errorManager.isConnectionError && errorManager.hasRetryPayload)) ? onRetryLastMessage : nil,
                     onDismiss: onDismissError
                 )
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(maxWidth: maxWidth)
+                .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
         }
         .padding(.top, VSpacing.sm)
