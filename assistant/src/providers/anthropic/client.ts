@@ -219,6 +219,13 @@ function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
       toolUseBlocks.push(block);
       continue;
     }
+    // Keep web_search_tool_result blocks alongside their server_tool_use —
+    // per Anthropic's API, server_tool_use + web_search_tool_result are a
+    // complete server-side pair that stays in the assistant message.
+    if (seenToolUse && isWebSearchToolResultBlock(block)) {
+      toolUseBlocks.push(block);
+      continue;
+    }
     if (!seenToolUse) {
       leading.push(block);
     } else {
@@ -240,11 +247,26 @@ function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
     ...toolUseBlocks,
   ];
   const { ids, serverToolIds } = getOrderedToolUseIds(pairedContent);
+
+  // Exclude server_tool_use IDs that already have a matching
+  // web_search_tool_result in the same assistant message — these are
+  // server-side complete pairs and don't need results from the user message.
+  const inlineResultIds = new Set<string>();
+  for (const block of toolUseBlocks) {
+    if (isWebSearchToolResultBlock(block)) {
+      inlineResultIds.add(block.tool_use_id);
+    }
+  }
+  const unpaired = ids.filter((id) => !inlineResultIds.has(id));
+  const unpairedServerToolIds = new Set(
+    [...serverToolIds].filter((id) => !inlineResultIds.has(id)),
+  );
+
   return {
     pairedContent,
     carryoverContent: carryover,
-    toolUseIds: ids,
-    serverToolIds,
+    toolUseIds: unpaired,
+    serverToolIds: unpairedServerToolIds,
   };
 }
 
@@ -452,6 +474,25 @@ function ensureToolPairing(
       getOrderedToolUseIds(c);
     if (validationIds.length === 0) continue;
 
+    // Exclude server_tool_use IDs that have inline web_search_tool_result
+    // in the same assistant message — these are already paired.
+    const inlineValidationResultIds = new Set<string>();
+    for (const block of c) {
+      if (isWebSearchToolResultBlock(block)) {
+        inlineValidationResultIds.add(block.tool_use_id);
+      }
+    }
+    const unpairedValidationIds = validationIds.filter(
+      (id) => !inlineValidationResultIds.has(id),
+    );
+    const unpairedValidationServerToolIds = new Set(
+      [...validationServerToolIds].filter(
+        (id) => !inlineValidationResultIds.has(id),
+      ),
+    );
+
+    if (unpairedValidationIds.length === 0) continue;
+
     const nxt = result[j + 1];
     const nxtContent =
       nxt && nxt.role === "user" && Array.isArray(nxt.content)
@@ -460,13 +501,13 @@ function ensureToolPairing(
     if (
       !hasOrderedToolResultPrefix(
         nxtContent,
-        validationIds,
-        validationServerToolIds,
+        unpairedValidationIds,
+        unpairedValidationServerToolIds,
       )
     ) {
-      const unmatchedIds = validationIds.filter((id, idx) => {
+      const unmatchedIds = unpairedValidationIds.filter((id, idx) => {
         const block = nxtContent[idx];
-        if (validationServerToolIds.has(id)) {
+        if (unpairedValidationServerToolIds.has(id)) {
           return !(
             isWebSearchToolResultBlock(block) && block.tool_use_id === id
           );
@@ -673,6 +714,9 @@ export class AnthropicProvider implements Provider {
             name: "web_search",
             max_uses: 5,
           };
+          console.log(
+            "[anthropic-client] Using Anthropic native web search (web_search_20250305)",
+          );
           params.tools = [...mappedOther, webSearchTool];
         } else {
           params.tools = tools.map((t, i) => ({
@@ -790,6 +834,9 @@ export class AnthropicProvider implements Provider {
             event.type === "content_block_start" &&
             event.content_block.type === "server_tool_use"
           ) {
+            console.log(
+              `[anthropic-client] Anthropic native web search invoked (server_tool_use) name=${event.content_block.name} id=${event.content_block.id}`,
+            );
             onEvent?.({
               type: "server_tool_start",
               name: event.content_block.name,
