@@ -84,7 +84,10 @@ export class PermissionPrompter {
           "Permission prompt timed out, defaulting to deny",
         );
         this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
-        resolve({ decision: "deny" });
+        resolve({
+          decision: "deny",
+          decisionContext: `The permission prompt for the "${toolName}" tool timed out. The user did not explicitly deny this request — they may have been away or busy. You may retry this tool call if it is still needed for the current task.`,
+        });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer, toolUseId });
