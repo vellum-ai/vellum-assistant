@@ -45,7 +45,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
   - **Multi-PR plans** (`/run-plan`, `/blitz`, `/safe-blitz`):
     - **Intermediate PRs**: Use `Part of JARVIS-123` in commit messages and PR bodies. This links the PR to the issue without triggering Linear's auto-close automation.
     - **Final PR only**: Use `Closes JARVIS-123` to trigger the auto-close.
-  - **Status sync**: Set In Progress once when starting the first PR. Do not toggle status between PRs in a multi-PR plan — let the final PR's `Closes` keyword handle the Done transition.
+  - **Status sync**: Set In Progress when starting work. For single-PR workflows, move to In Review when the PR is opened. For multi-PR plans, do not toggle status between PRs — let the final PR's `Closes` keyword handle the Done transition.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
