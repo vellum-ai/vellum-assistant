@@ -1,4 +1,4 @@
-const DOCTOR_URL = process.env.DOCTOR_URL || "https://doctor.vellum.ai";
+const DOCTOR_URL = "https://doctor.vellum.ai";
 
 export type ProgressPhase =
   | "invoking_prompt"
