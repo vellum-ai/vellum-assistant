@@ -679,7 +679,13 @@ export async function handleSendMessage(
       attachments,
       session,
       onEvent,
-      approvalConversationGenerator: deps.approvalConversationGenerator,
+      // Desktop path: disable NL classification to avoid consuming non-decision
+      // messages while a tool confirmation is pending. Deterministic code-prefix
+      // and callback parsing remain active. Mirrors session-process.ts behavior.
+      approvalConversationGenerator:
+        sourceChannel === "vellum"
+          ? undefined
+          : deps.approvalConversationGenerator,
       verifiedActorExternalUserId,
       verifiedActorPrincipalId,
     });
