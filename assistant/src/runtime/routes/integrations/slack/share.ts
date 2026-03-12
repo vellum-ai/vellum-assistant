@@ -12,6 +12,7 @@ import {
   userInfo,
 } from "../../../../messaging/providers/slack/client.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
+import { getConnectionByProvider } from "../../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../../security/credential-key.js";
 import { getSecureKey } from "../../../../security/secure-keys.js";
 import { getLogger } from "../../../../util/logger.js";
@@ -29,9 +30,12 @@ const log = getLogger("slack-share");
  * Prefers the OAuth integration token, falls back to the legacy channel token.
  */
 function resolveSlackToken(): string | undefined {
+  const conn = getConnectionByProvider("integration:slack");
+  const oauthToken = conn
+    ? getSecureKey(`oauth_connection/${conn.id}/access_token`)
+    : undefined;
   return (
-    getSecureKey(credentialKey("integration:slack", "access_token")) ??
-    getSecureKey(credentialKey("slack_channel", "bot_token"))
+    oauthToken ?? getSecureKey(credentialKey("slack_channel", "bot_token"))
   );
 }
 
