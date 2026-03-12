@@ -288,6 +288,38 @@ describe("detectConfiguredHooks", () => {
     expect(result.hasHooks).toBe(false);
   });
 
+  test("falls back to .git/hooks when rev-parse returns empty output", async () => {
+    const defaultHooksDir = join(workspaceDir, ".git", "hooks");
+    mkdirSync(defaultHooksDir, { recursive: true });
+    writeHook(defaultHooksDir, "pre-commit");
+
+    // GitService that returns empty stdout for rev-parse --git-path hooks
+    const emptyRevParseService: GitServiceLike = {
+      async runReadOnlyGit(args: string[]) {
+        if (args[0] === "rev-parse" && args[1] === "--git-path") {
+          return { stdout: "", stderr: "" };
+        }
+        if (
+          args.length >= 3 &&
+          args[0] === "config" &&
+          args[2] === "core.hooksPath"
+        ) {
+          throw new Error("git config: not found");
+        }
+        return { stdout: "", stderr: "" };
+      },
+    };
+
+    const result = await detectConfiguredHooks(
+      workspaceDir,
+      emptyRevParseService,
+    );
+
+    // Empty rev-parse output should fall back to .git/hooks, not workspaceDir
+    expect(result.hooksDir).toBe(defaultHooksDir);
+    expect(result.hasHooks).toBe(true);
+  });
+
   test("multiple hooks are all returned in hookFiles", async () => {
     const hooksDir = join(workspaceDir, ".git", "hooks");
     mkdirSync(hooksDir, { recursive: true });
