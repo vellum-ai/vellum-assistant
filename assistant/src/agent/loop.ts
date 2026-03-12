@@ -624,40 +624,53 @@ export function escapeAxTreeContent(content: string): string {
  * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
  * short placeholder.  This keeps the conversation context small so that
  * TTFT does not grow linearly with step count in computer-use sessions.
+ *
+ * Counting is per-block, not per-message — a single user message can
+ * contain multiple tool_result blocks each with their own AX tree snapshot.
  */
 export function compactAxTreeHistory(messages: Message[]): Message[] {
-  // Collect indices of user messages that contain an <ax-tree> block
-  const indicesWithAxTree: number[] = [];
+  // Collect (messageIndex, blockIndex) for every tool_result block with <ax-tree>
+  const axBlocks: Array<{ msgIdx: number; blockIdx: number }> = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.role !== "user") continue;
-    for (const block of msg.content) {
+    for (let j = 0; j < msg.content.length; j++) {
+      const block = msg.content[j];
       if (
         block.type === "tool_result" &&
         typeof block.content === "string" &&
         block.content.includes("<ax-tree>")
       ) {
-        indicesWithAxTree.push(i);
-        break;
+        axBlocks.push({ msgIdx: i, blockIdx: j });
       }
     }
   }
 
-  if (indicesWithAxTree.length <= MAX_AX_TREES_IN_HISTORY) {
+  if (axBlocks.length <= MAX_AX_TREES_IN_HISTORY) {
     return messages;
   }
 
-  const toStrip = new Set(indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY));
+  // Build a set of "msgIdx:blockIdx" keys for blocks that should be stripped
+  const toStrip = new Set(
+    axBlocks
+      .slice(0, -MAX_AX_TREES_IN_HISTORY)
+      .map((b) => `${b.msgIdx}:${b.blockIdx}`),
+  );
 
   return messages.map((msg, idx) => {
-    if (!toStrip.has(idx)) return msg;
+    // Quick check: does this message have any blocks to strip?
+    const hasStripTarget = msg.content.some((_, j) =>
+      toStrip.has(`${idx}:${j}`),
+    );
+    if (!hasStripTarget) return msg;
+
     return {
       ...msg,
-      content: msg.content.map((block) => {
+      content: msg.content.map((block, j) => {
         if (
+          toStrip.has(`${idx}:${j}`) &&
           block.type === "tool_result" &&
-          typeof block.content === "string" &&
-          block.content.includes("<ax-tree>")
+          typeof block.content === "string"
         ) {
           return {
             ...block,
