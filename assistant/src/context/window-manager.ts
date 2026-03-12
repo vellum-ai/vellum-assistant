@@ -91,7 +91,11 @@ export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
-  /** Cached resolved system prompt, set for the duration of a compaction pass. */
+  /**
+   * Cached resolved system prompt. Lazily populated on first access via the
+   * `systemPrompt` getter and cleared after each compaction pass so the next
+   * pass picks up any prompt changes.
+   */
   private _resolvedSystemPrompt: string | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
@@ -100,21 +104,17 @@ export class ContextWindowManager {
     this.config = options.config;
   }
 
+  /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
   private get systemPrompt(): string {
     if (this._resolvedSystemPrompt !== undefined) {
       return this._resolvedSystemPrompt;
     }
-    return typeof this._systemPrompt === "function"
-      ? this._systemPrompt()
-      : this._systemPrompt;
-  }
-
-  /** Resolve and cache the system prompt for the duration of a compaction pass. */
-  private cacheSystemPrompt(): void {
-    this._resolvedSystemPrompt =
+    const resolved =
       typeof this._systemPrompt === "function"
         ? this._systemPrompt()
         : this._systemPrompt;
+    this._resolvedSystemPrompt = resolved;
+    return resolved;
   }
 
   private clearSystemPromptCache(): void {
@@ -129,7 +129,6 @@ export class ContextWindowManager {
    */
   shouldCompact(messages: Message[]): ShouldCompactResult {
     if (!this.config.enabled) return { needed: false, estimatedTokens: 0 };
-    this.cacheSystemPrompt();
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.provider.name,
@@ -148,7 +147,6 @@ export class ContextWindowManager {
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
-    this.cacheSystemPrompt();
     try {
       return await this._maybeCompact(messages, signal, options);
     } finally {

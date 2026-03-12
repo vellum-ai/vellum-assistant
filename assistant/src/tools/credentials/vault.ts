@@ -37,50 +37,6 @@ import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 
 const log = getLogger("credential-vault");
 
-/**
- * Look up a stored OAuth secret (e.g. client_secret) for a service from the
- * secure store. Checks both the canonical and alias service names.
- */
-function findStoredOAuthSecret(
-  service: string,
-  field: string,
-): string | undefined {
-  const servicesToCheck = [service];
-  // Also check the alias if the input is the canonical name, or vice versa
-  for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
-    if (canonical === service) servicesToCheck.push(alias);
-    if (alias === service) servicesToCheck.push(canonical);
-  }
-  for (const svc of servicesToCheck) {
-    const value = getSecureKey(credentialKey(svc, field));
-    if (value) return value;
-  }
-  return undefined;
-}
-
-/**
- * Look up the stored OAuth client_id for a service from credential metadata.
- * Checks both the canonical and alias service names.
- */
-function findStoredOAuthClientId(service: string): string | undefined {
-  const servicesToCheck = [service];
-  for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
-    if (canonical === service) servicesToCheck.push(alias);
-    if (alias === service) servicesToCheck.push(canonical);
-  }
-  // Check metadata first (written by oauth2_connect after successful auth)
-  for (const svc of servicesToCheck) {
-    const meta = getCredentialMetadata(svc, "access_token");
-    if (meta?.oauth2ClientId) return meta.oauth2ClientId;
-  }
-  // Fall back to secure key store (written by credential_store prompt action)
-  for (const svc of servicesToCheck) {
-    const value = getSecureKey(credentialKey(svc, "client_id"));
-    if (value) return value;
-  }
-  return undefined;
-}
-
 class CredentialStoreTool implements Tool {
   name = "credential_store";
   description =
@@ -785,34 +741,19 @@ class CredentialStoreTool implements Tool {
         // Priority:
         //   1. Explicit input from the caller
         //   2. oauth-store DB (most recent app for this provider)
-        //   3. Legacy metadata-store / secure key store
         let clientId = input.client_id as string | undefined;
         let clientSecret = input.client_secret as string | undefined;
 
         if (!clientId || !clientSecret) {
-          // Try the oauth-store DB first
-          try {
-            const dbApp = getMostRecentAppByProvider(service);
-            if (dbApp) {
-              if (!clientId) clientId = dbApp.clientId;
-              if (!clientSecret) {
-                clientSecret = getSecureKey(
-                  `oauth_app/${dbApp.id}/client_secret`,
-                );
-              }
+          const dbApp = getMostRecentAppByProvider(service);
+          if (dbApp) {
+            if (!clientId) clientId = dbApp.clientId;
+            if (!clientSecret) {
+              clientSecret = getSecureKey(
+                `oauth_app/${dbApp.id}/client_secret`,
+              );
             }
-          } catch (err) {
-            // DB may not be initialized yet — fall through to legacy lookup
-            log.debug(
-              { err, service },
-              "oauth-store lookup failed, falling back to metadata store",
-            );
           }
-
-          // Fall back to legacy metadata-store / secure key store
-          if (!clientId) clientId = findStoredOAuthClientId(service);
-          if (!clientSecret)
-            clientSecret = findStoredOAuthSecret(service, "client_secret");
         }
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
@@ -869,16 +810,6 @@ class CredentialStoreTool implements Tool {
             : '\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.';
           return {
             content: `Error: client_secret is required for ${rawService} but not found in the vault.${skillHint}`,
-            isError: true,
-          };
-        }
-
-        try {
-          assertMetadataWritable();
-        } catch {
-          return {
-            content:
-              "Error: credential metadata file has an unrecognized version; cannot store credentials",
             isError: true,
           };
         }

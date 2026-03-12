@@ -457,10 +457,10 @@ describe("buildSanitizedEnv", () => {
   });
 
   test("injects INTERNAL_GATEWAY_BASE_URL from gateway config", () => {
-    process.env.GATEWAY_INTERNAL_BASE_URL = "http://gateway.internal:9000/";
+    process.env.GATEWAY_PORT = "9000";
     const env = buildSanitizedEnv();
-    expect(env.INTERNAL_GATEWAY_BASE_URL).toBe("http://gateway.internal:9000");
-    delete process.env.GATEWAY_INTERNAL_BASE_URL;
+    expect(env.INTERNAL_GATEWAY_BASE_URL).toBe("http://127.0.0.1:9000");
+    delete process.env.GATEWAY_PORT;
   });
 
   test("result is a plain object with no prototype-inherited secrets", () => {

@@ -15,13 +15,22 @@ import {
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
 import { credentialKey } from "../security/credential-key.js";
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
-import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
+import {
+  deleteSecureKey,
+  getSecureKey,
+  setSecureKey,
+} from "../security/secure-keys.js";
+import {
+  deleteCredentialMetadata,
+  listCredentialMetadata,
+} from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import {
   createConnection,
   getConnectionByProvider,
   getProvider,
+  listApps,
+  listConnections,
   updateConnection,
   upsertApp,
 } from "./oauth-store.js";
@@ -165,4 +174,89 @@ function migrateOneCredential(
   }
 
   log.info({ service, connectionId: conn.id }, "Migrated OAuth credential");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: Clean up legacy secure keys that were dual-written during migration
+// ---------------------------------------------------------------------------
+
+const CLEANUP_CHECKPOINT_KEY = "migration_cleanup_legacy_oauth_keys_v1";
+
+/**
+ * Delete legacy secure key paths (`credential/{service}/...`) for OAuth
+ * credentials that have been migrated to the SQLite-backed tables. Also
+ * removes the corresponding `CredentialMetadata` records for OAuth services
+ * so the metadata store no longer tracks them.
+ *
+ * Idempotent: checkpoint-guarded, and individual key deletions gracefully
+ * skip keys that are already missing.
+ */
+export function cleanupLegacyOAuthKeys(): void {
+  const checkpoint = getMemoryCheckpoint(CLEANUP_CHECKPOINT_KEY);
+  if (checkpoint != null) {
+    return;
+  }
+
+  // (a) For each oauth_connection, delete legacy access_token and refresh_token keys.
+  const connections = listConnections();
+  for (const conn of connections) {
+    const { providerKey } = conn;
+    try {
+      const legacyAccessKey = credentialKey(providerKey, "access_token");
+      deleteSecureKey(legacyAccessKey);
+
+      const legacyRefreshKey = credentialKey(providerKey, "refresh_token");
+      deleteSecureKey(legacyRefreshKey);
+    } catch (err) {
+      log.warn(
+        { err, providerKey },
+        "Failed to delete legacy connection keys — skipping",
+      );
+    }
+  }
+
+  // (b) For each oauth_app, delete the legacy client_secret key.
+  const apps = listApps();
+  for (const app of apps) {
+    const { providerKey } = app;
+    try {
+      const legacyClientSecretKey = credentialKey(providerKey, "client_secret");
+      deleteSecureKey(legacyClientSecretKey);
+    } catch (err) {
+      log.warn(
+        { err, providerKey },
+        "Failed to delete legacy app key — skipping",
+      );
+    }
+  }
+
+  // (c) Delete CredentialMetadata records for OAuth services.
+  // Collect unique provider keys from connections (these are the OAuth services).
+  const oauthServices = new Set<string>();
+  for (const conn of connections) {
+    oauthServices.add(conn.providerKey);
+  }
+  for (const app of apps) {
+    oauthServices.add(app.providerKey);
+  }
+
+  for (const service of oauthServices) {
+    try {
+      deleteCredentialMetadata(service, "access_token");
+    } catch (err) {
+      log.warn(
+        { err, service },
+        "Failed to delete legacy access_token metadata — skipping",
+      );
+    }
+  }
+
+  if (connections.length > 0 || apps.length > 0) {
+    log.info(
+      { connections: connections.length, apps: apps.length },
+      "Cleaned up legacy OAuth secure keys and metadata",
+    );
+  }
+
+  setMemoryCheckpoint(CLEANUP_CHECKPOINT_KEY, "done");
 }

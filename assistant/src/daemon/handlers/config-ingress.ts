@@ -5,7 +5,6 @@ import {
 } from "../../calls/twilio-rest.js";
 import {
   getGatewayInternalBaseUrl,
-  getIngressPublicBaseUrl,
   setIngressPublicBaseUrl,
 } from "../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
@@ -25,20 +24,6 @@ import {
   type HandlerContext,
   log,
 } from "./shared.js";
-
-// Lazily capture the initial ingress URL on first access rather than at module
-// load time. The daemon loads ~/.vellum/.env inside runDaemon() (see
-// lifecycle.ts), which runs AFTER static ES module imports resolve. A
-// module-level snapshot would miss values set during daemon initialization.
-let _originalIngressEnvCaptured = false;
-let _originalIngressEnv: string | undefined;
-function getOriginalIngressEnv(): string | undefined {
-  if (!_originalIngressEnvCaptured) {
-    _originalIngressEnv = getIngressPublicBaseUrl();
-    _originalIngressEnvCaptured = true;
-  }
-  return _originalIngressEnv;
-}
 
 export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
@@ -108,8 +93,6 @@ export async function handleIngressConfig(
       });
     } else if (msg.action === "set") {
       const value = (msg.publicBaseUrl ?? "").trim().replace(/\/+$/, "");
-      // Ensure we capture the original env value before any mutation below
-      getOriginalIngressEnv();
       const raw = loadRawConfig();
 
       // Update ingress.publicBaseUrl — this is the single source of truth for
@@ -147,13 +130,9 @@ export async function handleIngressConfig(
       const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
       if (value && isEnabled) {
         setIngressPublicBaseUrl(value);
-      } else if (isEnabled && getOriginalIngressEnv() !== undefined) {
-        // Ingress is enabled but the user cleared the URL — fall back to the
-        // env var that was present when the process started.
-        setIngressPublicBaseUrl(getOriginalIngressEnv()!);
       } else {
-        // Ingress is disabled or no URL is configured and no startup env var
-        // exists — remove the env var so the gateway stops accepting webhooks.
+        // Ingress is disabled or no URL is configured — clear the module-level
+        // URL so the gateway stops accepting webhooks.
         setIngressPublicBaseUrl(undefined);
       }
 
@@ -247,4 +226,3 @@ export async function handleIngressConfig(
     });
   }
 }
-

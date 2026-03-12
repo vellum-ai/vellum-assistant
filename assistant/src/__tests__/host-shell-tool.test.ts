@@ -501,8 +501,8 @@ describe("host_bash — environment setup", () => {
   });
 
   test("injects INTERNAL_GATEWAY_BASE_URL for host_bash commands", async () => {
-    const originalGatewayBase = process.env.GATEWAY_INTERNAL_BASE_URL;
-    process.env.GATEWAY_INTERNAL_BASE_URL = "http://gateway.internal:9000/";
+    const originalGatewayPort = process.env.GATEWAY_PORT;
+    process.env.GATEWAY_PORT = "9000";
     try {
       const result = await hostShellTool.execute(
         {
@@ -511,12 +511,12 @@ describe("host_bash — environment setup", () => {
         makeContext(),
       );
       expect(result.isError).toBe(false);
-      expect(result.content.trim()).toBe("http://gateway.internal:9000");
+      expect(result.content.trim()).toBe("http://127.0.0.1:9000");
     } finally {
-      if (originalGatewayBase === undefined) {
-        delete process.env.GATEWAY_INTERNAL_BASE_URL;
+      if (originalGatewayPort === undefined) {
+        delete process.env.GATEWAY_PORT;
       } else {
-        process.env.GATEWAY_INTERNAL_BASE_URL = originalGatewayBase;
+        process.env.GATEWAY_PORT = originalGatewayPort;
       }
     }
   });
@@ -695,7 +695,11 @@ describe("host_bash — spawn error handling", () => {
 describe("host_bash — proxy delegation", () => {
   function makeMockProxy(result: ToolExecutionResult) {
     const calls: Array<{
-      input: { command: string; working_dir?: string; timeout_seconds?: number };
+      input: {
+        command: string;
+        working_dir?: string;
+        timeout_seconds?: number;
+      };
       sessionId: string;
     }> = [];
 
@@ -703,7 +707,11 @@ describe("host_bash — proxy delegation", () => {
       proxy: {
         isAvailable: () => true,
         request: async (
-          input: { command: string; working_dir?: string; timeout_seconds?: number },
+          input: {
+            command: string;
+            working_dir?: string;
+            timeout_seconds?: number;
+          },
           sessionId: string,
           _signal?: AbortSignal,
         ) => {
@@ -748,7 +756,10 @@ describe("host_bash — proxy delegation", () => {
   });
 
   test("still validates input before proxying (null bytes in command)", async () => {
-    const proxyResult: ToolExecutionResult = { content: "proxied", isError: false };
+    const proxyResult: ToolExecutionResult = {
+      content: "proxied",
+      isError: false,
+    };
     const { proxy, calls } = makeMockProxy(proxyResult);
 
     const ctx: ToolContext = {
@@ -756,10 +767,7 @@ describe("host_bash — proxy delegation", () => {
       hostBashProxy: proxy as unknown as ToolContext["hostBashProxy"],
     };
 
-    const result = await hostShellTool.execute(
-      { command: "echo \0evil" },
-      ctx,
-    );
+    const result = await hostShellTool.execute({ command: "echo \0evil" }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("null bytes");
@@ -768,7 +776,10 @@ describe("host_bash — proxy delegation", () => {
   });
 
   test("still validates input before proxying (relative working_dir)", async () => {
-    const proxyResult: ToolExecutionResult = { content: "proxied", isError: false };
+    const proxyResult: ToolExecutionResult = {
+      content: "proxied",
+      isError: false,
+    };
     const { proxy, calls } = makeMockProxy(proxyResult);
 
     const ctx: ToolContext = {
@@ -803,7 +814,8 @@ describe("host_bash — proxy delegation", () => {
 
     const ctx: ToolContext = {
       ...makeContext(),
-      hostBashProxy: unavailableProxy as unknown as ToolContext["hostBashProxy"],
+      hostBashProxy:
+        unavailableProxy as unknown as ToolContext["hostBashProxy"],
     };
 
     spawnCalls.length = 0;

@@ -468,7 +468,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 | Channel  | Status   | Prerequisites                                                                                                                                                 |
 | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Telegram | Shipped  | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env                                                                                 |
+| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                      |
 | Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
 | Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
 

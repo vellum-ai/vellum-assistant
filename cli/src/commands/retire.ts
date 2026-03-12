@@ -9,10 +9,7 @@ import {
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
-import {
-  getPlatformUrl,
-  readPlatformToken,
-} from "../lib/platform-client";
+import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
@@ -83,7 +80,7 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon");
 
   // Stop gateway via PID file — use a longer timeout because the gateway has a
-  // configurable drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
+  // drain window (5s) before it exits.
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 

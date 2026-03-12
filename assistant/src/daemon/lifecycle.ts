@@ -40,7 +40,10 @@ import {
   emitNotificationSignal,
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
-import { migrateOAuthCredentialsToSqlite } from "../oauth/migrate-to-sqlite.js";
+import {
+  cleanupLegacyOAuthKeys,
+  migrateOAuthCredentialsToSqlite,
+} from "../oauth/migrate-to-sqlite.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
@@ -166,6 +169,8 @@ export async function runDaemon(): Promise<void> {
     seedOAuthProviders();
     // Migrate existing OAuth credentials from metadata-store to SQLite tables
     migrateOAuthCredentialsToSqlite();
+    // Clean up legacy secure keys that were dual-written during migration
+    cleanupLegacyOAuthKeys();
     log.info("Daemon startup: DB initialized");
 
     // Ensure a vellum guardian binding exists and mint the CLI edge token
