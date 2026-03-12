@@ -861,10 +861,22 @@ export async function runAgentLoopImpl(
     // reducer tiers (forced compaction, tool-result truncation, media
     // stubbing, injection downgrade) with optional approval gating for
     // interactive latest-turn compression.
-    if (
-      state.contextTooLargeDetected &&
-      updatedHistory.length === preRunHistoryLength
-    ) {
+    //
+    // When progress was made (agent added messages before hitting the
+    // limit), incorporate those new messages into ctx.messages so the
+    // convergence loop operates on the full (larger) history.
+    if (state.contextTooLargeDetected) {
+      if (updatedHistory.length > preRunHistoryLength) {
+        ctx.messages = stripInjectedContext(updatedHistory, {
+          stripRecall: (msgs) =>
+            stripMemoryRecallMessages(
+              msgs,
+              recall.injectedText,
+              "separate_context_message",
+            ),
+        });
+        preRepairMessages = updatedHistory;
+      }
       if (!reducerState) {
         reducerState = createInitialReducerState();
       }
@@ -911,6 +923,12 @@ export async function runAgentLoopImpl(
         reducerState = step.state;
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
+
+        // If the reducer is now exhausted without compacting, break out
+        // so the overflow policy path can attempt emergency compaction.
+        if (reducerState.exhausted && !step.compactionResult?.compacted) {
+          break;
+        }
 
         if (step.compactionResult?.compacted) {
           ctx.contextCompactedMessageCount +=
@@ -963,6 +981,75 @@ export async function runAgentLoopImpl(
           reqId,
           onCheckpoint,
         );
+      }
+
+      // When all reducer tiers are exhausted but the context is still too
+      // large, attempt one last emergency compaction before consulting the
+      // overflow policy. This covers the case where progress was made
+      // (messages grew) and the normal tiers couldn't compact enough.
+      if (state.contextTooLargeDetected && reducerState.exhausted) {
+        const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
+          ctx.messages,
+          abortController.signal,
+          {
+            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+            force: true,
+            minKeepRecentUserTurns: 0,
+            targetInputTokensOverride: preflightBudget,
+          },
+        );
+        if (emergencyCompact.compacted) {
+          ctx.messages = emergencyCompact.messages;
+          ctx.contextCompactedMessageCount +=
+            emergencyCompact.compactedPersistedMessages;
+          ctx.contextCompactedAt = Date.now();
+          updateConversationContextWindow(
+            ctx.conversationId,
+            emergencyCompact.summaryText,
+            ctx.contextCompactedMessageCount,
+          );
+          onEvent({
+            type: "context_compacted",
+            previousEstimatedInputTokens:
+              emergencyCompact.previousEstimatedInputTokens,
+            estimatedInputTokens: emergencyCompact.estimatedInputTokens,
+            maxInputTokens: emergencyCompact.maxInputTokens,
+            thresholdTokens: emergencyCompact.thresholdTokens,
+            compactedMessages: emergencyCompact.compactedMessages,
+            summaryCalls: emergencyCompact.summaryCalls,
+            summaryInputTokens: emergencyCompact.summaryInputTokens,
+            summaryOutputTokens: emergencyCompact.summaryOutputTokens,
+            summaryModel: emergencyCompact.summaryModel,
+          });
+          emitUsage(
+            ctx,
+            emergencyCompact.summaryInputTokens,
+            emergencyCompact.summaryOutputTokens,
+            emergencyCompact.summaryModel,
+            onEvent,
+            "context_compactor",
+            reqId,
+            emergencyCompact.summaryCacheCreationInputTokens ?? 0,
+            emergencyCompact.summaryCacheReadInputTokens ?? 0,
+            collapseRawResponses(emergencyCompact.summaryRawResponses),
+          );
+
+          runMessages = applyRuntimeInjections(ctx.messages, {
+            ...injectionOpts,
+            mode: currentInjectionMode,
+          });
+          preRepairMessages = runMessages;
+          preRunHistoryLength = runMessages.length;
+          state.contextTooLargeDetected = false;
+
+          updatedHistory = await ctx.agentLoop.run(
+            runMessages,
+            eventHandler,
+            abortController.signal,
+            reqId,
+            onCheckpoint,
+          );
+        }
       }
 
       // All reducer tiers exhausted but provider still rejects —
@@ -1160,19 +1247,6 @@ export async function runAgentLoopImpl(
         );
         onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       }
-    } else if (state.contextTooLargeDetected) {
-      // Progress was made (updatedHistory grew), so the retry path above was
-      // skipped. Surface the error so clients are not left with a silent failure.
-      rlog.warn(
-        { phase: "post_run" },
-        "Context too large after progress — surfacing error without retry",
-      );
-      const classified = classifySessionError(
-        new Error("context_length_exceeded"),
-        { phase: "agent_loop" },
-      );
-      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
-      state.providerErrorUserMessage = classified.userMessage;
     }
 
     if (state.deferredOrderingError) {
