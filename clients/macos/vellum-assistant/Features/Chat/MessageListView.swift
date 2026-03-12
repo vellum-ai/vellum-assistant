@@ -1308,6 +1308,8 @@ private struct ThreadScrollbarVisibilityController: NSViewRepresentable, Equatab
             scrollView.hasHorizontalScroller = false
             scrollView.autohidesScrollers = false
             scrollView.scrollerStyle = .overlay
+            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+            scrollView.automaticallyAdjustsContentInsets = false
             scrollView.verticalScroller?.controlSize = .small
             scrollView.verticalScroller?.isEnabled = shouldShow
             scrollView.verticalScroller?.isHidden = !shouldShow

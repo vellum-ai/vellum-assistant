@@ -598,33 +598,44 @@ struct ScrollWheelDetector: NSViewRepresentable {
         var onScrollToBottom: (() -> Void)?
         var monitor: Any?
 
-        /// Resolves the chat NSScrollView by hit-testing from the window root.
+        /// Resolves the chat's vertical NSScrollView.
         /// The detector sits in a `.background` modifier (sibling of the scroll view),
         /// so walking up the superview chain may miss it or find a wrong parent.
+        /// The hit-test fallback searches for a *vertical* scroll view to avoid
+        /// resolving to nested horizontal scrollers (e.g. markdown code blocks).
         func findEnclosingScrollView() -> NSScrollView? {
-            if let sv = view?.enclosingScrollView { return sv }
+            // Fast path: walk up the superview chain.
+            if let sv = view?.enclosingScrollView, sv.hasVerticalScroller { return sv }
             var current = view?.superview
             while let v = current {
-                if let sv = v as? NSScrollView { return sv }
+                if let sv = v as? NSScrollView, sv.hasVerticalScroller { return sv }
                 current = v.superview
             }
+            // Fallback: hit-test from the window root for a vertical scroll view.
             guard let window = view?.window, let contentView = window.contentView else { return nil }
             let probe = view?.convert(
                 NSPoint(x: view?.bounds.midX ?? 0, y: view?.bounds.midY ?? 0),
                 to: nil
             ) ?? .zero
-            return Self.deepestScrollView(in: contentView, containing: probe)
+            return Self.verticalScrollView(in: contentView, containing: probe)
         }
 
-        private static func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
+        /// Finds the outermost vertical NSScrollView containing `windowPoint`.
+        /// Stops at the first vertical match so nested horizontal scrollers
+        /// (e.g. code-block scroll views) are not returned.
+        private static func verticalScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
             let localPoint = view.convert(windowPoint, from: nil)
             guard view.bounds.contains(localPoint) else { return nil }
+            // If this is a vertical scroll view, return it immediately — don't
+            // recurse into children which may contain nested horizontal scrollers.
+            if let sv = view as? NSScrollView, sv.hasVerticalScroller {
+                return sv
+            }
             for sub in view.subviews.reversed() {
-                if let sv = deepestScrollView(in: sub, containing: windowPoint) {
+                if let sv = verticalScrollView(in: sub, containing: windowPoint) {
                     return sv
                 }
             }
-            if let sv = view as? NSScrollView { return sv }
             return nil
         }
     }
