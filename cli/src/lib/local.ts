@@ -528,15 +528,28 @@ export async function discoverPublicUrl(
 ): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
 
-  // On cloud VMs, try the instance metadata service to discover the external
-  // IP. Uses a short timeout so non-cloud machines don't block.
-  const cloudIp = await discoverCloudExternalIp();
+  // Discover local and cloud addresses in parallel so the cloud metadata
+  // timeout (1s) doesn't block startup when a local address is immediately
+  // available.
+  const cloudIpPromise = discoverCloudExternalIp();
+
+  // Resolve local address synchronously (no I/O).
+  const localUrl = discoverLocalUrl(effectivePort);
+
+  const cloudIp = await cloudIpPromise;
   if (cloudIp) {
     console.log(`   Discovered external IP: ${cloudIp}`);
     return `http://${cloudIp}:${effectivePort}`;
   }
 
-  // Use the local LAN address.
+  return localUrl;
+}
+
+/**
+ * Resolve a LAN-reachable URL without any async I/O. Returns the best local
+ * address or falls back to localhost.
+ */
+function discoverLocalUrl(effectivePort: number): string {
   // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
   // the same network can reach the gateway by name.
   if (platform() === "darwin") {
