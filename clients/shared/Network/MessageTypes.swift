@@ -45,6 +45,10 @@ import Foundation
 // │                                 │ generated contract                      │
 // │ SubagentEventMessage            │ Contains recursive ServerMessage ref;   │
 // │                                 │ codegen skips ServerMessage              │
+// │ HostCuRequest                   │ Uses AnyCodable for `input` field;      │
+// │                                 │ code generator cannot express it        │
+// │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
+// │                                 │ alongside HostCuRequest                 │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1554,6 +1558,90 @@ public struct HostFileResultPayload: Codable, Sendable {
     }
 }
 
+// MARK: - Host CU Proxy
+
+/// Request from the daemon to execute a computer-use action on the host machine.
+/// The desktop client receives this via SSE, executes the action locally
+/// (verify → execute → observe), and POSTs the result back to `/v1/host-cu-result`.
+public struct HostCuRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let sessionId: String
+    public let toolName: String
+    public let input: [String: AnyCodable]
+    public let stepNumber: Int
+    public let reasoning: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case sessionId
+        case toolName
+        case input
+        case stepNumber
+        case reasoning
+    }
+}
+
+/// Payload posted back to the daemon with the result of a host CU action execution.
+public struct HostCuResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let axTree: String?
+    public let axDiff: String?
+    public let screenshot: String?
+    public let screenshotWidthPx: Int?
+    public let screenshotHeightPx: Int?
+    public let screenWidthPt: Int?
+    public let screenHeightPt: Int?
+    public let executionResult: String?
+    public let executionError: String?
+    public let secondaryWindows: String?
+    public let userGuidance: String?
+
+    public init(
+        requestId: String,
+        axTree: String?,
+        axDiff: String?,
+        screenshot: String?,
+        screenshotWidthPx: Int?,
+        screenshotHeightPx: Int?,
+        screenWidthPt: Int?,
+        screenHeightPt: Int?,
+        executionResult: String?,
+        executionError: String?,
+        secondaryWindows: String?,
+        userGuidance: String?
+    ) {
+        self.requestId = requestId
+        self.axTree = axTree
+        self.axDiff = axDiff
+        self.screenshot = screenshot
+        self.screenshotWidthPx = screenshotWidthPx
+        self.screenshotHeightPx = screenshotHeightPx
+        self.screenWidthPt = screenWidthPt
+        self.screenHeightPt = screenHeightPt
+        self.executionResult = executionResult
+        self.executionError = executionError
+        self.secondaryWindows = secondaryWindows
+        self.userGuidance = userGuidance
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case requestId
+        case axTree
+        case axDiff
+        case screenshot
+        case screenshotWidthPx
+        case screenshotHeightPx
+        case screenWidthPt
+        case screenHeightPt
+        case executionResult
+        case executionError
+        case secondaryWindows
+        case userGuidance
+    }
+}
+
 /// Server-side assistant activity lifecycle event.
 /// Backed by generated `AssistantActivityState`.
 public typealias AssistantActivityStateMessage = AssistantActivityState
@@ -2234,6 +2322,7 @@ public enum ServerMessage: Decodable, Sendable {
     case identityChanged(IdentityChanged)
     case hostBashRequest(HostBashRequest)
     case hostFileRequest(HostFileRequest)
+    case hostCuRequest(HostCuRequest)
     case pong
     case unknown(String)
 
@@ -2666,6 +2755,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_file_request":
             let message = try HostFileRequest(from: decoder)
             self = .hostFileRequest(message)
+        case "host_cu_request":
+            let message = try HostCuRequest(from: decoder)
+            self = .hostCuRequest(message)
         case "pong":
             self = .pong
         default:

@@ -84,6 +84,8 @@ extension DaemonClient {
         case .hostFileRequest(let msg):
             onHostFileRequest?(msg)
             handleHostFileRequest(msg)
+        case .hostCuRequest(let msg):
+            handleHostCuRequest(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
@@ -390,5 +392,46 @@ extension DaemonClient {
             await httpTransport?.postHostBashResult(result)
         }
         #endif
+    }
+
+    // MARK: - Host CU Proxy
+
+    /// Handle a host_cu_request by delegating to the registered `onHostCuRequest`
+    /// callback (set by the macOS app to run verify -> execute -> observe) or
+    /// posting an error on unsupported platforms.
+    ///
+    /// Unlike host bash/file which use Foundation-only APIs (available in the
+    /// shared module), CU execution depends on macOS-only types from the app
+    /// target (ActionExecutor, AccessibilityTree, etc.). The macOS app registers
+    /// a callback via `onHostCuRequest` to handle execution; on iOS we post a
+    /// not-supported error directly.
+    func handleHostCuRequest(_ msg: HostCuRequest) {
+        if let handler = onHostCuRequest {
+            handler(msg)
+        } else {
+            // No handler registered — post error so the daemon doesn't hang
+            #if os(iOS)
+            log.warning("Received host_cu_request on iOS — computer use not supported")
+            #else
+            log.error("Received host_cu_request but no handler registered")
+            #endif
+            Task {
+                let result = HostCuResultPayload(
+                    requestId: msg.requestId,
+                    axTree: nil,
+                    axDiff: nil,
+                    screenshot: nil,
+                    screenshotWidthPx: nil,
+                    screenshotHeightPx: nil,
+                    screenWidthPt: nil,
+                    screenHeightPt: nil,
+                    executionResult: nil,
+                    executionError: "Computer use is not supported on this platform",
+                    secondaryWindows: nil,
+                    userGuidance: nil
+                )
+                await httpTransport?.postHostCuResult(result)
+            }
+        }
     }
 }

@@ -345,6 +345,10 @@ extension AppDelegate {
             }
         }
 
+        // Register host CU handler so incoming host_cu_request messages
+        // execute locally (verify -> execute -> observe -> post result)
+        HostCuExecutor.register(on: daemonClient)
+
         Task {
             if !isCurrentAssistantRemote {
                 // If the hatching step already started the gateway (e.g. `vellum-cli hatch --remote local`),
